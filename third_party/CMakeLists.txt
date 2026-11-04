@@ -35,7 +35,7 @@ if("editor/scene_bake" IN_LIST ENGINE_SELECTED_PLUGINS)
     include("${PROJECT_SOURCE_DIR}/cmake/dependencies/lightmapper.cmake")
 endif()
 
-if("editor/usd_import" IN_LIST ENGINE_SELECTED_PLUGINS)
+if("editor/asset_import" IN_LIST ENGINE_SELECTED_PLUGINS)
     include("${PROJECT_SOURCE_DIR}/cmake/dependencies/usd_import.cmake")
 endif()
 

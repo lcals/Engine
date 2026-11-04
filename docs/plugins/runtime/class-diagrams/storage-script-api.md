@@ -7,11 +7,11 @@ classDiagram
     direction TB
     class Storage {
         <<script facade>>
-        +GetString(key string) string?
-        +SetString(key string, value string) bool
-        +HasKey(key string) bool
-        +DeleteKey(key string) bool
-        +Save() bool
+        +GetString(key string) string?$
+        +SetString(key string, value string) bool$
+        +HasKey(key string) bool$
+        +DeleteKey(key string) bool$
+        +Save() bool$
         +isReady bool
         +lastError string?
     }

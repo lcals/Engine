@@ -270,7 +270,7 @@ bool RenderSystem::initialize_renderer()
     }
     bgfx::setViewClear(render_detail::main_view, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH,
                        idle_clear_color_, 1.0F, 0);
-    bgfx::setDebug(stats_visible_ ? BGFX_DEBUG_STATS : BGFX_DEBUG_NONE);
+    bgfx::setDebug(stats_visible() ? BGFX_DEBUG_STATS : BGFX_DEBUG_NONE);
     SDL_Log("Renderer initialized: %s (%u x %u)", bgfx::getRendererName(bgfx::getRendererType()),
             width_, height_);
     return true;
@@ -299,11 +299,7 @@ bool RenderSystem::viewport_size(Vec2& output) const noexcept
 
 void RenderSystem::set_stats_visible(bool visible)
 {
-    stats_visible_ = visible;
-    if (renderer_initialized_)
-    {
-        bgfx::setDebug(stats_visible_ ? BGFX_DEBUG_STATS : BGFX_DEBUG_NONE);
-    }
+    (void)set_debug_feature(RenderFeature::stats, visible);
 }
 
 bool RenderSystem::set_vsync(bool enabled)
@@ -387,7 +383,7 @@ bool RenderSystem::supports_max_anisotropy() const noexcept
 
 bool RenderSystem::stats_visible() const noexcept
 {
-    return stats_visible_;
+    return debug_requests_[static_cast<std::size_t>(RenderFeature::stats)];
 }
 
 bool RenderSystem::render(Camera camera)
@@ -463,6 +459,13 @@ bool RenderSystem::render(Camera camera)
     bgfx::setViewRect(render_detail::main_view, 0, 0, static_cast<std::uint16_t>(width_),
                       static_cast<std::uint16_t>(height_));
     bgfx::touch(render_detail::main_view);
+    if (scene_resources_ != nullptr)
+    {
+        scene_resources_->view_stats.clear();
+        scene_resources_->culling_applied = false;
+        scene_resources_->lod_applied = false;
+        scene_resources_->debug_draw.reset_frame();
+    }
     const bool drawn = draw_scene(camera, current_settings) &&
                        draw_diffuse_capture(current_settings) &&
                        (ui_ == nullptr || ui_->render(width_, height_));
@@ -474,6 +477,10 @@ bool RenderSystem::render(Camera camera)
     {
         ENGINE_PROFILE_ZONE("Render.frameSubmit");
         frame_number_ = bgfx::frame();
+    }
+    if (drawn)
+    {
+        publish_features();
     }
     poll_diffuse_capture();
     poll_hdr_capture();

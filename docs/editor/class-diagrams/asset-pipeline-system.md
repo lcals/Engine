@@ -71,4 +71,4 @@ Shader 源码依赖不进入运行依赖；普通源资源仍有实体及完整�
 
 `AssetPipelineSystem` 与统计属于 `engine::editor`。初始化成功后，宿主可通过 `add_importer` 添加新 id，或通过 `set_importer` 替换某个已登记 id 的实现，成功才转移独占所有权；空指针、重复或未登记/非法 id、未初始化或构建期间调用均返回失败。构建与替换由同一协调线程发起，内部互斥拒绝并行调用；并发拒绝不改写正在构建的错误信息。关闭清空登记，重新初始化恢复默认导入器，宿主需要再次注入。编辑器接口不识别插件身份，插件只向下依赖该接口。
 
-多输出源在 `discover` 阶段枚举子资源，由管线为每个稳定 key 维护 GUID、逻辑路径和产物记录。源格式以 importer id 调度，输出资源 kind 仅控制运行时实体类型；各子资源独立增量、依赖及目录发布。已消失的子资源身份仍保留在源 meta 并参与冲突检查，重新出现时复用。格式解析见[FBX](../../plugins/editor/class-diagrams/fbx-importer.md)与[USD](../../plugins/editor/class-diagrams/usd-import.md)插件；基础管线不链接二者。
+多输出源在 `discover` 阶段枚举子资源，由管线为每个稳定 key 维护 GUID、逻辑路径和产物记录。源格式以 importer id 调度，输出资源 kind 仅控制运行时实体类型；各子资源独立增量、依赖及目录发布。已消失的子资源身份仍保留在源 meta 并参与冲突检查，重新出现时复用。格式解析见统一[资源导入插件](../../plugins/editor/class-diagrams/asset-import.md)内的[FBX](../../plugins/editor/class-diagrams/fbx-importer.md)与[USD](../../plugins/editor/class-diagrams/usd-import.md)实现；基础管线不链接具体插件。

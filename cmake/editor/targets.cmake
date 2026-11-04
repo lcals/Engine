@@ -1,9 +1,20 @@
 if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS OR "editor/modeling" IN_LIST ENGINE_SELECTED_PLUGINS)
-    add_library(engine_editor_mesh_tangents STATIC src/engine/editor/mesh/mesh_tangents.cpp)
-    target_compile_features(engine_editor_mesh_tangents PRIVATE cxx_std_20)
-    target_include_directories(engine_editor_mesh_tangents PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
-    target_link_libraries(engine_editor_mesh_tangents PRIVATE engine::scene_data mikktspace::mikktspace)
-    engine_apply_options(engine_editor_mesh_tangents)
+    add_library(engine_editor_mesh STATIC src/engine/editor/mesh/mesh_tangents.cpp)
+    target_compile_features(engine_editor_mesh PRIVATE cxx_std_20)
+    target_include_directories(engine_editor_mesh PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+    target_link_libraries(engine_editor_mesh PRIVATE engine::scene_data mikktspace::mikktspace)
+    engine_apply_options(engine_editor_mesh)
+endif()
+
+if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
+    target_sources(engine_editor_mesh PRIVATE src/engine/editor/mesh/mesh_lods.cpp)
+    target_link_libraries(engine_editor_mesh
+                          PRIVATE meshoptimizer::meshoptimizer engine::resource)
+    get_target_property(_mesh_lod_toml_includes tomlplusplus::tomlplusplus
+                        INTERFACE_INCLUDE_DIRECTORIES)
+    target_include_directories(engine_editor_mesh SYSTEM PRIVATE ${_mesh_lod_toml_includes})
+    target_compile_definitions(engine_editor_mesh
+                               PRIVATE TOML_HEADER_ONLY=1 TOML_EXCEPTIONS=0)
 endif()
 
 if(ENGINE_ENABLE_EDITOR_DEPS)
@@ -24,10 +35,16 @@ if(ENGINE_ENABLE_EDITOR_DEPS)
         PRIVATE src/engine/editor/project/runtime_settings_io.cpp
                 src/engine/editor/render/render_commands.cpp
                 src/engine/editor/render/render_component_commands.cpp
+                src/engine/editor/render/render_feature_commands.cpp
                 src/engine/editor/scene/scene_preview.cpp
                 src/engine/editor/editor_environment.cpp
                 src/engine/editor/commands/editor_commands.cpp
                 src/engine/editor/commands/scene_commands.cpp
+                src/engine/editor/commands/scene_query.cpp
+                src/engine/editor/commands/components/transform_commands.cpp
+                src/engine/editor/commands/components/light_commands.cpp
+                src/engine/editor/commands/components/camera_commands.cpp
+                src/engine/editor/commands/components/material_commands.cpp
                 src/engine/editor/commands/model_commands.cpp
                 src/engine/editor/commands/components/component_edit.cpp
                 src/engine/editor/commands/components/collider_commands.cpp
@@ -65,7 +82,7 @@ endif()
 
 if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
     engine_add_system(editor asset_pipeline)
-    target_link_libraries(engine_asset_pipeline PRIVATE engine_editor_mesh_tangents)
+    target_link_libraries(engine_asset_pipeline PRIVATE engine_editor_mesh)
     target_sources(
         engine_asset_pipeline
         PRIVATE src/engine/editor/asset_pipeline/asset_metadata.cpp
@@ -149,6 +166,7 @@ if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
 
     if(TARGET engine_editor)
         target_sources(engine_editor PRIVATE src/engine/editor/scene/scene_persistence.cpp
+                                             src/engine/editor/asset_pipeline/mesh_lod_commands.cpp
                                              src/engine/editor/commands/prefab_commands.cpp)
         target_link_libraries(engine_editor PRIVATE engine::asset_pipeline efsw::efsw)
     endif()

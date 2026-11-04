@@ -16,6 +16,8 @@ classDiagram
         +instantiate_model(string_view path, string_view name, vector~Node~#42; created) Node
         +instantiate_prefab(string_view path, string_view name, vector~Node~#42; created) Node
         +find_node(uint64_t id) Node
+        +find_local_node(uint64_t local_id) Node
+        +find_node(string_view name) Node
         +collect_nodes(vector~Node~& output) bool
         +destroy_node(uint64_t id) bool
         +collect_prefab_instances(vector~PrefabInstanceDataT~& output) bool
@@ -58,6 +60,40 @@ classDiagram
 - `destroy_node()` 删除节点及全部 ChildOf 后代，先清理索引和活动镜头选择，再释放 ECS 列与运行资源；不存在返回 false。其他实体身份不变。
 - 候选恢复使用源局部 ID，允许乱序、不连续及最大 uint64_t；后续自动 ID 在耗尽时失败。无效父链、组件或资源使候选完整回滚；发布前没有 Published 标记，原生系统查询不能看到半成品。
 - `build_data()` 由 ECS 中的唯一生成数据组装独立 SceneDataT，失败清空输出。运行实体 ID、缓存、请求与后端句柄不落盘；FlatBuffers 与 TypeScript 使用同一 schema。
+
+## 场景查询收敛契约
+
+本节沿用已确认的最小公开契约。`find_local_node(uint64_t)` 将已有私有索引查询公开；`find_node(string_view)` 与[节点图](node.md)中的 `find_child(string_view)` 收敛原脚本绑定中的领域查询。既有 `find_node(uint64_t)` 的含义保持不变。不增加查询系统、管理器、通用注册框架或第二份节点状态。
+
+| 接口 | 身份、范围与结果 |
+| --- | --- |
+| `Scene::find_node(uint64_t entity_id) const noexcept` | 既有接口；完整运行实体 ID，包含 Flecs 代次。重新校验实体属于本 Scene，禁止将局部 ID 当作实体 ID。 |
+| `Scene::find_local_node(uint64_t local_id) const noexcept` | 复用本 Scene 的 `local_node_index_`；局部 ID 为 `NodePropertiesT.id`，0 无效。先查索引，再执行既有实体身份校验，不扫描世界或组装 `NodeInfoT`。 |
+| `Scene::find_node(string_view name) const noexcept` | 本 Scene 内任意层级的完整名称精确匹配，大小写敏感；存在同名时返回最早创建/恢复的存活节点，与既有 `Scene.FindNode(name)` 顺序一致。空名称按普通名称匹配；`/`、`.`、`..` 不在此接口解释为路径。 |
+
+上述方法均为 `[[nodiscard]]`，返回可空 Node 值句柄；不返回 ECS 行地址、内部索引或列表借用，不缓存裸运行列。不存在、身份过期或局部 ID 不属于本 Scene 时返回 `Node{}`。删除再建即使复用源局部 ID，也不会使旧 Node 句柄恢复有效；查询返回新实体的完整身份。
+
+### 可见性与生命周期
+
+- 查询只作用于调用方明确借用的这个 Scene，不遍历其他已发布、常驻或候选容器。常驻节点保留原 Scene/局部 ID，新关卡同名或同局部 ID 不与其合并。
+- 与既有 `Scene::find_node(uint64_t)` 一致，显式 Scene 内查询不额外过滤 Published、enabled、visible、transient 或 persistent。恢复过程持有的候选 Scene 必须能解析自己已建立的节点；这不发布候选，也不使其被世界运行查询看到。
+- `WorldSystem::find_node(entity_id)` 继续校验 Published；`WorldSystem::scenes()` 继续只列已发布容器，`scene()` 继续只返回活动场景。运行系统以 Published 实体作为查询起点，再在该实体所属 Scene 解析本地引用；不能借此访问其他场景或自动改用当前关卡。
+- 脚本绑定继续负责参数转换和活动 Run/拥有场景校验。`Scene.FindNode` 仍只接受当前 Run 的活动 Scene；`Node.FindChild` 以 BindingContext 校验过的节点为起点，因此允许该 Run 保留的常驻节点子树。新增原生方法不扩大脚本可访问场景集合，不新增脚本局部 ID 门面。
+- Scene 借用只在其拥有者 WorldSystem 保留该容器期间有效。节点查询每次重新校验世界与实体身份；调用方不得跨 Scene 销毁保留 Scene 裸借用。并发/结构稳定阶段遵守现有 ECS 契约。
+
+### 调用归属与验收
+
+| 位置 | 调整 |
+| --- | --- |
+| `plugins/runtime/character_controller/detail/character_scene.hpp` 及角色相机/控制器调用点 | 删除重复的全世界 ECS 本地 ID 扫描，使用起点所属 Scene 的索引查询；保留原生系统 Published 查询边界。 |
+| `plugins/runtime/script/bindings/scene_binding.cpp`、`node_binding.cpp` | 分别委托名称/相对子路径查询；仅保留脚本参数、返回身份和 Run 生命周期检查。 |
+| `editor/commands/prefab_commands.cpp` | 移除 `local_node()` 重复枚举，复用 Scene 局部索引；预制体事务与覆盖策略仍归现有命令。 |
+| `editor/scene/scene_persistence.cpp` | 保存中的局部 ID 解析委托 Scene；已收集的节点集合仍承担选择、顺序与保存排除，不能用查询绕过这些条件。 |
+| `editor/render/render_commands.cpp`、`plugins/editor/character_controller/*_commands.cpp` | 局部 ID 转运行身份不再枚举/复制全场景节点，继续用原所属 Scene 解析。 |
+
+资源源数据和烘焙快照中的 `SceneDataT`/`NodeDataT` 搜索不属于实时 Scene 查询，不把尚未实例化的离线数据强行转成 Node；按组件遍历 Published ECS 列的领域查询也继续保留。
+
+有意义的 Release 回归包括：实体 ID 与局部 ID 混用拒绝、不同 Scene 同局部 ID 隔离、删除/重建后的旧句柄失效、候选可内查但世界/脚本不可见、常驻子树与新场景隔离；名称重复的稳定首项与删除后回退、空名/含斜线名称；子路径非法段/歧义拒绝以及父子调整后的即时结果。角色组件本地引用与脚本旧 Run 拒绝需要覆盖迁移后的真实调用链。
 
 ## 实例化、预制体与保存
 

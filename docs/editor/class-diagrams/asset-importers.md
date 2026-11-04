@@ -1,6 +1,6 @@
 # 逐类型资源导入
 
-资源管线按显式登记选择实现。每种资源的识别、meta 默认值、依赖、类型指纹与转换保存在自己的文件；锁、GUID、SQLite、oneTBB 编排及原子发布留在 AssetPipelineSystem。
+资源管线按显式登记选择实现。[统一资源导入插件](../../plugins/editor/class-diagrams/asset-import.md)承载 FBX、USD、字体、UI 与 JSON 的逐类型实现；基础接口及登记表仍位于编辑器基础层。每种资源的识别、meta 默认值、依赖、类型指纹与转换保存在自己的文件；锁、GUID、SQLite、oneTBB 编排及原子发布留在 AssetPipelineSystem。
 
 ```mermaid
 classDiagram
@@ -61,7 +61,7 @@ classDiagram
 - TextureImporter 直接实现接口，在协调线程初始化 BasisU 后并行编码。SceneAssetImporter 调用已有 SceneImporter 的 TOML 读写能力；场景格式不再复制一份。
 - 增量键格式升级到 engine-asset-importers-7；已有缓存首次重建一次，GUID、缓存路径、实体/目录格式和原子发布协议不变。各类型只携带自身Schema/工具指纹，依赖变化仍通过构建图传播。
 
-- 导入器以 `id()` 标识源格式，资源 `kind()` 标识产物类型；多个源格式可以输出同一种资源。默认 id 为类型名，FBX/USD 等可选插件使用自己的 id。按 kind 查询仅在唯一匹配时成功。
+- 导入器以 `id()` 标识源格式，资源 `kind()` 标识产物类型；多个源格式可以输出同一种资源。默认 id 为类型名，统一资源导入插件内的 FBX/USD 等实现使用自己的 id。按 kind 查询仅在唯一匹配时成功。
 - `discover` 在协调线程枚举源的子资源，只返回稳定 key 和产物 kind。管线维护源 meta 的 `[[subresources]] key/kind/guid`，保存已消失子资源身份以便重新出现时复用，拒绝所有 GUID 冲突。
 - `ImportAsset` 保存 importer_id、subresource_key、parent_guid。每个子资源都有独立目录条目和 `cache/gen/GUID`；逻辑路径为源路径加子资源 key。转换批次及工具指纹按 importer id 调度，实体头按输出 kind 编码。
 - 新 id 通过 `AssetPipelineSystem::add_importer` 装配；已有 id 才能 `set_importer`。两者仅在已初始化且空闲时接受修改。编辑器基础库只包含扩展接口，格式解析及第三方库位于各自编辑器插件。

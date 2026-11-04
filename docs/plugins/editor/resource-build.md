@@ -89,11 +89,11 @@ keep = []
 ## 运行包命令
 
 ```sh
-./build/ninja-engine-debug/asset_build_app --project projects/showcase --package
-./build/ninja-engine-debug/asset_build_app --project projects/showcase --package --target android
-./build/ninja-engine-debug/asset_build_app --project projects/showcase --manifest settings/resource-build.toml
+./build/ninja-engine-release/asset_build_app --project projects/showcase --package
+./build/ninja-engine-release/asset_build_app --project projects/showcase --package --target android
+./build/ninja-engine-release/asset_build_app --project projects/showcase --manifest settings/resource-build.toml
 # 可重复 --item；省略时选择清单的全部构建项。
-./build/ninja-engine-debug/asset_build_app --project projects/showcase --manifest settings/resource-build.toml --item game
+./build/ninja-engine-release/asset_build_app --project projects/showcase --manifest settings/resource-build.toml --item game
 ```
 
 MCP 提供 `build_resources`，接受可选 `manifest`、`items` 和 `targetPlatform`；省略 manifest 使用上述统一项目配置。`sync_assets` 可传 `source`（例如 `cache/build/windows`）同步已构建目录；省略时先导入并同步完整编辑器目录。同步成功只表示候选部署可用，是否激活由运行宿主与热重载开关决定。
@@ -101,8 +101,8 @@ MCP 提供 `build_resources`，接受可选 `manifest`、`items` 和 `targetPlat
 命令行客户端使用同一工具协议：
 
 ```sh
-python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/showcase --runtime-dir build/minimal-runtime build --manifest settings/resource-build.toml --item game
-python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/showcase --runtime-dir build/minimal-runtime sync --source cache/build/windows
+python3 scripts/mcp_client.py --server build/ninja-engine-release/mcp_app --project projects/showcase --runtime-dir build/minimal-runtime build --manifest settings/resource-build.toml --item game
+python3 scripts/mcp_client.py --server build/ninja-engine-release/mcp_app --project projects/showcase --runtime-dir build/minimal-runtime sync --source cache/build/windows
 ```
 
 编辑器直接使用 `cache/gen`，不要求打包。会覆盖该目录的导入或构建要求先 `stop_project`；运行中会返回明确错误。同步已有的独立运行包不覆盖该缓存，可以在关闭热重载时准备候选版本。`cache/gen` 同时只保存一个目标平台的产物，构建 Android 后要先重新导入宿主平台产物，再启动桌面项目。

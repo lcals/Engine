@@ -108,6 +108,7 @@ bool RenderSystem::prepare_scene(Camera camera)
     auto& textures = resources.textures;
     std::set<std::string> needed_programs;
     std::set<std::uint64_t> needed_meshes;
+    std::set<std::uint64_t> needed_mesh_instances;
     std::set<const Resource*> needed_textures;
     std::vector<render_detail::PreparedTexture> missing_textures;
     bool needs_skinning = false;
@@ -131,6 +132,7 @@ bool RenderSystem::prepare_scene(Camera camera)
                 return false;
             }
             needed_meshes.insert(node.id());
+            needed_mesh_instances.insert(renderer.instance_id());
             if (!renderer.skinning_palette().empty())
             {
                 needs_skinning = true;
@@ -377,6 +379,10 @@ bool RenderSystem::prepare_scene(Camera camera)
         }
     }
     std::erase_if(resources.geometries, [](const auto& item) { return item.second.expired(); });
+    const auto retired_lod = [&needed_mesh_instances](const auto& entry)
+    { return !needed_mesh_instances.contains(entry.first.first); };
+    std::erase_if(resources.selected_lods, retired_lod);
+    std::erase_if(resources.selected_lod_revisions, retired_lod);
     if (!needs_skinning)
     {
         resources.skinning.release();
@@ -408,6 +414,8 @@ bool RenderSystem::prepare_scene(Camera camera)
 
 void RenderSystem::release_scene() noexcept
 {
+    clear_debug_lines();
+    feature_applied_.fill(false);
     cancel_hdr_capture();
     if (capture_status_ == SceneCaptureStatus::pending ||
         capture_status_ == SceneCaptureStatus::complete)

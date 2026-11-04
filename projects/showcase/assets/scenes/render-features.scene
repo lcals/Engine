@@ -1,0 +1,45 @@
+name = "Upstream rendering laboratory"
+active_camera = 1
+
+[[nodes]]
+id = 1
+name = "Render Camera"
+[[nodes.components]]
+type = "transform"
+position = [0.0, 10.0, 25.0]
+rotation = [-16.0, 0.0, 0.0]
+[[nodes.components]]
+type = "camera"
+fov_degrees = 55.0
+near_clip = 0.1
+far_clip = 300.0
+[[nodes.components]]
+type = "post_process"
+hdr_enabled = true
+filmic_tonemap = true
+exposure = 1.0
+bloom_enabled = false
+
+[[nodes]]
+id = 2
+name = "Sun"
+[[nodes.components]]
+type = "transform"
+rotation = [-38.0, -30.0, 0.0]
+[[nodes.components]]
+type = "light"
+kind = "directional"
+color = [1.0, 0.97, 0.92, 1.0]
+intensity = 4.0
+cast_shadows = false
+
+[[nodes]]
+id = 3
+name = "Environment"
+[[nodes.components]]
+type = "transform"
+[[nodes.components]]
+type = "environment"
+ambient_color = [0.35, 0.42, 0.55]
+ambient_intensity = 0.35
+clear_color = 337851391

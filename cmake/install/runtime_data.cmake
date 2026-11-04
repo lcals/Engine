@@ -19,7 +19,7 @@ foreach(_engine_host engine_app editor_app)
     endif()
 endforeach()
 
-if(TARGET engine_usd_import)
+if(TARGET engine_asset_import)
     foreach(_engine_host editor_app asset_build_app mcp_app)
         if(TARGET ${_engine_host})
             engine_copy_usd_data(${_engine_host})

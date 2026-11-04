@@ -1,3 +1,4 @@
+#include "runtime/render/mesh_lod_selection.hpp"
 #include "runtime/render/render_constants.hpp"
 #include "runtime/render/render_math.hpp"
 #include "runtime/render/scene_gpu_resources.hpp"
@@ -16,12 +17,97 @@
 #include <algorithm>
 #include <bx/math.h>
 #include <cmath>
+#include <cstring>
 #include <limits>
+#include <map>
 
 namespace engine
 {
 namespace
 {
+template <typename T> void append_key(std::string& key, const T& value)
+{
+    key.append(reinterpret_cast<const char*>(&value), sizeof(value));
+}
+
+bool append_material_key(const Material& material, std::string& key)
+{
+    const auto* shader = material.shader_data();
+    if (!shader || shader->instanced_vertex_code.empty())
+    {
+        return false;
+    }
+    const auto shader_identity = reinterpret_cast<std::uintptr_t>(shader);
+    append_key(key, shader_identity);
+    append_key(key, material.cull_mode());
+    append_key(key, material.blend_mode());
+    for (const auto& parameter : shader->parameters)
+    {
+        switch (parameter->default_value.type)
+        {
+        case schema::MaterialValue::FloatValue:
+        {
+            float value = parameter->default_value.AsFloatValue()->value;
+            if (parameter->exposed && !material.get_float(parameter->name, value))
+            {
+                return false;
+            }
+            append_key(key, value);
+            break;
+        }
+        case schema::MaterialValue::Vec2Value:
+        {
+            Vec2 value = parameter->default_value.AsVec2Value()->value;
+            if (parameter->exposed && !material.get_v2(parameter->name, value))
+            {
+                return false;
+            }
+            append_key(key, value.x());
+            append_key(key, value.y());
+            break;
+        }
+        case schema::MaterialValue::Vec3Value:
+        {
+            Vec3 value = parameter->default_value.AsVec3Value()->value;
+            if (parameter->exposed && !material.get_v3(parameter->name, value))
+            {
+                return false;
+            }
+            append_key(key, value.x());
+            append_key(key, value.y());
+            append_key(key, value.z());
+            break;
+        }
+        case schema::MaterialValue::Vec4Value:
+        {
+            Vec4 value = parameter->default_value.AsVec4Value()->value;
+            if (parameter->exposed && !material.get_v4(parameter->name, value))
+            {
+                return false;
+            }
+            append_key(key, value.x());
+            append_key(key, value.y());
+            append_key(key, value.z());
+            append_key(key, value.w());
+            break;
+        }
+        default:
+            return false;
+        }
+    }
+    for (const auto& sampler : shader->samplers)
+    {
+        if (sampler->source != schema::ShaderTextureSource::resource)
+        {
+            return false;
+        }
+        const auto resource = material.texture(sampler->name);
+        const auto identity = reinterpret_cast<std::uintptr_t>(resource.get());
+        append_key(key, identity);
+    }
+    return true;
+}
+
 bool unlit_surface(const Material& material)
 {
     const auto* shader = material.shader_data();
@@ -350,6 +436,21 @@ bool RenderSystem::SceneGpuResources::draw_meshes(const WorldSystem& world,
                                                   render_detail::SceneDrawMode mode)
 {
     using render_detail::SceneDrawMode;
+    const bool culling = draw.frustum_culling_enabled;
+    const bool instancing = bgfx::getCaps()->limits.maxInstanceData >= 7;
+    render_detail::FrustumPlanes planes{};
+    const bool frustum_ready =
+        culling && render_detail::build_frustum_planes(draw.view, draw.projection,
+                                                       bgfx::getCaps()->homogeneousDepth, planes);
+    RenderViewStats stats{};
+    stats.view_id = draw.id;
+    const auto frame = draw.renderer ? draw.renderer->frame_number() : 0;
+    if (frame_time_stamp != frame)
+    {
+        frame_time_stamp = frame;
+        frame_time = {static_cast<float>(static_cast<double>(SDL_GetTicks()) / 1000.0), 0, 0, 0};
+        bgfx::setFrameUniform(frame_time_uniform, frame_time.data());
+    }
     const bool depth_only = mode == SceneDrawMode::depth;
     const bool capture = mode == SceneDrawMode::capture;
     const bool transparent = mode == SceneDrawMode::transparent;
@@ -379,8 +480,7 @@ bool RenderSystem::SceneGpuResources::draw_meshes(const WorldSystem& world,
                                 draw.shadow->tile_size ? 1.0F : 0.0F};
     const float capture_value[]{capture ? 1.0F : 0.0F, 0, 0, 0};
     const float zero[4]{};
-    const float frame_value[]{1.0F / draw.width, 1.0F / draw.height,
-                              static_cast<float>(static_cast<double>(SDL_GetTicks()) / 1000.0),
+    const float frame_value[]{1.0F / draw.width, 1.0F / draw.height, frame_time[0],
                               bgfx::getCaps()->originBottomLeft ? 1.0F : 0.0F};
     struct Item
     {
@@ -389,10 +489,16 @@ bool RenderSystem::SceneGpuResources::draw_meshes(const WorldSystem& world,
         const render_detail::GpuGeometry* geometry = nullptr;
         Material material = {};
         std::uint32_t first = 0, count = 0;
+        std::size_t lod = 0;
+        bool instance_eligible = false;
         std::array<float, 16> model{}, normal{};
         std::array<float, 3> center{};
         float depth = 0;
         std::size_t capture_index = SIZE_MAX;
+        std::array<std::array<float, 4>, 9> coefficients{};
+        bgfx::TextureHandle lightmap = BGFX_INVALID_HANDLE;
+        bool has_lightmap = false, has_probe = false;
+        std::string batch_key;
     };
     std::vector<Item> items;
     {
@@ -435,6 +541,37 @@ bool RenderSystem::SceneGpuResources::draw_meshes(const WorldSystem& world,
             {
                 return false;
             }
+            bool all_opaque = true, any_opaque = false, any_transparent = false;
+            for (std::size_t slot = 0; slot < renderer.material_count(); ++slot)
+            {
+                const auto material = renderer.material(slot);
+                if (!material)
+                {
+                    return false;
+                }
+                const bool opaque = material.blend_mode() == schema::BlendMode::opaque;
+                all_opaque = all_opaque && opaque;
+                any_opaque = any_opaque || opaque;
+                any_transparent = any_transparent || !opaque;
+            }
+            if (!(transparent ? any_transparent : any_opaque))
+            {
+                return true;
+            }
+            // The main color view runs opaque and transparent passes. Count a mixed
+            // mesh once while retaining both passes' actual draw/triangle counts.
+            const bool count_mesh = !transparent || !any_opaque;
+            stats.candidate_meshes += count_mesh;
+            culling_applied = culling_applied || frustum_ready;
+            const bool hidden =
+                frustum_ready && !render_detail::aabb_visible(planes, item.model.data(),
+                                                              mesh->minimum, mesh->maximum);
+            if (hidden)
+            {
+                stats.culled_meshes += count_mesh;
+                return true;
+            }
+            stats.visible_meshes += count_mesh;
             item.mesh = &*mesh;
             item.geometry = mesh->geometry.get();
             if (draw.capture)
@@ -452,6 +589,44 @@ bool RenderSystem::SceneGpuResources::draw_meshes(const WorldSystem& world,
                         break;
                     }
                 }
+            }
+            const auto observer =
+                static_cast<std::uint16_t>(draw.reflection ? draw.id : render_detail::main_view);
+            const auto selection_key = std::pair{renderer.instance_id(), observer};
+            item.instance_eligible = renderer.mesh_resource() && data->skin.empty() &&
+                                     renderer.deformed_vertices().empty() &&
+                                     renderer.skinning_palette().empty() && !draw.capture;
+            if (!transparent && !draw.capture)
+            {
+                if (item.instance_eligible && all_opaque && !renderer.lightmap_resource() &&
+                    renderer.static_lod_enabled())
+                {
+                    lod_applied = lod_applied || !data->lods.empty();
+                    // Keep main passes together. A temporary reflection view id may be
+                    // reused by another plane, but camera movement must retain hysteresis.
+                    std::string revision;
+                    append_key(revision, renderer.mesh_revision());
+                    append_key(revision,
+                               reinterpret_cast<std::uintptr_t>(mesh->geometry->resource.get()));
+                    append_key(revision, draw.lod_observer);
+                    append_key(revision, draw.reflection);
+                    std::uint64_t identity = 14695981039346656037ULL;
+                    for (const unsigned char byte : revision)
+                    {
+                        identity = (identity ^ byte) * 1099511628211ULL;
+                    }
+                    if (selected_lod_revisions[selection_key] != identity)
+                    {
+                        selected_lods.erase(selection_key);
+                        selected_lod_revisions[selection_key] = identity;
+                    }
+                    const auto height = render_detail::projected_mesh_height(
+                        mesh->minimum, mesh->maximum, item.model.data(), draw.view, draw.projection,
+                        draw.near_clip);
+                    item.lod =
+                        render_detail::select_mesh_lod(*data, height, selected_lods[selection_key]);
+                }
+                selected_lods[selection_key] = item.lod;
             }
             const auto collect = [&](std::uint32_t first, std::uint32_t count, std::size_t slot)
             {
@@ -501,16 +676,20 @@ bool RenderSystem::SceneGpuResources::draw_meshes(const WorldSystem& world,
                 items.push_back(item);
                 return true;
             };
-            if (data->submeshes.empty())
+            const auto ranges = capture ? std::span<const schema::MeshSubmesh>(data->submeshes)
+                                        : item.geometry->submeshes(item.lod);
+            if (ranges.empty())
             {
-                if (!collect(0, static_cast<std::uint32_t>(data->indices.size()), 0))
+                const auto index_count = capture ? static_cast<std::uint32_t>(data->indices.size())
+                                                 : item.geometry->index_count(item.lod);
+                if (!collect(0, index_count, 0))
                 {
                     return false;
                 }
             }
             else
             {
-                for (const auto& submesh : data->submeshes)
+                for (const auto& submesh : ranges)
                 {
                     if (!collect(submesh.first_index(), submesh.index_count(),
                                  submesh.material_slot()))
@@ -546,8 +725,95 @@ bool RenderSystem::SceneGpuResources::draw_meshes(const WorldSystem& world,
         std::stable_sort(items.begin(), items.end(), [](const Item& left, const Item& right)
                          { return left.depth > right.depth; });
     }
-    for (const auto& item : items)
+    std::map<std::string, std::vector<std::size_t>> batches;
+    for (std::size_t index = 0; index < items.size(); ++index)
     {
+        auto& item = items[index];
+        item.lightmap = ibl_lut_fallback;
+        if (capture && item.capture_index != SIZE_MAX)
+        {
+            item.lightmap = capture_lightmaps[item.capture_index];
+            item.has_lightmap = true;
+        }
+        else if (!capture)
+        {
+            const auto source = item.renderer.lightmap_resource();
+            if (source)
+            {
+                const auto texture =
+                    std::find_if(textures.begin(), textures.end(),
+                                 [&source](const auto& entry) { return entry.resource == source; });
+                if (texture == textures.end())
+                {
+                    return false;
+                }
+                item.lightmap = texture->handle;
+                item.has_lightmap = true;
+            }
+            else
+            {
+                item.has_probe = sample_probe(world, item.center, item.coefficients);
+            }
+        }
+        const auto plane = item.renderer.node().get_component<PlanarReflectionComponent>();
+        if (instancing && item.renderer.static_instancing_enabled() && !transparent && !capture &&
+            item.instance_eligible && item.geometry == item.mesh->geometry.get() && !plane &&
+            append_material_key(item.material, item.batch_key))
+        {
+            const auto geometry = reinterpret_cast<std::uintptr_t>(item.geometry);
+            append_key(item.batch_key, geometry);
+            append_key(item.batch_key, item.first);
+            append_key(item.batch_key, item.count);
+            append_key(item.batch_key, item.lod);
+            const auto cull =
+                render_detail::cull_state(item.material.cull_mode(), item.model.data());
+            append_key(item.batch_key, cull);
+            append_key(item.batch_key, item.lightmap.idx);
+            append_key(item.batch_key, item.has_lightmap);
+            append_key(item.batch_key, item.has_probe);
+            if (item.has_probe)
+            {
+                append_key(item.batch_key, item.coefficients);
+            }
+            batches[item.batch_key].push_back(index);
+        }
+        else
+        {
+            item.batch_key.clear();
+        }
+    }
+    std::vector<bool> submitted(items.size(), false);
+    const bool use_ao = draw.ambient_occlusion && !depth_only && mode != SceneDrawMode::surface;
+    const float ao[]{1.0F / draw.width, 1.0F / draw.height, use_ao ? 1.0F : 0.0F, 0};
+    bgfx::setViewUniform(draw.id, camera_position, camera_position_value);
+    bgfx::setViewUniform(draw.id, light_direction, zero);
+    bgfx::setViewUniform(draw.id, light_color, zero);
+    bgfx::setViewUniform(draw.id, ambient, ambient_value);
+    bgfx::setViewUniform(draw.id, ambient_sky, sky);
+    bgfx::setViewUniform(draw.id, ambient_equator, equator);
+    bgfx::setViewUniform(draw.id, ambient_ground, ground);
+    bgfx::setViewUniform(draw.id, fog_color, fog);
+    bgfx::setViewUniform(draw.id, fog_range, fog_range_value);
+    bgfx::setViewUniform(draw.id, tonemap, tone);
+    bgfx::setViewUniform(draw.id, ibl_params, ibl);
+    bgfx::setViewUniform(draw.id, capture_mode, capture_value);
+    bgfx::setViewUniform(draw.id, frame_inputs, frame_value);
+    bgfx::setViewUniform(draw.id, ao_settings, ao);
+    bgfx::setViewUniform(draw.id, shadow_matrices, draw.shadow->matrices.data(),
+                         render_detail::maximum_shadow_cascades);
+    bgfx::setViewUniform(draw.id, shadow_rects, draw.shadow->rectangles.data(),
+                         render_detail::maximum_shadow_cascades);
+    bgfx::setViewUniform(draw.id, shadow_splits, draw.shadow->splits.data());
+    bgfx::setViewUniform(draw.id, shadow_params, draw.shadow->parameters.data());
+    bgfx::setViewUniform(draw.id, shadow_settings, shadow_values);
+    draw.cluster->bind_view(draw.id);
+    for (std::size_t item_index = 0; item_index < items.size(); ++item_index)
+    {
+        if (submitted[item_index])
+        {
+            continue;
+        }
+        const auto& item = items[item_index];
         const auto material = item.material;
         auto program = std::find_if(programs.begin(), programs.end(), [&material](const auto& entry)
                                     { return entry.path == material.shader_path(); });
@@ -589,24 +855,8 @@ bool RenderSystem::SceneGpuResources::draw_meshes(const WorldSystem& world,
             return false;
         }
         bgfx::setUniform(normal_transform, item.normal.data());
-        bgfx::setUniform(camera_position, camera_position_value);
-        bgfx::setUniform(light_direction, zero);
-        bgfx::setUniform(light_color, zero);
-        bgfx::setUniform(ambient, ambient_value);
-        bgfx::setUniform(ambient_sky, sky);
-        bgfx::setUniform(ambient_equator, equator);
-        bgfx::setUniform(ambient_ground, ground);
-        bgfx::setUniform(fog_color, fog);
-        bgfx::setUniform(fog_range, fog_range_value);
-        bgfx::setUniform(tonemap, tone);
-        bgfx::setUniform(ibl_params, ibl);
-        bgfx::setUniform(capture_mode, capture_value);
-        bgfx::setUniform(frame_inputs, frame_value);
         bgfx::setUniform(frame_valid, valid.data());
         bgfx::setUniform(planar_projection, planar_matrix.data());
-        const bool use_ao = draw.ambient_occlusion && !depth_only && mode != SceneDrawMode::surface;
-        const float ao[]{1.0F / draw.width, 1.0F / draw.height, use_ao ? 1.0F : 0.0F, 0};
-        bgfx::setUniform(ao_settings, ao);
         bgfx::setTexture(render_detail::ambient_occlusion_stage, ao_sampler,
                          use_ao ? ambient_occlusion.texture() : shadow_fallback);
         bgfx::setTexture(render_detail::ibl_irradiance_stage, ibl_irradiance_sampler,
@@ -618,41 +868,11 @@ bool RenderSystem::SceneGpuResources::draw_meshes(const WorldSystem& world,
         const float surface_value[]{material.cull_mode() != schema::CullMode::back ? 1.0F : 0.0F,
                                     static_cast<float>(material.blend_mode()), 0, 0};
         bgfx::setUniform(surface, surface_value);
-        bgfx::setUniform(shadow_matrices, draw.shadow->matrices.data(),
-                         render_detail::maximum_shadow_cascades);
-        bgfx::setUniform(shadow_rects, draw.shadow->rectangles.data(),
-                         render_detail::maximum_shadow_cascades);
-        bgfx::setUniform(shadow_splits, draw.shadow->splits.data());
-        bgfx::setUniform(shadow_params, draw.shadow->parameters.data());
-        bgfx::setUniform(shadow_settings, shadow_values);
         bgfx::setTexture(render_detail::shadow_sampler_stage, shadow_sampler,
                          bgfx::isValid(shadow.texture()) ? shadow.texture() : shadow_fallback);
-        std::array<std::array<float, 4>, 9> coefficients{};
-        bgfx::TextureHandle lightmap = ibl_lut_fallback;
-        bool has_lightmap = false;
-        if (capture && item.capture_index != SIZE_MAX)
-        {
-            lightmap = capture_lightmaps[item.capture_index];
-            has_lightmap = true;
-        }
-        else if (!capture)
-        {
-            const auto source = item.renderer.lightmap_resource();
-            if (source)
-            {
-                const auto texture =
-                    std::find_if(textures.begin(), textures.end(),
-                                 [&source](const auto& entry) { return entry.resource == source; });
-                if (texture == textures.end())
-                {
-                    return false;
-                }
-                lightmap = texture->handle;
-                has_lightmap = true;
-            }
-        }
-        const bool has_probe =
-            !capture && !has_lightmap && sample_probe(world, item.center, coefficients);
+        const auto& coefficients = item.coefficients;
+        const auto lightmap = item.lightmap;
+        const bool has_lightmap = item.has_lightmap, has_probe = item.has_probe;
         const float lighting[]{has_lightmap ? 1.0F : 0.0F, has_probe ? 1.0F : 0.0F, 0, 0};
         bgfx::setUniform(lighting_params, lighting);
         bgfx::setUniform(probe_sh, coefficients.data(), 9);
@@ -661,6 +881,54 @@ bool RenderSystem::SceneGpuResources::draw_meshes(const WorldSystem& world,
                              ? BGFX_SAMPLER_UVW_CLAMP | BGFX_SAMPLER_MIN_ANISOTROPIC |
                                    BGFX_SAMPLER_MAG_ANISOTROPIC
                              : UINT32_MAX);
+        std::vector<std::size_t> instance_items;
+        bgfx::InstanceDataBuffer instance_buffer{};
+        constexpr std::uint16_t instance_stride = 7 * 4 * sizeof(float);
+        const auto instance_program = mode == SceneDrawMode::surface
+                                          ? program->instanced_surface_program
+                                          : program->instanced_program;
+        if (!item.batch_key.empty() && bgfx::isValid(instance_program))
+        {
+            const auto& group = batches.find(item.batch_key)->second;
+            const auto available = bgfx::getAvailInstanceDataBuffer(
+                static_cast<std::uint32_t>(std::min<std::size_t>(group.size(), UINT32_MAX)),
+                instance_stride);
+            if (available >= 2)
+            {
+                for (const auto candidate : group)
+                {
+                    if (!submitted[candidate])
+                    {
+                        instance_items.push_back(candidate);
+                    }
+                    if (instance_items.size() == available)
+                    {
+                        break;
+                    }
+                }
+                if (instance_items.size() >= 2)
+                {
+                    bgfx::allocInstanceDataBuffer(&instance_buffer,
+                                                  static_cast<std::uint32_t>(instance_items.size()),
+                                                  instance_stride);
+                    for (std::size_t index = 0; index < instance_items.size(); ++index)
+                    {
+                        const auto& instance = items[instance_items[index]];
+                        auto* destination = instance_buffer.data + index * instance_stride;
+                        std::memcpy(destination, instance.model.data(), 16 * sizeof(float));
+                        std::memcpy(destination + 16 * sizeof(float), instance.normal.data(),
+                                    12 * sizeof(float));
+                        submitted[instance_items[index]] = true;
+                    }
+                    bgfx::setInstanceDataBuffer(&instance_buffer);
+                }
+                else
+                {
+                    instance_items.clear();
+                }
+            }
+        }
+        submitted[item_index] = true;
         draw.cluster->bind();
         bgfx::setTransform(item.model.data());
         if (item.geometry == item.mesh->geometry.get())
@@ -671,7 +939,7 @@ bool RenderSystem::SceneGpuResources::draw_meshes(const WorldSystem& world,
         {
             bgfx::setVertexBuffer(0, item.geometry->vertices);
         }
-        bgfx::setIndexBuffer(item.geometry->indices, item.first, item.count);
+        bgfx::setIndexBuffer(item.geometry->index_buffer(item.lod), item.first, item.count);
         auto cull = capture ? std::uint64_t{0}
                             : render_detail::cull_state(material.cull_mode(), item.model.data());
         if (draw.reflection)
@@ -718,8 +986,35 @@ bool RenderSystem::SceneGpuResources::draw_meshes(const WorldSystem& world,
             state |= BGFX_STATE_MSAA;
         }
         bgfx::setState(state);
-        bgfx::submit(draw.id,
-                     mode == SceneDrawMode::surface ? program->surface_program : program->program);
+        const auto instance_count =
+            static_cast<std::uint32_t>(std::max<std::size_t>(1, instance_items.size()));
+        ++stats.draw_calls;
+        stats.submitted_instances += instance_count;
+        stats.triangles += static_cast<std::uint64_t>(item.count / 3) * instance_count;
+        if (!instance_items.empty())
+        {
+            ++stats.instance_batches;
+        }
+        bgfx::submit(draw.id, !instance_items.empty()          ? instance_program
+                              : mode == SceneDrawMode::surface ? program->surface_program
+                                                               : program->program);
+    }
+    const auto previous =
+        std::find_if(view_stats.begin(), view_stats.end(),
+                     [&stats](const auto& row) { return row.view_id == stats.view_id; });
+    if (previous == view_stats.end())
+    {
+        view_stats.push_back(stats);
+    }
+    else
+    {
+        previous->candidate_meshes += stats.candidate_meshes;
+        previous->culled_meshes += stats.culled_meshes;
+        previous->visible_meshes += stats.visible_meshes;
+        previous->draw_calls += stats.draw_calls;
+        previous->instance_batches += stats.instance_batches;
+        previous->submitted_instances += stats.submitted_instances;
+        previous->triangles += stats.triangles;
     }
     return true;
 }

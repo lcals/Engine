@@ -4,7 +4,7 @@
 
 本图仅定义 `WorldSystem` 的方法；其他节点为跨图引用或第三方类型。
 
-> **世界暂停已实现。** `set_paused()` / `paused()` 及下述暂停约定已按批准契约实现，并通过本轮 Debug / Release 定向测试。行为与限制见[世界暂停](../world-pause.md)。`Engine` / `System` 的通用调度契约保持不变。
+> **世界暂停已实现。** `set_paused()` / `paused()` 及下述暂停约定沿用已确认契约。行为与限制见[世界暂停](../world-pause.md)，实际验证范围统一见[测试文档](../../testing.md)。`Engine` / `System` 的通用调度契约保持不变。
 
 ```mermaid
 classDiagram

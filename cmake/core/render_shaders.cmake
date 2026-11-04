@@ -157,6 +157,7 @@ function(engine_embed_render_shaders target)
                         "${_source}/material_helpers.sh"
                         "${_source}/shadow_helpers.sh"
                         "${_source}/csm_helpers.sh"
+                        "${_source}/hex_tiling.sh"
                         "${_source}/pbr_surface.sh"
                         "${_source}/pbr_lighting.sh"
                         "${_source}/local_shadow_helpers.sh"
@@ -301,6 +302,46 @@ function(engine_embed_ssr_shaders target)
                     "${_source}/hdr/hdr_varying.def.sc"
                     "${ENGINE_BGFX_SHADER_INCLUDE_DIR}/bgfx_shader.sh" "${ENGINE_SHADERC_EXECUTABLE}"
             COMMENT "Compiling embedded ${_platform}/${_profile} ${_name} shader"
+            VERBATIM)
+        target_sources(${target} PRIVATE "${_header}")
+    endforeach()
+endfunction()
+
+# Fixed upstream atmosphere and scene-only wireframe shaders, compiled for this backend.
+function(engine_embed_upstream_feature_shaders target)
+    engine_render_shader_profile(_platform _profile)
+    set(_output "${CMAKE_CURRENT_BINARY_DIR}/generated/render")
+    foreach(_entry IN ITEMS atmosphere/cs_atmo_transmittance atmosphere/cs_atmo_multiscatter
+            atmosphere/cs_atmo_skyview atmosphere/vs_atmosphere atmosphere/fs_atmosphere
+            debug/vs_debug_wireframe debug/fs_debug_wireframe)
+        get_filename_component(_name "${_entry}" NAME)
+        get_filename_component(_directory "${_entry}" DIRECTORY)
+        set(_source "${PROJECT_SOURCE_DIR}/src/engine/runtime/render/shaders/${_directory}")
+        string(SUBSTRING "${_name}" 0 2 _prefix)
+        if(_prefix STREQUAL "cs")
+            set(_type compute)
+        elseif(_prefix STREQUAL "vs")
+            set(_type vertex)
+        else()
+            set(_type fragment)
+        endif()
+        set(_varying "${_source}/varying.def.sc")
+        if(_directory STREQUAL "debug")
+            set(_varying "${_source}/debug_varying.def.sc")
+        endif()
+        set(_args)
+        if(NOT _type STREQUAL "compute")
+            list(APPEND _args --varyingdef "${_varying}")
+        endif()
+        file(GLOB _includes CONFIGURE_DEPENDS "${_source}/*.sh" "${_source}/*.sc")
+        set(_header "${_output}/${_name}.bin.h")
+        add_custom_command(OUTPUT "${_header}"
+            COMMAND "${CMAKE_COMMAND}" -E make_directory "${_output}"
+            COMMAND "${ENGINE_SHADERC_EXECUTABLE}" -f "${_source}/${_name}.sc" -o "${_header}"
+                --type "${_type}" --platform "${_platform}" --profile "${_profile}"
+                -i "${ENGINE_BGFX_SHADER_INCLUDE_DIR};${_source}" --bin2c "${_name}" ${_args}
+            DEPENDS ${_includes} "${ENGINE_SHADERC_EXECUTABLE}"
+                "${ENGINE_BGFX_SHADER_INCLUDE_DIR}/bgfx_shader.sh"
             VERBATIM)
         target_sources(${target} PRIVATE "${_header}")
     endforeach()

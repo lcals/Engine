@@ -68,18 +68,9 @@ Json write(const WorldSystem& world, const schema::CharacterControllerDataT& val
     Json camera_id = nullptr;
     if (const auto* scene = world.scene())
     {
-        std::vector<Node> nodes;
-        if (!scene->collect_nodes(nodes))
+        if (const auto node = scene->find_local_node(value.camera_node_id))
         {
-            return {};
-        }
-        for (const auto& node : nodes)
-        {
-            if (node.info().properties->id == value.camera_node_id)
-            {
-                camera_id = std::to_string(node.id());
-                break;
-            }
+            camera_id = std::to_string(node.id());
         }
     }
     return {{"moveSpeed", value.move_speed},

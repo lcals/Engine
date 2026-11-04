@@ -1,6 +1,7 @@
 # Windows、macOS、Linux 和 Android 游戏运行时依赖。
 find_package(SDL3 CONFIG REQUIRED GLOBAL)
 find_package(bgfx CONFIG REQUIRED GLOBAL)
+include("${PROJECT_SOURCE_DIR}/cmake/dependencies/bgfx_debugdraw.cmake")
 find_package(flecs CONFIG REQUIRED GLOBAL)
 find_package(Jolt CONFIG REQUIRED GLOBAL)
 find_package(quill CONFIG REQUIRED GLOBAL)

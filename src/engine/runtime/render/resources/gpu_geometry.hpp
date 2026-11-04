@@ -33,6 +33,11 @@ struct GpuGeometry
                                        std::array<float, 3>& minimum,
                                        std::array<float, 3>& maximum) const noexcept;
     [[nodiscard]] std::uint32_t resource_count() const noexcept;
+    [[nodiscard]] bgfx::IndexBufferHandle index_buffer(std::size_t level = 0) const noexcept;
+    [[nodiscard]] std::uint32_t index_count(std::size_t level = 0) const noexcept;
+    [[nodiscard]] std::span<const schema::MeshSubmesh>
+    submeshes(std::size_t level = 0) const noexcept;
+    [[nodiscard]] std::size_t lod_count() const noexcept;
     void release() noexcept;
     [[nodiscard]] static bgfx::VertexLayout vertex_layout();
     [[nodiscard]] static bgfx::VertexLayout vector_layout();
@@ -50,6 +55,15 @@ struct GpuGeometry
     std::array<float, 3> maximum{};
 
 private:
+    struct Lod
+    {
+        bgfx::IndexBufferHandle indices = BGFX_INVALID_HANDLE;
+        std::uint32_t index_count = 0;
+        std::vector<schema::MeshSubmesh> submeshes;
+    };
+    std::vector<Lod> lods_;
+    std::vector<schema::MeshSubmesh> submeshes_;
+    std::uint32_t index_count_ = 0;
     struct JointBounds
     {
         std::array<float, 3> minimum{};

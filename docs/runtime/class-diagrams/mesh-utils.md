@@ -6,8 +6,8 @@
 classDiagram
     class MeshUtils {
         <<static>>
-        +validate(const MeshDataT& data) bool
-        +build_tangents(const MeshDataT& data, vector~Vec4~& output) bool
+        +validate(const MeshDataT& data) bool$
+        +build_tangents(const MeshDataT& data, vector~Vec4~& output) bool$
     }
     class MeshDataT
     class Vec4

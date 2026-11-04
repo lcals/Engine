@@ -21,6 +21,8 @@ public:
     [[nodiscard]] EnvironmentSettings settings() const noexcept;
     [[nodiscard]] bool get_settings(Data& output) const noexcept;
     [[nodiscard]] bool set_settings(const EnvironmentSettings& settings);
+    [[nodiscard]] bool remap_node_references(schema::ComponentDataT& data,
+                                             std::span<const schema::NodeIdMappingT> mapping) const;
 };
 
 } // namespace engine

@@ -9,19 +9,19 @@ classDiagram
     direction TB
     class Input {
         <<script facade>>
-        +GetFrameState() InputFrameState?
-        +GetDevices() InputDeviceData[]?
-        +GetControls(device bigint) InputControlInfo[]?
-        +ReadControl(control InputControlRef) InputControlState?
-        +GetContacts() InputContactState[]?
-        +CreateChannel() InputChannelHandle?
-        +ConfigureChannel(channel InputChannelHandle, data InputChannelData) bool
-        +SetChannelEnabled(channel InputChannelHandle, enabled bool, activation InputActivation) bool
-        +DestroyChannel(channel InputChannelHandle) bool
-        +ReadAction(channel InputChannelHandle, name string) InputActionState?
-        +BeginCapture(channel InputChannelHandle, options InputCaptureOptions) InputCaptureHandle?
-        +ReadCapture(capture InputCaptureHandle) InputCaptureState?
-        +CancelCapture(capture InputCaptureHandle) bool
+        +GetFrameState() InputFrameState?$
+        +GetDevices() InputDeviceData[]?$
+        +GetControls(device bigint) InputControlInfo[]?$
+        +ReadControl(control InputControlRef) InputControlState?$
+        +GetContacts() InputContactState[]?$
+        +CreateChannel() InputChannelHandle?$
+        +ConfigureChannel(channel InputChannelHandle, data InputChannelData) bool$
+        +SetChannelEnabled(channel InputChannelHandle, enabled bool, activation InputActivation) bool$
+        +DestroyChannel(channel InputChannelHandle) bool$
+        +ReadAction(channel InputChannelHandle, name string) InputActionState?$
+        +BeginCapture(channel InputChannelHandle, options InputCaptureOptions) InputCaptureHandle?$
+        +ReadCapture(capture InputCaptureHandle) InputCaptureState?$
+        +CancelCapture(capture InputCaptureHandle) bool$
         +lastError string?
     }
     class InputBinding {

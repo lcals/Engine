@@ -103,8 +103,9 @@ bool GpuMesh::update_deformation(const MeshRenderer& renderer, SkinningPass& ski
         }
         if (!bgfx::isValid(deformed_vertices))
         {
-            deformed_vertices = bgfx::createDynamicVertexBuffer(
-                geometry->vertex_count, GpuGeometry::vertex_layout(), BGFX_BUFFER_COMPUTE_WRITE);
+            deformed_vertices = bgfx::createDynamicVertexBuffer(geometry->vertex_count,
+                                                                GpuGeometry::vertex_layout(),
+                                                                BGFX_BUFFER_COMPUTE_READ_WRITE);
         }
         if (!skinning.dispatch(*geometry, palette, deformed_vertices, joint_count_))
         {
@@ -143,8 +144,8 @@ bool GpuMesh::update_deformation(const MeshRenderer& renderer, SkinningPass& ski
         }
         else
         {
-            deformed_vertices =
-                bgfx::createDynamicVertexBuffer(memory, GpuGeometry::vertex_layout());
+            deformed_vertices = bgfx::createDynamicVertexBuffer(
+                memory, GpuGeometry::vertex_layout(), BGFX_BUFFER_COMPUTE_READ);
             if (!bgfx::isValid(deformed_vertices))
             {
                 return false;

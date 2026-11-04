@@ -6,12 +6,15 @@
 
 ```mermaid
 classDiagram
+    class ProjectScriptRequest
+    ScriptRuntime ..> ProjectScriptRequest : 同步调用期间借用
     class ScriptRuntime {
         <<abstract>>
         +~ScriptRuntime()
         +prepare_gameplay(const ResourceCatalog& catalog, const MountList& mounts, string_view entry, string_view revision) bool
         +start_prepared_gameplay() bool
         +stop_gameplay() void
+        +execute_project_script(const ProjectScriptRequest& request, string& result_json, string& error) bool*
         +status() const ScriptStatus&
     }
     class ScriptStatus {

@@ -3,7 +3,7 @@
 ```mermaid
 classDiagram
 class DestructionAuthoring {
-  +generate(DestructionGeneratorDataT, DestructionAssetDataT, string) bool
+  +generate(const DestructionGeneratorDataT& settings, DestructionAssetDataT& output, string& error) bool$
 }
 class DestructionGeneratorDataT
 class DestructionAssetDataT

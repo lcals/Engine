@@ -400,7 +400,17 @@ bool SceneBakeFiles::add_output(std::string_view filename, std::string_view impo
     {
         File file;
         file.target = destination;
-        file.staged = staging_ / (std::to_string(files_.size()) + ".new");
+        if (destination == meta)
+        {
+            // Staged source assets obey the same adjacent-meta contract as published
+            // assets. The real importer must read the exact metadata being published.
+            file.staged = files_.back().staged;
+            file.staged += ".meta";
+        }
+        else
+        {
+            file.staged = staging_ / (std::to_string(files_.size()) + ".new");
+        }
         file.backup = staging_ / (std::to_string(files_.size()) + ".old");
         if (!fingerprint(destination, file.existed, file.fingerprint, error))
         {

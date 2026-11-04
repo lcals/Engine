@@ -1,5 +1,7 @@
 # JSON 资源导入
 
+归属：[统一资源导入插件](asset-import.md)，命名空间 `engine::plugins::asset_import`；本页只维护这一类型的源格式、公开方法和数据关系。
+
 [类图索引](../../../class-diagrams/index.md) · [通用导入契约](../../../editor/class-diagrams/asset-importers.md) · [JSON 脚本读取](../../runtime/class-diagrams/json-script-api.md)
 
 项目将地图、武器等配置保存为独立 `.json` 资源；引擎只校验 JSON 格式并提供标准资源读取，字段模型、配置版本和资源使用时机由项目脚本定义。JsonImporter、资源类型登记与三个工具宿主装配已按本图接入。
@@ -34,7 +36,7 @@ classDiagram
     JsonImporter ..> NlohmannJson : 实现内严格校验 UTF-8 JSON
 ```
 
-`JsonImporter` 位于 `engine::plugins::json_import`，属于独立 `editor/json_import` 插件。它继承编辑器基础的 `AssetImporter`；宿主创建后通过现有 `AssetPipelineSystem::add_importer` 转交注册表独占。ToolHost 仅表示编辑器、资源构建和 MCP 三个可执行入口，不新增宿主包装类。
+`JsonImporter` 位于 `engine::plugins::asset_import`，与其余源格式实现共用 `editor/asset_import` 插件。它继承编辑器基础的 `AssetImporter`；宿主创建后通过现有 `AssetPipelineSystem::add_importer` 转交注册表独占。ToolHost 仅表示编辑器、资源构建和 MCP 三个可执行入口，不新增宿主包装类。
 
 `kind` 为 `const noexcept`，其余查询和转换遵循通用导入契约；`matches`、`convert` 为 `const`，`inspect_batch` 为普通重写方法。四个方法均为 `override`、`[[nodiscard]]`。不增加初始化、关闭、缓存或任务管理接口。
 
@@ -49,16 +51,16 @@ classDiagram
 
 运行时将 `json` 显式登记到现有 [BinaryResourceCodec](../../../runtime/class-diagrams/resource-codecs.md)，通过 [Resource.bytes()](../../../runtime/class-diagrams/resource.md) 保存原始载荷；不增加 JsonResource、JsonCodec、JSON System 或 Manager。JSON 内容只在脚本门面读取时解析，核心资源层不链接 nlohmann/json。
 
-插件仅依赖编辑器基础目标 `engine::asset_pipeline`，私有复用仓库已选的 `nlohmann_json::nlohmann_json`；`asset_pipeline` 是编辑器基础能力，不是另一个具体插件。新增 `cmake/plugins/editor/json_import.cmake` 独占源码和依赖；在选择清单默认随资源管线启用，可显式关闭，关闭时不创建目标或宿主装配分支。运行包只包含资源载荷和运行时绑定，不包含导入插件。
+JSON 实现依赖编辑器基础的 `AssetImporter`，私有复用仓库已选的 `nlohmann_json::nlohmann_json`；通用管线仍不依赖具体插件。统一 `cmake/plugins/editor/asset_import.cmake` 管理五种导入器的源码与离线依赖，目标为 `engine_asset_import`（`engine::asset_import`）。插件默认随资源管线选择，也可整体关闭；关闭时不创建目标或宿主装配分支。运行包只包含资源载荷和运行时绑定，不包含导入插件。
 
 项目 `settings/resource-build.toml` 在显式精简清单中列出 JSON 配置和实际使用的场景、武器等入口，再由现有依赖收集器闭包构建。UI 贴图继续通过 `.rml.meta` 声明依赖。JSON 字符串不会把未列入入口、也未被其他标准资源引用的场景或武器带入包中。
 
 ## 实现位置与验证
 
 - 追加类型与解码登记：`include/schemas/runtime/asset_catalog.fbs`、`src/engine/runtime/resource/codecs/resource_codecs.cpp`。
-- 新增导入器：`include/engine/plugins/editor/json_import/json_importer.hpp`、`src/engine/plugins/editor/json_import/json_importer.cpp`。
-- 插件选择与条件链接：`cmake/plugins/editor/json_import.cmake`、`cmake/plugins/selection.cmake`、`cmake/editor/hosts.cmake`。
+- 新增导入器：`include/engine/plugins/editor/asset_import/json_importer.hpp`、`src/engine/plugins/editor/asset_import/json_importer.cpp`。
+- 插件选择与条件链接：`cmake/plugins/editor/asset_import.cmake`、`cmake/plugins/selection.cmake`、`cmake/editor/hosts.cmake`。
 - 宿主按启用状态登记：`src/editor_main.cpp`、`src/asset_build_main.cpp`、`src/mcp_main.cpp`。
 - 验证合法/非法 JSON、UTF-8、BOM、4 MiB 边界、原字节保留、空依赖、旧版本保留，以及插件开启/关闭的目标和装配。脚本读取的实现与测试见[JSON 脚本接口](../../runtime/class-diagrams/json-script-api.md)。
 
-定向测试位于 `tests/plugins/editor/json_import/json_importer_test.cpp`，目标 `engine_json_importer_test`，CTest 名称 `editor.json_importer`；覆盖上述格式、字节边界、空依赖、GUID/meta、增量复用及失败保留旧版本。`resource.codecs` 另覆盖 json 类型的标准信封和原字节读取。实际运行的构建、测试和平台限制统一记录在[测试与范例](../../../testing.md)，不从测试源码存在推断已经验证。
+定向测试位于 `tests/plugins/editor/asset_import/json_importer_test.cpp`，目标 `engine_json_importer_test`，CTest 名称 `editor.json_importer`；覆盖上述格式、字节边界、空依赖、GUID/meta、增量复用及失败保留旧版本。`resource.codecs` 另覆盖 json 类型的标准信封和原字节读取。实际运行的构建、测试和平台限制统一记录在[测试与范例](../../../testing.md)，不从测试源码存在推断已经验证。

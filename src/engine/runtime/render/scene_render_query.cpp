@@ -3,6 +3,7 @@
 #include "runtime/scene/ecs_storage.hpp"
 
 #include "runtime/scene/camera.hpp"
+#include "runtime/scene/environment_component.hpp"
 #include "runtime/scene/mesh_renderer.hpp"
 #include "runtime/scene/scene.hpp"
 #include "runtime/scene/text_component.hpp"
@@ -26,6 +27,23 @@ bool drawable_scene(const WorldSystem& world, Camera camera, bool has_extensions
         return true;
     }
     bool drawable = false;
+    auto environments =
+        flecs::world(world.native_world())
+            .query_builder<const ecs_detail::ComponentStorage<EnvironmentComponent::Data>,
+                           const ecs_detail::NodeRuntime>()
+            .with<ecs_detail::Published>()
+            .build();
+    environments.each(
+        [&](const auto& stored, const ecs_detail::NodeRuntime& state)
+        {
+            drawable = drawable || (state.scene == scene && state.active &&
+                                    state.visible_in_hierarchy && stored.state.flags.enabled &&
+                                    stored.state.flags.visible && stored.data.atmosphere_enabled);
+        });
+    if (drawable)
+    {
+        return true;
+    }
     auto meshes = flecs::world(world.native_world())
                       .query_builder<const ecs_detail::ComponentStorage<MeshRenderer::Data>,
                                      const ecs_detail::NodeRuntime>()

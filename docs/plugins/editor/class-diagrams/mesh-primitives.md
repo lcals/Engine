@@ -5,8 +5,8 @@
 ```mermaid
 classDiagram
     class MeshPrimitives {
-        +create(MeshPrimitiveOptions options, EditableMeshDataT output, string error) bool
-        +polygon(PointSpan points, HoleVector holes, EditableMeshDataT output, string error) bool
+        +create(const MeshPrimitiveOptions& options, EditableMeshDataT& output, string& error) bool$
+        +polygon(span~const Vec3~ points, const vector~vector~Vec3~~& holes, EditableMeshDataT& output, string& error) bool$
     }
     class MeshPrimitiveOptions {
         +MeshPrimitive type

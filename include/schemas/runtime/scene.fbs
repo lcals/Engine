@@ -16,6 +16,7 @@ table CameraData {
     far_clip:float = 1000;
     projection:Projection = perspective;
     orthographic_size:float = 5;
+    frustum_culling_enabled:bool = false;
 }
 
 table LightData {
@@ -43,6 +44,8 @@ table MeshRendererData {
     lightmap_guid:string;
     lightmap_mesh_hash:string;
     lightmap_transform:[float];
+    static_instancing_enabled:bool = false;
+    static_lod_enabled:bool = false;
 }
 
 enum ColliderShape:ubyte { box, sphere, capsule, mesh, compound }
@@ -170,6 +173,22 @@ table EnvironmentData {
     ibl_irradiance_guid:string;
     ibl_prefilter_guid:string;
     ibl_lut_guid:string;
+    atmosphere_enabled:bool = false;
+    atmosphere_sun_node_id:ulong;
+    atmosphere_ground_height:float = 0;
+    atmosphere_rayleigh_scattering:Vec3 (required, native_inline, native_default: "Vec3(0.00580243, 0.01355776, 0.0331)");
+    atmosphere_rayleigh_scale_height:float = 8;
+    atmosphere_mie_scattering:float = 0.003996;
+    atmosphere_mie_absorption:float = 0.000444;
+    atmosphere_mie_scale_height:float = 1.2;
+    atmosphere_mie_anisotropy:float = 0.8;
+    atmosphere_ozone_absorption:Vec3 (required, native_inline, native_default: "Vec3(0.0006500736, 0.001881, 0.0000850212)");
+    atmosphere_ozone_center_height:float = 25;
+    atmosphere_ozone_half_width:float = 15;
+    atmosphere_planet_radius:float = 6360;
+    atmosphere_height:float = 100;
+    atmosphere_ground_albedo:Vec3 (required, native_inline, native_default: "Vec3(0.3, 0.3, 0.3)");
+    atmosphere_multiscatter_strength:float = 1;
 }
 
 table PostProcessData {

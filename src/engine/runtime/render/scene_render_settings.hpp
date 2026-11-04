@@ -22,6 +22,7 @@ struct SceneRenderComponents
     EnvironmentComponent environment = {};
     PostProcessComponent post_process = {};
     Light shadow_light = {};
+    Light atmosphere_sun = {};
 };
 
 [[nodiscard]] bool scene_render_components(Scene& scene, SceneRenderComponents& output);

@@ -3,13 +3,14 @@
 
 #include "editor/asset_pipeline/asset_io.hpp"
 #include "editor/asset_pipeline/toml_helpers.hpp"
+#include "editor/mesh/mesh_lods.hpp"
 #include "editor/mesh/mesh_tangents.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/schema/material_generated.h"
 #include "runtime/schema/mesh_generated.h"
 #include "runtime/schema/shader_generated.h"
-#include "runtime/utils/path_utils.hpp"
 #include "runtime/utils/mesh_utils.hpp"
+#include "runtime/utils/path_utils.hpp"
 
 #include <flatbuffers/flatbuffers.h>
 #include <flatbuffers/verifier.h>
@@ -46,7 +47,8 @@ bool MeshImporter::inspect_batch(const ImportContext&, std::string& fingerprint,
     {
         return false;
     }
-    fingerprint += ":mikktspace-3e895b49-angle-precision-1:mesh-importer-2";
+    fingerprint +=
+        ":mikktspace-3e895b49-angle-precision-1:mesh-importer-2" + mesh_lod_fingerprint();
     return true;
 }
 bool MeshImporter::convert(const ImportAsset& asset, const ImportContext& context,
@@ -217,6 +219,10 @@ bool MeshImporter::convert(const ImportAsset& asset, const ImportContext& contex
         {
             error = "invalid mesh geometry: " + asset.path;
         }
+        return false;
+    }
+    if (!generate_mesh_lods(mesh, asset.source, error))
+    {
         return false;
     }
     flatbuffers::FlatBufferBuilder builder;

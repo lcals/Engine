@@ -35,7 +35,7 @@ classDiagram
     }
     class GpuProgram {
         +create(const ShaderDataT& shader) bool
-        +bind_material(const Material& material, const vector~GpuTexture~& textures, span~TextureHandle~ frame_textures, bool max_anisotropy) bool
+        +bind_material(const Material& material, const vector~GpuTexture~& textures, span~const TextureHandle~ frame_textures, bool max_anisotropy) bool
         +release() void
     }
     class GpuMesh {
@@ -148,7 +148,11 @@ classDiagram
 bool draw(const WorldSystem& world, const RenderSettings& settings,
           ShadowFrame& frame, const std::vector<GpuMesh>& meshes,
           const std::vector<GpuTexture>& textures,
-          bgfx::TextureHandle fallback, bgfx::UniformHandle depth_uniform);
+          bgfx::TextureHandle fallback, bgfx::UniformHandle depth_uniform,
+          const RenderConfig& config, std::span<const LocalShadowLight> local_lights,
+          std::span<ClusterLight> lights, const float* camera_world,
+          bgfx::ViewId base_view,
+          const std::span<const std::uint64_t>* caster_ids = nullptr);
 ```
 
 `ShadowPass` 独占 atlas 的颜色纹理、深度纹理、Framebuffer、Shader/Program 及 alpha 裁切和 UV Uniform。`prepare()` 按分辨率准备资源，`draw()` 组织逐级阴影绘制，`texture()` 返回借用句柄；调用方不得销毁它。对象不可复制或移动，析构兜底释放；`release()` 支持重复调用。两个只读查询为 `const noexcept`，释放为 `noexcept`，状态与句柄返回值标注 `[[nodiscard]]`。AO 和 HDR/Bloom 的完整接口见本文后续独立图。
@@ -235,6 +239,8 @@ void screenShot(const char* path, uint32_t width, uint32_t height,
 
 回调实现 bgfx 的日志和截图契约，用互斥量同步待写路径、原子状态同步回执，通过 bimg 和 SDL3 IO 写出截图。PNG 截图当前只接受 `BGRA8`，其他格式报告已有失败状态，避免将 HDR 或浮点输出误读为 SDR 像素。其他 profiler、缓存与视频捕获回调保持契约空实现，缓存查询报告缺失；不在此引入性能采样或视频录制业务。
 
+统一策略、逐视图提交统计及临时调试绘制的公开契约见[渲染功能控制](render-feature-controls.md)；渲染器只保存临时诊断请求，运行策略与场景/材质功能由对应组件/材质独占状态。
+
 ## 公开接口
 
 ### 场景线性 HDR 帧捕获
@@ -296,6 +302,10 @@ classDiagram
         +set_max_anisotropy(bool enabled) bool
         +max_anisotropy() bool
         +supports_max_anisotropy() bool
+        +set_debug_feature(RenderFeature feature, bool enabled) bool
+        +feature_state(RenderFeature feature) RenderFeatureState
+        +submission_stats() vector~RenderViewStats~
+        +draw_debug_lines(span~const DebugLine~ lines, uint16_t lifetime_frames = 1) bool
         +set_idle_clear_color(uint32_t rgba) void
         +idle_clear_color() uint32_t
         +settings() RenderSettings
@@ -452,7 +462,7 @@ classDiagram
 - 本节接口已获评审确认。验证覆盖实际离屏颜色/深度、透明遮挡、反射和重复切换，不能以 Stats reset flag 或 setter 返回值作为生效证据。
 - VSync 与窗口模式、场景后处理及 `Engine` 的目标帧率上限分别管理；不加入 `RenderSettings`，不保存在场景组件中。窗口重绑、Surface 暂时丢失和 GPU 重建期间保留最近请求，并在下次初始化或 reset 时使用；成功接收请求不保证操作系统、驱动或显示器立刻采用该呈现行为。持久化属于调用方，TS 通过现有 `Render` 门面的 `SetVSync()` / `GetVSync()` 访问对应接口。
 - 实现只复用 [bgfx 的 reset 接口与 BGFX_RESET_VSYNC 标志](https://bkaradzic.github.io/bgfx/bgfx.html#reset)，在既有初始化和表面 reset 路径中更新标志；不新增依赖或重写呈现、垂直同步算法。窗口和显示模式切换仍由 SDL3 完成，不使用 bgfx 未支持的全屏 reset 标志代替窗口接口。
-- `gpu_ready()` 表示当前图形设备可用；`frame_number()` 返回唯一帧提交入口 `bgfx::frame()` 的返回值，设备关闭后归零，不能当作 CPU 时间或 GPU 完成时间。调用方可以据此检查 bgfx 纹理读回的目标帧，不能自行提交第二条全局帧循环。GPU 蒙皮使用 View 0，主阴影从 80 开始，AO 深度/表面/计算为 110/111/112，主场景为 113，[渲染扩展](render-extension.md) 为 134，HDR/Bloom 为 135..137，UI 为 200；镜像及捕获分区统一见 `render_constants.hpp` 和[分簇光照与反射](forward-lighting-reflections.md)；这些作业在主线程提交并在渲染设备关闭前销毁，不把编辑器任务状态放入渲染核心。
+- `gpu_ready()` 表示当前图形设备可用；`frame_number()` 返回唯一帧提交入口 `bgfx::frame()` 的返回值，设备关闭后归零，不能当作 CPU 时间或 GPU 完成时间。调用方可以据此检查 bgfx 纹理读回的目标帧，不能自行提交第二条全局帧循环。GPU 蒙皮使用 View 0，主阴影从 80 开始，AO 深度/表面/计算为 110/111/112，主场景为 113，[渲染扩展](render-extension.md) 为 133，临时调试绘制为 134，HDR/Bloom 为 135..137，UI 为 200；镜像及捕获分区统一见 `render_constants.hpp` 和[分簇光照与反射](forward-lighting-reflections.md)；这些作业在主线程提交并在渲染设备关闭前销毁，不把编辑器任务状态放入渲染核心。
 - `render()` 按场景唯一编号识别热重载造成的场景替换；Scene 管理实体生命周期，渲染器不缓存组件地址。相机、灯光、网格通过带 Published 的有类型 ECS 查询读取，不在渲染器内创建隐藏场景对象。
 - 相机和灯光以节点局部 `-Z` 为前向；节点世界矩阵使用列主序。相机从世界 `-Z` 和 `+Y` 正交化构建视图，忽略缩放大小，避免节点非均匀缩放扭曲投影。法线使用模型矩阵的逆转置，支持非均匀缩放。
 - 相机基和投影矩阵统一由场景私有 `camera_math` 函数计算，供 RenderSystem 与 Camera 射线查询复用；bx 类型保持私有，场景核心不依赖渲染系统。渲染传入当前设备的深度约定，射线几何仍使用同一近裁面和镜头投影。
@@ -514,24 +524,23 @@ C++ 限定符：构造为 `explicit` 且 `noexcept`，`world` 默认为 `nullptr
 classDiagram
     class RenderSystem
     class RenderSettings
-    class CameraDataT
+    class CameraSettings
     class SceneGpuResources
     class AmbientOcclusionPass {
         <<渲染私有实现>>
         +prepare(uint16_t width, uint16_t height) bool
-        +begin_depth(const float* view, const float* projection) void
-        +compute(const CameraDataT& camera, const RenderSettings& settings, const float* projection) bool
-        +texture() const TextureHandle
+        +compute(const CameraSettings& camera, const RenderSettings& settings, const float* projection, bgfx::TextureHandle source_depth) bool
+        +texture() bgfx::TextureHandle
         +resource_count() const uint32_t
         +release() void
     }
     RenderSystem *-- SceneGpuResources : 独占
     SceneGpuResources *-- AmbientOcclusionPass : 独占GPU资源
-    AmbientOcclusionPass ..> CameraDataT : 本帧投影参数
+    AmbientOcclusionPass ..> CameraSettings : 本帧投影参数
     AmbientOcclusionPass ..> RenderSettings : 本帧AO参数
 ```
 
-AmbientOcclusionPass 位于渲染私有实现目录，拥有深度附件、法线、半尺寸深度 mip、AO 中间纹理和计算程序，按需初始化；关闭效果、设备重建和失败时完整释放；切换场景重新读取活动相机设置，按实际开关保留或释放。窗口变化只重建尺寸相关纹理。RenderSystem 组织通道顺序，不向 Engine 增加功能接口，不增加通用后处理管理框架。
+AmbientOcclusionPass 位于渲染私有实现目录，借用 SurfacePass 提供的源深度，拥有法线、半尺寸深度 mip、AO 中间纹理和计算程序，按需初始化；关闭效果、设备重建和失败时完整释放；切换场景重新读取活动相机设置，按实际开关保留或释放。窗口变化只重建尺寸相关纹理。RenderSystem 组织通道顺序，不向 Engine 增加功能接口，不增加通用后处理管理框架。
 
 AO 默认关闭，由活动场景相机的 PostProcessDataT.ao_enabled 控制，可随时关闭并保留半径、强度与淡出参数。只有参数随场景保存；遮蔽结果每帧在 GPU 计算，不产生贴图源文件、meta 或 GUID 资源，不加入烘焙任务。预览隐藏镜头不持有另一份 AO 配置。
 
@@ -549,6 +558,10 @@ classDiagram
         +prepare(uint16_t width, uint16_t height, bool bloom_enabled, uint8_t samples) bool
         +begin_scene(uint32_t clear_color) void
         +scene_framebuffer() bgfx::FrameBufferHandle
+        +opaque_color() bgfx::TextureHandle
+        +opaque_specular() bgfx::TextureHandle
+        +scene_color() bgfx::TextureHandle
+        +begin_transparency(bgfx::TextureHandle frozen_scene, const float* view, const float* projection) void
         +resolve(const RenderSettings& settings) bool
         +resource_count() uint32_t
         +release() void
@@ -562,7 +575,7 @@ classDiagram
 
 相机 `PostProcessDataT` 与渲染快照增加 `hdr_enabled`、`bloom_enabled`，默认均关闭；Bloom 依赖 HDR，提交 `bloom_enabled=true` 且 `hdr_enabled=false` 返回失败。亮部阈值默认 1、范围 `[0,100]`，强度默认 0.15、范围 `[0,10]`，模糊半径倍数默认 1、范围 `[0.25,4]`，均要求有限。HDR / Bloom 参数随组件持久化，不进入 Engine。管线始终使用线性场景目标，HDR 开关控制最终曝光与色调映射；SDR 按材质映射权重保持原有外观。
 
-采用固定 bgfx `7a70927d2af7ffcc5cef9c9e8f4c821e31fcb099` 的 `09-hdr` 通道组织、全屏三角形和归一化 blur9。适配为真正 RGBA16F 线性场景目标，替代上游 RGBE8 与提前 gamma；沿用显式曝光，不加入自动测光。View 113 为场景，134 为共用颜色及深度附件的插件透明绘制，135 为半尺寸亮部提取，136 为八分之一尺寸纵向 blur9，137 为横向 blur9、HDR 合成与一次色调映射/gamma；UI View 200 后绘制，不受 Bloom 影响。亮部阈值使用曝光前线性颜色，模糊结果与场景先相加，再一起曝光与映射。关闭 Bloom 只保留 HDR 合成并释放两个中间目标；关闭 HDR 仍保留线性场景及最终输出所需资源；明确停止和设备重建释放通道，尺寸变化只重建尺寸相关目标。
+采用固定 bgfx `7a70927d2af7ffcc5cef9c9e8f4c821e31fcb099` 的 `09-hdr` 通道组织、全屏三角形和归一化 blur9。适配为真正 RGBA16F 线性场景目标，替代上游 RGBE8 与提前 gamma；沿用显式曝光，不加入自动测光。View 113 为场景，133 为共用颜色及深度附件的插件透明绘制，134 为临时调试绘制，135 为半尺寸亮部提取，136 为八分之一尺寸纵向 blur9，137 为横向 blur9、HDR 合成与一次色调映射/gamma；UI View 200 后绘制，不受 Bloom 影响。亮部阈值使用曝光前线性颜色，模糊结果与场景先相加，再一起曝光与映射。关闭 Bloom 只保留 HDR 合成并释放两个中间目标；关闭 HDR 仍保留线性场景及最终输出所需资源；明确停止和设备重建释放通道，尺寸变化只重建尺寸相关目标。
 
 场景 Shader 通过既有 `u_tonemap.z` 获知目标：为 1 时输出未曝光、未 tone map、未 gamma 的线性颜色；为 0 保持 SDR 输出。内置材质与项目天空共用这一契约，HDR 路径对无光照材质也统一执行最终画面映射。自定义 Shader 必须遵守该输出语义。3D 字体保留场景深度与预乘 alpha，调用方显式请求线性输出；UI 字体维持显示色输出。
 

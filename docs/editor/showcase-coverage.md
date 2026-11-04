@@ -15,12 +15,13 @@
 | `effects-lifecycle` | 分别播放、暂停、继续和停止粒子／模型特效，删除后不再绘制 | 项目入口契约；`engine.effects_runtime`。尚无项目级自动操作序列 |
 | `terrain-editing` | 挖洞、填充、保存／加载、Reset，并让角色走过修改区域 | 项目入口契约；`engine.terrain_runtime`、`engine.terrain_destruction_script`。笔刷到角色碰撞的完整交互需实窗检查 |
 | `fracture-graph` | 损伤不同结构的连接／支撑，观察碎块脱离，再 Reset | 项目入口契约与原生 destruction 系列。完整 UI 操作序列尚未自动化 |
-| `destruction-integration` | 火箭命中触发破坏、土石、音效和导航更新；停火、Reset、返回 | 项目入口契约与对应原生模块测试；跨模块完整交互仍需实窗检查，见[操作说明](../../projects/showcase/destruction-integration.md) |
+| `destruction-integration` | 火箭命中触发破坏、土石、音效和导航更新；停火、Reset、返回 | 项目入口契约与对应原生模块测试；跨模块完整交互仍需实窗检查，见[操作说明](../../projects/showcase/docs/destruction-integration.md) |
 | `hit-queries` | 射线／球扫命中近远靶；墙后目标不得得分；重复命中、重置和返回 | 项目真实命中处理、计分去重、遮挡反馈与清理；`engine.physics_interaction`。实际物理查询与鼠标操作需原生／实窗验证 |
-| `navigation-terrain` | 交叉与窄门、反转、停止、挖穿、恢复和失败重试；保留代理目标和身份 | 项目导航编排与失败恢复；`engine.navigation`、`engine.navigation_terrain`。真实避让与拥堵需实窗检查，见[导航说明](../../projects/showcase/navigation.md) |
-| `physics-interactions` | 射线／球扫角色、切球／盒范围、观察 Enter／Stay／Exit，暂停／恢复路线 | 项目查询参数、反馈、订阅及失败回滚；`engine.physics_interaction`。原生接触与可见高亮需实窗检查，见[物理交互说明](../../projects/showcase/physics-interactions.md) |
+| `navigation-terrain` | 交叉与窄门、反转、停止、挖穿、恢复和失败重试；保留代理目标和身份 | 项目导航编排与失败恢复；`engine.navigation`、`engine.navigation_terrain`。真实避让与拥堵需实窗检查，见[导航说明](../../projects/showcase/docs/navigation.md) |
+| `physics-interactions` | 射线／球扫角色、切球／盒范围、观察 Enter／Stay／Exit，暂停／恢复路线 | 项目查询参数、反馈、订阅及失败回滚；`engine.physics_interaction`。原生接触与可见高亮需实窗检查，见[物理交互说明](../../projects/showcase/docs/physics-interactions.md) |
 | `persistent-ui` | 输入文字、加载 A/B、加载中编辑、取消、失败、卸载、销毁 UI | 项目实际 input/click 回调、原控件身份、文本与订阅保留；`engine.scene`、`engine.ui_script`。真实输入焦点、键盘和文档布局需实窗验证 |
 | `ecs-many-objects` | 默认 10,000，可选 1,000／50,000；逐实体检查组件表迁移后的身份、父级隐藏／激活、换父级、删除重建及整组回收 | 项目入口契约和 TS 检查；[真实 MCP 功能脚本](../../projects/showcase/tests/ecs_many_objects_test.py) 通过 UI 操作并读取原生场景计数，[macOS Release 实测记录](../testing.md#ecs-大量对象) |
+| `render-features` | 对比组件上的视锥剔除、静态实例化、LOD，切换镜头距离、大气天空和材质 Hex；诊断与逐视图提交数通过 MCP 查询 | 项目入口契约、`engine.render_submission` 和 [真实 MCP 功能脚本](../../projects/showcase/tests/render_features_test.py)；[实际结果与限制](../testing.md#上游渲染能力与统一-mcp-功能验收2026-11-04) |
 
 以上原生测试名表示相关验证入口，不表示每一行都已在本轮重新执行。菜单中的数字及角色数量档位用于选择功能，不是性能结论。
 
@@ -42,7 +43,7 @@
 npm ci --prefix projects/showcase/settings
 node projects/showcase/tests/case_contract_test.mjs .
 node projects/showcase/tests/persistent_ui_test.mjs .
-ctest --preset ninja-engine-debug -R '^editor\.showcase_' --output-on-failure
+ctest --preset ninja-engine-release -R '^editor\.showcase_' --output-on-failure
 ```
 
 测试中的 input 事件会调用真实项目 Controller，验证 Model 计数与 View 刷新；它不经过 SDL、RmlUi 命中测试或键盘焦点。该区别需要在自动化报告中保留。测试也不会在 JS 重新实现 Jolt、Detour 或动画采样。
@@ -52,10 +53,10 @@ ctest --preset ninja-engine-debug -R '^editor\.showcase_' --output-on-failure
 [mcp_interaction_test.py](../../projects/showcase/tests/mcp_interaction_test.py) 复用 `EditorMcpSession`，连接调用方已经启动的 showcase 编辑器。它不启动编辑器，也不替换原生宿主。编辑器完成项目导入后，先确认 `get_status` 返回非空 `session` 和 `editorAlive: true`，再运行；导入尚未完成、没有会话身份时不能开始交互验证。
 
 ```sh
-python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app \
+python3 scripts/mcp_client.py --server build/ninja-engine-release/mcp_app \
   --project projects/showcase --runtime-dir build/showcase-runtime status
 python3 projects/showcase/tests/mcp_interaction_test.py \
-  --server build/ninja-engine-debug/mcp_app --runtime-dir build/showcase-runtime
+  --server build/ninja-engine-release/mcp_app --runtime-dir build/showcase-runtime
 ```
 
 `--runtime-dir` 必须与该编辑器启动参数一致，`--server` 使用同一构建的 `mcp_app`。脚本核对项目、运行目录、编辑器会话和 Run 身份，必要时启动已加载项目，过程中停止并重开项目，成功结束时通过 `close_editor` 正常关闭该编辑器。
@@ -74,21 +75,15 @@ python3 projects/showcase/tests/mcp_interaction_test.py \
 
 每次运行使用独立的 `projects/showcase/cache/mcp-interaction/<运行标识>/`，保存 `receipts.jsonl` 和 `result.json`。待处理请求只查询原回执，不重复提交；失败保留记录，不自动重开或强制结束编辑器。临时 TS 不写入 `assets/`，结果目录不进入 Git。该脚本不注册为普通 CTest，避免无窗口环境运行或意外关闭已有编辑器。
 
-这组交互覆盖菜单点击、滚轮、文字输入、焦点及指定生命周期，不代表全部 13 个范例已实窗验收，也不证明 PBR 高光、阴影、反射的视觉质量、物理求解、声音或其他平台表现正确。拖动、手柄与触摸仍需独立实测。
+这组交互覆盖菜单点击、滚轮、文字输入、焦点及指定生命周期，不代表全部范例已实窗验收，也不证明 PBR 高光、阴影、反射的视觉质量、物理求解、声音或其他平台表现正确。拖动、手柄与触摸仍需独立实测。
 
 ## 尚未覆盖的功能
 
 - 前向+、CSM、点／聚光阴影、SSR、平面反射、水折射、Lightmap 与 SH9 探针尚无分别可选的 showcase 交互用例。渲染实现已有原生／GPU 验证入口，不能因此宣称菜单已提供这些用例；相关入口见[独立 GPU 照明验证](../testing.md#独立-gpu-照明验证)。
-- 12 个原场景中，特效、地形、破坏及组合场景还没有完整的项目自动操作序列；入口契约检查不能替代这些交互。
+- 特效、地形、破坏及组合场景还没有完整的项目自动操作序列；入口契约检查不能替代这些交互。
 - 真实 MCP 交互脚本仅覆盖上表的输入序列；拖动、手柄、触摸及其他页面焦点流程仍需经过引擎输入路径验证。宿主替身的直接 click 回调不能算作这些输入的证据。
-- 本次整理保留原场景、材质、模型和所有既有 GUID，只删除重复菜单登记及过时测试路径／生命周期假设；不删除尚有入口和资源依赖的场景。
+- 技术范例只组织试件、操作反馈和生命周期，不扩展为私有游戏的伤害、武器、波次或结算业务；私有资源保持项目隔离。
 
-## 本轮结果
+## 实测记录
 
-2026-11-03，Debug／Release 的 `editor.showcase_*` 各 5/5 通过，覆盖 12 个入口契约、7 组菜单／输入／射击行为、常驻 UI 的 5 组生命周期行为及导航、物理项目编排。项目 TS 类型检查通过。真实 MCP 协议工具测试 `engine.script_tooling` 两种配置各 1/1 通过。
-
-`mcp_interaction_test.py` 已在 macOS Metal 的 Release 编辑器实际通过：同 Gameplay/Model/模块实例、脚本错误隔离、停止重开拒绝旧 Run、真实点击进入并退出 PBR 范例、滚轮及 Unicode 输入触发 Model.events、跨场景保留原控件与文字、完成回执后正常关闭，宿主退出码 0。结果与逐条回执保存在本地 `projects/showcase/cache/mcp-interaction/20261103T092455Z-74b19422/`，不进入版本管理。首轮在编辑器导入尚未完成时启动的检查因缺少会话而结束，未提交玩法操作；资源导入就绪后才执行本次成功流程。
-
-ECS 用例于 2026-11-03 在 macOS Metal Release 编辑器完成 10,000 对象全流程，通过逐项身份、世界坐标、层级状态、旧句柄拒绝、原生实体总数与二次进入检查；这是实际引擎与 UI 结果，不是脚本替身。回执及截图位置见[测试记录](../testing.md#ecs-大量对象)。
-
-50,000 可选档位本轮在 600 秒上限时仍创建到 38,912，未完成逐项验收；不延长本轮功能工作为持续压力测试，限制和回执见同一测试记录。
+平台、构建类型、实际通过结果、失败与证据位置统一见[测试与验证](../testing.md)。本文的入口、操作和预期行为不代表最新检出已经重新执行全部用例；宿主替身、原生回归、真实 UI 操作和图像验收分别记录。

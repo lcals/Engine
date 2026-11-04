@@ -8,25 +8,14 @@
 
 ## 1. 世界、场景与所有权
 
-本节定义 WorldSystem/Scene 的变更接口；未变的加载、取消、暂停和关闭方法继续见所属类图。其他类型只作跨图引用。
+本页维护跨模块所有权和 ECS 存储边界；WorldSystem、Scene、Node 和 Component 的方法统一维护在各自类图，不在本页重复定义。
 
 ```mermaid
 classDiagram
     direction TB
-    class WorldSystem {
-        +find_node(uint64_t id) Node
-        +native_world() ecs_world_t*
-        +refresh_scene_state() bool
-        -world_epoch_ uint64_t
-    }
+    class WorldSystem
     class System
-    class Scene {
-        +create_node(string_view name) Node
-        +find_node(uint64_t id) Node
-        +collect_nodes(vector~Node~& output) bool
-        +destroy_node(uint64_t id) bool
-        +build_data(SceneDataT& output) bool
-    }
+    class Scene
     class ecs_world_t {
         <<Flecs>>
     }
@@ -59,42 +48,9 @@ classDiagram
 ```mermaid
 classDiagram
     direction TB
-    class Node {
-        <<value handle>>
-        +Node()
-        +valid() bool
-        +id() uint64_t
-        +scene() Scene*
-        +parent() Node
-        +set_parent(Node parent) bool
-        +build_info(NodeInfoT& output) bool
-        +add_component~T~() T
-        +get_component~T~() T
-        +remove_component(ComponentType type) bool
-        +collect_components(vector~Component~& output) bool
-        -world_ WorldSystem*
-        -world_epoch_ uint64_t
-        -entity_id_ uint64_t
-    }
-    class Component {
-        <<value handle>>
-        +Component()
-        +valid() bool
-        +node() Node
-        +type() ComponentType
-        +instance_id() uint64_t
-        +build_data(ComponentDataT& output) bool
-        +restore_data(const ComponentDataT& data) bool
-        -node_ Node
-        -type_ ComponentType
-        -instance_id_ uint64_t
-    }
-    class Transform {
-        <<value handle>>
-        +get_settings(TransformDataT& output) bool
-        +set_settings(const TransformDataT& value) bool
-        +world_matrix(float* output) bool
-    }
+    class Node
+    class Component
+    class Transform
     class WorldSystem
     class Scene
     class NodeInfoT
@@ -150,12 +106,12 @@ classDiagram
         +data Data
     }
     class ComponentState {
-        +flags ComponentFlags
+        +flags ComponentFlagsT
         +instance_id uint64_t
         +revision uint64_t
         +transient bool
     }
-    class ComponentFlags {
+    class ComponentFlagsT {
         <<schema generated>>
         +enabled bool
         +visible bool
@@ -166,18 +122,14 @@ classDiagram
         +rotation Vec3
         +scale Vec3
     }
-    class ComponentRegistry {
-        +add~T~() bool
-        +contains(ComponentType type) bool
-        +create(ComponentType type, Node node) Component
-    }
+    class ComponentRegistry
     class Node
     class Component
     class ComponentType
     class ecs_world_t
     ecs_world_t *-- ComponentStorage : 按具体Data类型分列
     ComponentStorage *-- ComponentState
-    ComponentState *-- ComponentFlags : 持久标志唯一来源
+    ComponentState *-- ComponentFlagsT : 持久标志唯一来源
     ComponentStorage ..> TransformDataT : Data的一个实例类型
     ComponentRegistry ..> ecs_world_t : 登记上游类型生命周期
     ComponentRegistry ..> Node : 创建目标实体
@@ -195,7 +147,7 @@ classDiagram
 - Flecs C++ 注册已有构造/析构/复制/移动/移表支持，直接用于可移动的生成数据；不把旧不可移动 Component 类注册进去，也不自行重写整套生命周期机制。
 - 节点/组件唯一 ID 是普通字段，不为每个实例建立专属类型、tag 或 pair。可见/激活等频繁变化先更新字段及有效状态，不以每帧增删组件表达。
 
-节点与场景记录：
+节点与场景记录（`NodeRuntime`、`WorldTransform` 属于 `engine::ecs_detail`，其余为 schema 生成类型）：
 
 ```mermaid
 classDiagram
@@ -209,8 +161,10 @@ classDiagram
     }
     class NodeRuntime {
         <<runtime data>>
+        +scene Scene*
         +order uint64_t
         +prefab_order uint64_t
+        +prepared_revision uint64_t
         +persistent bool
         +transient bool
         +active bool
@@ -219,6 +173,7 @@ classDiagram
     class WorldTransform {
         <<derived cache>>
         +matrix array~float,16~
+        +valid bool
     }
     class ecs_world_t
     class SceneInfoT
@@ -242,7 +197,7 @@ classDiagram
 
 父子采用 Flecs 原生 `ChildOf`，场景归属采用独立且排他的关系；节点根可以没有父节点，但仍归属于场景。`set_parent` 只改父关系，不能隐式转移场景。
 
-Flecs 4.2.0 的普通关系也参与表组合，因此不同父节点可能分表，不能把“按类型批量查询”描述成“全场景只有一块连续内存”。本方案不更改内置 ChildOf 的 trait；不假设 DontFragment 关系支持 up/cascade 层级查询。场景归属只按少量场景分组，实例身份用普通字段，避免额外制造小表。
+Flecs 4.2.0 的普通关系也参与表组合，因此不同父节点可能分表，不能把“按类型批量查询”描述成“全场景只有一块连续内存”。当前实现不更改内置 ChildOf 的 trait；不假设 DontFragment 关系支持 up/cascade 层级查询。场景归属只按少量场景分组，实例身份用普通字段，避免额外制造小表。
 
 候选恢复、发布和回收遵守现有调用方流程：
 
@@ -285,9 +240,9 @@ GPU/Jolt/Detour/RmlUi 等后端对象仍由领域模块拥有；ECS 只存实例
 - 类型绑定、MCP 场景操作、层级展示及预制体编辑共用同一核心句柄契约；不在编辑器维护可写镜像场景。
 - UI MVC、项目玩法和状态仍在 TS；这里只改原生场景基础设施及引擎系统查询。
 
-## 7. 实现范围与验证入口
+## 7. 当前范围与验证入口
 
-当前功能分支覆盖以下迁移：
+当前实现覆盖以下范围：
 
 1. **实体与数据基础**：schema 属性拆分、类型登记、Node/组件值句柄、层级、状态、删除和失效校验；测试覆盖移表与删后重加。
 2. **场景与预制体闭环**：创建、异步候选、发布、常驻保留、模板实例、保存/恢复、回滚和稳定身份。每个迁移后的字段只有一个数据来源。
@@ -297,7 +252,7 @@ GPU/Jolt/Detour/RmlUi 等后端对象仍由领域模块拥有；ECS 只存实例
 
 基础验证针对正确性：移表不会破坏字符串/资源引用；删后重加使旧句柄失效；候选不可见；隐藏与禁用独立；层级修改及时生效；Prefab 覆盖、撤销、停止重开及常驻 UI 不退化。`engine.ecs_scene` 原生回归覆盖 10,000 实体、类型查询、移表、层级、失效身份及修改阶段保护。
 
-用户要求的[多对象 ECS 范例](../../../projects/showcase/ecs-many-objects.md)提供 1,000 / 10,000 / 50,000 档位，默认 10,000，支持整体移动、隐藏、激活、换父级、删除重建及返回重进；由 TS MVC 操作同一套公开接口，MCP 回归通过真实 UI 触发。此范例验证功能与生命周期，不把对象数量换算为性能收益；实际执行记录见[测试与范例](../../testing.md)。
+用户要求的[多对象 ECS 范例](../../../projects/showcase/docs/ecs-many-objects.md)提供 1,000 / 10,000 / 50,000 档位，默认 10,000，支持整体移动、隐藏、激活、换父级、删除重建及返回重进；由 TS MVC 操作同一套公开接口，MCP 回归通过真实 UI 触发。此范例验证功能与生命周期，不把对象数量换算为性能收益；实际执行记录见[测试与范例](../../testing.md)。
 
 ## 参考与相关契约
 

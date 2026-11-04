@@ -1,0 +1,11 @@
+--- a/debugdraw/debugdraw.cpp
++++ b/debugdraw/debugdraw.cpp
+@@ -6,7 +6,7 @@
+ #include <bgfx/bgfx.h>
+ #include <bgfx/embedded_shader.h>
+ #include "debugdraw.h"
+-#include "../bgfx_utils.h"
++#include "../transient-buffer-utils.h"
+ #include "../packrect.h"
+ 
+ #include <bx/debug.h>

@@ -57,7 +57,8 @@ bool MaterialResourceCodec::valid_shape(const schema::MaterialDataT& data)
 bool MaterialResourceCodec::validate(const schema::MaterialDataT& data,
                                      const schema::ShaderDataT* shader)
 {
-    if (!valid_shape(data) || shader == nullptr)
+    if (!valid_shape(data) || shader == nullptr ||
+        !resource_codec_detail::valid_builtin_pbr_options(data, *shader))
     {
         return false;
     }

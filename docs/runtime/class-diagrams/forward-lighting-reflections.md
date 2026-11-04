@@ -1,6 +1,6 @@
 # 分簇前向、反射与间接光
 
-[类图索引](../../class-diagrams/index.md) · [现有渲染系统](render-system.md) · [上游实现与适配](../rendering-upstream-plan.md) · [编辑器光照烘焙](../../plugins/editor/class-diagrams/scene-lighting-bake.md)
+[类图索引](../../class-diagrams/index.md) · [现有渲染系统](render-system.md) · [上游实现与适配](../rendering-sources.md) · [编辑器光照烘焙](../../plugins/editor/class-diagrams/scene-lighting-bake.md)
 
 **状态：当前实现契约。** 本图维护分簇与反射相关接口；基础方法以所属类图为准，实际验证范围见[测试文档](../../testing.md)。功能包括分簇前向光照、SSR、平面反射、透明与折射、点光/聚光阴影、静态 Lightmap 和动态对象的光照探针。
 
@@ -61,8 +61,10 @@ classDiagram
     class RenderSystem
     class Light
     class LightSettings
+    class WorldSystem
     RenderSystem *-- RenderConfig : 保存预算值
-    Light *-- LightSettings : 生成数据持有灯参数
+    WorldSystem *-- LightSettings : ECS中的唯一生成参数
+    Light ..> LightSettings : 值句柄校验后读写
     RenderSystem ..> Light : 每帧借用已启用灯
 ```
 
@@ -118,10 +120,7 @@ SSR 参数扩展现有 `PostProcessData` 和渲染设置快照；`set_settings()
 
 ```mermaid
 classDiagram
-    class Material {
-        +blend_mode() BlendMode
-        +set_blend_mode(BlendMode mode) bool
-    }
+    class Material
     class BlendMode {
         <<enumeration>>
         opaque
@@ -147,6 +146,8 @@ classDiagram
     ShaderData *-- ShaderSampler
     ShaderSampler --> ShaderTextureSource
 ```
+
+Material 的混合方法完整签名见[材质](material.md)；MeshRenderer 的烘焙/Lightmap 方法见[基础组件](component.md)，本页只维护新增类型及关系。
 
 `MaterialData.blend_mode` 默认 opaque，沿用现有 Material 的资源与覆盖值生命周期。现有 alpha cutoff 仍负责裁切；本次不将水参数改成材质固定字段。水波法线、IOR、吸收距离/颜色、流速、粗糙度继续通过具名参数设置。
 
@@ -180,13 +181,7 @@ classDiagram
 
 ```mermaid
 classDiagram
-    class MeshRenderer {
-        +bake_static() bool
-        +set_bake_static(bool enabled) bool
-        +lightmap_path() string_view
-        +set_lightmap(string_view path) bool
-        +lightmap_resource() shared_ptr~const Resource~
-    }
+    class MeshRenderer
     class MeshRendererData {
         <<generated additions>>
         +bool bake_static

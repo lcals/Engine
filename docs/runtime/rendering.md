@@ -8,7 +8,7 @@
 
 ## 实现职责
 
-公开参数位于 `include/engine/runtime/render/render_settings.hpp`，只依赖标准库。除平台表面实现外，下表中的私有代码均位于 `src/engine/runtime/render/`：
+公开参数位于 `include/engine/runtime/render/render_settings.hpp`，场景持久参数复用 schema 生成数据。除平台表面实现外，下表中的私有代码均位于 `src/engine/runtime/render/`：
 
 | 文件或目录 | 职责 |
 | --- | --- |
@@ -18,6 +18,31 @@
 | `passes/`、`shaders/` | 共用的阴影、AO、HDR/Bloom 通道与 Shader；IBL 采样沿用共用材质 Shader |
 | `render_surface.*`、`platforms/<platform>/render/` | 表面状态契约、固定后端选择、原生句柄与暂停恢复 |
 | `renderer_callbacks.*` | bgfx 日志回调、截图写入及线程间回执 |
+
+## 上游渲染能力与统一控制
+
+视锥剔除保存为 Camera 的 `frustum_culling_enabled`，静态实例化与静态 LOD 保存为各
+MeshRenderer 的 `static_instancing_enabled` / `static_lod_enabled`，三者默认关闭，项目显式开启。运行时直接读取
+对应组件的生成 ECS 数据；场景、预制体和实例覆盖沿用已有持久化链路，没有另一份全局运行开关。
+TS 通过对应 Camera / MeshRenderer 接口编辑属性，编辑器通过普通组件命令和
+[MCP 渲染功能入口](../plugins/editor/mcp.md#渲染功能统一入口) 操作。
+
+线框、调试线、包围盒、相机视锥及统计显示默认关闭，仅由 MCP 临时开启/关闭，不写组件或场景。
+`RenderSystem::feature_state()` 只读汇总当前组件请求、设备支持和最近成功提交的生效状态；
+选中组件属性与全场景提交统计分开报告，不把别的对象成功合批说成选中对象生效。
+showcase 的 **Rendering features and submission** 页面通过组件属性提供运行效果对照；逐视图提交计数由 MCP 的 `get_render_submission_stats` 查询。
+
+剔除依据各实际视图和动态更新的保守包围盒；实例化只合并具备正式实例顶点变体、材质和光照绑定兼容的
+不透明静态网格，缓冲不足保留逐对象路径。静态 LOD 在源 `.meta` 中配置，经 meshoptimizer 离线生成，
+运行时按屏幕占比与滞回选层；透明、变形、蒙皮、绑定 Lightmap 的对象及捕获保持 LOD0。
+Frame/View uniform 使用 bgfx API 167 正式频率接口，不提供假效果开关。
+
+大气天空由场景 `EnvironmentComponent` 的 `atmosphere_enabled` 和显式方向太阳控制，复用 bgfx 53-sky2
+的 LUT 与散射积分，输出线性 HDR 后由引擎统一曝光和显示映射。它不会自动生成动态 IBL。
+Hex-Tiling 通过内置不透明 PBR 的 `hexTilingEnabled`、`hexTilingRotation`、`hexTilingContrast` 具名参数开启；
+共用颜色、法线、ORM 的坐标、梯度和混合权重，默认关闭。完整契约、来源和限制见
+[上游能力接入](upstream-rendering-features.md)、[静态 LOD](../editor/static-model-lod.md)及
+[大气与 Hex](atmosphere-hex.md)。实际平台和图像验收见[测试文档](../testing.md)。
 
 CSM、AO、HDR、Bloom 和 IBL 在各平台使用同一套通道与 Shader 源码，经 `shaderc` 编译到对应后端。平台实现负责后端与表面适配，效果中的必要能力检查依据实际访问契约处理，例如 AO 在 Metal 上的纹理访问判据。能力不足时明确返回失败，不静默丢弃已开启的效果。共用实现不代表已经完成全平台实测；具体执行范围见[验证记录](../testing.md)。
 
@@ -111,7 +136,7 @@ Tracy、CPU/GPU 统计及采集工具统一见[性能采样](performance.md)；�
 
 脚本 `EnvironmentComponent.SetAmbientTricolor(sky, equator, ground, intensity)` 接受三个线性 `[r,g,b]` 数组；`SetAmbient()` 切回单色环境光。`EnvironmentComponent.SetLinearFog(enabled, r, g, b, start, end)` 要求 `0 <= start < end`；`EnvironmentComponent.SetExponentialFog(enabled, r, g, b, density, squared=false)` 在 `squared=true` 时使用平方指数雾。MCP `set_render_settings` 对应字段为 `ambientTricolor`、`ambientSkyColor`、`ambientEquatorColor`、`ambientGroundColor`、`fogMode`、`fogColor`、`fogStart`、`fogEnd`、`fogDensity`，并保留 `linearFog` 兼容入口。
 
-项目初值保存到 `.scene`。脚本通过 `Node.GetComponent` / `AddComponent` 访问[渲染组件接口](../plugins/runtime/class-diagrams/render-script-api.md)，并检查各方法返回值；脚本修改不自动写入磁盘。`Render` 静态门面只保留视口尺寸与 VSync。每个组件独立校验，一次无效提交保留该组件原有设置。编辑器 MCP `set_render_settings` 可按需创建环境节点和相机后处理组件，修改进入撤销历史及未保存状态，再由 `save_scene` 落盘。曝光、AO、HDR 与 Bloom 修改要求已有活动相机，开启阴影要求已有方向光。脚本清屏色为 `0xRRGGBBAA` 无符号整数，MCP 对应参数为归一化 `[r,g,b,a]` 数组，通道顺序相同。
+项目初值保存到 `.scene`。脚本通过 `Node.GetComponent` / `AddComponent` 访问[渲染组件接口](../plugins/runtime/class-diagrams/render-script-api.md)，并检查各方法返回值；脚本修改不自动写入磁盘。`Render` 静态门面提供视口尺寸、VSync、MSAA 与最大各向异性等显示设备设置，不再写入场景效果。每个组件独立校验，一次无效提交保留该组件原有设置。编辑器 MCP `set_render_settings` 可按需创建环境节点和相机后处理组件，修改进入撤销历史及未保存状态，再由 `save_scene` 落盘。曝光、AO、HDR 与 Bloom 修改要求已有活动相机，开启阴影要求已有方向光。脚本清屏色为 `0xRRGGBBAA` 无符号整数，MCP 对应参数为归一化 `[r,g,b,a]` 数组，通道顺序相同。
 
 ```toml
 [[nodes]]
@@ -133,9 +158,24 @@ clear_color = 0x7496b0ff
 
 相机节点可追加 `type = "post_process"`、`exposure = 1.05`、`filmic_tonemap = true` 的组件；方向光组件可设置 `cast_shadows = true`、`shadow_resolution = 4096`、`shadow_bias = 0.0015`、`shadow_cascades = 4`、`shadow_distance = 150`、`shadow_split_lambda = 0.6`、`shadow_cascade_blend = 0.1`。详细接口见[环境与后处理类图](class-diagrams/environment-components.md)及[渲染类图](class-diagrams/render-system.md)。
 
-`.scene` 的组件类型分别为 `environment`、`post_process`、`light`，由同一份 FlatBuffers 生成数据承载导入、保存、重载与运行。天空使用普通网格和材质。
+`.scene` 的组件类型分别为 `environment`、`post_process`、`light`，由同一份 FlatBuffers 生成数据承载导入、保存、重载与运行。物理大气天空由 `EnvironmentComponent.SetAtmosphere(enabled, sun, parameters)` 控制：`sun` 必须引用同场景方向光节点，参数沿用 sky2 的公里单位约定，默认关闭。项目自定义背景仍可使用普通网格与材质；两种方式的资源和绘制契约分别保留，见[大气天空](atmosphere-hex.md)。
 
-`Render.Set*` 修改已有组件，缺少对应组件返回 false。推荐先加载场景，再通过 `Node.GetComponent` 修改；需要新组件时由项目显式 `AddComponent`。场景初值应写入 `.scene`，不能在 `Scene.Load` 前设置并期待跨场景继承。聚合阴影接口优先操作当前投影的方向光，否则选择首个启用方向光；关闭投影后查询可能显示首灯的参数，逐灯修改使用 `Light`。
+项目先加载或创建场景，再通过 `Node.GetComponent` 取得具体组件；缺少组件时显式 `AddComponent`。场景初值应写入 `.scene`，不能在 `Scene.Load` 前设置环境并期待跨场景继承。脚本对明确的 `Light` 修改阴影；编辑器聚合阴影快照优先选择当前投影的方向光，否则读取首个启用方向光，不能据此推断另一个灯的配置。
+
+## 显示设备设置
+
+这些设置作用于渲染设备和视口，独立于场景组件；切换场景不将它们当作场景效果继承，也不写入 `.scene` 或预制体。脚本通过已有 `Render` 服务访问，项目设置页面使用 Storage 显式保存与恢复用户选项。
+
+| 脚本接口 | 语义 |
+| --- | --- |
+| `GetViewportSize()` | 读取实际渲染视口像素尺寸；渲染器未就绪时返回 null |
+| `SetVSync(enabled)` / `GetVSync()` | 设置、读取已接受的垂直同步请求；读回不代表实际呈现时序测量 |
+| `SupportsMsaaSamples(samples)` | 查询当前设备和场景离屏目标共同支持的 1/2/4/8 档位；1 表示关闭 |
+| `SetMsaaSamples(samples)` / `GetMsaaSamples()` | 作用于实际几何目标与 resolve；不支持或非法请求返回 false，保留原值 |
+| `SupportsMaxAnisotropy()` | 查询当前图形设备是否可用且支持最大各向异性过滤 |
+| `SetMaxAnisotropy(enabled)` / `GetMaxAnisotropy()` | 在后续可绘制帧更新材质采样器的最大各向异性过滤，参数是开关而非任意倍率 |
+
+MSAA 默认为 1，最大各向异性默认关闭，VSync 默认开启。设备未初始化时读取/能力查询按接口报告不可用，项目不得通过隐藏不支持档位之外的补偿参数伪造生效。原生契约见[RenderSystem](class-diagrams/render-system.md)，已实现脚本声明见 [engine.d.ts](../../include/engine.d.ts)。
 
 ## 阴影与级联
 
@@ -157,7 +197,7 @@ CSM 参考引入时固定的 [bgfx `16-shadowmaps`](https://github.com/bkaradzic
 
 ## 分簇光照、反射、水面与静态间接光
 
-实现沿用 RenderSystem、普通组件、材质资源与 scene_bake 插件；来源、固定版本和限制见[上游适配记录](rendering-upstream-plan.md)。
+实现沿用 RenderSystem、普通组件、材质资源与 scene_bake 插件；来源、固定版本和限制见[上游适配记录](rendering-sources.md)。
 
 - 灯光使用全视锥深度分簇，透明面按自身深度取灯；局部簇超预算时遍历完整灯列表，保持照明正确。项目 `settings/parallel.toml` 的 `[defaults.render]` 配置预算，移动端覆盖使用 `[profiles.mobile.render]`，运行包读取汇总设置中的 `parallel.render`。
 - 相机 `PostProcessComponent.SetScreenSpaceReflections(enabled, resolutionScale?, maxSteps?, maxDistance?, thickness?, roughnessCutoff?)` 开启 SSR；材质法线、粗糙度与 F0 来自共享表面 Shader。SSR 命中时替换 IBL 镜面的线性 split-sum 子项，其余环境反射近似保留；未命中保留原环境反射。没有启用 IBL 时，SSR 使用 DFG 拟合计算屏幕反射，不依赖残留的烘焙 LUT。首版没有时序降噪，屏幕外对象使用平面捕获或 IBL。
@@ -187,15 +227,15 @@ Metal 能力检查沿用上游实际访问契约：本通道的 R16F、RGBA8、R
 
 ## HDR 场景合成与 Bloom
 
-线性场景颜色的 alpha 是不透明色调映射权重（PBR/Blinn 为 1、unlit/背景为 0），SSR 原样保留。受光照透明表面按覆盖度加入权重；透明 unlit 和 3D 字体只按覆盖度衰减已有权重，不添加自身权重。HDR 开启时统一色调映射，关闭时保留 unlit 与字体的原有色彩；最终 gamma 转换只有一次。这个单通道权重是混合像素的近似：lit 与 unlit 的半透明叠加或加色特效不能分别在映射前后精确合成，本轮不引入额外分层颜色目标。
+线性场景颜色的 alpha 是不透明色调映射权重（PBR/Blinn 为 1、unlit/背景为 0），SSR 原样保留。受光照透明表面按覆盖度加入权重；透明 unlit 和 3D 字体只按覆盖度衰减已有权重，不添加自身权重。HDR 开启时统一色调映射，关闭时保留 unlit 与字体的原有色彩；最终显示转换只有一次，使用标准分段 sRGB 编码。这个单通道权重是混合像素的近似：lit 与 unlit 的半透明叠加或加色特效不能分别在映射前后精确合成，本轮不引入额外分层颜色目标。
 
 HDR 与 Bloom 适配固定 bgfx commit `7a70927d2af7ffcc5cef9c9e8f4c821e31fcb099` 的 [09-hdr](https://github.com/bkaradzic/bgfx/tree/7a70927d2af7ffcc5cef9c9e8f4c821e31fcb099/examples/09-hdr)，使用其全屏绘制和多通道组织、九次采样亮部提取、纵向 `blur9`、横向 `blur9` 与合成流程。保留 `blur9` 权重 `1 / 0.9 / 0.55 / 0.18 / 0.1` 和 `4.46` 归一化；适配为中心对称 3×3 提取核、线性 RGBA16F 中间值、一次最终输出转换及引擎资源生命周期。源码、调整说明和 BSD-2-Clause 许可见 [HDR 来源](../../third_party/notices/bgfx-hdr.md)。
 
-`HdrPostProcessPass` 是渲染私有实现。场景始终以线性 RGBA16F 中间目标完成反射和透明合成：不透明主程序同时保存 IBL 镜面贡献，SSR 输出独立颜色；透明读取冻结场景颜色并写另一个颜色目标，保留不透明深度测试且不写深度。特效与 3D 字体合入之后，Bloom 可选执行亮部提取与双轴模糊，最终统一曝光、Reinhard/ACES 和 gamma 编码，UI 随后绘制。
+`HdrPostProcessPass` 是渲染私有实现。场景始终以线性 RGBA16F 中间目标完成反射和透明合成：不透明主程序同时保存 IBL 镜面贡献，SSR 输出独立颜色；透明读取冻结场景颜色并写另一个颜色目标，保留不透明深度测试且不写深度。特效与 3D 字体合入之后，Bloom 可选执行亮部提取与双轴模糊，最终统一曝光、Reinhard/ACES 和标准分段 sRGB 编码，UI 随后绘制。
 
 HDR 指场景内部保留高于 1 的线性亮度，最终交换链和截图仍输出 SDR，没有 HDR 显示器色域或输出编码。曝光由已有参数显式控制，未引入上游的亮度测量、平均亮度贴图或自动曝光；Bloom 阈值在曝光前应用。清屏 RGBA8 的 RGB 先按原显示编码解码为线性值，再与场景共同进入最终输出。UI 在 View 200 绘制，不进入场景 HDR 目标，不受场景曝光、色调映射或 Bloom 影响。
 
-项目表面 Shader 必须遵守 `u_tonemap`：`x` 为曝光、`y` 为 ACES 开关、`z > 0.5` 表示本帧要求原始线性颜色。此时 Shader 只输出线性场景结果，不执行曝光、色调映射或 gamma；内置 Shader 将 RGB 限制在 RGBA16F 有限范围 `[0,65504]`。自定义字体 Shader 的 `u_font_texture.xy` 仍为曲线纹理尺寸，`z > 0.5` 表示线性 HDR 输出，需保留覆盖率与预乘 alpha 语义；内置实现先解码未预乘颜色，再重新预乘。UI 字体的该标志为 0。Shader 若忽略此契约会产生重复转换，声明普通材质参数不会自动修复。
+项目表面 Shader 必须遵守 `u_tonemap`：`x` 为曝光、`y` 为 ACES 开关、`z > 0.5` 表示本帧要求原始线性颜色。此时 Shader 只输出线性场景结果，不执行曝光、色调映射或显示编码；内置 Shader 将 RGB 限制在 RGBA16F 有限范围 `[0,65504]`。自定义字体 Shader 的 `u_font_texture.xy` 仍为曲线纹理尺寸，`z > 0.5` 表示线性 HDR 输出，需保留覆盖率与预乘 alpha 语义；内置实现先解码未预乘颜色，再重新预乘。UI 字体的该标志为 0。Shader 若忽略此契约会产生重复转换，声明普通材质参数不会自动修复。
 
 参数由活动场景相机的 `PostProcessData` 保存，预览隐藏镜头只提供观察视角，沿用同一份参数：
 
@@ -235,7 +275,7 @@ Android 在 Surface 暂停或销毁前由宿主请求关闭渲染器并等待确
 
 ## 能力范围
 
-支持不透明/裁切/排序透明网格、双面材质、分簇多光源、方向/点/聚光阴影、SSR、镜像相机平面反射、普通水材质、Lightmap 与 SH9 探针、IBL/AO、GPU 蒙皮、雾、HDR 中间缓冲与 Bloom，最终输出 SDR。实际验证范围见[验证记录](../testing.md)。尚无 HDR 显示器输出、自动曝光、时序 SSR 降噪、自动局部反射立方探针、逐像素透明排序或动态 GI。
+支持不透明/裁切/排序透明网格、双面材质、逐视图自动视锥剔除、静态实例化与离线 LOD、分簇多光源、方向/点/聚光阴影、SSR、镜像相机平面反射、普通水材质、Lightmap 与 SH9 探针、IBL/AO、GPU 蒙皮、大气天空、PBR Hex-Tiling、雾、HDR 中间缓冲与 Bloom，最终输出 SDR。实际验证范围见[验证记录](../testing.md)。尚无 HDR 显示器输出、自动曝光、时序 SSR 降噪、自动局部反射立方探针、逐像素透明排序或动态 GI。
 
 窗口测试覆盖真实后端、空白帧、无光照/PBR 提交、缩放、重复启停、场景替换及延迟回收后 GPU 对象回到待机基线。GPU 测试读取实际截图像素检查 UV、sRGB/线性、动态几何、多灯累加与阴影差异，并验证 PNG 签名、异步截图回执和写入失败。实际执行范围见[验证记录](../testing.md)；软件 Vulkan 验证不代表真机 GPU 性能。
 

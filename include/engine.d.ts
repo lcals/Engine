@@ -444,6 +444,8 @@ declare module "engine" {
         GetWorldForward(): Vector3 | null;
     }
     export class Camera extends Component {
+        readonly frustumCullingEnabled: boolean;
+        SetFrustumCulling(enabled: boolean): boolean;
         private constructor();
         SetPerspective(fovDegrees: number, nearClip: number, farClip: number): boolean;
         /** Size is the vertical half-height in world units. */
@@ -453,9 +455,28 @@ declare module "engine" {
         /** Top-left normalized coordinates; rays start on the near plane with unit direction. */
         ViewportPointToRay(u: number, v: number, aspect: number): Ray | null;
     }
+    /** Physical atmosphere parameters, in the upstream sky2 kilometre convention. */
+    export interface AtmosphereParameters {
+        groundHeight?: number;
+        rayleighScattering?: readonly [number, number, number];
+        rayleighScaleHeight?: number;
+        mieScattering?: number;
+        mieAbsorption?: number;
+        mieScaleHeight?: number;
+        mieAnisotropy?: number;
+        ozoneAbsorption?: readonly [number, number, number];
+        ozoneCenterHeight?: number;
+        ozoneHalfWidth?: number;
+        planetRadius?: number;
+        height?: number;
+        groundAlbedo?: readonly [number, number, number];
+        multiscatterStrength?: number;
+    }
     /** Scene-wide environment parameters, stored with the scene. */
     export class EnvironmentComponent extends Component {
         private constructor();
+        /** The directional sun must belong to this scene. Parameters patch the current values. */
+        SetAtmosphere(enabled: boolean, sun?: Node | null, parameters?: AtmosphereParameters): boolean;
         /** Uses the scene's precomputed IBL maps; baking does not change this switch. */
         SetIbl(enabled: boolean, intensity?: number): boolean;
         SetAmbient(r: number, g: number, b: number, intensity: number): boolean;
@@ -544,6 +565,10 @@ declare module "engine" {
         SetSpot(range: number, innerAngle: number, outerAngle: number): boolean;
     }
     export class MeshRenderer extends Component {
+        readonly staticInstancingEnabled: boolean;
+        SetStaticInstancing(enabled: boolean): boolean;
+        readonly staticLodEnabled: boolean;
+        SetStaticLod(enabled: boolean): boolean;
         private constructor();
         readonly material: Material;
         readonly materialCount: number;

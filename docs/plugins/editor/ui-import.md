@@ -1,6 +1,6 @@
-# UI 文档导入插件
+# UI 文档导入
 
-`editor/ui_import` 把 `.rml` 导入为独立 UI 资源。运行时由普通场景 `Node` 挂载 `UiComponent`，组件引用这个资源；文档内部的控件不展开为场景节点。
+统一 `editor/asset_import` 插件内的 UiImporter 把 `.rml` 导入为独立 UI 资源；插件选择与装配见[统一资源导入](asset-import.md)。运行时由普通场景 `Node` 挂载 `UiComponent`，组件引用这个资源；文档内部的控件不展开为场景节点。
 
 源文件保留 RmlUi 标记，样式使用文档内 `<style>` 或元素 `style` 属性。相邻 `.rml.meta` 声明所需字体和纹理：
 
@@ -34,8 +34,8 @@ UI 生成物是 `cache/gen/<源GUID>`，包含文档标记、`UiFontBinding` 列
 - 文档最多 1 MiB；属性值需要引号。
 - 支持内嵌 RCSS 和 `<img src="textures/example.png">`；图片只能使用 meta 已声明的纹理路径或 GUID。
 - 外部 `<link>`、`<script>`、`<template>`、CSS `@import`、`@font-face`、`@spritesheet`、`url()`、`fill-image` 与图片装饰器暂不接入，导入时明确失败，避免未登记的运行时文件依赖。
-- 当前不接入脚本数据模型、脚本事件绑定和场景跳转业务。UI 文档中的按钮与控件可以先完成布局、输入和状态展示，业务在后续脚本组件阶段接入。
+- 文档不嵌入脚本、项目 Model 或场景跳转规则。现有 Gameplay 与 `UiController<T>` 已提供 MVC 业务入口：Controller 订阅 `UiComponent` / `UiElement` 事件并显式刷新 View，细节见[运行时 UI](../../runtime/ui.md#mvc-与支持范围)。
 
-本插件只处理编辑器导入，不依赖字体导入的具体实现，也不在编辑器基础库登记自己；可执行宿主根据 CMake 插件选择完成装配。
+UiImporter 只处理编辑器导入，不调用 FontImporter 的具体实现，也不在编辑器基础库登记自己；可执行宿主根据 CMake 插件选择完成装配。
 
 架构入口：[UI 导入类图](class-diagrams/ui-importer.md)。

@@ -100,13 +100,13 @@
       ]
     },
     "font-import": {
-      "description": "Optional editor TrueType font import plugin",
+      "description": "TrueType/OpenType support for the editor asset import plugin",
       "dependencies": [
         "freetype"
       ]
     },
     "usd-import": {
-      "description": "Optional editor USD model import plugin",
+      "description": "USD model support for the editor asset import plugin",
       "dependencies": [
         "usd"
       ]

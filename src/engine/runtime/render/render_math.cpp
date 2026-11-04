@@ -1,6 +1,7 @@
 #include "runtime/render/render_math.hpp"
 
 #include <bgfx/bgfx.h>
+#include <bx/bounds.h>
 #include <bx/math.h>
 
 #include <algorithm>
@@ -10,6 +11,77 @@
 
 namespace engine::render_detail
 {
+
+bool build_frustum_planes(const float* view, const float* projection, bool homogeneous,
+                          FrustumPlanes& output) noexcept
+{
+    output = {};
+    if (!view || !projection || !finite_matrix(view) || !finite_matrix(projection))
+    {
+        return false;
+    }
+    float combined[16];
+    bx::mtxMul(combined, view, projection);
+    std::array<bx::Plane, 6> extracted{bx::InitZero, bx::InitZero, bx::InitZero,
+                                       bx::InitZero, bx::InitZero, bx::InitZero};
+    // bx da136837, bounds.cpp: canonical depth-range-aware plane extraction.
+    bx::buildFrustumPlanes(extracted.data(), combined, homogeneous);
+    for (std::size_t index = 0; index < extracted.size(); ++index)
+    {
+        const auto& plane = extracted[index];
+        output[index] = {plane.normal.x, plane.normal.y, plane.normal.z, plane.dist};
+        if (!std::all_of(output[index].begin(), output[index].end(),
+                         [](float value) { return std::isfinite(value); }))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool aabb_visible(const FrustumPlanes& planes, const float* model,
+                  const std::array<float, 3>& minimum, const std::array<float, 3>& maximum) noexcept
+{
+    // Unknown/degenerated bounds are visible. The test must never remove content
+    // merely because its bounds could not be proved conservative.
+    if (!model || !finite_matrix(model))
+    {
+        return true;
+    }
+    std::array<double, 3> center{}, extent{};
+    for (std::size_t axis = 0; axis < 3; ++axis)
+    {
+        if (!std::isfinite(minimum[axis]) || !std::isfinite(maximum[axis]) ||
+            minimum[axis] > maximum[axis])
+        {
+            return true;
+        }
+        center[axis] = (static_cast<double>(minimum[axis]) + maximum[axis]) * 0.5;
+        extent[axis] = (static_cast<double>(maximum[axis]) - minimum[axis]) * 0.5;
+    }
+    for (const auto& plane : planes)
+    {
+        double distance = plane[3], radius = 0;
+        for (std::size_t axis = 0; axis < 3; ++axis)
+        {
+            double local_normal = 0;
+            for (std::size_t world_axis = 0; world_axis < 3; ++world_axis)
+            {
+                local_normal +=
+                    static_cast<double>(plane[world_axis]) * model[axis * 4 + world_axis];
+            }
+            distance +=
+                local_normal * center[axis] + static_cast<double>(plane[axis]) * model[12 + axis];
+            radius += std::abs(local_normal) * extent[axis];
+        }
+        const double tolerance = 0.00001 * (std::abs(distance) + radius + 1.0);
+        if (std::isfinite(distance) && std::isfinite(radius) && distance + radius < -tolerance)
+        {
+            return false;
+        }
+    }
+    return true;
+}
 
 bool projection_camera_settings(const float* projection, float aspect, bool homogeneous,
                                 CameraSettings& output)

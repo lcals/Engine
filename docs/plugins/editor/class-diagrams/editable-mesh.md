@@ -7,15 +7,16 @@
 ```mermaid
 classDiagram
     class EditableMesh {
-        +validate(EditableMeshDataT data, string error) bool
-        +compile(EditableMeshDataT data, string_view path, MeshDataT output, string error) bool
-        +from_mesh(MeshDataT data, EditableMeshDataT output, string error) bool
-        +serialize(EditableMeshDataT data, ByteVector output, string error) bool
-        +deserialize(ByteSpan bytes, EditableMeshDataT output, string error) bool
-        +find_vertex(EditableMeshDataT data, uint64 id) ModelingVertex
-        +find_face(EditableMeshDataT data, uint64 id) ModelingFaceT
-        +selected_vertices(EditableMeshDataT data, MeshSelection selection, IdVector output, string error) bool
-        +triangulate_face(EditableMeshDataT data, ModelingFaceT face, IndexVector output, string error) bool
+        +validate(const EditableMeshDataT& data, string& error) bool$
+        +compile(const EditableMeshDataT& data, string_view path, MeshDataT& output, string& error) bool$
+        +from_mesh(const MeshDataT& data, EditableMeshDataT& output, string& error) bool$
+        +serialize(const EditableMeshDataT& data, vector~uint8_t~& output, string& error) bool$
+        +deserialize(span~const uint8_t~ bytes, EditableMeshDataT& output, string& error) bool$
+        +find_vertex(const EditableMeshDataT& data, uint64_t id) const ModelingVertex*$
+        +find_face(EditableMeshDataT& data, uint64_t id) ModelingFaceT*$
+        +find_face(const EditableMeshDataT& data, uint64_t id) const ModelingFaceT*$
+        +selected_vertices(const EditableMeshDataT& data, const MeshSelection& selection, vector~uint64_t~& output, string& error) bool$
+        +triangulate_face(const EditableMeshDataT& data, const ModelingFaceT& face, vector~uint32_t~& output, string& error) bool$
     }
     class EditableMeshDataT
     class ModelingVertex

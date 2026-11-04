@@ -100,9 +100,9 @@ if(TARGET engine_audio)
     set_tests_properties(engine.audio PROPERTIES TIMEOUT 60)
 endif()
 
-if(TARGET engine_ui_editor AND TARGET engine_font_import)
+if(TARGET engine_ui_editor AND TARGET engine_asset_import)
     add_executable(engine_ui_editor_test plugins/editor/ui/ui_editor_test.cpp)
-    target_link_libraries(engine_ui_editor_test PRIVATE engine::ui_editor engine::font_import
+    target_link_libraries(engine_ui_editor_test PRIVATE engine::ui_editor engine::asset_import
         engine::render engine::font engine::input engine::world engine::resource SDL3::SDL3)
     target_include_directories(engine_ui_editor_test PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
     engine_apply_options(engine_ui_editor_test)
@@ -397,6 +397,19 @@ if(TARGET editor_app)
 endif()
 
 if(ENGINE_ENABLE_RUNTIME_DEPS)
+    add_executable(engine_mesh_lod_selection_test runtime/render/mesh_lod_selection_test.cpp)
+    target_include_directories(engine_mesh_lod_selection_test
+                               PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+    target_link_libraries(engine_mesh_lod_selection_test PRIVATE engine::render)
+    engine_apply_options(engine_mesh_lod_selection_test)
+    add_test(NAME runtime.mesh_lod_selection COMMAND engine_mesh_lod_selection_test)
+
+    add_executable(engine_frustum_culling_test runtime/render/frustum_culling_test.cpp)
+    target_include_directories(engine_frustum_culling_test PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+    target_link_libraries(engine_frustum_culling_test PRIVATE engine::render bgfx::bx)
+    engine_apply_options(engine_frustum_culling_test)
+    add_test(NAME runtime.frustum_culling COMMAND engine_frustum_culling_test)
+
     add_executable(engine_planar_reflection_test runtime/render/planar_reflection_test.cpp)
     target_include_directories(engine_planar_reflection_test PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
     target_link_libraries(engine_planar_reflection_test PRIVATE engine::render bgfx::bx)
@@ -521,6 +534,24 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
 endif()
 
 if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
+    add_executable(engine_mesh_lod_test editor/mesh/mesh_lod_test.cpp)
+    target_include_directories(engine_mesh_lod_test PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+    get_target_property(_mesh_lod_test_toml_includes tomlplusplus::tomlplusplus
+                        INTERFACE_INCLUDE_DIRECTORIES)
+    target_include_directories(engine_mesh_lod_test SYSTEM PRIVATE ${_mesh_lod_test_toml_includes})
+    target_compile_definitions(engine_mesh_lod_test PRIVATE TOML_HEADER_ONLY=1 TOML_EXCEPTIONS=0)
+    target_link_libraries(engine_mesh_lod_test PRIVATE engine_editor_mesh engine::resource)
+    engine_apply_options(engine_mesh_lod_test)
+    add_test(NAME editor.mesh_lod COMMAND engine_mesh_lod_test)
+    if(TARGET engine_editor)
+        add_executable(engine_mesh_lod_pipeline_test editor/asset_pipeline/mesh_lod_pipeline_test.cpp)
+        target_link_libraries(engine_mesh_lod_pipeline_test
+                              PRIVATE engine::editor engine::asset_pipeline engine::resource)
+        engine_apply_options(engine_mesh_lod_pipeline_test)
+        add_test(NAME editor.mesh_lod_pipeline COMMAND engine_mesh_lod_pipeline_test)
+        set_tests_properties(editor.mesh_lod_pipeline PROPERTIES TIMEOUT 120)
+    endif()
+
     add_executable(engine_mesh_pipeline_test editor/asset_pipeline/mesh_pipeline_test.cpp)
     target_link_libraries(engine_mesh_pipeline_test PRIVATE engine::asset_pipeline engine::resource)
     engine_apply_options(engine_mesh_pipeline_test)
@@ -645,8 +676,8 @@ if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
             "${CMAKE_CURRENT_SOURCE_DIR}/editor/asset_pipeline/asset_tools_test.cmake")
     set_tests_properties(engine.asset_tools PROPERTIES TIMEOUT 100)
 
-    if(TARGET engine_usd_import)
-        add_executable(engine_usd_test plugins/editor/usd_import/usd_test.cpp)
+    if(TARGET engine_asset_import)
+        add_executable(engine_usd_test plugins/editor/asset_import/usd_test.cpp)
         target_compile_features(engine_usd_test PRIVATE cxx_std_20)
         target_link_libraries(engine_usd_test PRIVATE engine::core engine_usd_sdk)
         engine_apply_options(engine_usd_test)
@@ -845,9 +876,9 @@ if(TARGET engine_animation)
     engine_apply_options(engine_animation_test)
     add_test(NAME engine.animation COMMAND engine_animation_test)
 endif()
-if(TARGET engine_fbx_import)
-    add_executable(engine_fbx_pipeline_test plugins/editor/fbx_import/fbx_pipeline_test.cpp)
-    target_link_libraries(engine_fbx_pipeline_test PRIVATE engine::fbx_import engine::resource)
+if(TARGET engine_asset_import)
+    add_executable(engine_fbx_pipeline_test plugins/editor/asset_import/fbx_pipeline_test.cpp)
+    target_link_libraries(engine_fbx_pipeline_test PRIVATE engine::asset_import engine::resource)
     if(TARGET engine_asset_build)
         target_link_libraries(engine_fbx_pipeline_test PRIVATE engine::asset_build)
         target_compile_definitions(engine_fbx_pipeline_test PRIVATE ENGINE_FBX_TEST_BUILD=1)
@@ -862,8 +893,8 @@ if(TARGET engine_fbx_import)
     engine_apply_options(engine_fbx_pipeline_test)
     add_test(NAME editor.fbx_pipeline COMMAND engine_fbx_pipeline_test)
 
-    add_executable(engine_fbx_bind_pose_test plugins/editor/fbx_import/fbx_bind_pose_test.cpp)
-    target_link_libraries(engine_fbx_bind_pose_test PRIVATE engine::fbx_import engine_ufbx)
+    add_executable(engine_fbx_bind_pose_test plugins/editor/asset_import/fbx_bind_pose_test.cpp)
+    target_link_libraries(engine_fbx_bind_pose_test PRIVATE engine::asset_import engine_ufbx)
     target_include_directories(engine_fbx_bind_pose_test PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
     target_compile_definitions(
         engine_fbx_bind_pose_test
@@ -873,9 +904,9 @@ if(TARGET engine_fbx_import)
     add_test(NAME editor.fbx_bind_pose COMMAND engine_fbx_bind_pose_test)
 endif()
 
-if(TARGET engine_font_import)
-    add_executable(engine_font_pipeline_test plugins/editor/font_import/font_pipeline_test.cpp)
-    target_link_libraries(engine_font_pipeline_test PRIVATE engine::font_import engine::resource)
+if(TARGET engine_asset_import)
+    add_executable(engine_font_pipeline_test plugins/editor/asset_import/font_pipeline_test.cpp)
+    target_link_libraries(engine_font_pipeline_test PRIVATE engine::asset_import engine::resource)
     engine_apply_options(engine_font_pipeline_test)
     add_test(NAME editor.font_pipeline
              COMMAND engine_font_pipeline_test
@@ -883,16 +914,16 @@ if(TARGET engine_font_import)
     set_tests_properties(editor.font_pipeline PROPERTIES TIMEOUT 120)
 endif()
 
-if(TARGET engine_json_import)
-    add_executable(engine_json_importer_test plugins/editor/json_import/json_importer_test.cpp)
-    target_link_libraries(engine_json_importer_test PRIVATE engine::json_import engine::resource)
+if(TARGET engine_asset_import)
+    add_executable(engine_json_importer_test plugins/editor/asset_import/json_importer_test.cpp)
+    target_link_libraries(engine_json_importer_test PRIVATE engine::asset_import engine::resource)
     engine_apply_options(engine_json_importer_test)
     add_test(NAME editor.json_importer COMMAND engine_json_importer_test)
 endif()
 
-if(TARGET engine_ui_import AND TARGET engine_font_import)
-    add_executable(engine_ui_pipeline_test plugins/editor/ui_import/ui_pipeline_test.cpp)
-    target_link_libraries(engine_ui_pipeline_test PRIVATE engine::ui_import engine::font_import
+if(TARGET engine_asset_import)
+    add_executable(engine_ui_pipeline_test plugins/editor/asset_import/ui_pipeline_test.cpp)
+    target_link_libraries(engine_ui_pipeline_test PRIVATE engine::asset_import
                                                           engine::resource bgfx::bimg)
     engine_apply_options(engine_ui_pipeline_test)
     add_test(NAME editor.ui_pipeline
@@ -901,8 +932,7 @@ if(TARGET engine_ui_import AND TARGET engine_font_import)
     set_tests_properties(editor.ui_pipeline PROPERTIES TIMEOUT 120)
 endif()
 
-if(TARGET engine_ui_import
-   AND TARGET engine_font_import
+if(TARGET engine_asset_import
    AND TARGET engine_ui
    AND TARGET engine_font
    AND TARGET engine_render
@@ -911,8 +941,7 @@ if(TARGET engine_ui_import
     add_executable(engine_font_ui_render_test runtime/ui/font_ui_render_test.cpp)
     target_link_libraries(
         engine_font_ui_render_test
-        PRIVATE engine::ui_import
-                engine::font_import
+        PRIVATE engine::asset_import
                 engine::resource
                 engine::world
                 engine::window
@@ -964,9 +993,9 @@ if(TARGET engine_character_controller)
     endif()
 endif()
 
-if(TARGET engine_usd_import AND TARGET engine_fbx_import)
-    add_executable(engine_usd_pipeline_test plugins/editor/usd_import/usd_pipeline_test.cpp)
-    target_link_libraries(engine_usd_pipeline_test PRIVATE engine::usd_import engine::fbx_import
+if(TARGET engine_asset_import)
+    add_executable(engine_usd_pipeline_test plugins/editor/asset_import/usd_pipeline_test.cpp)
+    target_link_libraries(engine_usd_pipeline_test PRIVATE engine::asset_import
                                                            engine::resource)
     target_compile_definitions(
         engine_usd_pipeline_test
@@ -983,8 +1012,7 @@ if(TARGET engine_animation)
     add_test(NAME engine.model_resource COMMAND engine_model_resource_test)
 endif()
 if(TARGET engine_script
-   AND TARGET engine_ui_import
-   AND TARGET engine_font_import
+   AND TARGET engine_asset_import
    AND TARGET engine_ui
    AND TARGET engine_font
    AND TARGET engine_render)
@@ -994,8 +1022,7 @@ if(TARGET engine_script
         PRIVATE engine::script
                 engine::app
                 engine::log
-                engine::ui_import
-                engine::font_import
+                engine::asset_import
                 engine::resource
                 engine::world
                 engine::window
@@ -1244,6 +1271,20 @@ if(TARGET engine_asset_pipeline)
 endif()
 
 if(TARGET engine_scene_bake)
+    # This executable deliberately neither links nor constructs the optional dependency loader.
+    add_executable(engine_scene_bake_core_loader_test
+                   plugins/editor/scene_bake/core_loader_gpu_test.cpp)
+    target_link_libraries(engine_scene_bake_core_loader_test PRIVATE engine::scene_bake
+        engine::render engine::window engine::world engine::resource engine::task SDL3::SDL3
+        bgfx::bgfx bgfx::bx)
+    target_include_directories(engine_scene_bake_core_loader_test
+        PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+    engine_apply_options(engine_scene_bake_core_loader_test)
+    if(ENGINE_ENABLE_GPU_TESTS AND NOT CMAKE_CROSSCOMPILING)
+        add_test(NAME editor.scene_bake_core_loader COMMAND engine_scene_bake_core_loader_test)
+        set_tests_properties(editor.scene_bake_core_loader PROPERTIES TIMEOUT 90 RUN_SERIAL TRUE)
+    endif()
+
     add_executable(engine_scene_lighting_files_test plugins/editor/scene_bake/scene_lighting_files_test.cpp
         "${PROJECT_SOURCE_DIR}/src/engine/plugins/editor/scene_bake/scene_bake_files.cpp")
     target_link_libraries(engine_scene_lighting_files_test PRIVATE engine::asset_pipeline engine::resource)
@@ -1268,4 +1309,32 @@ if(TARGET engine_editor AND TARGET engine_asset_pipeline)
                                                              engine::world engine::resource)
     engine_apply_options(engine_prefab_commands_test)
     add_test(NAME editor.prefab_commands COMMAND engine_prefab_commands_test)
+endif()
+
+if(TARGET engine_runtime AND TARGET engine_render)
+    add_executable(engine_atmosphere_hex_test runtime/render/atmosphere_hex_test.cpp)
+    target_include_directories(engine_atmosphere_hex_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/support")
+    target_link_libraries(engine_atmosphere_hex_test PRIVATE engine::runtime engine::window
+        engine::render engine::world engine::resource SDL3::SDL3 bgfx::bimg)
+    engine_apply_options(engine_atmosphere_hex_test)
+    if(NOT CMAKE_CROSSCOMPILING)
+        add_test(NAME engine.atmosphere_hex COMMAND engine_atmosphere_hex_test)
+        set_tests_properties(engine.atmosphere_hex PROPERTIES TIMEOUT 90 RUN_SERIAL TRUE)
+    endif()
+endif()
+
+if(TARGET engine_runtime AND TARGET engine_render AND TARGET engine_resource_graph)
+    add_executable(engine_render_submission_test runtime/render/render_submission_test.cpp)
+    target_include_directories(engine_render_submission_test
+                               PRIVATE "${PROJECT_SOURCE_DIR}/src/engine"
+                                       "${CMAKE_CURRENT_SOURCE_DIR}/support")
+    target_link_libraries(engine_render_submission_test
+                          PRIVATE engine::runtime engine::window engine::render engine::world
+                                  engine::resource engine::resource_graph SDL3::SDL3)
+    engine_apply_options(engine_render_submission_test)
+    if(ENGINE_ENABLE_GPU_TESTS)
+        add_test(NAME engine.render_submission COMMAND engine_render_submission_test)
+        set_tests_properties(engine.render_submission
+                             PROPERTIES TIMEOUT 120 RUN_SERIAL TRUE SKIP_RETURN_CODE 77)
+    endif()
 endif()

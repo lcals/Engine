@@ -68,6 +68,16 @@ bool MeshRendererCodec::read(const toml::table& table, schema::ComponentDataT& c
         return false;
     }
     value.bake_static = table["bake_static"].value_or(false);
+    for (const auto* field : {"static_instancing_enabled", "static_lod_enabled"})
+    {
+        if (table.contains(field) && !table[field].is_boolean())
+        {
+            error = std::string("mesh renderer ") + field + " must be boolean";
+            return false;
+        }
+    }
+    value.static_instancing_enabled = table["static_instancing_enabled"].value_or(false);
+    value.static_lod_enabled = table["static_lod_enabled"].value_or(false);
     for (const auto* field : {"lightmap", "lightmap_mesh_hash"})
     {
         if (table.contains(field) && !table[field].is_string())
@@ -144,6 +154,8 @@ void MeshRendererCodec::write(const schema::ComponentDataT& component, toml::tab
     value.insert("material", mesh->material_guid);
     value.insert("cast_shadows", mesh->cast_shadows);
     value.insert("bake_static", mesh->bake_static);
+    value.insert("static_instancing_enabled", mesh->static_instancing_enabled);
+    value.insert("static_lod_enabled", mesh->static_lod_enabled);
     value.insert("lightmap", mesh->lightmap_guid);
     value.insert("lightmap_mesh_hash", mesh->lightmap_mesh_hash);
     toml::array matrix;

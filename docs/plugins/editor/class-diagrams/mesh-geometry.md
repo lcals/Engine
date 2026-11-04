@@ -10,19 +10,19 @@ MCP 通过编辑器注册的命令调用这些能力。每次操作先在候选�
 classDiagram
     class MeshGeometry {
         <<final>>
-        +sweep(const MeshSweepOptions& options, EditableMeshDataT& output, string& error) bool
-        +lathe(const MeshLatheOptions& options, EditableMeshDataT& output, string& error) bool
-        +mirror(EditableMeshDataT& data, const MeshMirrorOptions& options, string& error) bool
-        +clip(EditableMeshDataT& data, const MeshClipOptions& options, string& error) bool
-        +boolean_operation(EditableMeshDataT& data, const EditableMeshDataT& other, MeshBooleanOperation operation, string& error) bool
-        +bevel(EditableMeshDataT& data, const MeshBevelOptions& options, string& error) bool
-        +project_uv(EditableMeshDataT& data, span faces, const MeshUvProjectionOptions& options, string& error) bool
-        +transform_uv(EditableMeshDataT& data, span faces, const MeshUvTransformOptions& options, string& error) bool
-        +unwrap_uv(EditableMeshDataT& data, span faces, const MeshUvUnwrapOptions& options, string& error) bool
-        +unwrap_face_uv(EditableMeshDataT& data, span faces, const MeshUvUnwrapOptions& options, string& error) bool
-        +hotspot_uv(EditableMeshDataT& data, span faces, const MeshHotspotOptions& options, string& error) bool
-        +set_smoothing(EditableMeshDataT& data, span faces, uint32 group, string& error) bool
-        +auto_smooth(EditableMeshDataT& data, double angle_degrees, string& error) bool
+        +sweep(const MeshSweepOptions& options, EditableMeshDataT& output, string& error) bool$
+        +lathe(const MeshLatheOptions& options, EditableMeshDataT& output, string& error) bool$
+        +mirror(EditableMeshDataT& data, const MeshMirrorOptions& options, string& error) bool$
+        +clip(EditableMeshDataT& data, const MeshClipOptions& options, string& error) bool$
+        +boolean_operation(EditableMeshDataT& data, const EditableMeshDataT& other, MeshBooleanOperation operation, string& error) bool$
+        +bevel(EditableMeshDataT& data, const MeshBevelOptions& options, string& error) bool$
+        +project_uv(EditableMeshDataT& data, span~const uint64_t~ faces, const MeshUvProjectionOptions& options, string& error) bool$
+        +transform_uv(EditableMeshDataT& data, span~const uint64_t~ faces, const MeshUvTransformOptions& options, string& error) bool$
+        +unwrap_uv(EditableMeshDataT& data, span~const uint64_t~ faces, const MeshUvUnwrapOptions& options, string& error) bool$
+        +unwrap_face_uv(EditableMeshDataT& data, span~const uint64_t~ faces, const MeshUvUnwrapOptions& options, string& error) bool$
+        +hotspot_uv(EditableMeshDataT& data, span~const uint64_t~ faces, const MeshHotspotOptions& options, string& error) bool$
+        +set_smoothing(EditableMeshDataT& data, span~const uint64_t~ faces, uint32_t group, string& error) bool$
+        +auto_smooth(EditableMeshDataT& data, double angle_degrees, string& error) bool$
     }
     class EditableMesh
     class EditableMeshDataT

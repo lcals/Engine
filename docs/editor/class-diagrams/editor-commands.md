@@ -114,3 +114,10 @@ classDiagram
 `set_node_state(sceneId,nodeId,enabled?,visible?)` 和 `set_component_state(sceneId,nodeId,componentType,enabled?,visible?)` 至少修改一个布尔字段；组件类型使用 `get_scene` 的 `componentType`（生成枚举名称）。内部 StateEdit 复用共享节点身份，只检查和修改请求的局部标记，不恢复整个组件数据、不改后代的局部设置。支持批次、撤销和重做；外部改变相同字段时拒绝陈旧历史。查询对节点和组件同时返回局部 `enabled/visible` 与继承后 `active/visibleInHierarchy`；组件额外返回 `componentType` 与 `instanceId`，后者仅标识当前实例。
 
 Prefab 编辑登记一个 `EditWrapper = std::function<bool(std::string_view, const Json&, std::unique_ptr<EditorEdit>&, std::string&)>`；`set_edit_wrapper` 仅允许登记一次非空回调。命令先准备尚未应用的记录，再由包装器验证目标并把显式属性覆盖与原修改组成同一撤销记录。包装器只处理可撤销编辑，批次走相同入口；未知会影响 Prefab 的修改明确拒绝，不在保存时把任意运行变化推断成覆盖。回调借用 WorldSystem/SceneCommands 至命令服务释放。
+
+
+## 内部命令实现归属
+
+`SceneCommands` 保留场景/节点生命周期、活动相机选择、节点身份单元和显式命令登记。Transform、Camera、Light 与材质编辑分别位于 `commands/components/` 的类型文件；具体 Edit 继续派生同一个 EditorEdit，只有 EditorCommands 拥有事务和历史。共享 Target 及 JSON 数值校验留在已有 component_edit 内部实现，继续借用同一 NodeAliases，不另建注册表、状态镜像或命令框架。
+
+`get_scene` 的分页和诊断快照位于 `commands/scene_query.cpp`；它不承担运行时名称/路径查询。材质快照和恢复归材质命令文件，供预制体事务复用。拆分只改变源文件归属，命令名称、参数、回执、字段级陈旧检查、批次回滚及创建后重做的节点身份均保持。

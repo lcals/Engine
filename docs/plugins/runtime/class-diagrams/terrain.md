@@ -21,14 +21,14 @@ class TerrainFragment {
 +double volume
 }
 class TerrainVolume {
-+generate(TerrainGeneratorDataT settings, TerrainAssetDataT output, string error) bool
-+validate(TerrainAssetDataT data, string error) bool
-+initialize(TerrainAssetDataT data, string error) bool
-+apply_sphere(Vec3 center, float radius, bool fill, string error) bool
-+build_mesh(MeshDataT output, string error) bool
++generate(const TerrainGeneratorDataT& settings, TerrainAssetDataT& output, string& error) bool$
++validate(const TerrainAssetDataT& data, string& error) bool$
++initialize(const TerrainAssetDataT& data, string& error) bool
++apply_sphere(const Vec3& center, float radius, bool fill, string& error) bool
++build_mesh(MeshDataT& output, string& error) bool
 +collision_data() const MeshCollisionData&
-+extract_detached(uint32 min_samples, uint32 max_fragments, uint32 fragment_cells, vector~TerrainFragment~ output, string error) bool
-+data() TerrainAssetDataT
++extract_detached(uint32_t min_samples, uint32_t max_fragments, uint32_t fragment_cells, vector~TerrainFragment~& output, string& error) bool
++data() const TerrainAssetDataT&
 +chunk_count() size_t
 +rebuilt_chunks() size_t
 }
@@ -38,19 +38,20 @@ class TerrainComponent {
         +TerrainComponent(Component component)
         +register_type(ComponentRegistry& registry) bool$
         +runtime() TerrainComponentRuntime#42;
++valid_settings(const TerrainDataT& settings) bool$
 +settings() TerrainDataT
 +get_settings(TerrainDataT& output) bool
-+set_settings(TerrainDataT settings) bool
-+restore_data(ComponentDataT data) bool
-+apply_sphere(Vec3 center, float radius, bool fill) bool
++set_settings(const TerrainDataT& settings) bool
++restore_data(const ComponentDataT& data) bool
++apply_sphere(const Vec3& center, float radius, bool fill) bool
 +collapse_detached(uint32 min_samples, uint32 max_fragments, uint32 fragment_cells, float density) bool
 +retire_fragments(uint32_t max_count, double max_age_seconds, uint32_t& retired_count) bool
 +fragment_count() size_t
 +reset() bool
-+snapshot(ByteBuffer output) bool
++snapshot(ByteBuffer& output) bool
 +restore(ByteView bytes) bool
-+save_state(path file) bool
-+load_state(path file) bool
++save_state(const filesystem_path& path) bool
++load_state(const filesystem_path& path) bool
 +ready() bool
 +revision() uint64_t
 +chunk_count() size_t
@@ -60,7 +61,8 @@ class TerrainComponent {
 }
 class TerrainSystem {
 +TerrainSystem(WorldSystem& world, PhysicsSystem& physics, TaskSystem* tasks, size_t max_pending_requests, size_t max_commits_per_tick)
-+instance() TerrainSystem*
++~TerrainSystem()
++instance() TerrainSystem*$
 +commit(TerrainComponent component, TerrainVolume candidate) bool
 +request_apply_sphere(TerrainComponent component, const Vec3& center, float radius, bool fill, function~void(bool)~ completed) bool
 +collapse_detached(TerrainComponent component, uint32 min_samples, uint32 max_fragments, uint32 fragment_cells, float density) bool
@@ -68,7 +70,7 @@ class TerrainSystem {
 +clear_fragments(TerrainComponent component) void
 +fragment_count(TerrainComponent component) size_t
 +synchronize() bool
-#on_initialize(EngineConfig config) bool
+#on_initialize(const EngineConfig& config) bool
 #on_tick(double delta_time) bool
 #on_shutdown() void
 }

@@ -244,7 +244,7 @@ bool shader_dependencies(engine::editor::AssetPipelineSystem& pipeline, const Fi
                                     "csm_helpers.sh",      "pbr_surface.sh",
                                     "pbr_lighting.sh",     "local_shadow_helpers.sh",
                                     "cluster/lighting.sh", "fs_surface.sc",
-                                    "dfg_approx.sh"};
+                                    "dfg_approx.sh",       "hex_tiling.sh"};
     constexpr std::array identities = {
         "b0000000-0000-4000-8000-000000000011", "b0000000-0000-4000-8000-000000000012",
         "b0000000-0000-4000-8000-000000000013", "b0000000-0000-4000-8000-000000000014",
@@ -252,7 +252,7 @@ bool shader_dependencies(engine::editor::AssetPipelineSystem& pipeline, const Fi
         "b0000000-0000-4000-8000-000000000017", "b0000000-0000-4000-8000-000000000018",
         "b0000000-0000-4000-8000-000000000019", "b0000000-0000-4000-8000-00000000001a",
         "b0000000-0000-4000-8000-00000000001b", "b0000000-0000-4000-8000-00000000001c",
-        "b0000000-0000-4000-8000-00000000001d"};
+        "b0000000-0000-4000-8000-00000000001d", "b0000000-0000-4000-8000-00000000001e"};
     const auto upstream = std::filesystem::path(ENGINE_TEST_SOURCE_DIR).parent_path() /
                           "src/engine/runtime/render/shaders";
     for (std::size_t index = 0; index < sources.size(); ++index)

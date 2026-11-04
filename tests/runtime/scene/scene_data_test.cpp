@@ -114,6 +114,11 @@ bool round_trip(std::vector<std::uint8_t>& bytes)
     light_settings.shadow_split_lambda = 0.7F;
     light_settings.shadow_cascade_blend = 0.2F;
     engine::EnvironmentSettings environment_settings;
+    environment_settings.atmosphere_enabled = true;
+    environment_settings.atmosphere_sun_node_id = light_node.info().properties->id;
+    environment_settings.atmosphere_ground_height = 17;
+    environment_settings.atmosphere_mie_anisotropy = 0.6F;
+    environment_settings.atmosphere_ground_albedo = {0.2, 0.3, 0.4};
     environment_settings.ambient_color = {0.25F, 0.5F, 0.75F, 1.0F};
     environment_settings.ambient_intensity = 0.75F;
     environment_settings.ambient_tricolor = true;
@@ -195,6 +200,40 @@ bool round_trip(std::vector<std::uint8_t>& bytes)
                     post_process.settings() == post_process_settings &&
                     !light.set_settings(invalid_light) && light.settings() == light_settings,
                 "invalid scene effects preserve the previous component settings"))
+    {
+        return false;
+    }
+    invalid_environment = environment_settings;
+    invalid_environment.atmosphere_mie_anisotropy = 1;
+    if (!expect(!environment.set_settings(invalid_environment) &&
+                    environment.settings() == environment_settings,
+                "atmosphere rejects a singular phase function without altering other fields"))
+    {
+        return false;
+    }
+    invalid_environment = environment_settings;
+    invalid_environment.atmosphere_sun_node_id = 0;
+    if (!expect(!environment.set_settings(invalid_environment),
+                "enabled atmosphere requires an explicit sun reference"))
+    {
+        return false;
+    }
+    auto remapped_environment = environment.data();
+    engine::schema::NodeIdMappingT sun_mapping;
+    sun_mapping.source_id = environment_settings.atmosphere_sun_node_id;
+    sun_mapping.target_id = sun_mapping.source_id + 100;
+    if (!expect(environment.remap_node_references(remapped_environment, {&sun_mapping, 1}) &&
+                    remapped_environment.payload.AsEnvironmentData()->atmosphere_sun_node_id ==
+                        sun_mapping.target_id &&
+                    environment.settings() == environment_settings,
+                "prefab sun references remap only the boundary snapshot"))
+    {
+        return false;
+    }
+    sun_mapping.retired = true;
+    remapped_environment = environment.data();
+    if (!expect(!environment.remap_node_references(remapped_environment, {&sun_mapping, 1}),
+                "retired prefab suns cannot revive through reference remapping"))
     {
         return false;
     }

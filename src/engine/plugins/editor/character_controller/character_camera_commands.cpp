@@ -82,18 +82,9 @@ Json write(const WorldSystem& world, const schema::CharacterCameraDataT& value)
     Json target_id = nullptr;
     if (const auto* scene = world.scene())
     {
-        std::vector<Node> nodes;
-        if (!scene->collect_nodes(nodes))
+        if (const auto node = scene->find_local_node(value.target_node_id))
         {
-            return {};
-        }
-        for (const auto& node : nodes)
-        {
-            if (node.info().properties->id == value.target_node_id)
-            {
-                target_id = std::to_string(node.id());
-                break;
-            }
+            target_id = std::to_string(node.id());
         }
     }
     return {{"targetNodeId", std::move(target_id)},

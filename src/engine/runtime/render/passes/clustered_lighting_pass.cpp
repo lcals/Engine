@@ -77,10 +77,14 @@ bool ClusteredLightingPass::prepare(const RenderConfig& config, std::uint16_t wi
     {
         program_ = bgfx::createProgram(shader_, false);
     }
-    grid_uniform_ = bgfx::createUniform("u_cluster_grid", bgfx::UniformType::Vec4);
-    camera_uniform_ = bgfx::createUniform("u_cluster_camera", bgfx::UniformType::Vec4);
-    counts_uniform_ = bgfx::createUniform("u_cluster_counts", bgfx::UniformType::Vec4);
-    viewport_uniform_ = bgfx::createUniform("u_cluster_viewport", bgfx::UniformType::Vec4);
+    grid_uniform_ =
+        bgfx::createUniform("u_cluster_grid", bgfx::UniformFreq::View, bgfx::UniformType::Vec4);
+    camera_uniform_ =
+        bgfx::createUniform("u_cluster_camera", bgfx::UniformFreq::View, bgfx::UniformType::Vec4);
+    counts_uniform_ =
+        bgfx::createUniform("u_cluster_counts", bgfx::UniformFreq::View, bgfx::UniformType::Vec4);
+    viewport_uniform_ =
+        bgfx::createUniform("u_cluster_viewport", bgfx::UniformFreq::View, bgfx::UniformType::Vec4);
     view_uniform_ = bgfx::createUniform("u_cluster_view", bgfx::UniformType::Mat4);
     inverse_projection_uniform_ =
         bgfx::createUniform("u_cluster_inverse_projection", bgfx::UniformType::Mat4);
@@ -143,10 +147,10 @@ bool ClusteredLightingPass::cull(bgfx::ViewId view, const CameraSettings& camera
                static_cast<float>(lights.size() * 4), static_cast<float>(cluster_count_)};
     bgfx::setViewName(view, "Clustered lighting");
     bgfx::setViewMode(view, bgfx::ViewMode::Sequential);
-    bgfx::setUniform(grid_uniform_, grid_.data());
-    bgfx::setUniform(camera_uniform_, camera_.data());
-    bgfx::setUniform(counts_uniform_, counts_.data());
-    bgfx::setUniform(viewport_uniform_, viewport_.data());
+    bgfx::setViewUniform(view, grid_uniform_, grid_.data());
+    bgfx::setViewUniform(view, camera_uniform_, camera_.data());
+    bgfx::setViewUniform(view, counts_uniform_, counts_.data());
+    bgfx::setViewUniform(view, viewport_uniform_, viewport_.data());
     bgfx::setUniform(view_uniform_, view_matrix);
     bgfx::setUniform(inverse_projection_uniform_, inverse);
     bgfx::setBuffer(0, lights_, bgfx::Access::Read);
@@ -156,15 +160,24 @@ bool ClusteredLightingPass::cull(bgfx::ViewId view, const CameraSettings& camera
     return true;
 }
 
+void ClusteredLightingPass::bind_view(bgfx::ViewId view) const
+{
+    if (!ready_)
+    {
+        return;
+    }
+    bgfx::setViewUniform(view, grid_uniform_, grid_.data());
+    bgfx::setViewUniform(view, camera_uniform_, camera_.data());
+    bgfx::setViewUniform(view, counts_uniform_, counts_.data());
+    bgfx::setViewUniform(view, viewport_uniform_, viewport_.data());
+}
+
 void ClusteredLightingPass::bind() const
 {
     if (!ready_)
     {
         return;
     }
-    bgfx::setUniform(grid_uniform_, grid_.data());
-    bgfx::setUniform(camera_uniform_, camera_.data());
-    bgfx::setUniform(counts_uniform_, counts_.data());
     bgfx::setBuffer(5, lights_, bgfx::Access::Read);
     bgfx::setBuffer(7, clusters_, bgfx::Access::Read);
 }

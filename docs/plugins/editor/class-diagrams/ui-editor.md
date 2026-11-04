@@ -2,7 +2,7 @@
 
 [类图索引](../../../class-diagrams/index.md) · [运行时 UI](../../../runtime/class-diagrams/ui-system.md) · [UI 脚本接口](../../runtime/class-diagrams/ui-script-api.md) · [编辑器命令](../../../editor/class-diagrams/editor-commands.md) · [资源管线](../../../editor/asset-pipeline.md)
 
-已确认增加 `editor/ui` 插件，让 MCP 查询和调整 UI、保存 RML 源文档，并通过真实输入路径模拟普通 UI 操作。运行时继续使用普通 `Node + UiComponent + RmlUi`；项目数据和 Controller 保留在 TS。此文件维护已确认的插件与运行时公开契约。
+`editor/ui` 插件已实现，让 MCP 查询和调整 UI、保存 RML 源文档，并通过真实输入路径模拟普通 UI 操作。运行时继续使用普通 `Node + UiComponent + RmlUi`；项目数据和 Controller 保留在 TS。此文件维护已确认的插件与运行时公开契约。
 
 通用 MCP 执行 TS 项目代码由独立脚本调试契约负责。它可用于读取或显式修改项目 Model；UI 插件负责真实可见状态与输入，不再新增执行 TS、运行任意表达式或直接调用 Controller 的工具。两者共享现有命令通道，业务变化和真实交互的回执分别说明。
 
@@ -70,7 +70,7 @@ classDiagram
     class EditorMcpTools
     class McpSystem
     class UiEditorCommands
-    register_ui_editor_tools ..> McpHost : 宿主启动时调用
+    McpHost ..> register_ui_editor_tools : 宿主启动时调用
     register_ui_editor_tools --> EditorMcpTools : 借用固定目标通道
     register_ui_editor_tools ..> McpSystem : 注册工具
     McpSystem --> EditorMcpTools : 工具回调直接借用通道
@@ -80,40 +80,17 @@ classDiagram
 - 所有查询、DOM 调整与合成输入在编辑器主线程执行。宿主沿现有编辑器逐帧流程调用 `tick` 推进一个有界输入序列；等待让出主线程，不增加线程、通用调度器或第二套任务系统。文件处理复用编辑器任务域，完成提交回到现有命令安全点。
 - 构造函数建立安全状态，`register_commands` / `register_ui_editor_tools` 返回值标注 `[[nodiscard]]`。`UiEditorCommands` 禁止复制和移动，析构、`observe_event` 和 `cancel_pending_input` 为 `noexcept`；不把可能失败的文件访问或文档加载放进构造函数。
 - 宿主独占插件对象并负责条件装配；先注销原生输入观察回调并取消输入作业，再释放命令服务及撤销历史和 `UiEditorCommands`，其借用对象最后释放。MCP 宿主先结束工具回调，再销毁借用的 EditorMcpTools 通道。
-- 清单放在 `cmake/plugins/editor/ui.cmake`，源码/公开头放在对应 `plugins/editor/ui/`。`editor/ui` 明确依赖 `editor/ui_import`，MCP 适配目标仅在已选 `editor/mcp` 时创建。核心、编辑器基础库和运行包均不链接这个具体插件。
+- 清单放在 `cmake/plugins/editor/ui.cmake`，源码/公开头放在对应 `plugins/editor/ui/`。`editor/ui` 明确依赖 `editor/asset_import`，复用其中的 UiImporter 校验，MCP 适配目标仅在已选 `editor/mcp` 时创建。核心、编辑器基础库和运行包均不链接这个具体插件。
 - 不复制 RmlUi DOM、布局、hit-test 或事件实现。运行时不暴露 RmlUi 指针，不 include 编辑器头文件；无编辑器插件时 UI 绘制和 TS MVC 继续使用原路径。
 
 ## 运行时最小查询与输入增量
 
-现有 `UiSystem` 已提供控件查找、文字/值/样式修改和 `process_event(const SDL_Event&)`。为编辑器观察实际画面，增加以下查询和输入接口；均是通用 UI 能力，不包含 MCP、JSON、源文件或编辑器策略。同步到运行时 UI 主类图。
+查询、命中、焦点和输入均复用核心 `UiSystem` 的已实现接口，完整签名与 `UiElementInfo` 字段统一在[运行时 UI 类图](../../../runtime/class-diagrams/ui-system.md)维护；本页只列编辑器的调用关系。核心接口不包含 MCP、JSON、源文件或编辑器策略。
 
 ```mermaid
 classDiagram
-    class UiSystem {
-        +document_root(uint64 node, UiElementHandle& output) bool
-        +inspect_element(UiElementHandle handle, UiElementInfo& output) bool
-        +child_element(UiElementHandle parent, uint32 index, UiElementHandle& output) bool
-        +element_style(UiElementHandle handle, string_view name, string& output) bool
-        +hit_test(float x, float y, UiElementHandle& output) bool
-        +pointer_active() const bool
-        +focus_element(UiElementHandle handle) bool
-        +process_event(const SDL_Event& event, uint16 modifiers) bool
-    }
-    class UiElementInfo {
-        <<struct>>
-        +UiElementHandle handle
-        +UiElementHandle parent
-        +string tag
-        +string id
-        +string text
-        +string value
-        +string classes
-        +array~float_4~ bounds
-        +uint32 child_count
-        +bool visible
-        +bool enabled
-        +bool focused
-    }
+    class UiSystem
+    class UiElementInfo
     class UiElementHandle
     class SDL_Event
     UiSystem ..> SDL_Event : 原生与模拟共用事件格式
@@ -133,14 +110,11 @@ classDiagram
 - 新 `process_event` 重载的 modifiers 是 SDL 修饰键位值；旧重载保持原行为并调用共用实现。模拟输入使用序列中实际按住的 Shift/Ctrl/Alt/Meta，不能改写全局 `SDL_SetModState` 或鼠标模式。原生输入继续使用实际 SDL 状态。
 - `cancel_input()` 保留原接口，补全取消时的模拟键/修饰键状态清理；先取消 hover/capture，再释放尚按住的键，取消期间抑制普通点击/激活事件。已产生的合法 click/change 事件不能删除以假装回滚。
 
-原生事件必须先解除可能冲突的模拟按压，再正常进入现有 UI/Input 路由。因此为 `RuntimeHost` 增加一个可空的借用观察回调，宿主装配后调用插件 `observe_event`；保持 WindowSystem 的单一事件接收者，不覆盖其现有 handler、不引入 SDL 全局过滤器。
+原生事件先解除可能冲突的模拟按压，再正常进入既有 UI/Input 路由。`RuntimeHost::set_event_observer` 提供可空借用观察回调，完整签名见[运行宿主类图](../../../runtime/class-diagrams/runtime-host.md)；宿主装配后调用插件 `observe_event`，WindowSystem 保持单一事件接收者。
 
 ```mermaid
 classDiagram
-    class RuntimeHost {
-        +set_event_observer(WindowEventHandler observer, void* context) void
-        +ui() UiSystem#42;
-    }
+    class RuntimeHost
     class WindowEventHandler {
         <<existing callback>>
         void callback(void* context, const SDL_Event& event)
@@ -155,7 +129,6 @@ classDiagram
 现有编辑器 tick 在 SDL 事件泵之前，单靠下一帧 tick 发现实体输入无法保证及时取消：跨帧模拟按压可能先接收到真人的释放，误产生 click。因此保留此单一观察回调；不为此增加轮询线程或输入会话框架。
 
 `set_event_observer` 为 `noexcept`；回调仅在主线程原生输入路由前调用，不能改变或吞掉事件。宿主保证借用存活，关闭前解除注册。该接口没有编辑器类型，正常运行宿主不登记时保持原路径。模拟输入直接走 UiSystem 原生桥，不绕回观察回调。插件 `tick` 位于现有编辑器安全点、`RuntimeHost::poll_events` 之前；随后宿主已有的文档同步及认领刷新把焦点/模态状态传给 InputSystem，不为插件重复建立路由。
-
 
 ## MCP 契约
 
@@ -254,19 +227,9 @@ sequenceDiagram
 7. **暂停和回执。** 世界暂停不停止编辑器作业和 UI；现有宿主安全点刷新 InputSystem 认领状态，插件不更改项目输入通道。命令通道 accepted 只说明作业已收下，`get_ui_input` 才报告 running/complete/cancelled/failed。结果包含 completedEvents/failedIndex；complete 表示输入序列已执行，不能等同胜负、存档或页面业务成功。
 8. **业务事件。** 插件不 `poll_event` 抢走 TS 队列；实际业务结果通过稍后查询 UI/场景或真实截图确认。现有 UiEvent 只对 TS 暴露 click/change/input，本轮普通控件输入复用这些已有事件。若项目需要自定义 pointer/key/focus 订阅，再单独评审对应 TS 事件契约，不用测试入口绕过当前脚本边界。
 
-## 本轮直接相关的现有 MCP 缺口
+## 验证入口
 
-- `UiComponent` 已有场景编解码和 TS 绑定，但 SceneCommands 没有 UI 绑定/启用命令，`get_scene` 也没有完整 UI 文档状态；本插件补齐专用命令并由通用节点查询返回基本 UiData。
-- 现有 UI 查询只按 HTML id 查单个控件、读文字/值，没有树、无 id 子级、实际布局/可见状态、计算样式和顶层命中；由上述通用查询增量补齐。
-- 现有 MCP 没有真实 UI 输入，缺少按键配对、Unicode 文本、滚动、拖动、等待、取消及可查询执行回执；有界事件序列统一处理，click 只作便利组合。
-- 当前 rml_input 的鼠标修饰键来自 SDL 全局状态；模拟 Ctrl/Shift 必须由明确事件状态传递。普通键标识映射沿现有适配补齐，不新建键盘系统。原有 RmlPlatform 剪贴板桥继续由真实 Ctrl/Cmd 快捷键调用。
-- 现有通用场景查询只看活动场景，而常驻 UI 可能位于保留场景；文档查询必须遍历 WorldSystem 的全部已发布场景并携带真实 sceneId。
-- 已有 `capture_frame/get_frame_capture`、`save_scene`、`sync_assets`、`get_editor_receipt`、undo/redo 和预览生命周期直接复用，不增加同义工具，也不新增平台桌面截图或进程控制功能。
-
-## 实现验收边界
-
-评审通过后，对受影响 C++ 执行 Debug/Release 构建与定向测试：UI 组件绑定撤销保存、源/meta 冲突保护、树分页、文档重载后旧句柄失效、遮挡/隐藏/禁用拒点、Retina 坐标、真实 RmlUi→TS 点击一次、Tab/Enter/方向键、Unicode 文本与 change/input、checkbox/select/slider 的真实操作、滚动和跨帧拖动、修饰键组合、取消/超时/实体输入抢占后无残留按压、动态布局不误取消、暂停菜单可操作、停止/切场景清理。用真实帧截图和实际 TS 页面变化验证，不以直接改业务变量代替交互验证。
-
+构建、回归操作、实际 UI 输入结果及未覆盖范围统一见[测试与范例](../../../testing.md)。输入序列完成只代表已执行输入，业务是否成功仍通过实际 View、场景与项目结果确认。
 
 ## 已实现的查询与编辑字段
 

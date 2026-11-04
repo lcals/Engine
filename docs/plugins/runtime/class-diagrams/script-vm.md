@@ -2,7 +2,7 @@
 
 [脚本系统](script-system.md) · [逐类绑定](script-bindings.md)
 
-中间层只属于脚本插件内部，不改变核心 ScriptRuntime 契约。参考 PuerTS 的
+`ScriptVm`、`Arguments` 与 `NativeValue` 位于 `engine::plugins::script::vm`，只属于脚本插件内部；核心 `ScriptRuntime` 仍位于 `engine`。中间层不改变核心的执行职责。参考 PuerTS 的
 [PESAPI](https://github.com/Tencent/puerts/tree/master/unity/native/pesapi) 将原生调用与虚拟机隔离的思路，
 只实现当前绑定需要的参数读取、标量及对象返回、模块预检和同步生命周期调用。
 
@@ -12,6 +12,8 @@
 
 ```mermaid
 classDiagram
+    class ProjectScriptRequest
+    ScriptVm ..> ProjectScriptRequest : 同步调用期间借用
     class ScriptSystem
     class ScriptBindingRegistry
     class BindingContext
@@ -27,6 +29,7 @@ classDiagram
         +start() bool
         +call_gameplay(string_view name, bool require_true) bool
         +call_binding(string_view name) bool
+        +execute_script(const ProjectScriptRequest& request, string& result_json) bool*
         +drain_jobs() bool
         +last_error() const string&
         +loaded_modules() const vector~string~&

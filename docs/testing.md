@@ -96,15 +96,17 @@ Windows 使用对应 `.exe`。选择菜单场景后，先聚焦引擎窗口再�
 
 ### 功能用例与常驻 UI
 
-菜单按功能组织 13 项用例，稳定 ID、标题、目标、场景和 Gameplay 入口统一定义在项目 [showcase_cases.ts](../projects/showcase/assets/scripts/models/showcase_cases.ts)。逐项操作、预期结果、自动覆盖和待补测试见[范例功能覆盖](editor/showcase-coverage.md)；不再在菜单与文档各维护一套场景注册。
+菜单按功能组织 14 项用例，稳定 ID、标题、目标、场景和 Gameplay 入口统一定义在项目 [showcase_cases.ts](../projects/showcase/assets/scripts/models/showcase_cases.ts)。逐项操作、预期结果、自动覆盖和待补测试见[范例功能覆盖](editor/showcase-coverage.md)；不再在菜单与文档各维护一套场景注册。
 
 项目行为测试放在 `projects/showcase/tests/`，核心算法、组件和协议测试继续归 `tests/`。测试须标明使用脚本替身还是实际引擎；脚本状态机检查不能代替 GPU、Jolt、RmlUi 和真实窗口的验收。MCP 工具覆盖见[模块清单](plugins/editor/mcp-coverage.md)。
+
+公开项目专属的资产制作工具放在 `projects/showcase/tools/`，包括公寓、动画庭院、破坏联动和特效生成器；通用 MCP 客户端、构建和检查工具仍放根 `scripts/`。移动工具不重新生成资产或改变资源 GUID。
 
 菜单 UI 根通过 `Node.SetPersistent(true)` 创建、绑定一次，切关复用原文档与 Controller，停止或热重载时完整清理。`UI and scene lifetime` 可检查换关、取消、加载失败、无活动关卡时输入和显式销毁；输入框内容应随原文档保留。生命周期契约见[常驻节点](runtime/class-diagrams/persistent-nodes.md)。
 
 ### ECS 大量对象
 
-`ECS many objects` 默认建立 10,000 个真实 ECS 实体，可选 1,000／50,000。逐实体检查组件表迁移后的句柄、层级隐藏／激活、换父级、删除重建和整组回收，随后返回常驻菜单。操作细节见[用例说明](../projects/showcase/ecs-many-objects.md)。
+`ECS many objects` 默认建立 10,000 个真实 ECS 实体，可选 1,000／50,000。逐实体检查组件表迁移后的句柄、层级隐藏／激活、换父级、删除重建和整组回收，随后返回常驻菜单。操作细节见[用例说明](../projects/showcase/docs/ecs-many-objects.md)。
 
 ```sh
 python3 projects/showcase/tests/ecs_many_objects_test.py \
@@ -124,19 +126,19 @@ Debug 曾在原 180 秒等待上限内创建 9,856 个对象而超时，随后�
 
 ### PBR 材质球对照
 
-当前实现、全部参数组复拍、逐球指标和未覆盖范围统一见 [PBR 当前结果](../projects/showcase/tools/pbr-comparison/current-results.md)。旧阶段报告保留原数值，不能代替最新结果。
+当前实现、全部参数组复拍、逐球指标和未覆盖范围统一见 [PBR 当前结果](../projects/showcase/docs/pbr-comparison/current-results.md)。旧阶段报告保留原数值，不能代替最新结果。
 
 2026-11-04 整体复核后，在 macOS Metal 完成受影响目标 Debug/Release 编译；Release 渲染基础、实际窗口、FBX 管线、FBX 切线、场景默认材质共 5 项不同测试通过。新增覆盖法线终止线平滑（仅直接漫反射）、无扰动法线、掠射、双面与纯金属，关闭 IBL 时 SSR 保留/移除 LUT 引用的整图最大像素差为 0。FBX 补齐非法浮点、输出复用与失败保留旧完整数据检查；新 Mesh、新槽和 FBX 缺省映射均验证默认 PBR。首次四项结果在 `build/material-comparison/final-release-tests.log`，默认入口补充两项在 `build/material-comparison/default-pbr-release-tests.log`，其中 FBX 管线重复一次，共五项不同测试；没有运行 Debug 测试。
 
 本次原参数、原生 1280×720 的 12 组引擎复拍完成，其中 11 组共 66 球与 Blender 默认参考按同一显示变换比较；法线强度 0.5/1 的 MAE 为 0.288/0.469（显示 RGB 0–255），旧标准直接光阶段为 2.855/6.705。未修改曝光、法线强度或关闭 Blender 默认校正来缩小误差。公寓与庭院 11 份实体材质和生成器改用 PBR，正式导入及两场景实窗预览完成；UI/调试专用 Shader 保留。收据和单文件详细对照入口见上述当前结果。
 
-六个金属度和粗糙度组合的正式资源、固定机位、截图方法以及与 Blender 对比的已知限制见 [PBR 材质球对照](../projects/showcase/pbr-comparison.md)。该场景通过 MCP 预览，不依赖玩法启动。
+六个金属度和粗糙度组合的正式资源、固定机位、截图方法以及与 Blender 对比的已知限制见 [PBR 材质球对照](../projects/showcase/docs/pbr-comparison.md)。该场景通过 MCP 预览，不依赖玩法启动。
 
 以下为同日较早的仅背光保护阶段记录（当前已补充平滑遮蔽）：在 macOS Metal 增加法线贴图直接光半球回归：同一倾斜法线贴图及相同材质下，方向光分别在平滑基础法线的正面和背面；Release 实窗中心像素红通道为 160 / 0（8 位显示值）。从双面材质的背面观察并交换来光方向时，朝向观察侧及相反侧的结果同样为 160 / 0。该测试验证两侧表面直接光的可见性，不覆盖间接光、软化终止线或所有几何形状。Debug／Release 编译通过；Release `engine.render_foundation` 和 `engine.window_render` 共 2 项通过。
 
 ### 现代公寓
 
-[apartment.scene](../projects/showcase/assets/scenes/apartment.scene) 保存客厅、卧室、厨房与餐区，包含 322 个可编辑模型、相机及 5 个灯光节点。家具、摆件、倒角、变换、材质和灯光由 [create_modern_apartment.py](../scripts/create_modern_apartment.py) 通过正式 MCP 工具制作。
+[apartment.scene](../projects/showcase/assets/scenes/apartment.scene) 保存客厅、卧室、厨房与餐区，包含 322 个可编辑模型、相机及 5 个灯光节点。家具、摆件、倒角、变换、材质和灯光由 [create_modern_apartment.py](../projects/showcase/tools/create_modern_apartment.py) 通过正式 MCP 工具制作。
 
 正常运行时从菜单选择 `Authored scene and local lights`。如需脚本切镜头与截图，可使用已构建的 Release 编辑器，在进入公寓后运行：
 
@@ -150,11 +152,11 @@ build/ninja-engine-release/editor_app --project projects/showcase \
 ```sh
 python3 scripts/mcp_client.py --server build/ninja-engine-release/mcp_app \
   --project projects/showcase --runtime-dir build/apartment-runtime start
-python3 scripts/create_modern_apartment.py --view-only --configure-view \
+python3 projects/showcase/tools/create_modern_apartment.py --view-only --configure-view \
   --view wide --capture screenshots/apartment-wide.png
-python3 scripts/create_modern_apartment.py --view-only \
+python3 projects/showcase/tools/create_modern_apartment.py --view-only \
   --view living --capture screenshots/apartment-living.png
-python3 scripts/create_modern_apartment.py --view-only \
+python3 projects/showcase/tools/create_modern_apartment.py --view-only \
   --view kitchen --capture screenshots/apartment-kitchen.png
 ```
 
@@ -166,7 +168,7 @@ python3 scripts/create_modern_apartment.py --view-only \
 
 进入 `Character, animation and camera` 后，WASD 移动，Space 跳跃，按住鼠标右键转向，Tab 切换视角。第一人称仅在自身镜头隐藏身体和头部，身体阴影与旁观镜头中的角色应保留；第三人称镜头通过球体检测避开墙体。`Back to scenes` 返回菜单。
 
-庭院有铺装、立面、台阶、廊架、长椅、绿植及带物理的 Player/PAB 蒙皮角色。环境由 MCP 创建并保存：231 个节点、225 个环境 Mesh、47,004 个环境三角形、31 个静态碰撞体；三棵树共 840 片薄叶，每树合并为一个 Mesh。人物在场景加载后实例化，避免保存后重复生成。贴图来源和处理见[庭院资源说明](../projects/showcase/courtyard-source.md)。
+庭院有铺装、立面、台阶、廊架、长椅、绿植及带物理的 Player/PAB 蒙皮角色。环境由 MCP 创建并保存：231 个节点、225 个环境 Mesh、47,004 个环境三角形、31 个静态碰撞体；三棵树共 840 片薄叶，每树合并为一个 Mesh。人物在场景加载后实例化，避免保存后重复生成。贴图来源和处理见[庭院资源说明](../projects/showcase/docs/courtyard-source.md)。
 
 范例默认使用 InPlace，位置由物理或导航推进。导航、物理交互及地形范例按速度调节动作倍率；庭院仍固定循环 walk，用于检查蒙皮，不是动画状态图。该场景尚未提供触屏摇杆。样例源法线反向，使用 FBX `.meta` 的 `normals="generate"` 导入，未修改源 FBX。
 
@@ -186,7 +188,7 @@ python3 scripts/create_modern_apartment.py --view-only \
 
 ### 多角色导航
 
-`Crowd and terrain navigation` 提供 16／32／64 个角色，四组交叉移动或两组通过 2.4 米窄门；可反转目标、停止、继续、重置和切观察镜头。每次进入等待地形就绪后构建共享导航面，切换角色数量不重复烘焙。参数和按钮见[范例说明](../projects/showcase/navigation.md)。
+`Crowd and terrain navigation` 提供 16／32／64 个角色，四组交叉移动或两组通过 2.4 米窄门；可反转目标、停止、继续、重置和切观察镜头。每次进入等待地形就绪后构建共享导航面，切换角色数量不重复烘焙。参数和按钮见[范例说明](../projects/showcase/docs/navigation.md)。
 
 挖坑、切断门洞地面和恢复地形后，观察地形版本、导航版本及本次重建瓦片数；断路时代理应停住，恢复连通后沿原目标重新排队。停止群体再修改地形，代理应保持 idle；返回菜单再进入应创建新场景和代理。
 
@@ -194,7 +196,7 @@ python3 scripts/create_modern_apartment.py --view-only \
 
 ### 物理交互
 
-`Physics queries and contact events` 打开[物理交互范例](../projects/showcase/physics-interactions.md)：两条路线使用 CharacterMotor，三条使用 NavigationAgent 与零速度运动学 sensor 胶囊，移动由原生系统推进。
+`Physics queries and contact events` 打开[物理交互范例](../projects/showcase/docs/physics-interactions.md)：两条路线使用 CharacterMotor，三条使用 NavigationAgent 与零速度运动学 sensor 胶囊，移动由原生系统推进。
 
 选择路线后沿蓝线执行 Raycast 或半径 0.12 米的 SphereCast，观察对象类型、实例身份、距离和命中点。球形／轴对齐盒范围查询将对象标绿，橙色 Trigger 统计 enter/stay/exit。按钮提供暂停、继续、反转路线和清空统计；返回菜单释放角色及订阅。
 
@@ -212,7 +214,7 @@ python3 scripts/create_modern_apartment.py --view-only \
 
 编辑器状态文件位于 `cache/terrain-states/*.terrainstate`，脚本状态位于 App 持久目录的 `terrain/<slot>.bin`；保存状态不覆盖源 `.terrain` 或导入缓存。塌方产生的动态土石不能写入旧静态体积存档，执行保存／加载或可撤销体积编辑前应先 Reset。笔刷、设置、重置和加载可检查编辑器撤销／重做；保存文件本身不属于场景撤销。
 
-桌面和 Android 的资源清单均登记了该场景，登记不等于 Android 场景运行已经验收。阶段范围见[地形与破坏方案](plugins/runtime/terrain-destruction-plan.md)，技术和验证边界见[研究记录](plugins/runtime/terrain-destruction-feasibility.md)。
+桌面和 Android 的资源清单均登记了该场景，登记不等于 Android 场景运行已经验收。阶段范围见[地形与破坏方案](plugins/runtime/terrain-destruction.md)，技术和验证边界见[研究记录](plugins/runtime/terrain-destruction-feasibility.md)。
 
 ### 建筑破坏实验场
 
@@ -224,7 +226,7 @@ macOS 阶段验收和 Android 探针的区别见[步骤 2 验证记录](plugins/
 
 ### 综合破坏与火箭场
 
-`Destruction system integration` 组合地形、Blast、Jolt、Effekseer、音频和第三人称角色。步骤 4 增加同步应力、动态土石、静态导航瓦片更新及密集火箭场。按钮、参数与资源来源见[项目说明](../projects/showcase/destruction-integration.md)。
+`Destruction system integration` 组合地形、Blast、Jolt、Effekseer、音频和第三人称角色。步骤 4 增加同步应力、动态土石、静态导航瓦片更新及密集火箭场。按钮、参数与资源来源见[项目说明](../projects/showcase/docs/destruction-integration.md)。
 
 - 塔／墙／柱／梁分别预破碎为 256／128／64／72 块，共 520 个资产片段，不等于同时活跃刚体数；活动土石预算为 96。
 - 火箭固定 64 个槽，可请求 2／6／12 发每秒，进入场景默认 6。60 发齐射可停止，停火后在途弹体继续飞行；每帧最多一发，不补发卡顿积压。球扫实际命中位置驱动爆破。
@@ -461,10 +463,165 @@ macOS Metal Release 的 `engine.window_render` 使用正式资源目录加载白
 
 2026-11-04，固定版本 MikkTSpace 的小角度补丁和导入指纹更新后，macOS Debug／Release 受影响编辑器与测试目标编译通过；Release `modeling.core`、`editor.mesh_pipeline`、`editor.fbx_pipeline` 共 3/3 通过。细长三角形切线回归在补丁前失败、补丁后通过，完整 showcase 资源导入和编辑器正常关闭也已验证。HDR 捕获另以 Release `engine.scene_hdr_capture` 验证已提交帧后失去相机以及读回期间重建 MSAA 目标，1/1 通过。
 
-使用最新 Release 编辑器与 Blender 5.2，在 1280×720、相同曝光和 Reinhard、精确 sRGB 编码下采集 12 组、对照其中 11 组材质球；逐球数值和具体限制见[当前 PBR 对照](../projects/showcase/tools/pbr-comparison/current-results.md)。单文件图文报告为 `build/material-comparison/current/1793770721339431000/review.html`；这是 macOS Metal 的受控场景结果，不能代替其他后端或完整场景的验收。
+使用最新 Release 编辑器与 Blender 5.2，在 1280×720、相同曝光和 Reinhard、精确 sRGB 编码下采集 12 组、对照其中 11 组材质球；逐球数值和具体限制见[当前 PBR 对照](../projects/showcase/docs/pbr-comparison/current-results.md)。单文件图文报告为 `build/material-comparison/current/1793770721339431000/review.html`；这是 macOS Metal 的受控场景结果，不能代替其他后端或完整场景的验收。
 
 **透明与渲染扩展的线性 HDR 捕获**：2026-11-04，macOS Metal Release 使用 Retina 实际 256×256 帧缓冲完成 `engine.scene_hdr_transparency` 和 `engine.hdr_extension_capture`。透明测试逐像素核对去除边缘后的 240×240 区域：受光背景及两层 PBR 表面分别与解析参考比较，验证 straight alpha、premultiplied alpha 的线性排序合成；测试参考的反向排序红通道差大于 0.1。合成参考 RGB 为 `1.37001 / 0.45327 / 1.00331`，两种模式中心均为 `1.36914 / 0.45288 / 1.00293`。非受光透明层覆盖受光背景时，RGB 与解析参考比较，HDR 目标 alpha 表示的 tone-map 权重由 1 降到 0.5；同时验证不透明表面的深度遮挡。启用 4 倍曝光、Filmic 和 Bloom，捕获仍为后处理前的线性结果。
 
 扩展测试在实际 `RenderExtension` 上绘制线性 RGB `2 / 0.75 / 0.125` 色块，逐像素核对扩展区域和 sRGB 解码后的背景；关闭扩展、开启扩展及开启后处理三种情况下，整张图的最大 RGB 绝对误差均为 `0.000027`。以上测试覆盖指定场景，不单独覆盖透明边缘、MSAA 下的透明合成、扩展与透明网格的混合或深度关系；扩展测试只核对 RGB，不核对其目标 alpha。
 
 `engine.destruction_runtime` 验证碎块组装保留已有切线及手性，缺失切线按实际 UV 分块生成；同步及异步破碎后均检查数据。macOS Release 测试通过，相关 Debug 和 Release 目标均已编译。
+
+
+## 大气天空与 Hex-Tiling 标准 PBR 接入（2026-11-04）
+
+本轮专项验收使用 **macOS ARM64 / Metal / Release**，真实绘制分辨率为 `384×216`，通过正式
+场景、材质、平面反射、线性 HDR 回读和离线烘焙所用的 diffuse capture 接口运行。
+`engine.atmosphere_hex` 为 `1/1` 通过（该次 2.04 秒是测试运行时间，不是渲染性能结论）。
+专项回归可用根 Preset 重跑：
+
+```sh
+cmake --build --preset ninja-engine-release --target engine_atmosphere_hex_test
+ctest --preset ninja-engine-release -R '^engine\.atmosphere_hex$' --output-on-failure -V
+```
+
+| 范围 | 实际结果与参考 | 验证边界 |
+| --- | --- | --- |
+| 纯大气背景 | 只有相机、环境和太阳，没有占位 Mesh；线性 HDR 图像均值 `0.05902850`，太阳强度翻倍的均值误差为 `0` | 证明背景可独立绘制和辐照度线性关系，不代表对摄影天空或 Blender 的逐像素拟合 |
+| 显示转换 | 修改曝光及 tone mapping 后，显示转换前的 HDR 捕获保持相同 | 天空输出线性值，经现有唯一显示 resolve；没有引入示例内置曝光／tone map 的第二次处理 |
+| 烘焙捕获 | 独立 40 m 高度的捕获随太阳强度翻倍；完成后主相机图像不变；未列入捕获灯光清单的太阳 Transform 变化仍取消旧捕获 | 复用离线烘焙的捕获接口，未宣称已实现随时间自动更新的 IBL |
+| 水面平面反射 | 开启真实水面 Planar 后天空的平均贡献为 `0.00938355`；该反射贡献随太阳翻倍的均值误差为 `0.00001642` | 比较分别扣除两档太阳下无 Planar 时的水体结果，以隔离吸收、折射和固有颜色；没有把独立水体项视为太阳反射或放宽阈值 |
+| Hex 开关 | 重复有色纹理开启后的均值差异为 `0.13712553`；关闭后的像素复原误差为 `0`；平法线和白 ORM 保持原 PBR 响应 | 只验证所列纹理、视角和参数，不代表全部材质的采样成本或视觉质量 |
+| Hex 方向法线 | 已知 tile 的四分之一旋转与独立编写的参考法线贴图相比，HDR 均值误差为 `0`；关闭随机旋转时负 UV 尺度的方向法线一致 | 正确应用 UV 与梯度互为转置的变换；按 bgfx 实际矩阵约定，Metal 该样点的 +T 对应 +B，未以未旋转 RGB 法线混合代替 |
+| 生命周期 | 上述测试包含开关反复切换、删除水面、场景销毁和请求清理 | 源参数唯一存组件／材质，LUT 与提交状态仅为场景派生 GPU 缓存；更多跨模块往返由集中回归记录 |
+
+三个大气 Compute、天空 VS/FS，以及包含 Hex 的 PBR、Surface 和 Water 片元共 **8 个 Metal
+Shader stage 编译通过**。场景数据测试另增加完整参数往返、非法相函数、空太阳和预制体引用
+重映射／退休引用用例；材质测试增加默认关闭、精确布尔值、contrast 端点以及透明／cutout／
+SpecGloss 组合拒绝用例。这些 CPU 用例与 Debug 编译的集中结果应按各自回执记录，不能从
+本项 GPU 测试的 `1/1` 推断全仓已通过。
+
+大气参考固定 bgfx `53-sky2`，Hex 网格／采样参考 `49-hextile`，法线梯度参考固定 MIT 原版
+mmikk；版本、版权和适配范围见[来源与许可](../third_party/notices/bgfx-atmosphere-hex.md)。
+参数和所有权见[类图](runtime/class-diagrams/atmosphere-hex-material.md)。专项日志位于
+`build/upstream-atmosphere-hex-ctest-release.log`，定向构建日志位于
+`build/upstream-atmosphere-hex-build-release.log`，均为忽略目录中的本地证据，不提交产物。
+
+首期限制：大气使用 Y-up、米制场景到千米 LUT 的近地模型，没有空气透视、逐表面太阳透过率、
+自动动态 IBL 或轨道级相机支持。Hex 初版限定 UV0、不透明、无 alpha cutoff 的标准
+Metallic/Roughness PBR；SpecGloss、透明水、三平面和直方图预处理不在本次范围。BaseColor、
+Normal、ORM 及其余已绑定表面纹理共用随机 UV、显式梯度和权重，Lightmap UV2 保持独立。
+本轮没有摄影天空对照、广泛粗糙度／法线素材矩阵、其他后端运行或采样成本测量；不据此宣称
+Windows、Android、iOS、Linux 或移动设备已验收。共享依赖的 macOS 部署目标警告仍遵守本文
+既有发行边界，不能以本机运行替代较旧 macOS 系统验收。
+
+
+## 上游渲染能力与统一 MCP 功能验收（2026-11-04）
+
+本轮使用 **macOS ARM64 / Metal / Release / QuickJS**。Debug 与 Release 最终完整构建均成功（退出码 0）；Debug 未运行测试。Release 全量首轮为 **127/131 通过**，四项失败分别涉及测试夹具缺少文件、烘焙暂存资源缺少邻接 meta、新菜单项改变首个 Tab 焦点、测试扩展硬编码旧 view。修复后定向复验 `engine.window_render` 为 **1/1 通过**，`editor.texture_pipeline`、`engine.font_ui_render`、`editor.scene_lighting_files` 为 **3/3 通过**；没有再次执行单次全量，不能将这些结果写成单次 131/131。最终增量组件、绑定及 MCP CPU 回归另为 **9/9 通过**，日志 `build/upstream-rendering-components-final-tests.log`。
+
+`engine.render_submission` 在首轮全量中通过（1.41 秒是测试运行时间）。它通过真实 GPU 读回验证逐物体/实例化图像一致、材质变化分批及提交计数；剔除、LOD 选择、导入、组件数据和脚本/MCP 边界由相应模块测试覆盖。本机实际采用忽略的 `local-ninja-debug/release` 配置覆写依赖位置；复跑使用仓库共享预设，不要求存在本机的 `CMakeUserPresets.json`：
+
+```sh
+cmake --preset ninja-engine-release -DENGINE_ENABLE_GPU_TESTS=ON
+cmake --build --preset ninja-engine-release
+ctest --preset ninja-engine-release --output-on-failure
+```
+
+新增公开用例 `Rendering features and submission`，由菜单进入 `scenes/render-features.scene`。固定 384 个共享球体与 1 个贴图地面；Camera 剔除、每个 MeshRenderer 的实例化/LOD 在该用例显式开启，核心三个新属性的默认值仍为 false。项目 TS 只组合组件和材质，实际提交与诊断通过正式 MCP 查询和控制。复跑真实 UI/MCP 验收时先在第一终端启动编辑器、等待资源导入完成，再在第二终端执行脚本：
+
+```sh
+build/ninja-engine-release/editor_app \
+  --project projects/showcase --runtime-dir build/upstream-rendering-runtime \
+  --width 1280 --height 720
+```
+
+```sh
+python3 projects/showcase/tests/render_features_test.py \
+  --server build/ninja-engine-release/mcp_app \
+  --runtime-dir build/upstream-rendering-runtime --timeout 180
+```
+
+本次脚本真实退出码 0，输出：
+
+```text
+PASS 384 个固定对象：真实 UI/MCP 功能开关、导入 LOD、逐视图提交、调试、天空/Hex 与返回清理
+```
+
+窗口逻辑尺寸为 1280×720，Retina 实际捕获为 **2560×1440**。同一固定相机、同一 385 个对象得到以下功能对照；这不是性能分数，也未收集 CPU/GPU 耗时：
+
+| 功能 | 开启 | 关闭 | 实际检验 |
+| --- | --- | --- | --- |
+| 视锥剔除 | 剔除 14，可见 371 | 剔除 0，可见 385 | 改相机属性后实际候选与提交集合变化 |
+| 静态实例化 | 3 draw、2 实例批次 | 371 draw、0 实例批次 | 同一对象/材质恢复逐 draw 路径 |
+| 静态 LOD | 440332 三角形 | 1515532 三角形 | 保持同一相机和可见对象，使用正式导入 LOD |
+| 远镜头 LOD | 196620 三角形 | 1572876 三角形 | 同一远镜头分别开关 LOD；源拓扑为 4096/2048/1024/512 三角形 |
+
+原生统计标注 `source: scene_mesh_submission`、`gpuCompletion: not_measured`；renderer 只读汇总明确为 `scope: world_summary`，包含常驻场景，指定组件为 `scope: component`。材质 Hex 的 `effective: null` 明确没有逐物体测量，不能从别的物体批次推断其效果。
+
+该次脚本还验证了：正常 RmlUi 点击进入、切换与返回；Camera/MeshRenderer 单对象编辑、撤销/重做不修改其他对象；太阳 NodeID 的读写往返及错误角色拒绝；天空和 Hex 的 UI/MCP 开关；五项临时诊断与实际调试线；错误身份/缺少目标/只读能力拒绝；两次进入和返回后对象、UI 及请求清理。脚本不启动或关闭编辑器，成功后停留菜单；此次验收随后经正式 `close_editor`（delayMs=500）正常关闭，同一项目、运行目录和会话的回执成功，编辑器退出码 0，回执为 `build/upstream-rendering-editor-close.json`。
+
+截图人工核对可见球体当前 LOD 线框、大气关闭后的背景变化、Hex 地面混合；调试线在原图有 205 个黄色像素（x=1279，y=607..811），没有以设置接受代替实际绘制。截图只用于该次功能检查，不宣称全部材质/模型或其他后端通过。首期实例化仅覆盖资格兼容的静态不透明网格，其他对象走正常逐 draw；LOD 仅消费离线生成的静态级别，无平滑过渡；大气与 Hex 的进一步限制见上一节。
+
+证据均在忽略目录，本次真实 MCP 回执、结果和五张截图位于 `projects/showcase/cache/render-features/20261104T104733Z-b5d87fc1/`；构建日志为 `build/upstream-rendering-build-debug-final.log`、`build/upstream-rendering-build-release-final.log`；全量及复验日志为 `build/upstream-rendering-ctest-release.log`、`build/upstream-window-recheck-ctest.log`、`build/upstream-rendering-ctest-recheck.log`。其他检出通过上述命令重新生成证据，不提交缓存或截图。
+
+
+## 全模块架构与文档整理回归（2026-11-04）
+
+架构结论与后续收敛点见[架构审查](architecture.md#全模块架构审查2026-11-04)。本轮没有更改公开运行契约或渲染算法，主要调整内部文件归属、编辑器网格处理目标名、文档与工具路径。窗口/显示设备等独立服务保持直接接口，场景效果和对象属性继续由组件承载。
+
+- macOS ARM64 的 Debug、Release 完整增量构建均返回 0；Debug 未运行测试。日志：`build/architecture-audit-debug.log`、`build/architecture-audit-release.log`。已有依赖的 macOS 最低部署版本链接警告仍存在，不据此声明更低系统版本通过。
+- Release 定向 CTest **11/11 通过**，覆盖 Android MCP 传输、MCP 登记、LOD 与导入、范例契约、工具路径、跨语言 schema、插件选择、架构边界/规则和角色控制器。日志：`build/architecture-audit-release-tests.log`。其中 Android 使用 fake adb 设备，只验证传输与失败处理，不是真机运行。
+- 导入插件合并前，架构检查对当时配置导出的 **168 个 engine 目标**与自有源码直接包含校验，边界错误为 0；平台代码现已参与扫描，平台编辑器插件仍保持 plugins/editor 身份。规则夹具 **10/10** 通过，包含平台反向依赖反例。
+- 原有 **128 份类图**的符号/继承/可见性、链接和围栏结构筛查完成；导入插件合并另补充统一关系图，当前共 129 份；参数、所有权的人工核对范围以[架构说明](architecture.md)为准。符号筛查不等于全量参数类型证明，未运行 Mermaid 渲染器或开展新 GPU/性能验收。
+- 项目文档集中到 `projects/showcase/docs/` 后，额外运行 `editor.showcase_contract` 与 `engine.asset_tools`，**2/2 通过**（日志：`build/architecture-audit-project-docs-tests.log`）。18 篇原文迁移并新增目录入口，项目根/工具/资源目录不再散放 Markdown；3 份随资源分发的许可证未移动，移出的两份来源说明不再登记为运行资源。
+
+复跑 C++ 构建使用[根预设](building.md)；本机日志中的 `local-ninja-*` 是继承 `ninja-engine-*` 的本地依赖缓存预设。对应 Release 回归可在已构建的根预设执行：
+
+```sh
+ctest --preset ninja-engine-release --output-on-failure -R \
+  '^(engine\.(architecture_boundaries|architecture_rules|android_mcp|mcp_registry|character_controller|plugin_selection|scene_schema_cross_language)|editor\.(mesh_lod|mesh_lod_pipeline|showcase_contract|portable_tools))$'
+```
+
+
+## 统一资源导入插件回归（2026-11-04）
+
+五个纯格式插件合并为 `editor/asset_import`，统一 CMake 目标/命名空间与宿主开关；Importer ID、转换算法、meta 与资源 GUID 契约保持原样。格式说明及选择方法见[资源导入插件](plugins/editor/asset-import.md)，类归属见[统一类图](plugins/editor/class-diagrams/asset-import.md)。
+
+- 启用配置：macOS ARM64 的完整 Debug、Release 构建均返回 **0**；Debug 未运行测试。实际 engine 目标从合并前的 168 个减少到 **164 个**，五个旧格式目标不再创建，只有一个 `engine_asset_import`。日志：`build/asset-import-configure-{debug,release}.log`、`build/asset-import-build-{debug,release}.log`。
+- Release 定向 CTest **21/21 通过**：包含 FBX 导入/绑定姿态、USD、字体、JSON、UI、真实字体/UI 渲染、脚本 UI、资源管线与出包、编辑命令、插件选择和架构边界。日志：`build/asset-import-release-tests.log`。此结果不代表本轮重跑全部 131 项或其他平台。
+- 插件选择测试验证统一插件的五种实现、实际目标依赖、宿主单次链接、UI 的依赖闭包、禁用后目标/feature 清理，以及旧插件名被明确拒绝。该测试的目标夹具不冒充第三方实际编译，真实链接由完整构建与下一项覆盖。
+- 禁用配置：使用根 Release 预设的独立构建目录 `build/asset-import-disabled`，只选择编辑器 `asset_build;asset_sync;mcp`，实际编译/链接 `editor_app`、`mcp_app`、`asset_build_app` 成功；三个 `--help` 均返回 **0**。无 `engine_asset_import` / `engine_ufbx` 目标，配置及实际链接不包含 USD/FreeType；未运行项目或重新生成资产。日志：`build/asset-import-disabled-{configure,build,verification}.log`。
+
+构建沿用已安装依赖及编译缓存；未更新依赖版本、触发 CI 或改变运行包格式。原有 macOS 依赖最低部署版本警告继续按前文边界记录，不作为低版本设备或跨平台实测。
+
+
+## 场景查询与内部职责收敛回归（2026-11-04）
+
+本轮完成[架构审查中的职责收敛](architecture.md#本次职责收敛)：按类型拆分场景编辑命令，将名称/局部身份/子路径查询归 Scene / Node，建模源文件 I/O 归插件私有实现，并移除 `scene_bake` 对依赖图插件的强制装配。公开查询按[Scene 类图](runtime/class-diagrams/scene.md#场景查询收敛契约)与[Node 类图](runtime/class-diagrams/node.md#相对子路径查询)实现；未新增查询系统或命令框架。
+
+- macOS ARM64 / Metal / QuickJS 的 Debug、Release 完整增量构建均返回 **0**；Debug 未运行测试。构建使用继承根预设的 `local-ninja-debug/release`，日志为 `build/scene-convergence-build-debug.log`、`build/scene-convergence-build-release.log`。
+- Release 定向 CTest **22/22 通过**，总运行时间 76.66 秒，日志为 `build/scene-convergence-release-tests.log`。覆盖场景/ECS、脚本/角色、编辑命令/预制体/保存、建模/MCP、插件闭包和架构边界；此结果不等于全量 132 项或其他平台验收。
+- 命令组合回归覆盖 Transform、Camera、材质与 Light 的同批次编辑、陈旧撤销拒绝及已撤销部分的回滚、未编辑字段保留、创建撤销/重做后的新实体身份、旧外部 ID 拒绝，以及 `get_scene` 多材质槽快照。原事务、NodeAliases 和 JSON 形状保持。
+- 查询回归覆盖实体/局部 ID 区分、不同场景和常驻节点隔离、候选内部查询与 Published 边界、删除重建、同名顺序、空名及含斜线名称、非法/歧义路径、重挂父级和旧脚本 Run 拒绝。TS 外观未改变。
+- 架构检查通过自有源码包含和实际 CMake 目标依赖校验；插件选择用例确认空运行时插件列表仅选择 `editor/scene_bake` 时不会隐式加入 `runtime/resource_graph`。
+
+新增 `editor.scene_bake_core_loader` 是独立的真实 GPU 可执行测试，既不链接也不构造 ResourceGraph。核心默认加载器从正式 GUID 目录和挂载读取输入，场景组件/材质持有网格、Shader、贴图；测试完成纹理捕获、IBL、UV2、Lightmapper 和生成光图正式资源回载。最终 Release 回归耗时 6.01 秒，实际输出：
+
+```text
+core-loader bake: graph=absent IBL=0.999512 lightmap=3.144531 expected=pi captures=complete
+```
+
+常量环境的 IBL 目标值为 1，光图目标值为 π，光图断言为 `abs(mean - pi) < 0.03`。GPU 用例仅在开启 `ENGINE_ENABLE_GPU_TESTS` 且非交叉编译时登记；测试输出详见 `build/local-ninja-release/Testing/Temporary/LastTest.log`。该验证证明无依赖图装配的所列资源与烘焙链路，不代表所有烘焙素材、后端或平台。
+
+其他检出沿用[构建指南](building.md)准备根预设与 GPU 测试，再执行相同范围：
+
+```sh
+cmake --preset ninja-engine-debug
+cmake --build --preset ninja-engine-debug
+cmake --preset ninja-engine-release -DENGINE_ENABLE_GPU_TESTS=ON
+cmake --build --preset ninja-engine-release
+ctest --preset ninja-engine-release --output-on-failure -R \
+  '^(engine\.(script_runtime|scene|ecs_scene|plugin_selection|architecture_boundaries|architecture_rules|character_controller|character_host|ui_script)|modeling\.(commands|pipeline|mcp)|editor\.(physics_audio_commands|commands|mcp_commands|scene_persistence|animation_commands|model_commands|character_controller|scene_bake_core_loader|scene_lighting_files|prefab_commands))$'
+```
+
+构建缓存与日志留在忽略目录，不提交产物或本机依赖路径。既有第三方库的 macOS 最低部署版本警告仍在；本轮没有低版本 macOS、跨平台运行或性能测量。

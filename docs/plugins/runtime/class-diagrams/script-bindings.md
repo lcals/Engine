@@ -259,7 +259,7 @@ classDiagram
 - NavigationBinding 独立提供[导航脚本接口](navigation-script-api.md)，只收集调用方明确提交的静态网格，将构建、局部替换和完整路径查询交核心 NavigationSystem。
 - 构造和清理不抛 C++ 异常；虚拟机调用通过返回值报告错误。全部借用仅在引擎主线程有效。
 
-SceneBinding 提供 Scene.Load 与 FindNode：Load 仅可替换当前 Run 拥有的场景，失败保留原场景；FindNode 按节点顺序查首个同名节点，缺失返回 null。场景字节来自已激活 ResourceCatalog，不直接访问可变项目缓存或 SQLite。
+SceneBinding 提供 Scene.Load 与 FindNode：Load 仅可替换当前 Run 拥有的场景，失败保留原场景；FindNode 委托 `Scene::find_node(name)` 按节点顺序查首个同名节点，缺失返回 null。`Node.FindChild(path)` 委托 `Node::find_child(path)`，绑定只处理参数、返回身份与 Run 检查；精确名称、路径歧义和候选可见性见[场景查询契约](../../../runtime/class-diagrams/scene.md#场景查询收敛契约)。场景字节来自已激活 ResourceCatalog，不直接访问可变项目缓存或 SQLite。
 
 BindingContext 在成功 Create/Load/Commit 后记录 Scene ID，活动 Scene ID 与仍存活的所属容器分开保存；场景变化时裁剪已释放记录。`find_node(scene_id, node_id)` 为 `const noexcept`，只在活动回调内返回本 Run 所属场景中精确匹配的存活节点。Scene 句柄仍只代表当前关卡；Node/Component 句柄可访问同一 Run 的常驻节点。`Scene.Destroy()` 卸载关卡并保留常驻子树；关闭 Run 先取消自身请求，再按记录的 Scene ID 完整销毁，候选 Run 和旧 Run 不能清理其他调用方的场景。
 

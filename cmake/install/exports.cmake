@@ -63,7 +63,7 @@ if(TARGET editor_app)
     if(APPLE AND NOT ENGINE_MACOS_APP_BUNDLE)
         set(_engine_editor_product editor_app)
     endif()
-    if(TARGET engine_usd_import)
+    if(TARGET engine_asset_import)
         if(APPLE AND ENGINE_MACOS_APP_BUNDLE)
             list(
                 APPEND

@@ -55,6 +55,33 @@ bool scene_lifetime_phases()
         {
             return false;
         }
+        {
+            auto query =
+                flecs::world(world.native_world())
+                    .query_builder<const schema::NodePropertiesT, const ecs_detail::NodeRuntime>()
+                    .without<ecs_detail::Published>()
+                    .build();
+            std::size_t candidates = 0;
+            bool isolated = true;
+            query.each(
+                [&](flecs::entity entity, const schema::NodePropertiesT& properties,
+                    const ecs_detail::NodeRuntime& state)
+                {
+                    ++candidates;
+                    const auto found = state.scene->find_local_node(properties.id);
+                    isolated = isolated && state.scene != active && found &&
+                               found.id() == entity.id() &&
+                               state.scene->find_node(properties.name) == found &&
+                               !world.find_node(entity.id());
+                });
+            if (!expect(isolated && candidates == 1 && world.scenes().size() == 1 &&
+                            world.scene() == active && active->find_node(node.id()) == node,
+                        "candidate queries resolve locally without publishing nodes or replacing "
+                        "the active owner"))
+            {
+                return false;
+            }
+        }
         auto* native = world.native_world();
         const auto marker = ecs_new(native);
         auto* stage = ecs_get_stage(native, 0);

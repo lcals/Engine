@@ -161,6 +161,59 @@ bool EnvironmentCodec::read(const toml::table& table, schema::ComponentDataT& co
         }
         settings.clear_color = static_cast<std::uint32_t>(*value);
     }
+    const std::array atmosphere_numbers = {
+        std::pair{"atmosphere_ground_height", &settings.atmosphere_ground_height},
+        std::pair{"atmosphere_rayleigh_scale_height", &settings.atmosphere_rayleigh_scale_height},
+        std::pair{"atmosphere_mie_scattering", &settings.atmosphere_mie_scattering},
+        std::pair{"atmosphere_mie_absorption", &settings.atmosphere_mie_absorption},
+        std::pair{"atmosphere_mie_scale_height", &settings.atmosphere_mie_scale_height},
+        std::pair{"atmosphere_mie_anisotropy", &settings.atmosphere_mie_anisotropy},
+        std::pair{"atmosphere_ozone_center_height", &settings.atmosphere_ozone_center_height},
+        std::pair{"atmosphere_ozone_half_width", &settings.atmosphere_ozone_half_width},
+        std::pair{"atmosphere_planet_radius", &settings.atmosphere_planet_radius},
+        std::pair{"atmosphere_height", &settings.atmosphere_height},
+        std::pair{"atmosphere_multiscatter_strength", &settings.atmosphere_multiscatter_strength}};
+    for (const auto& [key, value] : atmosphere_numbers)
+    {
+        if (table.contains(key) && !float_number(table.get(key), *value))
+        {
+            error = "atmosphere numeric fields must be finite numbers";
+            return false;
+        }
+    }
+    const std::array atmosphere_vectors = {
+        std::pair{"atmosphere_rayleigh_scattering", &settings.atmosphere_rayleigh_scattering},
+        std::pair{"atmosphere_ozone_absorption", &settings.atmosphere_ozone_absorption},
+        std::pair{"atmosphere_ground_albedo", &settings.atmosphere_ground_albedo}};
+    for (const auto& [key, value] : atmosphere_vectors)
+    {
+        std::array<double, 3> channels{};
+        if (table.contains(key))
+        {
+            if (!numbers(table.get(key), channels))
+            {
+                error = "atmosphere vectors require three finite numbers";
+                return false;
+            }
+            *value = Vec3(channels[0], channels[1], channels[2]);
+        }
+    }
+    if (table.contains("atmosphere_enabled"))
+    {
+        const auto enabled = table["atmosphere_enabled"].value_exact<bool>();
+        if (!enabled)
+        {
+            error = "atmosphere_enabled must be boolean";
+            return false;
+        }
+        settings.atmosphere_enabled = *enabled;
+    }
+    if (table.contains("atmosphere_sun_node_id") &&
+        !identifier(table.get("atmosphere_sun_node_id"), settings.atmosphere_sun_node_id))
+    {
+        error = "atmosphere_sun_node_id must be an unsigned node identity";
+        return false;
+    }
     if (!scene_detail::valid_environment(settings))
     {
         error = "environment intensity, fog range or complete IBL resource references are invalid";
@@ -197,6 +250,56 @@ void EnvironmentCodec::write(const schema::ComponentDataT& component, toml::tabl
     table.insert("ibl_irradiance", settings.ibl_irradiance_guid);
     table.insert("ibl_prefilter", settings.ibl_prefilter_guid);
     table.insert("ibl_lut", settings.ibl_lut_guid);
+    table.insert("atmosphere_enabled", settings.atmosphere_enabled);
+    table.insert("atmosphere_sun_node_id", std::to_string(settings.atmosphere_sun_node_id));
+    table.insert("atmosphere_ground_height", settings.atmosphere_ground_height);
+    table.insert("atmosphere_rayleigh_scale_height", settings.atmosphere_rayleigh_scale_height);
+    table.insert("atmosphere_mie_scattering", settings.atmosphere_mie_scattering);
+    table.insert("atmosphere_mie_absorption", settings.atmosphere_mie_absorption);
+    table.insert("atmosphere_mie_scale_height", settings.atmosphere_mie_scale_height);
+    table.insert("atmosphere_mie_anisotropy", settings.atmosphere_mie_anisotropy);
+    table.insert("atmosphere_ozone_center_height", settings.atmosphere_ozone_center_height);
+    table.insert("atmosphere_ozone_half_width", settings.atmosphere_ozone_half_width);
+    table.insert("atmosphere_planet_radius", settings.atmosphere_planet_radius);
+    table.insert("atmosphere_height", settings.atmosphere_height);
+    table.insert("atmosphere_multiscatter_strength", settings.atmosphere_multiscatter_strength);
+    table.insert("atmosphere_rayleigh_scattering",
+                 toml::array{settings.atmosphere_rayleigh_scattering.x(),
+                             settings.atmosphere_rayleigh_scattering.y(),
+                             settings.atmosphere_rayleigh_scattering.z()});
+    table.insert("atmosphere_ozone_absorption",
+                 toml::array{settings.atmosphere_ozone_absorption.x(),
+                             settings.atmosphere_ozone_absorption.y(),
+                             settings.atmosphere_ozone_absorption.z()});
+    table.insert("atmosphere_ground_albedo", toml::array{settings.atmosphere_ground_albedo.x(),
+                                                         settings.atmosphere_ground_albedo.y(),
+                                                         settings.atmosphere_ground_albedo.z()});
+}
+
+bool EnvironmentCodec::remap_node_references(schema::ComponentDataT& component,
+                                             std::span<const schema::NodeIdMappingT> mapping,
+                                             std::string& error) const
+{
+    auto* settings = component.payload.AsEnvironmentData();
+    if (!settings)
+    {
+        return false;
+    }
+    if (settings->atmosphere_sun_node_id == 0)
+    {
+        return true;
+    }
+    for (const auto& item : mapping)
+    {
+        if (item.source_id == settings->atmosphere_sun_node_id && item.target_id != 0 &&
+            !item.retired)
+        {
+            settings->atmosphere_sun_node_id = item.target_id;
+            return true;
+        }
+    }
+    error = "Prefab has an external or retired node reference: atmosphere_sun_node_id";
+    return false;
 }
 
 } // namespace engine::editor::asset_pipeline

@@ -8,7 +8,7 @@ classDiagram
         +SceneBakeSystem(ResourceSystem& resources, RenderSystem& renderer, TaskSystem& tasks, WorldSystem& world, Path project_root, ValidateCallback validate, PublishCallback publish)
         +register_commands(EditorCommands& commands) bool
         +busy() bool
-        #on_initialize(EngineConfig& config) bool
+        #on_initialize(const EngineConfig& config) bool
         #on_tick(double delta_time) bool
         #on_shutdown() void
     }
@@ -42,17 +42,19 @@ classDiagram
 
 `SceneBakeSystem` 通过私有 `State` 持有 GPU 任务、文件事务、输入 ResourcePtr、任务身份和状态；ValidateCallback / PublishCallback 由宿主提供且依赖对象覆盖系统生命周期。ValidateCallback 输出当前场景身份并检查已保存预览，PublishCallback 只执行通用导入刷新。注册命令与 MCP 回调均为借用，必须先关闭命令服务再销毁模块。
 
+资源加载通过 `ResourceSystem::loader()` 的核心契约，不引用具体 `ResourceGraphSystem`。默认单项加载器可直接读取当前目录挂载中的输入；IBL 输入引用由 State 持有，几何、材质、Shader 与纹理依赖由场景组件及材质持有，GPU 捕获复用其已有引用。
+
 ```mermaid
 classDiagram
     class IblBakeJob {
         +IblBakeJob()
-        +start(TextureDataT& source, uint16 resolution, uint16 samples, uint16 lut_size, string& error) bool
+        +start(const TextureDataT& source, uint16 resolution, uint16 samples, uint16 lut_size, string& error) bool
         +tick(uint32 frame, string& error) BakeProgress
         +cancel() void
         +shutdown() void
         +completed() uint32
         +total() uint32
-        +outputs() vector~BakeOutput~
+        +outputs() const KtxBytes&
     }
     class BakeProgress {
         <<enumeration>>
@@ -71,13 +73,13 @@ classDiagram
 ```mermaid
 classDiagram
     class SceneBakeFiles {
-        +initialize(Path& root, string_view scene, string_view input, string_view job, ResourceSystem& resources, string& error) bool
-        +initialize_lighting(Path& root, string_view scene, string_view job, ResourceSystem& resources, LightingBakeSettings& settings, string& error) bool
-        +stage_lighting(LightingBakeOutputs& output, string& error) bool
+        +initialize(const filesystem_path& root, string_view scene, string_view input, string_view job, ResourceSystem& resources, string& error) bool
+        +initialize_lighting(const filesystem_path& root, string_view scene, string_view job, ResourceSystem& resources, LightingBakeSettings& settings, string& error) bool
+        +stage_lighting(const LightingBakeOutputs& output, string& error) bool
         +unchanged(ResourceSystem& resources, string& error) bool
-        +stage(KtxBytes& images, string& error) bool
-        +publish(RefreshCallback& refresh, string& error) bool
-        +outputs() vector~BakeOutput~
+        +stage(const KtxBytes& images, string& error) bool
+        +publish(const RefreshCallback& refresh, string& error) bool
+        +outputs() const vector~BakeOutput~&
         +cleanup() void
     }
     class BakeOutput {
@@ -99,7 +101,7 @@ classDiagram
     SceneBakeFiles ..> ProjectLock : 发布与回滚时持有项目锁
 ```
 
-图中 `KtxBytes` 表示 `const std::array<std::vector<std::uint8_t>, 3>`，`RefreshCallback` 表示 `const std::function<bool(std::string&)>`，仅缩短类图展示，不新增代码类型。`outputs()` 返回 `const std::vector<BakeOutput>&`；`unchanged()` 为 const，`outputs()` 为 const、noexcept，`cleanup()` 为 noexcept。SceneBakeFiles 不拥有资源系统，临时文件、旧文件备份及回滚状态由它管理；导入刷新前先释放项目锁，刷新失败时恢复旧源文件并再次刷新旧目录。失败回滚尚未收回的备份保留以供恢复。
+图中 `KtxBytes` 表示 `std::array<std::vector<std::uint8_t>, 3>`，`RefreshCallback` 表示 `std::function<bool(std::string&)>`，仅缩短类图展示，不新增代码类型。`outputs()` 返回 `const std::vector<BakeOutput>&`；`unchanged()` 为 const，`outputs()` 为 const、noexcept，`cleanup()` 为 noexcept。SceneBakeFiles 不拥有资源系统，临时文件、旧文件备份及回滚状态由它管理；导入刷新前先释放项目锁，刷新失败时恢复旧源文件并再次刷新旧目录。失败回滚尚未收回的备份保留以供恢复。
 
 插件属于 `plugins/editor/scene_bake`，运行时核心不包含或链接它。第一类烘焙是 IBL；计算沿用 Ant 的余弦重要性采样、GGX 预过滤和 split-sum BRDF LUT，并保留来源与许可。GPU 调度仅在主线程进行，每帧推进有限计算和读取，不创建后台 bgfx 线程，不自行调用 bgfx::frame。
 

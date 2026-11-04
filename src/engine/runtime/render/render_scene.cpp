@@ -46,6 +46,12 @@ bool RenderSystem::draw_scene(Camera view_camera, const RenderSettings& renderin
     {
         return false;
     }
+    // Disabling a sky-only scene makes it non-drawable. Retire its LUTs before that early return.
+    if (scene_resources_ &&
+        (!rendering.atmosphere.atmosphere_enabled || !rendering.atmosphere_sun_valid))
+    {
+        scene_resources_->atmosphere.release();
+    }
     const Scene* scene = world_ ? world_->scene() : nullptr;
     if (!scene || !scene_resources_ ||
         !render_detail::drawable_scene(*world_, view_camera, !extensions_.empty()))
@@ -152,15 +158,19 @@ bool RenderSystem::draw_scene(Camera view_camera, const RenderSettings& renderin
             continue;
         }
         target.node_id = node.id();
-        const auto base = static_cast<bgfx::ViewId>(1 + index * 39);
+        const auto base = static_cast<bgfx::ViewId>(3 + index * 39);
         render_detail::SceneDrawView draw;
-        draw.id = static_cast<bgfx::ViewId>(base + 29);
+        draw.renderer = this;
+        draw.id = static_cast<bgfx::ViewId>(base + 30);
         draw.width = target.width;
         draw.height = target.height;
         draw.world = target.world.data();
         draw.view = target.view.data();
         draw.projection = target.projection.data();
         draw.reflection = true;
+        draw.frustum_culling_enabled = settings.frustum_culling_enabled;
+        draw.lod_observer = {camera.instance_id(),
+                             node.get_component<PlanarReflectionComponent>().instance_id()};
         draw.multisampling = config_.msaa_samples > 1;
         draw.max_anisotropy = config_.max_anisotropy;
         render_detail::ShadowFrame shadow;
@@ -170,18 +180,26 @@ bool RenderSystem::draw_scene(Camera view_camera, const RenderSettings& renderin
             return false;
         }
         target.begin(draw.id, rendering.clear_color);
+        if (!resources.atmosphere.draw(scene->id(), rendering, draw, index,
+                                       static_cast<bgfx::ViewId>(base + 29)))
+        {
+            return false;
+        }
         if (!resources.draw_meshes(*world_, rendering, draw, render_detail::SceneDrawMode::opaque))
         {
             return false;
         }
     }
     render_detail::SceneDrawView draw;
+    draw.renderer = this;
     draw.width = static_cast<std::uint16_t>(width_);
     draw.height = static_cast<std::uint16_t>(height_);
     draw.world = camera_world;
     draw.view = view;
     draw.projection = projection;
     draw.visibility = camera;
+    draw.frustum_culling_enabled = settings.frustum_culling_enabled;
+    draw.lod_observer = {camera.instance_id(), 0};
     draw.max_anisotropy = config_.max_anisotropy;
     render_detail::ShadowFrame shadow;
     if (!resources.prepare_lighting(*world_, rendering, config_, draw, settings, shadow, 2,
@@ -228,6 +246,11 @@ bool RenderSystem::draw_scene(Camera view_camera, const RenderSettings& renderin
     draw.ambient_occlusion = rendering.ao_enabled;
     bgfx::setViewTransform(draw.id, view, projection);
     resources.hdr_post_process.begin_scene(rendering.clear_color);
+    if (!resources.atmosphere.draw(scene->id(), rendering, draw, 2,
+                                   render_detail::atmosphere_main_skyview))
+    {
+        return false;
+    }
     if (!resources.draw_meshes(*world_, rendering, draw, render_detail::SceneDrawMode::opaque))
     {
         return false;
@@ -238,8 +261,8 @@ bool RenderSystem::draw_scene(Camera view_camera, const RenderSettings& renderin
         // Match the main PBR pass: disabling IBL selects the analytical DFG
         // fallback even when an earlier bake has left its LUT loaded.
         const bgfx::TextureHandle reflection_lut = rendering.ibl_enabled
-                                                      ? resources.ibl_textures[2].handle
-                                                      : bgfx::TextureHandle{bgfx::kInvalidHandle};
+                                                       ? resources.ibl_textures[2].handle
+                                                       : bgfx::TextureHandle{bgfx::kInvalidHandle};
         if (!resources.reflections.prepare(draw.width, draw.height, rendering) ||
             !resources.reflections.render(
                 view, projection, frozen_scene, resources.hdr_post_process.opaque_specular(),
@@ -298,7 +321,8 @@ bool RenderSystem::draw_scene(Camera view_camera, const RenderSettings& renderin
         }
         invoking_extensions_ = false;
     }
-    if (!resources.hdr_post_process.resolve(rendering))
+    if (!draw_debug_overlay(camera, view, projection) ||
+        !resources.hdr_post_process.resolve(rendering))
     {
         return false;
     }

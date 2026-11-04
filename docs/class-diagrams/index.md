@@ -38,9 +38,10 @@
 - [核心 GUID 映射](../runtime/class-diagrams/guid-map.md)：编辑器与真机复用，完整 GUID 与逻辑路径双向查询。
 
 - [逐类型资源导入](../editor/class-diagrams/asset-importers.md)：通用导入契约、显式登记与每类资源独立转换。
+- [统一资源导入插件](../plugins/editor/class-diagrams/asset-import.md)：FBX、USD、字体、UI 与 JSON 归同一 editor/asset_import 插件，逐类型实现与宿主登记保持独立。
 - [FBX 模型资源导入](../plugins/editor/class-diagrams/fbx-importer.md)：ufbx 解析、稳定子资源、骨骼与动画采样。
-- [USD 静态模型导入](../plugins/editor/class-diagrams/usd-import.md)：独立源格式插件、自包含静态多边形及增量子网格。
-- [字体资源导入](../plugins/editor/class-diagrams/font-importer.md)：独立编辑器插件读取 TTF 和 meta，生成共享字形曲线与度量资源。
+- [USD 静态模型导入](../plugins/editor/class-diagrams/usd-import.md)：统一导入插件内的 USD 实现、自包含静态多边形及增量子网格。
+- [字体资源导入](../plugins/editor/class-diagrams/font-importer.md)：统一导入插件内的 FontImporter 读取 TTF 和 meta，生成共享字形曲线与度量资源。
 - [UI 资源导入](../plugins/editor/class-diagrams/ui-importer.md)：文档、字体和图片引用转换为标准运行资源依赖。
 - [JSON 资源导入](../plugins/editor/class-diagrams/json-importer.md)：独立 `.json` 配置、严格 UTF-8 校验、原字节发布与空依赖。
 - [建模资源导入插件](../plugins/editor/class-diagrams/modeling-mesh-importer.md)：宿主注入网格导入扩展，编辑器管线不依赖建模插件。
@@ -53,10 +54,10 @@
 
 - [ECS 场景与虚拟节点](../runtime/class-diagrams/ecs-scene.md)：Node/组件值句柄、Flecs 唯一运行数据、直接查询，以及预制体/脚本/撤销迁移边界；当前实现与分模块类图的统一入口。
 - 场景中的全部对象必须通过 Node + Component 表达，包含相机与灯光；场景通过 GUID 组装独立 Mesh、材质与 Shader 资源。
-- [场景](../runtime/class-diagrams/scene.md)：世界独占已发布场景及恢复候选，区分当前玩法场景与常驻容器；场景独占节点。
+- [场景](../runtime/class-diagrams/scene.md)：世界独占已发布场景及恢复候选，区分当前玩法场景与常驻容器；场景管理实体生命周期，真实数据归世界的 ECS。
 - [预制体](../runtime/class-diagrams/prefab.md)：模板资源、稳定实例映射与显式属性覆盖；沿用 Node/Component，不改变 ECS 所有权。
 - [预制体编辑与导入](../editor/class-diagrams/prefab.md)：子树/模型模板制作、字段合成、依赖发布及场景关联保存。
-- [节点](../runtime/class-diagrams/node.md)：轻量身份、层级及无具体类型的组件列表；泛型添加和查询。
+- [节点](../runtime/class-diagrams/node.md)：轻量身份与层级访问；按类型添加和查询组件值句柄，不拥有组件列表。
 - [常驻节点与场景切换](../runtime/class-diagrams/persistent-nodes.md)：根节点及子树跨场景存活、原 UI/Controller 复用，以及完整停止时的清理边界。
 - [组件创建登记](../runtime/class-diagrams/component-registry.md)：按生成类型登记工厂，节点泛型创建，组件自行恢复数据。
 - [组件](../runtime/class-diagrams/component.md)：Component、Transform、Camera、Light、MeshRenderer 及当前参数。
@@ -78,8 +79,9 @@
 - [场景数据模型](../runtime/class-diagrams/scene-data.md)：FlatBuffers 定义、C++/TS 生成及组件数据所有权。
 - [编辑器环境](../editor/class-diagrams/editor-environment.md)：平台路径映射和编辑器目录提交。
 - [渲染](../runtime/class-diagrams/render-system.md)：同一窗口的空白/PBR 场景呈现和每次运行 GPU 资源。
+- [上游渲染能力接入](../runtime/upstream-rendering-features.md)：自动视锥剔除、Frame/View uniform、静态实例化、LOD、线框/调试、大气天空、Hex-Tiling 与统一 MCP；[控制接口](../runtime/class-diagrams/render-feature-controls.md)、[视图提交](../runtime/class-diagrams/render-submission.md)、[LOD](../editor/class-diagrams/static-model-lod.md)、[大气与材质](../runtime/class-diagrams/atmosphere-hex-material.md)。
 - [分簇前向、反射与间接光](../runtime/class-diagrams/forward-lighting-reflections.md)：已评审的公开契约、GPU 所有权与材质绑定，包含局部阴影、SSR、平面反射、透明折射及 GI 消费。
-- [场景间接光烘焙](../plugins/editor/class-diagrams/scene-lighting-bake.md)：已评审的 xatlas、lightmapper 适配、多轮反弹、探针与原子资源发布；[固定上游来源](../runtime/rendering-upstream-plan.md)。
+- [场景间接光烘焙](../plugins/editor/class-diagrams/scene-lighting-bake.md)：已评审的 xatlas、lightmapper 适配、多轮反弹、探针与原子资源发布；[固定上游来源](../runtime/rendering-sources.md)。
 - [渲染扩展](../runtime/class-diagrams/render-extension.md)：插件场景透明绘制位置、借用登记与 GPU 生命周期。
 - [编辑器](../editor/class-diagrams/editor-system.md)：默认待机，主线程处理 MCP 启停，停止恢复空白。
 - [场景预览](../editor/class-diagrams/scene-preview.md)：独立隐藏镜头、自由飞行、增量导入及未保存编辑保护；不推进玩法系统。
@@ -103,7 +105,7 @@
 - [世界暂停方案](../runtime/world-pause.md)：冻结自动模拟并继续 UI、输入和菜单，保留既有系统装配与调度框架。
 - [资源同步](../plugins/editor/class-diagrams/asset-sync-system.md)：完整批次发布到持久资源版本目录。
 
-- [渲染脚本接口](../plugins/runtime/class-diagrams/render-script-api.md)：环境色、曝光、阴影、清屏色，以及投影、灯光、具名贴图和材质槽。
+- [渲染脚本接口](../plugins/runtime/class-diagrams/render-script-api.md)：Camera、Light、Environment、PostProcess、MeshRenderer 与 Material 的组件/材质属性；设备显示设置另见运行时控制。
 - [动画脚本接口](../plugins/runtime/class-diagrams/animation-script-api.md)：逐类 Animator 绑定、CrossFade 及播放状态；SetAnimation 与切换预检的区别。
 - [物理与音频脚本接口](../plugins/runtime/class-diagrams/physics-audio-script-api.md)：组件创建、设置、冲量与播放控制，复用原生能力。
 - [导航脚本接口](../plugins/runtime/class-diagrams/navigation-script-api.md)：显式提交静态网格、局部重建、完整路径查询及场景生命周期清理。

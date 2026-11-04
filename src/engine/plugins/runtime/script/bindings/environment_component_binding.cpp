@@ -2,7 +2,12 @@
 
 #include "plugins/runtime/script/bindings/binding_context.hpp"
 #include "runtime/scene/environment_component.hpp"
+#include "runtime/scene/light.hpp"
 #include "runtime/scene/node.hpp"
+#include <array>
+#include <cmath>
+#include <limits>
+#include <nlohmann/json.hpp>
 
 namespace engine::plugins::script::bindings
 {
@@ -32,6 +37,14 @@ export class EnvironmentComponent extends Component {
     }
     SetClearColor(rgba) {
         const h = handles.get(this); return native.EnvironmentClearColor(h.scene, h.node, rgba);
+    }
+    SetAtmosphere(enabled, sun = null, parameters = {}) {
+        const h = handles.get(this);
+        const other = sun === null ? null : handles.get(sun);
+        if (sun !== null && (!(sun instanceof Node) || other?.scene !== h.scene)) return false;
+        if (parameters === null || typeof parameters !== "object" || Array.isArray(parameters)) return false;
+        return native.EnvironmentAtmosphere(h.scene, h.node, enabled,
+            other?.scene ?? 0n, other?.node ?? 0n, JSON.stringify(parameters));
     }
     SetIbl(enabled, intensity = 1) {
         const h = handles.get(this); return native.EnvironmentIbl(h.scene, h.node, enabled, intensity);
@@ -167,6 +180,112 @@ void ibl(const Arguments& arguments)
         arguments.set_return(target.set_settings(value));
     }
 }
+
+void atmosphere(const Arguments& arguments)
+{
+    auto target = environment(arguments, 6);
+    auto* context = BindingContext::current(arguments);
+    std::uint64_t sun_scene = 0, sun_id = 0;
+    std::string text;
+    if (!target || !context || !arguments.is_boolean(2) ||
+        !BindingContext::identifier(arguments, 3, sun_scene) ||
+        !BindingContext::identifier(arguments, 4, sun_id) ||
+        !BindingContext::text(arguments, 5, text))
+    {
+        return;
+    }
+    auto settings = target.settings();
+    settings.atmosphere_enabled = arguments.boolean(2);
+    settings.atmosphere_sun_node_id = 0;
+    if (sun_id != 0)
+    {
+        const auto sun = context->find_node(sun_scene, sun_id);
+        const auto light = sun ? sun.get_component<Light>() : Light{};
+        if (!sun || sun.scene() != target.node().scene() || !light ||
+            light.settings().kind != schema::LightKind::directional)
+        {
+            return;
+        }
+        settings.atmosphere_sun_node_id = sun.info().properties->id;
+    }
+    const auto parameters = nlohmann::json::parse(text, nullptr, false);
+    if (!parameters.is_object())
+    {
+        return;
+    }
+    const std::array scalars = {
+        std::pair{"groundHeight", &settings.atmosphere_ground_height},
+        std::pair{"rayleighScaleHeight", &settings.atmosphere_rayleigh_scale_height},
+        std::pair{"mieScattering", &settings.atmosphere_mie_scattering},
+        std::pair{"mieAbsorption", &settings.atmosphere_mie_absorption},
+        std::pair{"mieScaleHeight", &settings.atmosphere_mie_scale_height},
+        std::pair{"mieAnisotropy", &settings.atmosphere_mie_anisotropy},
+        std::pair{"ozoneCenterHeight", &settings.atmosphere_ozone_center_height},
+        std::pair{"ozoneHalfWidth", &settings.atmosphere_ozone_half_width},
+        std::pair{"planetRadius", &settings.atmosphere_planet_radius},
+        std::pair{"height", &settings.atmosphere_height},
+        std::pair{"multiscatterStrength", &settings.atmosphere_multiscatter_strength}};
+    const std::array vectors = {
+        std::pair{"rayleighScattering", &settings.atmosphere_rayleigh_scattering},
+        std::pair{"ozoneAbsorption", &settings.atmosphere_ozone_absorption},
+        std::pair{"groundAlbedo", &settings.atmosphere_ground_albedo}};
+    for (const auto& [key, value] : parameters.items())
+    {
+        bool recognized = false;
+        for (const auto& [name, destination] : scalars)
+        {
+            if (key != name)
+            {
+                continue;
+            }
+            if (!value.is_number())
+            {
+                return;
+            }
+            const double number = value.get<double>();
+            if (!std::isfinite(number) || std::abs(number) > std::numeric_limits<float>::max())
+            {
+                return;
+            }
+            *destination = static_cast<float>(number);
+            recognized = true;
+            break;
+        }
+        for (const auto& [name, destination] : vectors)
+        {
+            if (key != name)
+            {
+                continue;
+            }
+            if (!value.is_array() || value.size() != 3)
+            {
+                return;
+            }
+            std::array<double, 3> channels{};
+            for (std::size_t index = 0; index < channels.size(); ++index)
+            {
+                if (!value[index].is_number())
+                {
+                    return;
+                }
+                channels[index] = value[index].get<double>();
+                if (!std::isfinite(channels[index]))
+                {
+                    return;
+                }
+            }
+            *destination = Vec3(channels[0], channels[1], channels[2]);
+            recognized = true;
+            break;
+        }
+        if (!recognized)
+        {
+            return;
+        }
+    }
+    arguments.set_return(target.set_settings(settings));
+}
+
 } // namespace
 
 std::string_view EnvironmentComponentBinding::name() const noexcept
@@ -186,6 +305,7 @@ bool EnvironmentComponentBinding::register_functions(vm::ScriptVm& vm) const
            vm.function("EnvironmentTricolor", tricolor) &&
            vm.function("EnvironmentLinearFog", linear_fog) &&
            vm.function("EnvironmentExponentialFog", exponential_fog) &&
-           vm.function("EnvironmentClearColor", clear_color) && vm.function("EnvironmentIbl", ibl);
+           vm.function("EnvironmentClearColor", clear_color) &&
+           vm.function("EnvironmentIbl", ibl) && vm.function("EnvironmentAtmosphere", atmosphere);
 }
 } // namespace engine::plugins::script::bindings

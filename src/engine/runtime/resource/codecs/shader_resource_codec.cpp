@@ -75,6 +75,7 @@ bool reserved_uniform(std::string_view name)
                                   std::string_view("u_cluster_counts"),
                                   std::string_view("u_cluster_viewport"),
                                   std::string_view("u_frame_inputs"),
+                                  std::string_view("u_frame_time"),
                                   std::string_view("u_frame_valid"),
                                   std::string_view("u_planar_projection"),
                                   std::string_view("u_lighting_params"),

@@ -3798,7 +3798,13 @@ public:
         view = context.view;
         projection = context.projection;
         hdr = context.hdr;
-        valid_context = context.view_id == 134 && context.width != 0 && context.height != 0;
+        // The renderer assigns the view; extensions consume the callback value instead of
+        // coupling their lifecycle to the renderer's private pass allocation.
+        const auto* caps = bgfx::getCaps();
+        valid_context = caps && context.view_id < caps->limits.maxViews &&
+                        (view_id == bgfx::kInvalidHandle || view_id == context.view_id) &&
+                        context.width != 0 && context.height != 0;
+        view_id = context.view_id;
         if (!bgfx::isValid(texture_))
         {
             texture_ = bgfx::createTexture2D(1, 1, false, 1, bgfx::TextureFormat::RGBA8);
@@ -3824,6 +3830,7 @@ public:
     std::array<float, 16> view{};
     std::array<float, 16> projection{};
     std::uint64_t scene_id = 0;
+    std::uint16_t view_id = bgfx::kInvalidHandle;
     unsigned int draws = 0;
     unsigned int scene_releases = 0;
     unsigned int gpu_releases = 0;

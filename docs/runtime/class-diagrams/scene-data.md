@@ -13,6 +13,7 @@ classDiagram
         +uint32_t schema_version
         +unique_ptr~SceneInfoT~ info
         +vector~unique_ptr~NodeDataT~~ nodes
+        +vector~unique_ptr~PrefabInstanceDataT~~ prefab_instances
     }
     class NodeDataT {
         +unique_ptr~NodeInfoT~ info
@@ -23,6 +24,8 @@ classDiagram
         +ComponentPayloadUnion payload
     }
     class SceneInfoT
+    class PrefabInstanceDataT
+    SceneDataT *-- PrefabInstanceDataT : 实例来源与覆盖的独立快照
     class NodeInfoT {
         +unique_ptr~NodePropertiesT~ properties
         +uint64_t parent_id
@@ -73,14 +76,18 @@ classDiagram
         +string skeleton_guid
         +vector~SkinInfluence~ skin
         +vector~float~ mesh_to_skeleton
+        +vector~Vec2~ lightmap_texcoords
+        +vector~unique_ptr~MeshLodDataT~~ lods
     }
     class MeshVertex
+    class MeshLodDataT
     class MeshSubmesh {
         +uint32_t first_index
         +uint32_t index_count
         +uint32_t material_slot
     }
-    MeshDataT *-- MeshSubmesh : 索引范围与材质槽
+    MeshDataT *-- MeshSubmesh : LOD0索引范围与材质槽
+    MeshDataT *-- MeshLodDataT : 附加静态拓扑，完整字段见LOD类图
     class MeshRendererDataT
     MeshDataT *-- MeshVertex : 值类型顶点集合
     MeshRendererDataT ..> MeshDataT : mesh_guid引用
@@ -100,6 +107,7 @@ classDiagram
         +vector~unique_ptr~MaterialParameterT~~ parameters
         +vector~unique_ptr~MaterialTextureT~~ textures
         +CullMode cull_mode
+        +BlendMode blend_mode
     }
     class MaterialParameterT {
         +string name
@@ -118,6 +126,8 @@ classDiagram
         front
         none
     }
+    class BlendMode
+    MaterialDataT ..> BlendMode : 默认不透明，枚举见材质类图
     MaterialDataT ..> CullMode : 默认背面剔除
     class MeshRendererDataT
     class ShaderDataT
@@ -138,6 +148,8 @@ classDiagram
         +string path
         +vector~uint8_t~ vertex_code
         +vector~uint8_t~ fragment_code
+        +vector~uint8_t~ surface_fragment_code
+        +vector~uint8_t~ instanced_vertex_code
         +vector~unique_ptr~ShaderParameterT~~ parameters
         +vector~unique_ptr~ShaderSamplerT~~ samplers
     }
@@ -147,7 +159,10 @@ classDiagram
         +uint8_t stage
         +string default_texture
         +bool exposed
+        +ShaderTextureSource source
     }
+    class ShaderTextureSource
+    ShaderSamplerT ..> ShaderTextureSource : 资源或逐帧场景纹理来源
     ShaderDataT *-- ShaderSamplerT : 采样槽声明
     class ShaderParameterT {
         +string name
@@ -184,11 +199,16 @@ classDiagram
         +uint64_t content_size
         +vector~string~ dependencies
         +string module_path
+        +uint32_t format_version
+        +uint32_t header_size
+        +unique_ptr~FileLocationT~ location
     }
     class AssetKind {
         <<enum class>>
     }
     AssetCatalogDataT *-- AssetEntryT : 独占资源记录
+    class FileLocationT
+    AssetEntryT *-- FileLocationT : 散文件或包成员的定位值
     AssetEntryT ..> AssetKind : 资源类型
 ```
 

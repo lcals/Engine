@@ -6,6 +6,76 @@
 
 namespace engine::editor::components
 {
+bool fields(const Json& arguments, std::initializer_list<std::string_view> allowed)
+{
+    if (!arguments.is_object())
+    {
+        return false;
+    }
+    for (const auto& item : arguments.items())
+    {
+        if (std::find(allowed.begin(), allowed.end(), item.key()) == allowed.end())
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool identifier(const Json& arguments, const char* name, std::uint64_t& value)
+{
+    if (!arguments.contains(name) || !arguments[name].is_string())
+    {
+        return false;
+    }
+    const auto& text = arguments[name].get_ref<const std::string&>();
+    const auto parsed = std::from_chars(text.data(), text.data() + text.size(), value);
+    return parsed.ec == std::errc{} && parsed.ptr == text.data() + text.size() && value != 0 &&
+           text == std::to_string(value);
+}
+
+bool scalar(const Json& input, double& output)
+{
+    if (!input.is_number())
+    {
+        return false;
+    }
+    output = input.get<double>();
+    return std::isfinite(output);
+}
+
+bool vector(const Json& input, std::size_t count, std::array<double, 4>& values)
+{
+    if (!input.is_array() || input.size() != count)
+    {
+        return false;
+    }
+    for (std::size_t index = 0; index < count; ++index)
+    {
+        if (!scalar(input[index], values[index]))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool same(const Vec3& first, const Vec3& second)
+{
+    return first.x() == second.x() && first.y() == second.y() && first.z() == second.z();
+}
+
+bool same(const Color& first, const Color& second)
+{
+    return first.r() == second.r() && first.g() == second.g() && first.b() == second.b() &&
+           first.a() == second.a();
+}
+
+Json json_vector(const Vec3& value)
+{
+    return Json::array({value.x(), value.y(), value.z()});
+}
+
 Node target(WorldSystem& world, const Json& arguments, std::string& error)
 {
     auto* scene = world.scene();

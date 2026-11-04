@@ -10,12 +10,14 @@ classDiagram
         +CharacterController(Component component)
         +register_type(ComponentRegistry& registry) bool$
         +runtime() CharacterControllerRuntime#42;
+        +valid_settings(const CharacterControllerDataT& settings) bool$
         +settings() CharacterControllerDataT
         +get_settings(CharacterControllerDataT& output) bool
         +set_settings(const CharacterControllerDataT& settings) bool
         +set_input(const CharacterInput& input) bool
         +clear_input() void
         +restore_data(const ComponentDataT& data) bool
+        +remap_node_references(ComponentDataT& data, span~const NodeIdMappingT~ mapping) bool
     }
     class CharacterControllerSystem {
         +CharacterControllerSystem(WorldSystem& world)
@@ -29,6 +31,7 @@ classDiagram
         +CharacterCamera(Component component)
         +register_type(ComponentRegistry& registry) bool$
         +runtime() CharacterCameraRuntime#42;
+        +valid_settings(const CharacterCameraDataT& settings) bool$
         +settings() CharacterCameraDataT
         +get_settings(CharacterCameraDataT& output) bool
         +set_settings(const CharacterCameraDataT& settings) bool
@@ -37,6 +40,7 @@ classDiagram
         +yaw() double
         +pitch() double
         +restore_data(const ComponentDataT& data) bool
+        +remap_node_references(ComponentDataT& data, span~const NodeIdMappingT~ mapping) bool
     }
     class CharacterCameraSystem {
         +CharacterCameraSystem(WorldSystem& world, PhysicsSystem& physics)
@@ -47,6 +51,7 @@ classDiagram
         +CharacterVisual()
         +CharacterVisual(Component component)
         +register_type(ComponentRegistry& registry) bool$
+        +valid_settings(const CharacterVisualDataT& settings) bool$
         +settings() CharacterVisualDataT
         +get_settings(CharacterVisualDataT& output) bool
         +set_settings(const CharacterVisualDataT& settings) bool
@@ -65,6 +70,9 @@ classDiagram
     class CharacterVisualDataT
     class ComponentDataT
     class CharacterInput
+    class NodeIdMappingT
+    CharacterController ..> NodeIdMappingT : 重映射相机局部身份
+    CharacterCamera ..> NodeIdMappingT : 重映射目标局部身份
     Component <|-- CharacterController
     Component <|-- CharacterCamera
     Component <|-- CharacterVisual
@@ -77,7 +85,7 @@ classDiagram
     CharacterCamera ..> CharacterCameraDataT : 参数及返回类型
     CharacterVisual ..> CharacterVisualDataT : 参数及返回类型
     CharacterController ..> ComponentDataT : 恢复参数
-    CharacterController *-- CharacterInput : 瞬态待消费输入
+    CharacterControllerRuntime *-- CharacterInput : ECS中的瞬态待消费输入
     CharacterController ..> CharacterMotor : 按最近驱动实例身份取消主动意图
     CharacterCamera ..> ComponentDataT : 恢复参数
     CharacterVisual ..> ComponentDataT : 恢复参数

@@ -4,6 +4,8 @@
 
 ```mermaid
 classDiagram
+    class ProjectScriptRequest
+    GameplaySession ..> ProjectScriptRequest : 同步调用期间借用
     class GameplaySession {
         <<final>>
         +GameplaySession(WorldSystem& world, RenderSystem& renderer, ScriptRuntime#42; script, PhysicsSystem#42; physics, AudioSystem#42; audio, AnimationSystem#42; animation, FontSystem#42; fonts, UiSystem#42; ui, TaskSystem#42; background)
@@ -12,6 +14,7 @@ classDiagram
         +start(string_view entry) bool
         +tick() bool
         +stop(string_view reason) void
+        +execute_project_script(const ProjectScriptRequest& request, string& result_json, string& error) bool
         +script_status() const ScriptStatus#42;
         +last_error() string_view
     }

@@ -4,10 +4,9 @@
 
 ## 核对方式
 
-2026-11-03 在 macOS 当前完整桌面 Debug 构建执行标准 `tools/list`，实际返回 **125 个工具**，包含节点/组件状态和 8 项预制体工具。这是注册与参数覆盖核对，不表示所有工具都已完成实窗验收。运行时能力已实现，也不等于其 MCP 编辑入口已实现。
-
+通过当前构建的标准 `tools/list` 核对实际装配的工具、描述与参数，不在文档维护固定工具总数。可选插件和功能增量会改变数量；注册与参数覆盖不等于工具已完成真实交互或画面验收。
 ```sh
-python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app \
+python3 scripts/mcp_client.py --server build/ninja-engine-release/mcp_app \
   --project projects/showcase --runtime-dir build/showcase-runtime list
 ```
 
@@ -22,7 +21,9 @@ python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app \
 | 预制体 | `create_prefab`、`create_prefab_from_model`、`instantiate_prefab`、`link_prefab`、`unlink_prefab`、`get_prefab_instance`、`set_prefab_override`、`revert_prefab_override` | 支持子树模板与模型关联模板、独立实例及字段覆盖；嵌套、变体与应用实例覆盖到模板尚未开放，操作见[制作流程](../../editor/prefabs.md) |
 | 编辑事务 | `execute_batch`、`undo`、`redo`、`get_editor_receipt` | 只针对已登记的可撤销编辑；运行脚本、模拟输入、播放和冲量不属于可回滚事务 |
 | 预览与截图 | `open_scene_preview`、`close_scene_preview`、`get_scene_preview`、`set_preview_camera`、`refresh_scene_preview`、`capture_frame`、`get_frame_capture` | 截图须查询实际完成；预览不启动项目玩法 |
-| 环境与后处理 | `get_render_settings`、`set_render_settings`、`set_render_stats` | 已有环境光、IBL 强度、雾、曝光、AO、HDR/Bloom、方向光 CSM；已补 SSR 参数 |
+| 环境与后处理 | `get_render_settings`、`set_render_settings`、`set_render_stats` | 已有环境光、IBL 强度、雾、曝光、AO、HDR/Bloom、方向光 CSM 和 SSR；大气天空参数归环境组件，太阳引用使用真实 NodeID |
+| 运行渲染能力与诊断 | `get_render_features`、`set_render_feature`、`get/set_mesh_render_settings`、`get_render_submission_stats`、`draw_debug_lines` | 统一入口路由到 Camera 剔除、MeshRenderer 实例化/LOD、环境天空和材质 Hex；组件新能力默认关闭，五项诊断与统计仅通过 MCP；真实逐视图提交计数不等于 GPU 完成 |
+| 静态模型 LOD 导入 | `get_mesh_lod_import`、`set_mesh_lod_import` | 源 meta 原子更新，正式管线生成减面级别；与每个 MeshRenderer 的运行选择分离 |
 | 灯光与材质 | `set_light`、`set_camera`、`set_material_type`、`set_material_parameter`、`set_material_texture` | 局部灯阴影与 `set_material_blend_mode` 已补齐；水面数值和贴图继续使用具名材质参数，不新增水体专用参数框架 |
 | 反射与间接光 | `bake_scene`、`get_scene_bake`、`cancel_scene_bake` | 已增加 `get/set_planar_reflection`、`get/set_light_probe_volume`、`get/set_mesh_lighting`；资源版本与烘焙身份参与撤销校验 |
 | 建模 | `modeling_help/create/get/select/edit/delete/duplicate/combine/separate/save/load` | 通过 `modeling_help` 查询具体操作；不是每个几何运算都新增顶层工具 |
@@ -43,7 +44,7 @@ python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app \
 2. [UI 编辑与交互](class-diagrams/ui-editor.md)：查询控件及实际状态，模拟指针、拖动、滚轮、键盘和文字输入，区分源编辑与临时交互。
 3. [渲染 MCP 补齐](class-diagrams/render-mcp-tools.md)：沿现有组件、命令和撤销链补参数及缺少的组件入口。
 
-以上接口已经用户评审通过并实现，包含在渲染与 UI 整理阶段的 115 个工具中；最新工具总数见本页开头。注册、原生定向测试与真实窗口验证分别记录，不能用模拟返回值宣称业务链路已经通过。
+以上接口已评审并实现。运行功能仍通过场景组件/材质属性控制，可选功能默认关闭；诊断开关只保留 MCP 临时状态。注册、原生定向测试与真实窗口验证分别记录，不能用模拟返回值宣称业务链路已经通过。
 
 ## 验证要求
 
@@ -53,13 +54,12 @@ python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app \
 - UI：实际 RmlUi 输入到 Controller 的链路，检查焦点、拖动、滚动、文字、遮挡、隐藏/禁用与取消；不直接调用回调冒充操作成功。
 - 范例：测试目的、步骤、预期结果、当前状态归项目维护；MCP 不写死 showcase 的场景或用例。
 
-## 2026-11-03 本轮实测
+## 验证入口与记录
 
-- 完整桌面 MCP 实际返回 115 个工具；新工具合计 20 个：项目 TS 执行、延迟关闭、7 个渲染工具及 11 个 UI 工具。
-- Debug／Release 的脚本 VM、Run 生命周期、TS 编译、MCP 注册与工具协议、场景命令／保存和 5 项 showcase 项目测试通过；UI 原生交互及字体/UI Metal 渲染测试通过。
-- 真实编辑器验证了 SSR、点光阴影、透明材质、平面反射、探针与 MeshLighting 的查询／编辑／撤销／重做、Lightmap 身份失效及错误请求不留下部分修改。
-- 延迟关闭实测：完成回执先返回，编辑器退出码 0；故意阻止最新回执写入时保持运行，恢复后约 1.06 秒正常关闭。默认延时仍为 500 ms，故障检查使用 1000 ms。
-- 可选插件验证：关闭 `editor/ui` 后未创建 UI 编辑器目标，宿主编译宏和链接均不含 UI 插件；实际 MCP 二进制返回 104 个工具，准确缺少该插件的 11 项工具。
-- V8 本轮只完成修改文件的语法编译，实际执行回归使用默认 QuickJS；其他平台未复验。真实 showcase 交互结果另见[范例覆盖记录](../../editor/showcase-coverage.md)。
+- MCP 注册、参数与协议入口：`engine.mcp_registry`、`engine.script_tooling`。实际工具集合依据本次二进制及插件选择。
+- UI 源编辑、查询与输入入口：独立 `editor/ui` 插件及其[类图](class-diagrams/ui-editor.md)。
+- 渲染运行属性与诊断入口：[统一入口契约](render-feature-controls.md)。
+- 项目真实 UI/MCP 操作脚本与范围：[范例操作](../../editor/showcase-coverage.md)。
+- 已执行的平台、通过结果、历史失败与证据：[集中验证记录](../../testing.md#mcp-与公开范例整理2026-11-03)、[上游渲染验收](../../testing.md#上游渲染能力与统一-mcp-功能验收2026-11-04)。
 
-真实 showcase 端到端也已通过：MCP 在当前 Run 读写同一实例、正常鼠标点击进入/返回场景、Unicode 输入触发 Model 事件、常驻控件保留及延迟关闭；使用 macOS Metal Release 编辑器，退出码 0。此结果不扩大为全部范例或所有 UI 控件均已验收。
+工具回执完成、资源导入激活、项目回调执行与最终画面正确分别核验。Release 用于功能和实际运行验收；Debug 只要求受影响目标编译成功。

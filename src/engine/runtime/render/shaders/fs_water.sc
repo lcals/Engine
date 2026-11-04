@@ -23,6 +23,7 @@ uniform vec4 u_camera_position;
 uniform vec4 u_capture_mode;
 uniform vec4 u_ibl_params;
 uniform vec4 u_frame_inputs;
+uniform vec4 u_frame_time;
 uniform vec4 u_frame_valid;
 uniform mat4 u_planar_projection;
 uniform vec4 u_fog_color;
@@ -49,7 +50,7 @@ void main()
     PbrSurface surface = sample_pbr_surface(v_texcoord0, v_color0, v_world_normal,
                                            v_world_tangent, view_dir);
     vec2 uv = v_texcoord0 * u_uv_transform.xy + u_uv_transform.zw;
-    vec2 flow = u_water_flow.xy * u_frame_inputs.z;
+    vec2 flow = u_water_flow.xy * u_frame_time.x;
     // Independent opposing samples hide the periodic translation of a single normal map.
     vec3 normal_a = texture2D(s_normal, uv + flow).xyz * 2.0 - 1.0;
     vec3 normal_b = texture2D(s_normal, uv * 1.37 - flow * 0.73 + vec2(0.31, 0.67)).xyz * 2.0 - 1.0;

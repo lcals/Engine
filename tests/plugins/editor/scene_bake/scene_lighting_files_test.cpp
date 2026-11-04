@@ -2,6 +2,7 @@
 #include "scene_snapshot.hpp"
 
 #include "editor/asset_pipeline/asset_io.hpp"
+#include "editor/asset_pipeline/importers/mesh_importer.hpp"
 #include "editor/asset_pipeline/scene_importer.hpp"
 #include "plugins/editor/scene_bake/lighting_bake_job.hpp"
 #include "plugins/editor/scene_bake/scene_bake_files.hpp"
@@ -9,6 +10,7 @@
 
 #include <cstdio>
 #include <fstream>
+#include <map>
 
 namespace
 {
@@ -49,9 +51,24 @@ bool exercise()
     }
     schema::MeshDataT mesh;
     mesh.path = "source.mesh";
-    mesh.vertices = {{0, 0, 0, 0, 0, 1}, {1, 0, 0, 0, 0, 1}, {0, 1, 0, 0, 0, 1}};
-    mesh.indices = {0, 1, 2};
-    mesh.lightmap_texcoords = {{0, 0}, {1, 0}, {0, 1}};
+    constexpr std::uint32_t width = 4;
+    for (std::uint32_t y = 0; y <= width; ++y)
+    {
+        for (std::uint32_t x = 0; x <= width; ++x)
+        {
+            mesh.vertices.emplace_back(x, y, 0, 0, 0, 1);
+            mesh.lightmap_texcoords.emplace_back(double(x) / width, double(y) / width);
+        }
+    }
+    for (std::uint32_t y = 0; y < width; ++y)
+    {
+        for (std::uint32_t x = 0; x < width; ++x)
+        {
+            const auto vertex = y * (width + 1) + x;
+            mesh.indices.insert(mesh.indices.end(), {vertex, vertex + 1, vertex + width + 2, vertex,
+                                                     vertex + width + 2, vertex + width + 1});
+        }
+    }
     if (!fixture.add(mesh))
     {
         return false;
@@ -81,6 +98,13 @@ bool exercise()
     scene.nodes.push_back(std::move(node));
     std::string error, original;
     const auto scene_path = fixture.root / "assets/test.scene";
+    fs::create_directories(fixture.root / "assets/test", code);
+    const auto output_meta = fixture.root / "assets/test/lighting-1.mesh.meta";
+    const std::string preserved_meta =
+        "guid = \"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb\"\nimporter = \"mesh\"\n"
+        "meta_version = 1\nartist_note = \"retain import settings\"\n"
+        "[lod]\nenabled = true\ntriangle_ratios = [0.5]\nscreen_heights = [0.2]\n"
+        "max_relative_error = 0.01\n";
     if (!check(
             editor::SceneImporter::write(scene_path, scene, error) &&
                 ResourceSystem::read_text(scene_path, original) &&
@@ -88,7 +112,8 @@ bool exercise()
                 io::write_text(fixture.root / "assets/source.mesh.meta",
                                "guid = \"" + mesh_guid + "\"\n", error) &&
                 io::write_text(fixture.root / "assets/test.scene.meta",
-                               "guid = \"" + std::string(scene_guid) + "\"\n", error),
+                               "guid = \"" + std::string(scene_guid) + "\"\n", error) &&
+                io::write_text(output_meta, preserved_meta, error),
             "source scene and metadata prepared", error))
     {
         return false;
@@ -157,6 +182,26 @@ bool exercise()
     {
         return false;
     }
+    std::string staged_meta;
+    ByteBuffer staged_mesh;
+    if (!check(
+            ResourceSystem::read_text(fixture.root / "cache/bake/test-1/0.new.meta", staged_meta) &&
+                staged_meta == preserved_meta &&
+                ResourceSystem::read_binary(fixture.root / "cache/bake/test-1/compiled" /
+                                                files.outputs()[0].guid,
+                                            staged_mesh),
+            "staged source has its exact adjacent meta including existing LOD settings"))
+    {
+        return false;
+    }
+    const auto compiled = schema::UnPackMeshData(staged_mesh.data());
+    if (!check(
+            compiled && !compiled->lods.empty() &&
+                compiled->lods[0]->indices.size() < compiled->indices.size(),
+            "real staged importer applies preserved LOD settings rather than defaulting them away"))
+    {
+        return false;
+    }
     std::string current;
     if (!check(ResourceSystem::read_text(scene_path, current) && current == original,
                "staging preserves original scene"))
@@ -173,7 +218,10 @@ bool exercise()
                    },
                    error) &&
                    refreshes == 2 && ResourceSystem::read_text(scene_path, current) &&
-                   current == original && !fs::exists(fixture.root / "assets/test/lighting-1.mesh"),
+                   current == original &&
+                   !fs::exists(fixture.root / "assets/test/lighting-1.mesh") &&
+                   ResourceSystem::read_text(output_meta, staged_meta) &&
+                   staged_meta == preserved_meta,
                "failed import rolls back whole batch", error))
     {
         return false;
@@ -207,15 +255,45 @@ bool exercise()
         return false;
     }
     const auto* result = loaded.nodes[0]->components[1]->payload.AsMeshRendererData();
+    if (!check(result && result->mesh_guid == files.outputs()[0].guid &&
+                   result->lightmap_guid == files.outputs()[1].guid &&
+                   result->lightmap_mesh_hash.size() == 16 &&
+                   result->lightmap_transform.size() == 16 &&
+                   loaded.nodes[1]->components[1]->payload.AsLightProbeVolumeData()->probes_guid ==
+                       files.outputs()[2].guid &&
+                   fs::exists(fixture.root / "assets/test/lighting-1.mesh.meta") &&
+                   fs::exists(fixture.root / "assets/test/probes-2.lightprobe.meta") &&
+                   ResourceSystem::read_text(output_meta, staged_meta) &&
+                   staged_meta == preserved_meta,
+               "published scene binds UV2 mesh hash, lightmap, transform, and probe identities"))
+    {
+        return false;
+    }
+    GuidMap identities;
+    std::map<Guid, schema::AssetKind> kinds;
+    io::ImportContext context{identities,
+                              kinds,
+                              fixture.root,
+                              fixture.root / "assets",
+                              fixture.root / "compiled-published",
+                              {},
+                              nullptr,
+                              {}};
+    fs::create_directories(context.output, code);
+    io::ImportAsset asset;
+    asset.guid = files.outputs()[0].guid;
+    asset.path = files.outputs()[0].path;
+    asset.source = fixture.root / "assets" / asset.path;
+    asset.kind = schema::AssetKind::mesh;
+    io::MeshImporter importer;
+    ByteBuffer payload, encoded;
+    std::uint32_t header = 0;
     return check(
-        result && result->mesh_guid == files.outputs()[0].guid &&
-            result->lightmap_guid == files.outputs()[1].guid &&
-            result->lightmap_mesh_hash.size() == 16 && result->lightmap_transform.size() == 16 &&
-            loaded.nodes[1]->components[1]->payload.AsLightProbeVolumeData()->probes_guid ==
-                files.outputs()[2].guid &&
-            fs::exists(fixture.root / "assets/test/lighting-1.mesh.meta") &&
-            fs::exists(fixture.root / "assets/test/probes-2.lightprobe.meta"),
-        "published scene binds UV2 mesh hash, lightmap, transform, and probe identities");
+        !code && importer.convert(asset, context, error) &&
+            ResourceSystem::read_binary(context.output / asset.guid, payload) &&
+            ResourceSystem::encode_resource(asset.guid, asset.kind, payload, encoded, header) &&
+            io::hash_bytes(encoded) == result->lightmap_mesh_hash,
+        "published importer and staged importer produce the exact bound mesh hash", error);
 }
 } // namespace
 int main()

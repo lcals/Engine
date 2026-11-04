@@ -9,6 +9,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <array>
 #include <charconv>
 #include <cmath>
 #include <cstdint>
@@ -31,6 +32,73 @@ namespace engine::editor::components
 {
 using Json = nlohmann::json;
 using NodeAliases = std::map<std::uint64_t, std::shared_ptr<std::uint64_t>>;
+// 既有属性编辑共享的身份解析及数值校验；不是另一套命令登记或历史。
+[[nodiscard]] bool fields(const Json& arguments, std::initializer_list<std::string_view> allowed);
+[[nodiscard]] bool identifier(const Json& arguments, const char* name, std::uint64_t& value);
+[[nodiscard]] bool scalar(const Json& input, double& output);
+[[nodiscard]] bool vector(const Json& input, std::size_t count, std::array<double, 4>& values);
+[[nodiscard]] bool same(const Vec3& first, const Vec3& second);
+[[nodiscard]] bool same(const Color& first, const Color& second);
+[[nodiscard]] Json json_vector(const Vec3& value);
+
+struct Target
+{
+    WorldSystem& world;
+    NodeAliases* aliases = nullptr;
+    std::shared_ptr<std::uint64_t> identity;
+    std::uint64_t scene_id = 0;
+    std::uint64_t node_id = 0;
+
+    explicit Target(WorldSystem& value, NodeAliases* references = nullptr)
+        : world(value), aliases(references)
+    {
+    }
+
+    std::uint64_t resolved_id() const noexcept
+    {
+        return identity ? *identity : node_id;
+    }
+
+    Node node(std::string& error) const
+    {
+        auto* scene = world.scene();
+        if (scene == nullptr || scene->id() != scene_id)
+        {
+            error = "The requested scene is no longer active";
+            return {};
+        }
+        auto found = scene->find_node(resolved_id());
+        if (!found)
+        {
+            error = "The requested node no longer exists";
+        }
+        return found;
+    }
+
+    bool read(const Json& arguments, std::string& error)
+    {
+        if (!identifier(arguments, "sceneId", scene_id) ||
+            !identifier(arguments, "nodeId", node_id))
+        {
+            error = "sceneId and nodeId must be complete nonzero uint64 decimal strings";
+            return false;
+        }
+        if (!node(error))
+        {
+            return false;
+        }
+        if (aliases)
+        {
+            const auto found = aliases->find(node_id);
+            if (found != aliases->end())
+            {
+                identity = found->second;
+            }
+        }
+        return true;
+    }
+};
+
 [[nodiscard]] Json material_snapshot(const Material& material);
 [[nodiscard]] bool restore_material_snapshot(Material material, const Json& snapshot);
 [[nodiscard]] Node target(WorldSystem& world, const Json& arguments, std::string& error);
@@ -171,4 +239,25 @@ template <typename T, typename Data, typename Read, typename Write>
 [[nodiscard]] bool prepare_prefab(WorldSystem& world, NodeAliases& aliases, const Json& arguments,
                                   Json& result, std::unique_ptr<EditorEdit>& edit,
                                   std::string& error);
+[[nodiscard]] bool prepare_transform(WorldSystem& world, NodeAliases& aliases,
+                                     const Json& arguments, Json& result,
+                                     std::unique_ptr<EditorEdit>& edit, std::string& error);
+[[nodiscard]] bool prepare_light(WorldSystem& world, NodeAliases& aliases, const Json& arguments,
+                                 Json& result, std::unique_ptr<EditorEdit>& edit,
+                                 std::string& error);
+[[nodiscard]] bool prepare_camera(WorldSystem& world, NodeAliases& aliases, const Json& arguments,
+                                  Json& result, std::unique_ptr<EditorEdit>& edit,
+                                  std::string& error);
+[[nodiscard]] bool prepare_material(WorldSystem& world, NodeAliases& aliases, const Json& arguments,
+                                    Json& result, std::unique_ptr<EditorEdit>& edit,
+                                    std::string& error);
+[[nodiscard]] bool prepare_texture(WorldSystem& world, NodeAliases& aliases, const Json& arguments,
+                                   Json& result, std::unique_ptr<EditorEdit>& edit,
+                                   std::string& error);
+[[nodiscard]] bool prepare_material_type(WorldSystem& world, NodeAliases& aliases,
+                                         const Json& arguments, Json& result,
+                                         std::unique_ptr<EditorEdit>& edit, std::string& error);
+[[nodiscard]] bool prepare_material_blend(WorldSystem& world, NodeAliases& aliases,
+                                          const Json& arguments, Json& result,
+                                          std::unique_ptr<EditorEdit>& edit, std::string& error);
 } // namespace engine::editor::components

@@ -38,7 +38,7 @@ Windows 的 Ninja 预设对应 `.\build\ninja-debug\engine_app.exe`；Visual Stu
 编辑器宿主由 `editor-deps` 或 `ninja-engine-debug` 等启用编辑器的预设提供，启动时传入项目：
 
 ```sh
-./build/ninja-engine-debug/editor_app --project projects/showcase
+./build/ninja-engine-release/editor_app --project projects/showcase
 ```
 
 该入口验证项目并建立引擎、ImGui 上下文；完整引擎预设还会构建并同步项目脚本，等待 MCP `start_project` 后运行。尚未绘制完整编辑器界面。
@@ -70,10 +70,10 @@ Windows 的 Ninja 预设对应 `.\build\ninja-debug\engine_app.exe`；Visual Stu
 同一场景代次内，已成功保存的场景及导出资源若被外部修改或丢失 meta，再次保存会报告冲突并保留外部文件；需刷新接受新版本，或恢复原文件后再保存。显式打开其他场景或关闭预览会丢弃未保存内存编辑，不会自动保存；回执的 `discardedChanges` 说明是否丢弃了修改。刷新、关闭和切换场景后，继续编辑前重新查询 sceneId/nodeId。
 
 ```sh
-python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/showcase --runtime-dir build/editor-runtime call open_scene_preview --arguments '{"path":"scenes/apartment.scene"}'
-python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/showcase --runtime-dir build/editor-runtime call set_preview_camera --arguments '{"position":[0,2,5],"rotation":[0,0,0],"speed":5}'
-python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/showcase --runtime-dir build/editor-runtime call get_scene_preview
-python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/showcase --runtime-dir build/editor-runtime call close_scene_preview
+python3 scripts/mcp_client.py --server build/ninja-engine-release/mcp_app --project projects/showcase --runtime-dir build/editor-runtime call open_scene_preview --arguments '{"path":"scenes/apartment.scene"}'
+python3 scripts/mcp_client.py --server build/ninja-engine-release/mcp_app --project projects/showcase --runtime-dir build/editor-runtime call set_preview_camera --arguments '{"position":[0,2,5],"rotation":[0,0,0],"speed":5}'
+python3 scripts/mcp_client.py --server build/ninja-engine-release/mcp_app --project projects/showcase --runtime-dir build/editor-runtime call get_scene_preview
+python3 scripts/mcp_client.py --server build/ninja-engine-release/mcp_app --project projects/showcase --runtime-dir build/editor-runtime call close_scene_preview
 ```
 
 这些工具只在桌面编辑器目标注册，沿用主线程命令通道及原执行回执；超时仍按 pending 查询，MCP 不直接创建场景、驱动镜头或执行导入。类图见[场景预览 MCP](../plugins/editor/class-diagrams/scene-preview-mcp-tools.md)。

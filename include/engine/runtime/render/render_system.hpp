@@ -1,14 +1,17 @@
 #pragma once
 #include "runtime/scene/camera.hpp"
 
+#include "runtime/render/render_features.hpp"
 #include "runtime/render/render_settings.hpp"
 #include "runtime/render/scene_capture.hpp"
 #include "runtime/scene/scene_types.hpp"
 #include "runtime/system/system.hpp"
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <span>
 #include <string_view>
 #include <vector>
 
@@ -96,6 +99,13 @@ public:
     [[nodiscard]] bool set_max_anisotropy(bool enabled);
     [[nodiscard]] bool max_anisotropy() const noexcept;
     [[nodiscard]] bool supports_max_anisotropy() const noexcept;
+    // 临时诊断开关；运行属性只能通过所属场景组件修改。
+    [[nodiscard]] bool set_debug_feature(RenderFeature feature, bool enabled);
+    [[nodiscard]] RenderFeatureState feature_state(RenderFeature feature) const noexcept;
+    [[nodiscard]] std::vector<RenderViewStats> submission_stats() const;
+    // 仅复制本次调用的数据，随成功场景帧递减；停止或切场景清空。
+    [[nodiscard]] bool draw_debug_lines(std::span<const DebugLine> lines,
+                                        std::uint16_t lifetime_frames = 1);
     // 只设置无活动场景时的清屏色；场景环境与后处理由对应组件管理。
     void set_idle_clear_color(std::uint32_t rgba) noexcept;
     [[nodiscard]] std::uint32_t idle_clear_color() const noexcept;
@@ -128,6 +138,10 @@ private:
     [[nodiscard]] bool draw_diffuse_capture(const RenderSettings& settings);
     void release_draw_resources() noexcept;
     [[nodiscard]] bool draw_scene(Camera camera, const RenderSettings& settings);
+    [[nodiscard]] bool draw_debug_overlay(Camera camera, const float* view,
+                                          const float* projection);
+    void publish_features() noexcept;
+    void clear_debug_lines() noexcept;
 
     struct SceneGpuResources;
     struct RendererCallbacks;
@@ -151,7 +165,15 @@ private:
     SceneCaptureRequest capture_request_;
     std::vector<std::uint8_t> capture_snapshot_;
     bool renderer_initialized_ = false;
-    bool stats_visible_ = false;
+    std::array<bool, static_cast<std::size_t>(RenderFeature::count)> debug_requests_{};
+    std::array<bool, static_cast<std::size_t>(RenderFeature::count)> feature_applied_{};
+    struct DebugLineBatch
+    {
+        std::vector<DebugLine> lines;
+        std::uint16_t frames = 1;
+        std::uint64_t scene_id = 0;
+    };
+    std::vector<DebugLineBatch> debug_lines_;
     bool vsync_enabled_ = true;
     bool vsync_applied_ = true;
     bool max_anisotropy_applied_ = false;

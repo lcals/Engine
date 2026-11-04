@@ -56,10 +56,13 @@ public:
     [[nodiscard]] const schema::MeshDataT* mesh_data() const noexcept;
     [[nodiscard]] std::shared_ptr<const Resource> mesh_resource() const noexcept;
     [[nodiscard]] std::uint64_t mesh_revision() const noexcept;
-    // 进程内稳定且不重复的组件实例身份，供瞬态缓存区分组件重建。
-    // 瞬态绘制开关，不进入持久数据，不停用组件行为或动画。
+    // 持久化的投影资格；实际阴影还要求 Light 开启，不停用组件或动画。
     [[nodiscard]] bool cast_shadows() const noexcept;
     void set_cast_shadows(bool enabled) noexcept;
+    [[nodiscard]] bool static_instancing_enabled() const noexcept;
+    [[nodiscard]] bool set_static_instancing_enabled(bool enabled) noexcept;
+    [[nodiscard]] bool static_lod_enabled() const noexcept;
+    [[nodiscard]] bool set_static_lod_enabled(bool enabled) noexcept;
     [[nodiscard]] bool bake_static() const noexcept;
     [[nodiscard]] bool set_bake_static(bool enabled) noexcept;
     [[nodiscard]] std::string_view lightmap_path() const noexcept;

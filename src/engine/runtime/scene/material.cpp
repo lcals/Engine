@@ -2,6 +2,7 @@
 
 #include "runtime/scene/mesh_renderer.hpp"
 
+#include "runtime/resource/codecs/material_value_utils.hpp"
 #include "runtime/resource/resource_system.hpp"
 
 #include <algorithm>
@@ -354,7 +355,14 @@ bool MaterialState::set_blend_mode(schema::BlendMode mode) noexcept
     {
         return false;
     }
+    const auto previous = data_.blend_mode;
     data_.blend_mode = mode;
+    if (const auto* shader = shader_data();
+        shader && !resource_codec_detail::valid_builtin_pbr_options(data_, *shader))
+    {
+        data_.blend_mode = previous;
+        return false;
+    }
     return true;
 }
 
@@ -411,7 +419,15 @@ bool MaterialState::set_float(std::string_view name, float value) noexcept
     {
         return false;
     }
-    parameter->value.AsFloatValue()->value = value;
+    auto& destination = parameter->value.AsFloatValue()->value;
+    const float previous = destination;
+    destination = value;
+    if (const auto* shader = shader_data();
+        shader && !resource_codec_detail::valid_builtin_pbr_options(data_, *shader))
+    {
+        destination = previous;
+        return false;
+    }
     return true;
 }
 

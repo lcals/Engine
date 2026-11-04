@@ -106,22 +106,6 @@ bool rebase_instance(std::optional<Instance>& instance, std::span<const schema::
     return true;
 }
 
-Node local_node(Scene& scene, std::uint64_t id)
-{
-    std::vector<Node> nodes;
-    if (!scene.collect_nodes(nodes))
-    {
-        return {};
-    }
-    for (const auto& node : nodes)
-    {
-        if (node.info().properties->id == id)
-        {
-            return node;
-        }
-    }
-    return {};
-}
 std::optional<Instance> instance_for(const Scene& scene, std::uint64_t local, std::uint64_t& source)
 {
     source = 0;
@@ -377,7 +361,7 @@ bool capture_link(Instance& instance, Scene& scene, const schema::PrefabDataT& p
         const auto mapping =
             std::find_if(ids.begin(), ids.end(), [&source](const auto& value)
                          { return value.source_id == source->info->properties->id; });
-        auto node = mapping != ids.end() ? local_node(scene, mapping->target_id) : Node{};
+        auto node = mapping != ids.end() ? scene.find_local_node(mapping->target_id) : Node{};
         if (!node || node.transient())
         {
             error = "Prefab association has a transient or missing node";
@@ -1258,7 +1242,7 @@ bool register_prefab_commands(WorldSystem& world, SceneCommands& scenes,
                 {
                     auto target = member->info->properties->id == resource->prefab()->root_id
                                       ? node
-                                      : local_node(*node.scene(), member->info->properties->id);
+                                      : node.scene()->find_local_node(member->info->properties->id);
                     bool descendant = false;
                     for (auto parent = target; parent; parent = parent.parent())
                     {

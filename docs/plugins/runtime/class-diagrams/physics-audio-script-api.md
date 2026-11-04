@@ -82,22 +82,22 @@ CharacterMotor 的脚底原点、设置校验与碰撞由[核心组件](../../..
 ```mermaid
 classDiagram
 class Physics {
-    +GetImpacts() PhysicsImpact[]
-    +GetContacts() PhysicsContactEvent[]
-    +OnCollisionEnter(Node node, callback) number
-    +OnCollisionStay(Node node, callback) number
-    +OnCollisionExit(Node node, callback) number
-    +OnTriggerEnter(Node node, callback) number
-    +OnTriggerStay(Node node, callback) number
-    +OnTriggerExit(Node node, callback) number
-    +Off(number subscription) boolean
-    +OverlapSphere(Vector3 center, number radius, PhysicsQueryOptions options) PhysicsObjectArrayOrNull
-    +OverlapBox(Vector3 center, Vector3 halfExtents, PhysicsQueryOptions options) PhysicsObjectArrayOrNull
-    +IsObjectValid(PhysicsObject object) boolean
-    +CastSphere(number x, number y, number z, number dx, number dy, number dz, number radius) numberOrNull
-    +Raycast(Vector3 origin, Vector3 displacement, PhysicsQueryOptions options) PhysicsQueryHitOrNull
-    +SphereCast(Vector3 origin, Vector3 displacement, number radius, PhysicsQueryOptions options) PhysicsQueryHitOrNull
-    +IsHitValid(PhysicsQueryHit hit) boolean
+    +GetImpacts() PhysicsImpact[]$
+    +GetContacts() PhysicsContactEvent[]$
+    +OnCollisionEnter(Node node, callback) number$
+    +OnCollisionStay(Node node, callback) number$
+    +OnCollisionExit(Node node, callback) number$
+    +OnTriggerEnter(Node node, callback) number$
+    +OnTriggerStay(Node node, callback) number$
+    +OnTriggerExit(Node node, callback) number$
+    +Off(number subscription) boolean$
+    +OverlapSphere(Vector3 center, number radius, PhysicsQueryOptions options) PhysicsObjectArrayOrNull$
+    +OverlapBox(Vector3 center, Vector3 halfExtents, PhysicsQueryOptions options) PhysicsObjectArrayOrNull$
+    +IsObjectValid(PhysicsObject object) boolean$
+    +CastSphere(number x, number y, number z, number dx, number dy, number dz, number radius) numberOrNull$
+    +Raycast(Vector3 origin, Vector3 displacement, PhysicsQueryOptions options) PhysicsQueryHitOrNull$
+    +SphereCast(Vector3 origin, Vector3 displacement, number radius, PhysicsQueryOptions options) PhysicsQueryHitOrNull$
+    +IsHitValid(PhysicsQueryHit hit) boolean$
 }
 class PhysicsQueryOptions {
     +NodeOrNull ignoreNode

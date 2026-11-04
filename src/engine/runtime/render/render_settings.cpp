@@ -2,17 +2,22 @@
 #include "runtime/scene/ecs_scene.hpp"
 #include "runtime/scene/ecs_storage.hpp"
 
+#include "runtime/render/render_constants.hpp"
 #include "runtime/render/render_system.hpp"
+#include "runtime/render/scene_gpu_resources.hpp"
 #include "runtime/render/scene_render_settings.hpp"
 #include "runtime/scene/camera.hpp"
 #include "runtime/scene/environment_component.hpp"
 #include "runtime/scene/light.hpp"
 #include "runtime/scene/post_process_component.hpp"
 #include "runtime/scene/scene.hpp"
+#include "runtime/scene/transform.hpp"
 #include "runtime/world/world_system.hpp"
 
 #include <SDL3/SDL_log.h>
+#include <algorithm>
 #include <bgfx/bgfx.h>
+#include <cmath>
 
 namespace engine
 {
@@ -59,6 +64,8 @@ bool scene_render_components(Scene& scene, SceneRenderComponents& output)
             }
             output.environment = world.find_node(entity.id()).get_component<EnvironmentComponent>();
         });
+    const auto atmosphere_sun_id =
+        output.environment ? output.environment.settings().atmosphere_sun_node_id : 0;
     Light first_directional;
     std::uint64_t first_order = UINT64_MAX;
     auto lights = flecs::world(world.native_world())
@@ -76,6 +83,14 @@ bool scene_render_components(Scene& scene, SceneRenderComponents& output)
                 return;
             }
             const auto light = world.find_node(entity.id()).get_component<Light>();
+            if (atmosphere_sun_id != 0)
+            {
+                const auto* properties = entity.try_get<schema::NodePropertiesT>();
+                if (properties && atmosphere_sun_id == properties->id)
+                {
+                    output.atmosphere_sun = light;
+                }
+            }
             if (state.order < first_order)
             {
                 first_order = state.order;
@@ -135,6 +150,29 @@ RenderSettings render_settings(const SceneRenderComponents& components)
         settings.clear_color = environment.clear_color;
         settings.ibl_enabled = environment.ibl_enabled;
         settings.ibl_intensity = environment.ibl_intensity;
+        settings.atmosphere = environment;
+        settings.atmosphere_scene_id = components.environment.node().scene()->id();
+    }
+    if (components.atmosphere_sun &&
+        (!components.shadow_light || !components.shadow_light.settings().cast_shadows ||
+         components.shadow_light == components.atmosphere_sun))
+    {
+        float matrix[16]{};
+        const auto transform = components.atmosphere_sun.node().get_component<Transform>();
+        if (transform && transform.world_matrix(matrix))
+        {
+            const auto sun = components.atmosphere_sun.settings();
+            const float length = std::hypot(matrix[8], matrix[9], matrix[10]);
+            if (std::isfinite(length) && length > 0)
+            {
+                settings.atmosphere_sun_valid = true;
+                settings.atmosphere_sun_direction = {-matrix[8] / length, -matrix[9] / length,
+                                                     -matrix[10] / length};
+                settings.atmosphere_sun_radiance = {sun.color.r() * sun.intensity,
+                                                    sun.color.g() * sun.intensity,
+                                                    sun.color.b() * sun.intensity};
+            }
+        }
     }
     if (static_cast<bool>(components.post_process))
     {
@@ -199,6 +237,16 @@ bool RenderSystem::resolve_settings(RenderSettings& settings) const noexcept
         return false;
     }
     settings = render_detail::render_settings(components);
+    settings.atmosphere_submitted =
+        settings.atmosphere.atmosphere_enabled && settings.atmosphere_sun_valid &&
+        scene_resources_ &&
+        scene_resources_->atmosphere.submitted_for(settings.atmosphere_scene_id) &&
+        std::any_of(scene_resources_->view_stats.begin(), scene_resources_->view_stats.end(),
+                    [this](const auto& view)
+                    {
+                        return view.view_id == render_detail::main_view &&
+                               view.frame_number == frame_number_ && view.frame_number != 0;
+                    });
     if (renderer_initialized_ && settings.directional_shadows &&
         settings.shadow_resolution > bgfx::getCaps()->limits.maxTextureSize)
     {

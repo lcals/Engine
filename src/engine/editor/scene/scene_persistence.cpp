@@ -688,18 +688,7 @@ bool ScenePersistence::State::save(WorldSystem& world, const fs::path& project_r
         }
         for (const auto& instance : instances)
         {
-            const auto find_local = [&scene_nodes](std::uint64_t id) -> Node
-            {
-                for (const auto& candidate : scene_nodes)
-                {
-                    if (candidate.info().properties->id == id)
-                    {
-                        return candidate;
-                    }
-                }
-                return {};
-            };
-            const auto instance_root = find_local(instance.root_id);
+            const auto instance_root = scene->find_local_node(instance.root_id);
             if (!instance_root)
             {
                 error = "Prefab instance root is missing";
@@ -712,7 +701,7 @@ bool ScenePersistence::State::save(WorldSystem& world, const fs::path& project_r
             }
             for (const auto& mapping : instance.node_mappings)
             {
-                const auto member = find_local(mapping->target_id);
+                const auto member = scene->find_local_node(mapping->target_id);
                 const bool removed =
                     std::any_of(instance.overrides.begin(), instance.overrides.end(),
                                 [&mapping](const auto& value)

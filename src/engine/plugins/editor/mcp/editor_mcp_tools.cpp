@@ -223,6 +223,7 @@ bool EditorMcpTools::register_tools(McpSystem& system)
         light[name] = {{"type", "number"}};
     }
     auto camera = node_properties;
+    camera["frustumCullingEnabled"] = {{"type", "boolean"}};
     camera["projection"] = {{"type", "string"}, {"enum", {"perspective", "orthographic"}}};
     for (const char* name : {"fovDegrees", "nearClip", "farClip", "orthographicSize"})
     {

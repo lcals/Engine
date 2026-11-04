@@ -1,5 +1,6 @@
 #pragma once
 
+#include "runtime/schema/material_generated.h"
 #include "runtime/schema/shader_generated.h"
 
 #include <algorithm>
@@ -9,6 +10,45 @@
 
 namespace engine::resource_codec_detail
 {
+
+// The standard built-in PBR surface is currently the only owner of this capability.
+// Custom Shader declarations keep their own parameter semantics.
+inline bool valid_builtin_pbr_options(const schema::MaterialDataT& material,
+                                      const schema::ShaderDataT& shader)
+{
+    if (shader.path != "builtin://shaders/pbr")
+    {
+        return true;
+    }
+    const auto scalar = [&](std::string_view name, float fallback)
+    {
+        for (const auto& item : material.parameters)
+        {
+            if (item && item->name == name)
+            {
+                const auto* value = item->value.AsFloatValue();
+                return value ? value->value : std::numeric_limits<float>::quiet_NaN();
+            }
+        }
+        for (const auto& definition : shader.parameters)
+        {
+            if (definition && definition->name == name)
+            {
+                const auto* value = definition->default_value.AsFloatValue();
+                return value ? value->value : std::numeric_limits<float>::quiet_NaN();
+            }
+        }
+        return fallback;
+    };
+    const float enabled = scalar("hexTilingEnabled", 0);
+    const float rotation = scalar("hexTilingRotation", 0.5F);
+    const float contrast = scalar("hexTilingContrast", 0.7F);
+    return (enabled == 0 || enabled == 1) && std::isfinite(rotation) && rotation >= 0 &&
+           rotation <= 1 && std::isfinite(contrast) && contrast >= 0.0001F && contrast <= 0.9999F &&
+           (enabled == 0 ||
+            (material.blend_mode == schema::BlendMode::opaque && scalar("alphaCutoff", 0) == 0 &&
+             scalar("specularWorkflow", 0) == 0 && scalar("lightingMode", 0) == 0));
+}
 
 inline bool parameter_values(const schema::MaterialValueUnion& value, std::array<double, 4>& output,
                              std::uint8_t& size)

@@ -131,7 +131,58 @@ bool MeshUtils::validate(const schema::MeshDataT& data) noexcept
         }
         next_index += submesh.index_count();
     }
-    return data.submeshes.empty() || next_index == data.indices.size();
+    if (!data.submeshes.empty() && next_index != data.indices.size())
+    {
+        return false;
+    }
+    if (!data.lods.empty() && (!data.skin.empty() || !data.skeleton_guid.empty()))
+    {
+        return false;
+    }
+    std::size_t previous_count = data.indices.size();
+    float previous_height = std::nextafter(1.0F, 2.0F);
+    for (const auto& lod : data.lods)
+    {
+        if (!lod || !std::isfinite(lod->screen_height) || lod->screen_height <= 0 ||
+            lod->screen_height > 1 || lod->screen_height >= previous_height ||
+            lod->indices.empty() || lod->indices.size() % 3 != 0 ||
+            lod->indices.size() >= previous_count)
+        {
+            return false;
+        }
+        for (const auto index : lod->indices)
+        {
+            if (index >= count)
+            {
+                return false;
+            }
+        }
+        if (lod->submeshes.size() != std::max<std::size_t>(1, data.submeshes.size()))
+        {
+            return false;
+        }
+        next_index = 0;
+        for (std::size_t part = 0; part < lod->submeshes.size(); ++part)
+        {
+            const auto& range = lod->submeshes[part];
+            const auto slot = data.submeshes.empty() ? 0U : data.submeshes[part].material_slot();
+            if (range.first_index() != next_index || range.index_count() == 0 ||
+                range.index_count() % 3 != 0 || range.material_slot() != slot ||
+                next_index > lod->indices.size() ||
+                range.index_count() > lod->indices.size() - next_index)
+            {
+                return false;
+            }
+            next_index += range.index_count();
+        }
+        if (next_index != lod->indices.size())
+        {
+            return false;
+        }
+        previous_count = lod->indices.size();
+        previous_height = lod->screen_height;
+    }
+    return true;
 }
 
 bool MeshUtils::build_tangents(const schema::MeshDataT& data, std::vector<schema::Vec4>& output)

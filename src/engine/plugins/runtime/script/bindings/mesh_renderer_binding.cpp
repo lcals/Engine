@@ -14,6 +14,18 @@ export class MeshRenderer extends Component {
     SetMesh(path) {
         const h = handles.get(this); return native.MeshRendererMesh(h.scene, h.node, path);
     }
+    get staticInstancingEnabled() {
+        const h = handles.get(this); return native.MeshRendererStaticInstancing(h.scene, h.node);
+    }
+    SetStaticInstancing(enabled) {
+        const h = handles.get(this); return native.MeshRendererSetStaticInstancing(h.scene, h.node, enabled);
+    }
+    get staticLodEnabled() {
+        const h = handles.get(this); return native.MeshRendererStaticLod(h.scene, h.node);
+    }
+    SetStaticLod(enabled) {
+        const h = handles.get(this); return native.MeshRendererSetStaticLod(h.scene, h.node, enabled);
+    }
     get castShadows() {
         const h = handles.get(this); return native.MeshRendererCastShadows(h.scene, h.node);
     }
@@ -72,6 +84,25 @@ void material_count(const Arguments& arguments)
     auto mesh = !node ? MeshRenderer{} : node.get_component<MeshRenderer>();
     const auto count = mesh.valid() && arguments.count() == 2 ? mesh.material_count() : 0;
     arguments.set_return(static_cast<std::uint32_t>(count));
+}
+
+void static_feature(const Arguments& arguments)
+{
+    const auto node = BindingContext::node(arguments);
+    const auto mesh = node ? node.get_component<MeshRenderer>() : MeshRenderer{};
+    arguments.set_return(
+        mesh && arguments.count() == 2 &&
+        (arguments.data() == 0 ? mesh.static_instancing_enabled() : mesh.static_lod_enabled()));
+}
+
+void set_static_feature(const Arguments& arguments)
+{
+    const auto node = BindingContext::node(arguments);
+    auto mesh = node ? node.get_component<MeshRenderer>() : MeshRenderer{};
+    arguments.set_return(mesh && arguments.count() == 3 && arguments.is_boolean(2) &&
+                         (arguments.data() == 0
+                              ? mesh.set_static_instancing_enabled(arguments.boolean(2))
+                              : mesh.set_static_lod_enabled(arguments.boolean(2))));
 }
 
 void cast_shadows(const Arguments& arguments)
@@ -151,6 +182,10 @@ bool MeshRendererBinding::register_functions(vm::ScriptVm& vm) const
 {
     return vm.integer("MeshRendererKind", static_cast<int>(MeshRenderer::component_type)) &&
            vm.function("MeshRendererAdd", add) && vm.function("MeshRendererMesh", mesh) &&
+           vm.function("MeshRendererStaticInstancing", static_feature, 0) &&
+           vm.function("MeshRendererStaticLod", static_feature, 1) &&
+           vm.function("MeshRendererSetStaticInstancing", set_static_feature, 0) &&
+           vm.function("MeshRendererSetStaticLod", set_static_feature, 1) &&
            vm.function("MeshRendererCastShadows", cast_shadows) &&
            vm.function("MeshRendererSetCastShadows", set_cast_shadows) &&
            vm.function("MeshRendererBakeStatic", bake_static) &&

@@ -118,6 +118,35 @@ Node Scene::find_local_node(std::uint64_t local_id) const noexcept
     const auto item = local_node_index_.find(local_id);
     return item == local_node_index_.end() ? Node{} : find_node(item->second);
 }
+Node Scene::find_node(std::string_view name) const noexcept
+{
+    if (!world_.native_world())
+    {
+        return {};
+    }
+    flecs::world current(world_.native_world());
+    Node found;
+    std::uint64_t first_order = 0;
+    for (const auto& [local_id, entity_id] : local_node_index_)
+    {
+        (void)local_id;
+        const auto node = find_node(entity_id);
+        if (!node)
+        {
+            continue;
+        }
+        const auto entity = current.entity(entity_id);
+        const auto* properties = entity.try_get<schema::NodePropertiesT>();
+        const auto* state = entity.try_get<ecs_detail::NodeRuntime>();
+        if (properties && state && properties->name == name &&
+            (!found || state->order < first_order))
+        {
+            found = node;
+            first_order = state->order;
+        }
+    }
+    return found;
+}
 bool Scene::destroy_node(std::uint64_t id)
 {
     if (!world_.can_modify() || !find_node(id))

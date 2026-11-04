@@ -22,41 +22,61 @@ RenderSystem::SceneGpuResources::~SceneGpuResources() noexcept
 bool RenderSystem::SceneGpuResources::initialize()
 {
     release();
+    frame_time_uniform =
+        bgfx::createUniform("u_frame_time", bgfx::UniformFreq::Frame, bgfx::UniformType::Vec4);
     normal_transform = bgfx::createUniform("u_normal_transform", bgfx::UniformType::Mat4);
-    camera_position = bgfx::createUniform("u_camera_position", bgfx::UniformType::Vec4);
-    light_direction = bgfx::createUniform("u_light_direction", bgfx::UniformType::Vec4);
-    light_color = bgfx::createUniform("u_light_color", bgfx::UniformType::Vec4);
-    ambient = bgfx::createUniform("u_ambient", bgfx::UniformType::Vec4);
-    ambient_sky = bgfx::createUniform("u_ambient_sky", bgfx::UniformType::Vec4);
-    ambient_equator = bgfx::createUniform("u_ambient_equator", bgfx::UniformType::Vec4);
-    ambient_ground = bgfx::createUniform("u_ambient_ground", bgfx::UniformType::Vec4);
-    fog_color = bgfx::createUniform("u_fog_color", bgfx::UniformType::Vec4);
-    fog_range = bgfx::createUniform("u_fog_range", bgfx::UniformType::Vec4);
-    tonemap = bgfx::createUniform("u_tonemap", bgfx::UniformType::Vec4);
-    frame_inputs = bgfx::createUniform("u_frame_inputs", bgfx::UniformType::Vec4);
+    camera_position =
+        bgfx::createUniform("u_camera_position", bgfx::UniformFreq::View, bgfx::UniformType::Vec4);
+    light_direction =
+        bgfx::createUniform("u_light_direction", bgfx::UniformFreq::View, bgfx::UniformType::Vec4);
+    light_color =
+        bgfx::createUniform("u_light_color", bgfx::UniformFreq::View, bgfx::UniformType::Vec4);
+    ambient = bgfx::createUniform("u_ambient", bgfx::UniformFreq::View, bgfx::UniformType::Vec4);
+    ambient_sky =
+        bgfx::createUniform("u_ambient_sky", bgfx::UniformFreq::View, bgfx::UniformType::Vec4);
+    ambient_equator =
+        bgfx::createUniform("u_ambient_equator", bgfx::UniformFreq::View, bgfx::UniformType::Vec4);
+    ambient_ground =
+        bgfx::createUniform("u_ambient_ground", bgfx::UniformFreq::View, bgfx::UniformType::Vec4);
+    fog_color =
+        bgfx::createUniform("u_fog_color", bgfx::UniformFreq::View, bgfx::UniformType::Vec4);
+    fog_range =
+        bgfx::createUniform("u_fog_range", bgfx::UniformFreq::View, bgfx::UniformType::Vec4);
+    tonemap = bgfx::createUniform("u_tonemap", bgfx::UniformFreq::View, bgfx::UniformType::Vec4);
+    frame_inputs =
+        bgfx::createUniform("u_frame_inputs", bgfx::UniformFreq::View, bgfx::UniformType::Vec4);
     frame_valid = bgfx::createUniform("u_frame_valid", bgfx::UniformType::Vec4);
     planar_projection = bgfx::createUniform("u_planar_projection", bgfx::UniformType::Mat4);
     lighting_params = bgfx::createUniform("u_lighting_params", bgfx::UniformType::Vec4);
     probe_sh = bgfx::createUniform("u_probe_sh", bgfx::UniformType::Vec4, 9);
     lightmap_sampler = bgfx::createUniform("s_lightmap", bgfx::UniformType::Sampler);
-    capture_mode = bgfx::createUniform("u_capture_mode", bgfx::UniformType::Vec4);
+    capture_mode =
+        bgfx::createUniform("u_capture_mode", bgfx::UniformFreq::View, bgfx::UniformType::Vec4);
     surface = bgfx::createUniform("u_surface", bgfx::UniformType::Vec4);
-    shadow_matrices = bgfx::createUniform("u_shadow_matrices", bgfx::UniformType::Mat4,
-                                          render_detail::maximum_shadow_cascades);
-    shadow_rects = bgfx::createUniform("u_shadow_rects", bgfx::UniformType::Vec4,
-                                       render_detail::maximum_shadow_cascades);
-    shadow_splits = bgfx::createUniform("u_shadow_splits", bgfx::UniformType::Vec4);
-    shadow_params = bgfx::createUniform("u_shadow_params", bgfx::UniformType::Vec4);
-    shadow_settings = bgfx::createUniform("u_shadow_settings", bgfx::UniformType::Vec4);
+    shadow_matrices =
+        bgfx::createUniform("u_shadow_matrices", bgfx::UniformFreq::View, bgfx::UniformType::Mat4,
+                            render_detail::maximum_shadow_cascades);
+    shadow_rects =
+        bgfx::createUniform("u_shadow_rects", bgfx::UniformFreq::View, bgfx::UniformType::Vec4,
+                            render_detail::maximum_shadow_cascades);
+    shadow_splits =
+        bgfx::createUniform("u_shadow_splits", bgfx::UniformFreq::View, bgfx::UniformType::Vec4);
+    shadow_params =
+        bgfx::createUniform("u_shadow_params", bgfx::UniformFreq::View, bgfx::UniformType::Vec4);
+    shadow_settings =
+        bgfx::createUniform("u_shadow_settings", bgfx::UniformFreq::View, bgfx::UniformType::Vec4);
     shadow_depth = bgfx::createUniform("u_shadow_depth", bgfx::UniformType::Vec4);
     shadow_sampler = bgfx::createUniform("s_shadow_map", bgfx::UniformType::Sampler);
-    ibl_params = bgfx::createUniform("u_ibl_params", bgfx::UniformType::Vec4);
+    ibl_params =
+        bgfx::createUniform("u_ibl_params", bgfx::UniformFreq::View, bgfx::UniformType::Vec4);
     ibl_irradiance_sampler = bgfx::createUniform("s_ibl_irradiance", bgfx::UniformType::Sampler);
     ibl_prefilter_sampler = bgfx::createUniform("s_ibl_prefilter", bgfx::UniformType::Sampler);
     ibl_lut_sampler = bgfx::createUniform("s_ibl_lut", bgfx::UniformType::Sampler);
-    ao_settings = bgfx::createUniform("u_ambient_occlusion", bgfx::UniformType::Vec4);
+    ao_settings = bgfx::createUniform("u_ambient_occlusion", bgfx::UniformFreq::View,
+                                      bgfx::UniformType::Vec4);
     ao_sampler = bgfx::createUniform("s_ambient_occlusion", bgfx::UniformType::Sampler);
-    for (auto uniform : {normal_transform,
+    for (auto uniform : {frame_time_uniform,
+                         normal_transform,
                          camera_position,
                          light_direction,
                          light_color,
@@ -120,6 +140,12 @@ bool RenderSystem::SceneGpuResources::initialize()
 
 void RenderSystem::SceneGpuResources::release() noexcept
 {
+    view_stats.clear();
+    selected_lods.clear();
+    selected_lod_revisions.clear();
+    frame_time_stamp = UINT32_MAX;
+    atmosphere.release();
+    debug_draw.release();
     for (auto& program : programs)
     {
         program.release();
@@ -167,7 +193,8 @@ void RenderSystem::SceneGpuResources::release() noexcept
             bgfx::destroy(fallback);
         }
     }
-    for (auto uniform : {normal_transform,
+    for (auto uniform : {frame_time_uniform,
+                         normal_transform,
                          camera_position,
                          light_direction,
                          light_color,
@@ -206,6 +233,7 @@ void RenderSystem::SceneGpuResources::release() noexcept
         }
     }
 
+    frame_time_uniform = BGFX_INVALID_HANDLE;
     normal_transform = BGFX_INVALID_HANDLE;
     camera_position = BGFX_INVALID_HANDLE;
     light_direction = BGFX_INVALID_HANDLE;
@@ -251,7 +279,9 @@ void RenderSystem::SceneGpuResources::release() noexcept
 
 std::uint32_t RenderSystem::SceneGpuResources::resource_count() const noexcept
 {
-    std::uint32_t count = static_cast<std::uint32_t>(bgfx::isValid(normal_transform)) +
+    std::uint32_t count = atmosphere.resource_count() + debug_draw.resource_count() +
+                          static_cast<std::uint32_t>(bgfx::isValid(frame_time_uniform)) +
+                          static_cast<std::uint32_t>(bgfx::isValid(normal_transform)) +
                           static_cast<std::uint32_t>(bgfx::isValid(camera_position)) +
                           static_cast<std::uint32_t>(bgfx::isValid(light_direction)) +
                           static_cast<std::uint32_t>(bgfx::isValid(light_color)) +
@@ -350,7 +380,10 @@ std::uint32_t RenderSystem::SceneGpuResources::resource_count() const noexcept
                  static_cast<std::uint32_t>(bgfx::isValid(program.fragment_shader)) +
                  static_cast<std::uint32_t>(bgfx::isValid(program.program)) +
                  static_cast<std::uint32_t>(bgfx::isValid(program.surface_shader)) +
-                 static_cast<std::uint32_t>(bgfx::isValid(program.surface_program));
+                 static_cast<std::uint32_t>(bgfx::isValid(program.surface_program)) +
+                 static_cast<std::uint32_t>(bgfx::isValid(program.instanced_vertex_shader)) +
+                 static_cast<std::uint32_t>(bgfx::isValid(program.instanced_program)) +
+                 static_cast<std::uint32_t>(bgfx::isValid(program.instanced_surface_program));
         for (const auto& uniform : program.uniforms)
         {
             count += static_cast<std::uint32_t>(bgfx::isValid(uniform.handle));
