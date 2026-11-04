@@ -418,6 +418,40 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
                           engine::render engine::world engine::resource SDL3::SDL3 bgfx::bgfx
                           bgfx::bimg)
     engine_apply_options(engine_scene_hdr_capture_test)
+    add_executable(engine_scene_hdr_transparency_test runtime/render/scene_hdr_transparency_test.cpp)
+    target_link_libraries(engine_scene_hdr_transparency_test PRIVATE engine::runtime engine::window
+                          engine::render engine::world engine::resource SDL3::SDL3)
+    engine_apply_options(engine_scene_hdr_transparency_test)
+    add_executable(engine_hdr_extension_test runtime/render/hdr_extension_test.cpp)
+    set(_extension_shader_dir "${CMAKE_CURRENT_BINARY_DIR}/generated/hdr-extension-test")
+    engine_render_shader_profile(_extension_shader_platform _extension_shader_profile)
+    foreach(_stage IN ITEMS vert frag)
+        if(_stage STREQUAL "vert")
+            set(_shader_type vertex)
+        else()
+            set(_shader_type fragment)
+        endif()
+        set(_extension_header "${_extension_shader_dir}/hdr_extension_test_${_stage}.bin.h")
+        add_custom_command(
+            OUTPUT "${_extension_header}"
+            COMMAND "${CMAKE_COMMAND}" -E make_directory "${_extension_shader_dir}"
+            COMMAND "${ENGINE_SHADERC_EXECUTABLE}"
+                    -f "${CMAKE_CURRENT_SOURCE_DIR}/runtime/render/hdr_extension_test.${_stage}.sc"
+                    -o "${_extension_header}" --type "${_shader_type}"
+                    --platform "${_extension_shader_platform}" --profile "${_extension_shader_profile}"
+                    --varyingdef "${PROJECT_SOURCE_DIR}/src/engine/runtime/render/shaders/varying.def.sc"
+                    -i "${ENGINE_BGFX_SHADER_INCLUDE_DIR}"
+                    --bin2c "hdr_extension_test_${_stage}"
+            DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/runtime/render/hdr_extension_test.${_stage}.sc"
+                    "${PROJECT_SOURCE_DIR}/src/engine/runtime/render/shaders/varying.def.sc"
+                    "${ENGINE_BGFX_SHADER_INCLUDE_DIR}/bgfx_shader.sh" "${ENGINE_SHADERC_EXECUTABLE}"
+            VERBATIM)
+        target_sources(engine_hdr_extension_test PRIVATE "${_extension_header}")
+    endforeach()
+    target_include_directories(engine_hdr_extension_test PRIVATE "${_extension_shader_dir}")
+    target_link_libraries(engine_hdr_extension_test PRIVATE engine::runtime engine::window
+                          engine::render engine::world SDL3::SDL3 bgfx::bgfx)
+    engine_apply_options(engine_hdr_extension_test)
     add_executable(engine_pbr_hdr_test runtime/render/pbr_hdr_test.cpp)
     # An isolated RGBA16F draw includes the production direct-light shader.
     # Keep this test-only shader out of the runtime and its public interfaces.
@@ -473,6 +507,10 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
     if(ENGINE_ENABLE_GPU_TESTS)
         add_test(NAME engine.scene_hdr_capture COMMAND engine_scene_hdr_capture_test)
         set_tests_properties(engine.scene_hdr_capture PROPERTIES TIMEOUT 60 RUN_SERIAL TRUE)
+        add_test(NAME engine.scene_hdr_transparency COMMAND engine_scene_hdr_transparency_test)
+        set_tests_properties(engine.scene_hdr_transparency PROPERTIES TIMEOUT 60 RUN_SERIAL TRUE)
+        add_test(NAME engine.hdr_extension_capture COMMAND engine_hdr_extension_test)
+        set_tests_properties(engine.hdr_extension_capture PROPERTIES TIMEOUT 60 RUN_SERIAL TRUE)
         add_test(NAME engine.window_render COMMAND engine_window_render_test)
         set_tests_properties(engine.window_render PROPERTIES TIMEOUT 120 RUN_SERIAL TRUE)
         add_test(NAME engine.pbr_hdr_direct_light COMMAND engine_pbr_hdr_test)

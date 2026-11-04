@@ -421,4 +421,8 @@ macOS Metal Release 的 `engine.window_render` 使用正式资源目录加载白
 
 使用最新 Release 编辑器与 Blender 5.2，在 1280×720、相同曝光和 Reinhard、精确 sRGB 编码下采集 12 组、对照其中 11 组材质球；逐球数值和具体限制见[当前 PBR 对照](../projects/showcase/tools/pbr-comparison/current-results.md)。单文件图文报告为 `build/material-comparison/current/1793770721339431000/review.html`；这是 macOS Metal 的受控场景结果，不能代替其他后端或完整场景的验收。
 
+**透明与渲染扩展的线性 HDR 捕获**：2026-11-04，macOS Metal Release 使用 Retina 实际 256×256 帧缓冲完成 `engine.scene_hdr_transparency` 和 `engine.hdr_extension_capture`。透明测试逐像素核对去除边缘后的 240×240 区域：受光背景及两层 PBR 表面分别与解析参考比较，验证 straight alpha、premultiplied alpha 的线性排序合成；测试参考的反向排序红通道差大于 0.1。合成参考 RGB 为 `1.37001 / 0.45327 / 1.00331`，两种模式中心均为 `1.36914 / 0.45288 / 1.00293`。非受光透明层覆盖受光背景时，RGB 与解析参考比较，HDR 目标 alpha 表示的 tone-map 权重由 1 降到 0.5；同时验证不透明表面的深度遮挡。启用 4 倍曝光、Filmic 和 Bloom，捕获仍为后处理前的线性结果。
+
+扩展测试在实际 `RenderExtension` 上绘制线性 RGB `2 / 0.75 / 0.125` 色块，逐像素核对扩展区域和 sRGB 解码后的背景；关闭扩展、开启扩展及开启后处理三种情况下，整张图的最大 RGB 绝对误差均为 `0.000027`。以上测试覆盖指定场景，不单独覆盖透明边缘、MSAA 下的透明合成、扩展与透明网格的混合或深度关系；扩展测试只核对 RGB，不核对其目标 alpha。
+
 `engine.destruction_runtime` 验证碎块组装保留已有切线及手性，缺失切线按实际 UV 分块生成；同步及异步破碎后均检查数据。macOS Release 测试通过，相关 Debug 和 Release 目标均已编译。
