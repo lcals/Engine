@@ -139,7 +139,7 @@ class AndroidBuildArgumentTest(unittest.TestCase):
             root = Path(directory).resolve()
             sdk = root / "sdk"
             sdk.mkdir()
-            (sdk / "source.properties").write_text("Pkg.Revision = 27.2.12479018\n")
+            (sdk / "source.properties").write_text("Pkg.Revision = 30.0.16248370\n")
             (sdk / "bin").mkdir()
             (sdk / "bin" / ("java.exe" if build.os.name == "nt" else "java")).write_text("")
             builder = root / "host builder with spaces"
@@ -161,7 +161,7 @@ class AndroidBuildArgumentTest(unittest.TestCase):
                 mock.patch.object(build, "require_directory", return_value=sdk),
                 mock.patch.object(build, "gradle_command", return_value=["fixture-gradle"]),
                 mock.patch.object(build.shutil, "which", return_value="fixture-cmake"),
-                mock.patch.object(build.subprocess, "check_output", return_value="Gradle 9.1.0"),
+                mock.patch.object(build.subprocess, "check_output", return_value="Gradle 9.8.2"),
                 mock.patch.object(build, "run", side_effect=record),
                 mock.patch("builtins.print"),
                 mock.patch.object(

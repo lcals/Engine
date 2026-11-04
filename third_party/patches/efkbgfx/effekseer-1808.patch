@@ -19,11 +19,10 @@
  
  #define LAYOUT_LIGHTING 0
  #define LAYOUT_SIMPLE 1
-@@ -27,6 +30,20 @@
- namespace EffekseerRendererBGFX {
+@@ -28,6 +31,20 @@
  
  static const int SHADERCOUNT = (int)EffekseerRenderer::RendererShaderType::Material;
-+
+ 
 +// Effekseer 1808 adds UV2 to Model::Vertex. Keep the bgfx attributes below
 +// identical to the official GetModelRendererVertexLayout contract.
 +static_assert(offsetof(Effekseer::Model::Vertex, Position) == 0 &&
@@ -37,9 +36,10 @@
 +              "Effekseer model vertex layout changed; update the bgfx adapter");
 +static_assert(MaxInstanced == 40,
 +              "Model constant buffers must match the upstream 40-instance shaders");
- 
++
  // Renderer
  
+ class VertexLayout;
 @@ -57,10 +74,12 @@
  	const RendererImplemented *m_render;
  	bgfx_texture_handle_t m_handle;
@@ -155,7 +155,14 @@
  		}
  		for (i=0;i<Shader::maxSamplers;i++) {
  			s->m_samplers[i].idx = UINT16_MAX;
-@@ -1337,7 +1377,7 @@
+@@ -1331,13 +1371,13 @@
+ 
+ 		const bgfx_memory_t *mem = BGFX(copy)(initialData.data(), (uint32_t)initialData.size());
+ 		bgfx_texture_handle_t handle = BGFX(create_texture_2d)(param.Size[0], param.Size[1], false, 1, BGFX_TEXTURE_FORMAT_RGBA8,
+-			BGFX_TEXTURE_NONE | BGFX_SAMPLER_NONE, mem);
++			BGFX_TEXTURE_NONE | BGFX_SAMPLER_NONE, mem, 0);
+ 
+ 		return Effekseer::MakeRefPtr<Texture>(this, handle);
  	}
  	void ReleaseTexture(Texture *t) const {
  		bgfx_texture_handle_t h = t->RemoveInterface();
@@ -198,10 +205,11 @@
  		state |= BGFX_STATE_CULL_CCW;
  	}
 -	if (m_next.AlphaBlend == ::Effekseer::AlphaBlendType::Opacity ||
-+	if (next_.AlphaBlend == ::Effekseer::AlphaBlendType::Opacity ||
- 		m_renderer->GetRenderMode() == ::Effekseer::RenderMode::Wireframe) {
+-		m_renderer->GetRenderMode() == ::Effekseer::RenderMode::Wireframe) {
 -			state |= BGFX_STATE_BLEND_EQUATION_SEPARATE(BGFX_STATE_BLEND_EQUATION_ADD, BGFX_STATE_BLEND_EQUATION_MAX);
 -			state |= BGFX_STATE_BLEND_FUNC_SEPARATE(BGFX_STATE_BLEND_ONE, BGFX_STATE_BLEND_ZERO, BGFX_STATE_BLEND_ONE, BGFX_STATE_BLEND_ONE);
++	if (next_.AlphaBlend == ::Effekseer::AlphaBlendType::Opacity ||
++		m_renderer->GetRenderMode() == ::Effekseer::RenderMode::Wireframe) {
 +			state |= BGFX_STATE_BLEND_EQUATION_SEPARATE(BGFX_STATE_BLEND_EQUATION_ADD, BGFX_STATE_BLEND_EQUATION_ADD);
 +			state |= BGFX_STATE_BLEND_FUNC_SEPARATE(BGFX_STATE_BLEND_ONE, BGFX_STATE_BLEND_ZERO, BGFX_STATE_BLEND_ZERO, BGFX_STATE_BLEND_ZERO);
  		}
@@ -212,14 +220,14 @@
  	} else {
  		state |= BGFX_STATE_BLEND_EQUATION_SEPARATE(BGFX_STATE_BLEND_EQUATION_ADD, BGFX_STATE_BLEND_EQUATION_ADD);
 -		if (m_next.AlphaBlend == ::Effekseer::AlphaBlendType::Blend) {
-+		if (next_.AlphaBlend == ::Effekseer::AlphaBlendType::Blend) {
 -			state |= BGFX_STATE_BLEND_FUNC_SEPARATE(BGFX_STATE_BLEND_SRC_ALPHA, BGFX_STATE_BLEND_INV_SRC_ALPHA, BGFX_STATE_BLEND_ONE, BGFX_STATE_BLEND_ONE);
-+			state |= BGFX_STATE_BLEND_FUNC_SEPARATE(BGFX_STATE_BLEND_SRC_ALPHA, BGFX_STATE_BLEND_INV_SRC_ALPHA, BGFX_STATE_BLEND_ZERO, BGFX_STATE_BLEND_INV_SRC_ALPHA);
 -		} else if (m_next.AlphaBlend == ::Effekseer::AlphaBlendType::Add) {
-+		} else if (next_.AlphaBlend == ::Effekseer::AlphaBlendType::Add) {
 -			state |= BGFX_STATE_BLEND_FUNC_SEPARATE(BGFX_STATE_BLEND_SRC_ALPHA, BGFX_STATE_BLEND_ONE, BGFX_STATE_BLEND_ONE, BGFX_STATE_BLEND_ONE);
-+			state |= BGFX_STATE_BLEND_FUNC_SEPARATE(BGFX_STATE_BLEND_SRC_ALPHA, BGFX_STATE_BLEND_ONE, BGFX_STATE_BLEND_ZERO, BGFX_STATE_BLEND_ONE);
 -		} else if (m_next.AlphaBlend == ::Effekseer::AlphaBlendType::Mul) {
++		if (next_.AlphaBlend == ::Effekseer::AlphaBlendType::Blend) {
++			state |= BGFX_STATE_BLEND_FUNC_SEPARATE(BGFX_STATE_BLEND_SRC_ALPHA, BGFX_STATE_BLEND_INV_SRC_ALPHA, BGFX_STATE_BLEND_ZERO, BGFX_STATE_BLEND_INV_SRC_ALPHA);
++		} else if (next_.AlphaBlend == ::Effekseer::AlphaBlendType::Add) {
++			state |= BGFX_STATE_BLEND_FUNC_SEPARATE(BGFX_STATE_BLEND_SRC_ALPHA, BGFX_STATE_BLEND_ONE, BGFX_STATE_BLEND_ZERO, BGFX_STATE_BLEND_ONE);
 +		} else if (next_.AlphaBlend == ::Effekseer::AlphaBlendType::Mul) {
  			state |= BGFX_STATE_BLEND_FUNC_SEPARATE(BGFX_STATE_BLEND_ZERO, BGFX_STATE_BLEND_SRC_COLOR, BGFX_STATE_BLEND_ZERO, BGFX_STATE_BLEND_ONE);
  		}

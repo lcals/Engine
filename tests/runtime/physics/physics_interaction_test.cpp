@@ -827,6 +827,56 @@ bool character_trigger_contacts()
                   "disabling a contacting motor produces an end for its old character identity");
 }
 
+bool character_contact_normals()
+{
+    for (const bool other_character : {false, true})
+    {
+        Fixture fixture;
+        if (!fixture.initialize())
+        {
+            return false;
+        }
+        auto walker = fixture.character("Walker", {});
+        auto obstacle = other_character ? fixture.character("Other character", {1, 0, 0})
+                                        : fixture.box("Wall", {1, 0.9, 0}, {0.5, 1, 1});
+        if (!walker || !obstacle ||
+            !walker.get_component<engine::CharacterMotor>().set_velocity({2, 0, 0}))
+        {
+            return false;
+        }
+        const auto walker_id = object(walker, PhysicsObjectKind::character);
+        const auto obstacle_id = object(obstacle, other_character ? PhysicsObjectKind::character
+                                                                  : PhysicsObjectKind::collider);
+        bool began = false;
+        bool stayed = false;
+        for (unsigned int step = 0; step < 90; ++step)
+        {
+            if (!fixture.physics.tick(fixed_step))
+            {
+                return false;
+            }
+            for (const auto& event : events(fixture.physics, walker_id, obstacle_id))
+            {
+                if (!expect(same(event.a, walker_id) ? event.normal.x() > 0.99
+                                                     : event.normal.x() < -0.99,
+                            "character contacts retain an A-to-B normal for rigid and "
+                            "character peers"))
+                {
+                    return false;
+                }
+                began = began || event.phase == PhysicsContactPhase::begin;
+                stayed = stayed || event.phase == PhysicsContactPhase::stay;
+            }
+        }
+        if (!expect(began && stayed,
+                    "character normals are checked on both added and persisted contacts"))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
 bool transient_contact_in_one_tick()
 {
     Fixture fixture;
@@ -1011,8 +1061,8 @@ bool run_suite()
 {
     return character_queries() && overlap_objects_and_filters() && overlap_failures() &&
            resting_contacts_and_substeps() && contact_lifecycle() && contact_type_changes() &&
-           character_trigger_contacts() && transient_contact_in_one_tick() &&
-           persistent_world_objects() && cross_scene_impacts();
+           character_trigger_contacts() && character_contact_normals() &&
+           transient_contact_in_one_tick() && persistent_world_objects() && cross_scene_impacts();
 }
 
 } // namespace

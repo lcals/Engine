@@ -1,0 +1,93 @@
+root = "1"
+
+[[nodes]]
+id = "1"
+name = "Material comparison"
+parent = "0"
+
+[[nodes.components]]
+type = "transform"
+
+[[nodes]]
+id = "2"
+name = "alpha-map 1"
+parent = "1"
+
+[[nodes.components]]
+type = "transform"
+position = [-2.2, 1.1, 0.0]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "a0e3606e-b1b6-440b-b79e-fa7ee383ab0e"
+material = "19353e7a-14e9-5d3f-91d4-2edeb27a072d"
+
+[[nodes]]
+id = "3"
+name = "alpha-map 2"
+parent = "1"
+
+[[nodes.components]]
+type = "transform"
+position = [0, 1.1, 0.0]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "a0e3606e-b1b6-440b-b79e-fa7ee383ab0e"
+material = "6f2e4d48-9f86-5fae-b107-3ad17a1f4f6c"
+
+[[nodes]]
+id = "4"
+name = "alpha-map 3"
+parent = "1"
+
+[[nodes.components]]
+type = "transform"
+position = [2.2, 1.1, 0.0]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "a0e3606e-b1b6-440b-b79e-fa7ee383ab0e"
+material = "4ab9bae2-b9f1-5f4c-9a52-0ce29947cd50"
+
+[[nodes]]
+id = "5"
+name = "alpha-map 4"
+parent = "1"
+
+[[nodes.components]]
+type = "transform"
+position = [-2.2, -1.1, 0.0]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "a0e3606e-b1b6-440b-b79e-fa7ee383ab0e"
+material = "4b92561a-c90b-53ed-8403-459dfea9485e"
+
+[[nodes]]
+id = "6"
+name = "alpha-map 5"
+parent = "1"
+
+[[nodes.components]]
+type = "transform"
+position = [0, -1.1, 0.0]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "a0e3606e-b1b6-440b-b79e-fa7ee383ab0e"
+material = "dc493775-ac8c-5ee3-8fdd-c5838159d18a"
+
+[[nodes]]
+id = "7"
+name = "alpha-map 6"
+parent = "1"
+
+[[nodes.components]]
+type = "transform"
+position = [2.2, -1.1, 0.0]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "a0e3606e-b1b6-440b-b79e-fa7ee383ab0e"
+material = "45d8a730-4d67-50b4-a451-bca4088baba5"

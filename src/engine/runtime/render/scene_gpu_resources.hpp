@@ -88,6 +88,11 @@ struct RenderSystem::SceneGpuResources
     std::uint16_t capture_width = 0, capture_height = 0;
     bool capture_pending = false;
     bool capture_cancelled = false;
+    bgfx::TextureHandle hdr_capture_readback = BGFX_INVALID_HANDLE;
+    std::vector<std::uint16_t> hdr_capture_pixels;
+    std::uint32_t hdr_capture_ready_frame = 0;
+    std::uint16_t hdr_capture_width = 0, hdr_capture_height = 0;
+    bool hdr_capture_pending = false;
     render_detail::AmbientOcclusionPass ambient_occlusion;
     render_detail::HdrPostProcessPass hdr_post_process;
     bgfx::UniformHandle ao_settings = BGFX_INVALID_HANDLE;

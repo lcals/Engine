@@ -63,9 +63,9 @@ function Test-EngineTool
             return $false
         }
         if ([int]$Matches[1] -lt 3 -or
-            ([int]$Matches[1] -eq 3 -and [int]$Matches[2] -lt 25))
+            ([int]$Matches[1] -eq 3 -and [int]$Matches[2] -lt 30))
         {
-            Write-Host "CMake >= 3.25 required; found: $firstLine"
+            Write-Host "CMake >= 3.30 required; found: $firstLine"
             return $false
         }
     }

@@ -1,7 +1,7 @@
 {
   "name": "engine",
   "version-string": "0.1.0",
-  "builtin-baseline": "74e6536215718009aae747d86d84b78376bf9e09",
+  "builtin-baseline": "8450b1326545e5e933c36d698c74df072ffca6d0",
   "dependencies": [
     "fmt",
     "nlohmann-json"
@@ -38,6 +38,7 @@
         },
         "flecs",
         "joltphysics",
+        "quill",
         {
           "name": "tbb",
           "default-features": false
@@ -84,6 +85,7 @@
         "efsw",
         "flatbuffers",
         "meshoptimizer",
+        "mikktspace",
         "sqlite3",
         "sdl3",
         "tomlplusplus"
@@ -93,7 +95,8 @@
       "description": "Editor modeling plugin polygon and solid geometry dependencies",
       "dependencies": [
         "earcut-hpp",
-        "manifold"
+        "manifold",
+        "mikktspace"
       ]
     },
     "font-import": {
@@ -120,32 +123,5 @@
         "boost-multiprecision"
       ]
     }
-  },
-  "overrides": [
-    {
-      "name": "tracy",
-      "version": "0.14.1",
-      "port-version": 1
-    },
-    {
-      "name": "earcut-hpp",
-      "version": "3.2.4"
-    },
-    {
-      "name": "manifold",
-      "version": "3.5.4"
-    },
-    {
-      "name": "clipper2",
-      "version": "2.0.1"
-    },
-    {
-      "name": "fmt",
-      "version": "12.0.0"
-    },
-    {
-      "name": "quickjs-ng",
-      "version": "0.10.1"
-    }
-  ]
+  }
 }

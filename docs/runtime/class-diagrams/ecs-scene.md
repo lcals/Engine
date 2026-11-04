@@ -4,7 +4,7 @@
 
 > 状态：2026-11-03 用户已批准实施。Node/Component 值句柄、Flecs 存储与系统查询已接入；验证结果统一记录在[测试与范例](../../testing.md)。
 
-已替换原来的 `Scene -> unique_ptr<Node> -> unique_ptr<Component>` 存储及各系统逐节点扫描。Node/Component 保留为可复制的值句柄；Flecs 保存唯一运行状态，既有 System 直接查询。复用已接入的 Flecs 4.1.1 与 oneTBB，不新增 ECS Manager、组件对象池、自制查询语言或第二套调度器。
+已替换原来的 `Scene -> unique_ptr<Node> -> unique_ptr<Component>` 存储及各系统逐节点扫描。Node/Component 保留为可复制的值句柄；Flecs 保存唯一运行状态，既有 System 直接查询。复用已接入的 Flecs 4.2.0 与 oneTBB，不新增 ECS Manager、组件对象池、自制查询语言或第二套调度器。
 
 ## 1. 世界、场景与所有权
 
@@ -242,7 +242,7 @@ classDiagram
 
 父子采用 Flecs 原生 `ChildOf`，场景归属采用独立且排他的关系；节点根可以没有父节点，但仍归属于场景。`set_parent` 只改父关系，不能隐式转移场景。
 
-Flecs 4.1.1 的普通关系也参与表组合，因此不同父节点可能分表，不能把“按类型批量查询”描述成“全场景只有一块连续内存”。本方案不更改内置 ChildOf 的 trait；不假设 DontFragment 关系支持 up/cascade 层级查询。场景归属只按少量场景分组，实例身份用普通字段，避免额外制造小表。
+Flecs 4.2.0 的普通关系也参与表组合，因此不同父节点可能分表，不能把“按类型批量查询”描述成“全场景只有一块连续内存”。本方案不更改内置 ChildOf 的 trait；不假设 DontFragment 关系支持 up/cascade 层级查询。场景归属只按少量场景分组，实例身份用普通字段，避免额外制造小表。
 
 候选恢复、发布和回收遵守现有调用方流程：
 
@@ -252,7 +252,7 @@ Flecs 4.1.1 的普通关系也参与表组合，因此不同父节点可能分�
 4. 完整停止删除所属实体、后端绑定和订阅，最后释放 ECS world。常驻场景直到最后一个实体消失才移除。
 5. 节点禁用和隐藏保持独立；隐藏不停止碰撞。系统同步必须观察禁用变化并停用相应后端，不能先把禁用实体从所有同步查询隐藏而遗留旧物理/音频对象。
 
-类型登记、场景创建、恢复、提交和销毁只在可修改阶段执行。readonly/deferred 阶段拒绝返回状态的写操作，void 卸载/取消入口保留现状；候选与 Scene 所有者不能在实体仍待延迟删除时先释放。关闭整个 WorldSystem 仍由宿主在所有查询、任务和阶段结束后调用。
+类型登记、场景创建、恢复、提交和销毁只在可修改阶段执行。WorldSystem 只拥有真实 world，不保存或接收 stage；同步写入要求 `!ecs_is_stage(world) && !ecs_stage_is_readonly(world)`。Flecs 4.2 移除了原来的 world defer 开关，stage 的结构操作始终排队。真实 world 在单线程或多线程 readonly 阶段均拒绝 Facade 写入，void 卸载/取消入口保留现状；候选与 Scene 所有者不能在实体仍待合并删除时先释放。关闭整个 WorldSystem 仍由宿主在所有查询、任务和阶段结束后调用。
 
 ## 5. System 查询与并行边界
 
@@ -270,7 +270,7 @@ Flecs 4.1.1 的普通关系也参与表组合，因此不同父节点可能分�
 - Flecs 负责实体、存储、关系和查询；现有 Engine/System 负责调用顺序，TaskSystem/oneTBB 负责已确认可以并行的任务。不再启动 Flecs 自有 worker 池，不并行执行另一套 ecs_progress 业务调度。
 - 主线程安全点处理创建/删除实体、增删组件、改父级和场景发布；TS/MCP 的同步接口在这些安全点执行，返回成功表示已经提交。
 - 批处理期间保持表结构稳定，任务只读共享数据或写各自独立范围；读写同一数据的任务按现有依赖先后执行。组件进入 ECS 并不自动授权跨系统并发。
-- 异步资源/计算结果继续通过现有完成回调及代次校验，在安全点应用。若局部迭代确需延迟结构操作，使用 Flecs 原生 defer/stage 并在借用结束后合并，不新增通用命令队列；不能把已入队伪装成已经成功提交。
+- 异步资源/计算结果继续通过现有完成回调及代次校验，在安全点应用。若局部迭代确需延迟结构操作，调用方使用 Flecs 原生 stage 排队，借用期间把真实 world 保持在 readonly，结束借用后通过 `ecs_readonly_end` 合并受管理的 stage，或在安全点显式 `ecs_merge`；不新增通用命令队列，不让 Node/Component 自动切换到 stage，不能把已入队伪装成已经成功提交。
 - 调用 Flecs 的类型注册、原生世界结构修改及主线程限定后端 API 都不能在任意 oneTBB worker 上执行。每次并行批次开始前建立只读/结构冻结边界，结束并回收所有数据借用后才允许移表。
 
 GPU/Jolt/Detour/RmlUi 等后端对象仍由领域模块拥有；ECS 只存实例状态、共享资源引用或稳定绑定句柄。真正组件移除时触发所属类型清理；普通 ECS 移表不能销毁并重新创建后端资源。线程限定释放仍在相应系统安全点执行。
@@ -301,7 +301,7 @@ GPU/Jolt/Detour/RmlUi 等后端对象仍由领域模块拥有；ECS 只存实例
 
 ## 参考与相关契约
 
-- [Flecs 官方仓库：v4.1.1](https://github.com/SanderMertens/flecs/tree/v4.1.1)：沿用当前依赖；查询、关系及 C++ 组件生命周期复用上游。
+- [Flecs 官方仓库：v4.2.0](https://github.com/SanderMertens/flecs/tree/v4.2.0)：沿用当前依赖；查询、关系及 C++ 组件生命周期复用上游。
 - [运行时任务系统](task-system.md)、[运行并行与预算](../parallelism.md)：保留 oneTBB、既有任务域与完成回调边界。
 - [预制体](prefab.md)、[预制体编辑](../../editor/class-diagrams/prefab.md)、[脚本绑定](../../plugins/runtime/class-diagrams/script-bindings.md)：保持用户可见语义，迁移各自数据访问。
 

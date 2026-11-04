@@ -200,7 +200,8 @@ void RenderSystem::RendererCallbacks::captureFrame(const void*, std::uint32_t)
 
 void RenderSystem::RendererCallbacks::screenShot(const char* path, std::uint32_t width,
                                                  std::uint32_t height, std::uint32_t pitch,
-                                                 const void* data, std::uint32_t size, bool yflip)
+                                                 bgfx::TextureFormat::Enum format, const void* data,
+                                                 std::uint32_t size, bool yflip)
 {
     ENGINE_PROFILE_ZONE("Render.capture_copy");
     const std::string requested = path != nullptr ? path : "";
@@ -214,8 +215,9 @@ void RenderSystem::RendererCallbacks::screenShot(const char* path, std::uint32_t
     readback_received = true;
     const std::uint64_t bytes = static_cast<std::uint64_t>(pitch) * height;
     constexpr std::uint64_t maximum_bytes = 256ULL * 1024 * 1024;
-    if (requested.empty() || data == nullptr || width == 0 || height == 0 ||
-        static_cast<std::uint64_t>(width) * 4 > pitch || bytes > size || bytes > maximum_bytes)
+    if (requested.empty() || format != bgfx::TextureFormat::BGRA8 || data == nullptr ||
+        width == 0 || height == 0 || static_cast<std::uint64_t>(width) * 4 > pitch ||
+        bytes > size || bytes > maximum_bytes)
     {
         status.store(ScreenshotStatus::failed);
         return;

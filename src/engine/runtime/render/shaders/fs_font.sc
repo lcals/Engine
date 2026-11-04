@@ -28,6 +28,7 @@ $input v_font_coord, v_font_range, v_color0
 // SOFTWARE.
 
 #include <bgfx_shader.sh>
+#include "color_space.sh"
 
 SAMPLER2D(s_font_curves, 0);
 // Curve texture size (xy), linear HDR output enabled (z), reserved (w).
@@ -120,7 +121,7 @@ void main()
         // Font vertices carry premultiplied display colors. Decode the straight color,
         // then premultiply again; coverage and alpha always remain linear quantities.
         vec3 straight_color = saturate(color.rgb / max(color.a, 0.00001));
-        color.rgb = pow(straight_color, vec3_splat(2.2)) * color.a;
+        color.rgb = display_srgb_to_linear(straight_color) * color.a;
     }
     gl_FragColor = color * coverage;
 }

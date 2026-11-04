@@ -6,6 +6,7 @@
  */
 
 #include <bgfx_shader.sh>
+#include "../color_space.sh"
 
 // Exposure, ACES enabled, Bloom intensity, pre-exposure linear Bloom threshold.
 uniform vec4 u_hdr_params;
@@ -43,5 +44,5 @@ vec3 hdr_display_color(vec3 radiance, float tone_weight)
     }
     color = mix(linear_color, color, u_hdr_output.x > 0.5 ? 1.0 : saturate(tone_weight));
     // The current swapchain is SDR and does not perform an additional sRGB encoding.
-    return pow(max(color, vec3_splat(0.0)), vec3_splat(1.0 / 2.2));
+    return linear_to_display_srgb(max(color, vec3_splat(0.0)));
 }

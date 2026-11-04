@@ -1,6 +1,7 @@
 """真实 MCP 进程配合文件传输替身，验证等待、回执身份和未完成请求保护。"""
 
 import argparse
+from contextlib import contextmanager
 import errno
 import json
 import os
@@ -34,6 +35,38 @@ def publish(path, value):
     temporary = path.with_name(".test-" + path.name)
     temporary.write_text(json.dumps(value), encoding="utf-8")
     retry_sharing(lambda: temporary.replace(path))
+
+
+@contextmanager
+def observe_request(path, consume):
+    # Watch for the entire real MCP operation. A separate pre-submission deadline
+    # races process startup and can expire before the server publishes a request.
+    # The MCP operation retains its own timeout; leaving the scope stops the watcher.
+    stop = threading.Event()
+    failures = []
+
+    def watch():
+        try:
+            while not stop.wait(0.01):
+                if path.exists():
+                    envelope = retry_sharing(
+                        lambda: json.loads(path.read_text(encoding="utf-8"))
+                    )
+                    if consume(envelope):
+                        return
+        except BaseException as error:
+            failures.append(error)
+
+    worker = threading.Thread(target=watch, daemon=True)
+    worker.start()
+    try:
+        yield
+    finally:
+        stop.set()
+        worker.join(timeout=3)
+        require(not worker.is_alive(), "fixture request observer did not stop")
+    if failures:
+        raise failures[0]
 
 
 def response(mcp, project, runtime, name, arguments=None):
@@ -125,25 +158,15 @@ def test(mcp, temporary):
         ):
             observed = []
 
-            def complete_command():
-                deadline = time.monotonic() + 5
-                while time.monotonic() < deadline:
-                    if command_file.exists():
-                        envelope = retry_sharing(
-                            lambda: json.loads(command_file.read_text(encoding="utf-8"))
-                        )
-                        if envelope.get("command") == name:
-                            observed.append(envelope)
-                            editor.completed(envelope)
-                            return
-                    time.sleep(0.01)
+            def complete_command(envelope):
+                if envelope.get("command") != name:
+                    return False
+                observed.append(envelope)
+                editor.completed(envelope)
+                return True
 
-            worker = threading.Thread(target=complete_command, daemon=True)
-            worker.start()
-            try:
+            with observe_request(command_file, complete_command):
                 failed, completed = response(mcp, project, command_runtime, name, arguments)
-            finally:
-                worker.join(timeout=6)
             require(
                 len(observed) == 1
                 and observed[0]["arguments"] == arguments
@@ -393,22 +416,14 @@ def test(mcp, temporary):
         changed_request = changed_runtime / "editor-command.json"
         switched = threading.Event()
 
-        def replace_session():
-            deadline = time.monotonic() + 5
-            while time.monotonic() < deadline:
-                if changed_request.exists():
-                    with changed.lock:
-                        changed.session = "transport-replacement-002"
-                    switched.set()
-                    return
-                time.sleep(0.02)
+        def replace_session(_envelope):
+            with changed.lock:
+                changed.session = "transport-replacement-002"
+            switched.set()
+            return True
 
-        switcher = threading.Thread(target=replace_session, daemon=True)
-        switcher.start()
-        try:
+        with observe_request(changed_request, replace_session):
             failed, changed_result = response(mcp, project, changed_runtime, "get_scene")
-        finally:
-            switcher.join(timeout=6)
         require(
             switched.is_set(), "fixture did not observe the command before replacing its session"
         )

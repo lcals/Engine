@@ -35,11 +35,15 @@
 #include <SDL3/SDL_main.h>
 #include <basisu/encoder/basisu_comp.h>
 #include <bgfx/bgfx.h>
+#include <bimg/bimg.h>
+#include <bx/error.h>
+#include <bx/readerwriter.h>
 
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdio>
+#include <cstdint>
 #include <cstdlib>
 #include <filesystem>
 #include <limits>
@@ -52,6 +56,16 @@ namespace
 
 constexpr double delta_time = 1.0 / 60.0;
 constexpr int max_frame_attempts = 200;
+
+double srgb_to_linear(double value)
+{
+    return value <= 0.04045 ? value / 12.92 : std::pow((value + 0.055) / 1.055, 2.4);
+}
+
+double linear_to_srgb(double value)
+{
+    return value <= 0.0031308 ? 12.92 * value : 1.055 * std::pow(value, 1.0 / 2.4) - 0.055;
+}
 
 bool expect(bool condition, const char* message)
 {
@@ -733,6 +747,46 @@ engine::schema::TextureDataT test_texture(const char* path, bool srgb, bool bloc
     return data;
 }
 
+engine::schema::TextureDataT ibl_test_texture(const char* path, bool cube)
+{
+    // White constant cubemaps and an explicitly synthetic split-sum LUT.
+    // LUT A=0.5, B=0.25 (A+B <= 1); the white-furnace check tests energy
+    // composition, not the separate environment map baking implementation.
+    const std::size_t channels = cube ? 4 : 2;
+    const std::size_t count = 4 * 4 * (cube ? 6 : 1);
+    std::vector<std::uint8_t> pixels(count * channels * 2);
+    for (std::size_t i = 0; i < count; ++i)
+    {
+        for (std::size_t channel = 0; channel < channels; ++channel)
+        {
+            const std::uint16_t half = cube ? 0x3c00 : (channel == 0 ? 0x3800 : 0x3400);
+            const auto offset = (i * channels + channel) * 2;
+            pixels[offset] = static_cast<std::uint8_t>(half & 0xff);
+            pixels[offset + 1] = static_cast<std::uint8_t>(half >> 8);
+        }
+    }
+    std::string bytes(64 + 4 + pixels.size(), '\0');
+    bx::StaticMemoryBlockWriter writer(bytes.data(), static_cast<std::uint32_t>(bytes.size()));
+    bx::Error error;
+    const auto written = bimg::imageWriteKtx(
+        &writer, cube ? bimg::TextureFormat::RGBA16F : bimg::TextureFormat::RG16F, cube,
+        4, 4, 0, 1, 1, false, pixels.data(), &error);
+    engine::schema::TextureDataT result;
+    result.path = path;
+    result.width = result.height = 4;
+    result.mip_count = 1;
+    result.srgb = false;
+    result.cube_map = cube;
+    result.encoding = engine::schema::TextureEncoding::ktx;
+    result.format = cube ? engine::schema::TextureFormat::rgba16f
+                         : engine::schema::TextureFormat::rg16f;
+    if (error.isOk() && written == static_cast<std::int32_t>(bytes.size()))
+    {
+        result.data.assign(bytes.begin(), bytes.end());
+    }
+    return result;
+}
+
 bool near_color(const std::array<std::uint8_t, 3>& color, int r, int g, int b)
 {
     const bool matched = std::abs(static_cast<int>(color[0]) - r) <= 12 &&
@@ -932,6 +986,931 @@ bool test_scene_sampling(const engine::EngineConfig& config)
     return render_frames(windows, renderer, 8) &&
            expect(renderer.gpu_resource_count() == 0 && gpu_counts() == idle,
                   "sampling changes and resize leave no retired scene GPU resources");
+}
+
+bool test_orthographic_pbr_view(const engine::EngineConfig& config)
+{
+    engine::ResourceSystem resources;
+    engine::WorldSystem world;
+    engine::WindowSystem windows;
+    engine::RenderSystem renderer(windows, &world);
+    test_support::ResourceFixture fixture;
+    if (!resources.initialize(config) || !world.initialize(config) || !windows.initialize(config) ||
+        !renderer.initialize(config) || !render_frames(windows, renderer, 4) ||
+        !create_cube_scene(world, false))
+    {
+        return false;
+    }
+    auto* scene = world.scene();
+    auto camera = scene->active_camera();
+    auto lens = camera.settings();
+    lens.projection = engine::schema::Projection::orthographic;
+    lens.orthographic_size = 2.0F;
+    auto transform = camera.node().get_component<engine::Transform>();
+    auto settings = transform.settings();
+    Screenshot near_view;
+    Screenshot far_view;
+    if (!camera.set_settings(lens) ||
+        !screenshot(windows, renderer, fixture.root, "ortho-pbr-near", near_view))
+    {
+        return false;
+    }
+    settings.position.mutate_z(14.0);
+    if (!transform.set_settings(settings) ||
+        !screenshot(windows, renderer, fixture.root, "ortho-pbr-far", far_view))
+    {
+        return false;
+    }
+    std::size_t different = 0;
+    std::size_t visible = 0;
+    const auto background = near_view.pixel(0, 0);
+    for (std::size_t index = 0; index < near_view.pixels.size(); ++index)
+    {
+        const auto& a = near_view.pixels[index];
+        const auto& b = far_view.pixels[index];
+        visible += std::abs(static_cast<int>(a[0]) - background[0]) > 8 ||
+                   std::abs(static_cast<int>(a[1]) - background[1]) > 8 ||
+                   std::abs(static_cast<int>(a[2]) - background[2]) > 8;
+        different += std::abs(static_cast<int>(a[0]) - b[0]) > 2 ||
+                     std::abs(static_cast<int>(a[1]) - b[1]) > 2 ||
+                     std::abs(static_cast<int>(a[2]) - b[2]) > 2;
+    }
+    std::fprintf(stderr, "orthographic PBR: visible=%zu changed=%zu\n", visible, different);
+    return expect(visible > 1000 && different < 10,
+                  "orthographic PBR is invariant when moving the camera along its viewing axis");
+}
+
+bool test_pbr_occlusion_lighting(const engine::EngineConfig& config)
+{
+    engine::ResourceSystem resources;
+    engine::WorldSystem world;
+    engine::WindowSystem windows;
+    engine::RenderSystem renderer(windows, &world);
+    test_support::ResourceFixture fixture;
+    auto occluded = test_texture("textures/orm-occluded", false, false);
+    auto unoccluded = test_texture("textures/orm-unoccluded", false, false);
+    auto specgloss_srgb = test_texture("textures/specgloss-srgb", true, false);
+    auto specgloss_srgb_rough = test_texture("textures/specgloss-srgb-rough", true, false);
+    auto specgloss_linear = test_texture("textures/specgloss-linear", false, false);
+    auto tilted_normal = test_texture("textures/tilted-normal", false, false);
+    auto frame_normal = test_texture("textures/frame-normal", false, false);
+    for (std::size_t i = 0; i < tilted_normal.data.size(); i += 4)
+    {
+        tilted_normal.data[i] = 255;
+        tilted_normal.data[i + 1] = 128;
+        tilted_normal.data[i + 2] = 218;
+        tilted_normal.data[i + 3] = 255;
+        // Both tangent and bitangent components matter for mirrored-frame checks.
+        frame_normal.data[i] = 180;
+        frame_normal.data[i + 1] = 196;
+        frame_normal.data[i + 2] = 224;
+        frame_normal.data[i + 3] = 255;
+    }
+    constexpr std::array<std::uint8_t, 4> specgloss_texel{128, 176, 224, 160};
+    for (std::size_t i = 0; i < specgloss_srgb.data.size(); i += 4)
+    {
+        for (std::size_t channel = 0; channel < specgloss_texel.size(); ++channel)
+        {
+            specgloss_srgb.data[i + channel] = specgloss_texel[channel];
+            specgloss_srgb_rough.data[i + channel] = specgloss_texel[channel];
+            specgloss_linear.data[i + channel] = specgloss_texel[channel];
+        }
+        specgloss_srgb_rough.data[i + 3] = 80;
+    }
+    for (std::size_t i = 0; i < occluded.data.size(); i += 4)
+    {
+        // Only the occlusion channel changes; roughness and metallic stay fixed.
+        occluded.data[i] = 0;
+        unoccluded.data[i] = 255;
+        occluded.data[i + 1] = unoccluded.data[i + 1] = 255;
+        occluded.data[i + 2] = unoccluded.data[i + 2] = 255;
+    }
+    if (!resources.initialize(config) || !world.initialize(config) || !windows.initialize(config) ||
+        !renderer.initialize(config) || !fixture.add(occluded) || !fixture.add(unoccluded) ||
+        !fixture.add(specgloss_srgb) || !fixture.add(specgloss_srgb_rough) ||
+        !fixture.add(specgloss_linear) || !fixture.add(tilted_normal) ||
+        !fixture.add(frame_normal) ||
+        !fixture.publish(resources) || !render_frames(windows, renderer, 4))
+    {
+        return false;
+    }
+    auto* scene = world.create_scene("PBR occlusion lighting");
+    auto quad = scene ? scene->create_node("Surface") : engine::Node{};
+    auto camera_node = scene ? scene->create_node("Camera") : engine::Node{};
+    auto light_node = scene ? scene->create_node("Directional light") : engine::Node{};
+    auto environment_node = scene ? scene->create_node("Environment") : engine::Node{};
+    auto mesh = quad ? quad.add_component<engine::MeshRenderer>() : engine::MeshRenderer{};
+    auto camera = camera_node ? camera_node.add_component<engine::Camera>() : engine::Camera{};
+    auto light = light_node ? light_node.add_component<engine::Light>() : engine::Light{};
+    auto environment = environment_node
+                           ? environment_node.add_component<engine::EnvironmentComponent>()
+                           : engine::EnvironmentComponent{};
+    engine::TransformSettings camera_pose;
+    camera_pose.position = {0, 0, 3};
+    engine::CameraSettings lens;
+    lens.projection = engine::schema::Projection::orthographic;
+    lens.orthographic_size = 2;
+    auto material = mesh.material();
+    if (!expect(mesh && camera && light && environment && mesh.set_mesh_data(textured_quad()) &&
+                    camera.set_settings(lens) &&
+                    camera_node.get_component<engine::Transform>().set_settings(camera_pose) &&
+                    scene->set_active_camera(camera) &&
+                    material.set_type("builtin://materials/default-pbr") &&
+                    material.set_v4("baseColor", {0.6, 0.6, 0.6, 1}) &&
+                    material.set_float("metallic", 0) && material.set_float("roughness", 1),
+                "assemble an occlusion test surface and orthographic camera"))
+    {
+        return false;
+    }
+    Screenshot direct_zero, direct_one, indirect_zero, indirect_one;
+    if (!material.set_texture("ormTexture", occluded.path) ||
+        !screenshot(windows, renderer, fixture.root, "pbr-direct-ao-zero", direct_zero) ||
+        !material.set_texture("ormTexture", unoccluded.path) ||
+        !screenshot(windows, renderer, fixture.root, "pbr-direct-ao-one", direct_one))
+    {
+        return false;
+    }
+    auto env_settings = environment.settings();
+    env_settings.ambient_intensity = 1;
+    if (!light.set_enabled(false) || !environment.set_settings(env_settings) ||
+        !material.set_texture("ormTexture", occluded.path) ||
+        !screenshot(windows, renderer, fixture.root, "pbr-indirect-ao-zero", indirect_zero) ||
+        !material.set_texture("ormTexture", unoccluded.path) ||
+        !screenshot(windows, renderer, fixture.root, "pbr-indirect-ao-one", indirect_one))
+    {
+        return false;
+    }
+    const auto x = direct_zero.width / 2;
+    const auto y = direct_zero.height / 2;
+    const auto direct0 = direct_zero.pixel(x, y);
+    const auto direct1 = direct_one.pixel(x, y);
+    const auto indirect0 = indirect_zero.pixel(x, y);
+    const auto indirect1 = indirect_one.pixel(x, y);
+    std::fprintf(stderr, "PBR AO red channel: direct %u/%u, indirect %u/%u\n", direct0[0],
+                 direct1[0], indirect0[0], indirect1[0]);
+    if (!expect(direct1[0] > 20 &&
+                    std::abs(static_cast<int>(direct1[0]) - direct0[0]) <= 2 &&
+                    std::abs(static_cast<int>(direct1[1]) - direct0[1]) <= 2 &&
+                    std::abs(static_cast<int>(direct1[2]) - direct0[2]) <= 2,
+                "material occlusion leaves direct lighting unchanged") ||
+        !expect(indirect1[0] > 20 && indirect0[0] + 20 < indirect1[0],
+                "material occlusion attenuates indirect lighting"))
+    {
+        return false;
+    }
+
+    // Estimate linear light from the quantized Reinhard/sRGB output.
+    // This is a bounded SDR regression, not a floating-point HDR readback.
+    const auto linear = [](std::uint8_t value)
+    {
+        const double encoded = srgb_to_linear(static_cast<double>(value) / 255.0);
+        return encoded / (1.0 - encoded);
+    };
+    env_settings.ambient_intensity = 0;
+    // The perturbed normal points toward both lights, but only the first light
+    // is on the visible side of the base surface. A normal map must not create
+    // direct light on the back side of an opaque surface.
+    engine::TransformSettings hemisphere_light_pose;
+    Screenshot front_hemisphere, back_hemisphere;
+    hemisphere_light_pose.rotation = {0, 60, 0};
+    if (!light.set_enabled(true) || !environment.set_settings(env_settings) ||
+        !material.set_texture("normalTexture", tilted_normal.path) ||
+        !light_node.get_component<engine::Transform>().set_settings(hemisphere_light_pose) ||
+        !screenshot(windows, renderer, fixture.root, "pbr-normal-front", front_hemisphere))
+    {
+        return false;
+    }
+    hemisphere_light_pose.rotation = {0, 120, 0};
+    if (!light_node.get_component<engine::Transform>().set_settings(hemisphere_light_pose) ||
+        !screenshot(windows, renderer, fixture.root, "pbr-normal-back", back_hemisphere))
+    {
+        return false;
+    }
+    const auto front_value = front_hemisphere.pixel(x, y)[0];
+    const auto back_value = back_hemisphere.pixel(x, y)[0];
+    std::fprintf(stderr, "PBR normal-map direct light front/back: %u/%u\n", front_value,
+                 back_value);
+    if (!expect(front_value > 20 && back_value <= 2,
+                "normal map keeps front lighting and rejects back-side direct light"))
+    {
+        return false;
+    }
+    // View the back of the same double-sided surface. The valid light is now
+    // on the opposite side, and the tilted normal follows the viewed side.
+    camera_pose.position = {0, 0, -3};
+    camera_pose.rotation = {0, 180, 0};
+    hemisphere_light_pose.rotation = {0, -120, 0};
+    Screenshot back_view_front_light, back_view_back_light;
+    if (!material.set_cull_mode(engine::schema::CullMode::none) ||
+        !camera_node.get_component<engine::Transform>().set_settings(camera_pose) ||
+        !light_node.get_component<engine::Transform>().set_settings(hemisphere_light_pose) ||
+        !screenshot(windows, renderer, fixture.root, "pbr-normal-double-sided-front",
+                    back_view_front_light))
+    {
+        return false;
+    }
+    hemisphere_light_pose.rotation = {0, -60, 0};
+    if (!light_node.get_component<engine::Transform>().set_settings(hemisphere_light_pose) ||
+        !screenshot(windows, renderer, fixture.root, "pbr-normal-double-sided-back",
+                    back_view_back_light))
+    {
+        return false;
+    }
+    const auto reverse_front = back_view_front_light.pixel(x, y)[0];
+    const auto reverse_back = back_view_back_light.pixel(x, y)[0];
+    std::fprintf(stderr, "PBR double-sided normal-map direct light front/back: %u/%u\n",
+                 reverse_front, reverse_back);
+    if (!expect(reverse_front > 20 && reverse_back <= 2,
+                "double-sided normal map follows the viewed side without leaking light") ||
+        !material.set_texture("normalTexture", "builtin://textures/flat-normal") ||
+        !material.set_cull_mode(engine::schema::CullMode::back))
+    {
+        return false;
+    }
+    camera_pose.position = {0, 0, 3};
+    camera_pose.rotation = {0, 0, 0};
+    hemisphere_light_pose.rotation = {0, 0, 0};
+    if (!light_node.get_component<engine::Transform>().set_settings(hemisphere_light_pose) ||
+        !camera_node.get_component<engine::Transform>().set_settings(camera_pose))
+    {
+        return false;
+    }
+
+    // Compare a static model transform with independently pretransformed geometry.
+    // The slanted vertex frame makes inverse-transpose normals observable under
+    // nonuniform scaling; nonzero tangent-space X and Y also test handedness.
+    auto source = textured_quad();
+    constexpr double nx = 0.6;
+    constexpr double nz = 0.8;
+    for (auto& vertex : source.vertices)
+    {
+        vertex.mutate_nx(nx);
+        vertex.mutate_nz(nz);
+    }
+    source.tangents.assign(source.vertices.size(), {nz, 0, -nx, 1});
+    hemisphere_light_pose.rotation = {-30, 0, 0};
+    if (!material.set_texture("normalTexture", frame_normal.path) ||
+        !light_node.get_component<engine::Transform>().set_settings(hemisphere_light_pose))
+    {
+        return false;
+    }
+    for (const double sx : {1.3, -1.3})
+    {
+        constexpr double sy = 0.8;
+        constexpr double sz = 1.7;
+        auto baked = source;
+        const double normal_length = std::hypot(nx / sx, nz / sz);
+        const double tangent_length = std::hypot(nz * sx, nx * sz);
+        for (auto& vertex : baked.vertices)
+        {
+            vertex.mutate_x(vertex.x() * sx);
+            vertex.mutate_y(vertex.y() * sy);
+            vertex.mutate_z(vertex.z() * sz);
+            vertex.mutate_nx((nx / sx) / normal_length);
+            vertex.mutate_nz((nz / sz) / normal_length);
+        }
+        baked.tangents.assign(baked.vertices.size(),
+                              {nz * sx / tangent_length, 0, -nx * sz / tangent_length,
+                               sx < 0 ? -1.0 : 1.0});
+        if (sx < 0)
+        {
+            for (std::size_t i = 0; i < baked.indices.size(); i += 3)
+            {
+                std::swap(baked.indices[i + 1], baked.indices[i + 2]);
+            }
+        }
+        engine::TransformSettings pose;
+        pose.scale = {sx, sy, sz};
+        Screenshot transformed, pretransformed;
+        if (!mesh.set_mesh_data(source) ||
+            !quad.get_component<engine::Transform>().set_settings(pose) ||
+            !screenshot(windows, renderer, fixture.root, "pbr-model-frame", transformed) ||
+            !mesh.set_mesh_data(baked) ||
+            !quad.get_component<engine::Transform>().set_settings(engine::TransformSettings{}) ||
+            !screenshot(windows, renderer, fixture.root, "pbr-baked-frame", pretransformed))
+        {
+            return false;
+        }
+        const auto actual = transformed.pixel(x, y);
+        const auto expected = pretransformed.pixel(x, y);
+        std::fprintf(stderr, "PBR static frame scale %.1f: transformed/baked %u/%u\n", sx,
+                     actual[0], expected[0]);
+        if (!expect(actual[0] > 20 && expected[0] > 20 &&
+                        std::abs(static_cast<int>(actual[0]) - expected[0]) <= 2 &&
+                        std::abs(static_cast<int>(actual[1]) - expected[1]) <= 2 &&
+                        std::abs(static_cast<int>(actual[2]) - expected[2]) <= 2,
+                    "nonuniform and mirrored static transforms match the baked tangent frame"))
+        {
+            return false;
+        }
+        if (sx < 0)
+        {
+            // Verify this setup can actually detect an inverted bitangent.
+            for (auto& tangent : baked.tangents)
+            {
+                tangent.mutate_w(1.0);
+            }
+            Screenshot wrong_handedness;
+            if (!mesh.set_mesh_data(baked) ||
+                !screenshot(windows, renderer, fixture.root, "pbr-wrong-handedness",
+                            wrong_handedness))
+            {
+                return false;
+            }
+            const auto wrong = wrong_handedness.pixel(x, y)[0];
+            std::fprintf(stderr, "PBR mirrored wrong handedness: %u versus %u\n", wrong,
+                         expected[0]);
+            if (!expect(std::abs(static_cast<int>(wrong) - expected[0]) > 5,
+                        "mirrored-frame comparison detects incorrect tangent handedness"))
+            {
+                return false;
+            }
+        }
+    }
+    hemisphere_light_pose.rotation = {0, 0, 0};
+    if (!mesh.set_mesh_data(textured_quad()) ||
+        !light_node.get_component<engine::Transform>().set_settings(hemisphere_light_pose))
+    {
+        return false;
+    }
+
+    // Independently evaluate Ray Tracing Gems Ch. 12 in its original tan^2
+    // form. The real GPU draw uses a different, stable algebraic expression.
+    // Flat and perturbed normals share all material/light/display parameters.
+    if (!material.set_texture("normalTexture", tilted_normal.path) ||
+        !material.set_float("specularHighlights", 0))
+    {
+        return false;
+    }
+    constexpr double pi = 3.141592653589793;
+    for (const float scale : {0.0F, 1.0F})
+    {
+        const double nx = scale;
+        const double ny = scale / 255.0;
+        const double nz = 2.0 * 218.0 / 255.0 - 1.0;
+        const double norm = std::sqrt(nx * nx + ny * ny + nz * nz);
+        const double cos_delta = nz / norm;
+        const double alpha2 = std::clamp(0.125 * (1.0 / (cos_delta * cos_delta) - 1.0),
+                                         0.0, 1.0);
+        for (const double angle : {0.0, 60.0, 85.0, 89.0, 91.0})
+        {
+            hemisphere_light_pose.rotation = {0, angle, 0};
+            Screenshot terminator;
+            if (!material.set_float("normalScale", scale) ||
+                !light_node.get_component<engine::Transform>().set_settings(hemisphere_light_pose) ||
+                !screenshot(windows, renderer, fixture.root, "pbr-bump-terminator", terminator))
+            {
+                return false;
+            }
+            const double theta = angle * pi / 180.0;
+            const double cos_light = std::cos(theta);
+            const double n_dot_l = std::max(0.0, (nx * std::sin(theta) + nz * cos_light) / norm);
+            const double fresnel = 0.04 + 0.96 * std::pow(1.0 - std::cos(theta * 0.5), 5.0);
+            const double shadowing = cos_light <= 0.0 ? 0.0 :
+                2.0 / (1.0 + std::sqrt(1.0 + alpha2 * std::pow(std::tan(theta), 2.0)));
+            const double radiance = 3.0 * 0.6 * (1.0 - fresnel) * n_dot_l * shadowing / pi;
+            const double expected = 255.0 * linear_to_srgb(radiance / (1.0 + radiance));
+            const auto actual = terminator.pixel(x, y)[0];
+            std::fprintf(stderr, "PBR diffuse terminator scale %.0f angle %.0f: %u (reference %.2f)\n",
+                         scale, angle, actual, expected);
+            if (!expect(std::abs(actual - expected) <= 2.0,
+                        "diffuse terminator follows published shadowing without changing flat normals"))
+            {
+                return false;
+            }
+        }
+    }
+    // Metallic has no diffuse lobe: the correction must not dim its highlight.
+    hemisphere_light_pose.rotation = {0, 60, 0};
+    Screenshot normal_metal;
+    if (!material.set_float("metallic", 1) || !material.set_float("specularHighlights", 1) ||
+        !light_node.get_component<engine::Transform>().set_settings(hemisphere_light_pose) ||
+        !screenshot(windows, renderer, fixture.root, "pbr-normal-metal-terminator", normal_metal))
+    {
+        return false;
+    }
+    const double mapped_z = 2.0 * 218.0 / 255.0 - 1.0;
+    const double mapped_length = std::sqrt(1.0 + 1.0 / (255.0 * 255.0) + mapped_z * mapped_z);
+    const double mapped_nl = (std::sin(pi / 3.0) + mapped_z * 0.5) / mapped_length;
+    const double mapped_nv = mapped_z / mapped_length;
+    const double metal_f = 0.6 + 0.4 * std::pow(1.0 - std::cos(pi / 6.0), 5.0);
+    const double metal_radiance = 3.0 * metal_f * mapped_nl / (2.0 * pi * (mapped_nl + mapped_nv));
+    const double expected_metal = 255.0 * linear_to_srgb(metal_radiance / (1.0 + metal_radiance));
+    std::fprintf(stderr, "PBR mapped metal terminator: %u (reference %.2f)\n",
+                 normal_metal.pixel(x, y)[0], expected_metal);
+    hemisphere_light_pose.rotation = {0, 0, 0};
+    if (!expect(std::abs(normal_metal.pixel(x, y)[0] - expected_metal) <= 2.0,
+                "bump-terminator correction does not attenuate the metallic specular lobe") ||
+        !material.set_texture("normalTexture", "builtin://textures/flat-normal") ||
+        !light_node.get_component<engine::Transform>().set_settings(hemisphere_light_pose))
+    {
+        return false;
+    }
+    Screenshot dielectric, partial_metal, metal;
+    if (!light.set_enabled(true) || !environment.set_settings(env_settings) ||
+        !material.set_v4("baseColor", {0.8, 0.2, 0.2, 1}) ||
+        !material.set_float("roughness", 0.7F) || !material.set_float("metallic", 0) ||
+        !screenshot(windows, renderer, fixture.root, "pbr-metallic-zero", dielectric) ||
+        !material.set_float("metallic", 0.5F) ||
+        !screenshot(windows, renderer, fixture.root, "pbr-metallic-half", partial_metal) ||
+        !material.set_float("metallic", 1) ||
+        !screenshot(windows, renderer, fixture.root, "pbr-metallic-one", metal))
+    {
+        return false;
+    }
+    const auto dielectric_red = linear(dielectric.pixel(x, y)[0]);
+    const auto partial_red = linear(partial_metal.pixel(x, y)[0]);
+    const auto metal_red = linear(metal.pixel(x, y)[0]);
+    const double expected_red = 3.0 * (0.96 * 0.5 * 0.8 / 3.141592653589793 +
+                                      (0.04 + 0.8) * 0.5 /
+                                          (4.0 * 3.141592653589793 * std::pow(0.7, 4)));
+    std::fprintf(stderr, "PBR metallic linear red: %.4f / %.4f / %.4f (reference %.4f)\n",
+                 dielectric_red, partial_red, metal_red, expected_red);
+    if (!expect(std::abs(partial_red - (dielectric_red + metal_red) * 0.5) < 0.04 &&
+                    std::abs(partial_red - expected_red) < 0.06,
+                "metallic interpolation mixes complete glTF dielectric and metallic BRDFs"))
+    {
+        return false;
+    }
+
+    // View and light approach from opposite sides at 80 degrees to the normal.
+    // The halfway vector stays near the surface normal, giving a measurable
+    // grazing Fresnel term without depending on a tiny rasterized highlight.
+    constexpr double radians = 80.0 * 3.141592653589793 / 180.0;
+    camera_pose.position = {3.0 * std::sin(radians), 0, 3.0 * std::cos(radians)};
+    camera_pose.rotation = {0, 80, 0};
+    engine::TransformSettings light_pose;
+    light_pose.rotation = {0, -80, 0};
+    Screenshot grazing;
+    if (!camera_node.get_component<engine::Transform>().set_settings(camera_pose) ||
+        !light_node.get_component<engine::Transform>().set_settings(light_pose) ||
+        !material.set_v4("baseColor", {0, 0, 0, 1}) ||
+        !material.set_float("metallic", 0) || !material.set_float("roughness", 0.5F) ||
+        !screenshot(windows, renderer, fixture.root, "pbr-grazing-fresnel", grazing))
+    {
+        return false;
+    }
+    const double cosine = std::cos(radians);
+    const double alpha_squared = std::pow(0.5, 4);
+    const double distribution = 1.0 / (3.141592653589793 * alpha_squared);
+    const double visibility = 0.25 /
+        (cosine * std::sqrt(cosine * cosine * (1.0 - alpha_squared) + alpha_squared));
+    const double fresnel = 0.04 + 0.96 * std::pow(1.0 - cosine, 5);
+    const double expected_grazing = 3.0 * distribution * visibility * fresnel * cosine;
+    const double actual_grazing = linear(grazing.pixel(x, y)[0]);
+    std::fprintf(stderr, "PBR grazing Fresnel linear: %.4f (reference %.4f)\n", actual_grazing,
+                 expected_grazing);
+    if (!expect(std::abs(actual_grazing - expected_grazing) < 0.45,
+                "grazing direct light follows glTF Schlick and correlated Smith visibility"))
+    {
+        return false;
+    }
+
+    // Scale the light down to keep the narrow smooth GGX peak inside SDR range.
+    // Disable normal mapping so the default 8-bit flat normal's quantization
+    // cannot shift this very narrow peak away from the sampled pixel.
+    camera_pose.position = {0, 0, 3};
+    camera_pose.rotation = {0, 0, 0};
+    light_pose.rotation = {0, 0, 0};
+    auto light_settings = light.settings();
+    light_settings.intensity = 0.0001F;
+    Screenshot smooth_peak;
+    if (!camera_node.get_component<engine::Transform>().set_settings(camera_pose) ||
+        !light_node.get_component<engine::Transform>().set_settings(light_pose) ||
+        !light.set_settings(light_settings) || !material.set_float("normalScale", 0) ||
+        !material.set_float("roughness", 0.045F) ||
+        !screenshot(windows, renderer, fixture.root, "pbr-smooth-ggx-peak", smooth_peak))
+    {
+        return false;
+    }
+    const double expected_peak = 0.0001 * 0.25 * 0.04 /
+                                 (3.141592653589793 * std::pow(0.045, 4));
+    const double actual_peak = linear(smooth_peak.pixel(x, y)[0]);
+    std::fprintf(stderr, "PBR smooth GGX peak linear: %.4f (reference %.4f)\n", actual_peak,
+                 expected_peak);
+    if (!expect(std::abs(actual_peak - expected_peak) < 0.015,
+                "smooth GGX peak remains normalized rather than clipped by a denominator guard"))
+    {
+        return false;
+    }
+
+    // Specular/glossiness with a colored F0 at grazing incidence. Black diffuse
+    // isolates the reflected lobe; lower radiance keeps the HDR value within the
+    // invertible SDR range without changing the material or reference formula.
+    camera_pose.position = {3.0 * std::sin(radians), 0, 3.0 * std::cos(radians)};
+    camera_pose.rotation = {0, 80, 0};
+    light_pose.rotation = {0, -80, 0};
+    light_settings.intensity = 0.1F;
+    Screenshot specular_grazing;
+    if (!camera_node.get_component<engine::Transform>().set_settings(camera_pose) ||
+        !light_node.get_component<engine::Transform>().set_settings(light_pose) ||
+        !light.set_settings(light_settings) || !material.set_float("specularWorkflow", 1) ||
+        !material.set_float("smoothness", 0.5F) ||
+        !material.set_v3("specularColor", {0.04, 0.2, 0.7}) ||
+        !screenshot(windows, renderer, fixture.root, "specular-colored-grazing", specular_grazing))
+    {
+        return false;
+    }
+    const auto specular_pixel = specular_grazing.pixel(x, y);
+    constexpr std::array<double, 3> f0{0.04, 0.2, 0.7};
+    for (std::size_t channel = 0; channel < f0.size(); ++channel)
+    {
+        const double expected = 0.1 * distribution * visibility *
+                                (f0[channel] + (1.0 - f0[channel]) *
+                                                   std::pow(1.0 - cosine, 5)) * cosine;
+        const double actual = linear(specular_pixel[channel]);
+        std::fprintf(stderr, "SpecGloss grazing channel %zu: %.4f (reference %.4f)\n", channel,
+                     actual, expected);
+        if (!expect(std::abs(actual - expected) < 0.035,
+                    "colored specular workflow follows glTF Fresnel and GGX"))
+        {
+            return false;
+        }
+    }
+    camera_pose.position = {0, 0, 3};
+    camera_pose.rotation = {0, 0, 0};
+    light_pose.rotation = {0, 0, 0};
+    light_settings.intensity = 1;
+    Screenshot specular_black;
+    Screenshot specular_white;
+    if (!camera_node.get_component<engine::Transform>().set_settings(camera_pose) ||
+        !light_node.get_component<engine::Transform>().set_settings(light_pose) ||
+        !light.set_settings(light_settings) ||
+        !material.set_v3("specularColor", {0.04, 0.1, 0.4}) ||
+        !material.set_v4("baseColor", {0, 0, 0, 1}) ||
+        !screenshot(windows, renderer, fixture.root, "specgloss-black-diffuse", specular_black) ||
+        !material.set_v4("baseColor", {1, 1, 1, 1}) ||
+        !screenshot(windows, renderer, fixture.root, "specgloss-white-diffuse", specular_white))
+    {
+        return false;
+    }
+    const auto black = specular_black.pixel(x, y);
+    const auto white = specular_white.pixel(x, y);
+    constexpr std::array<double, 3> diffuse_f0{0.04, 0.1, 0.4};
+    for (std::size_t channel = 0; channel < diffuse_f0.size(); ++channel)
+    {
+        const double expected = 0.6 * (1.0 - diffuse_f0[channel]) / 3.141592653589793;
+        const double actual = linear(white[channel]) - linear(black[channel]);
+        std::fprintf(stderr, "SpecGloss diffuse channel %zu: %.4f (reference %.4f)\n", channel,
+                     actual, expected);
+        if (!expect(std::abs(actual - expected) < 0.025,
+                    "SpecGloss diffuse follows max-F0 and channel Fresnel"))
+        {
+            return false;
+        }
+    }
+
+    // glTF SpecGloss stores specular RGB in sRGB and glossiness in linear alpha.
+    // Use black diffuse, normal incidence and an independently evaluated GGX
+    // peak so that both transfer functions affect the measured real draw.
+    constexpr std::array<double, 3> texture_factor{0.8, 0.6, 0.4};
+    const auto srgb_decode = [](double value)
+    {
+        return value <= 0.04045 ? value / 12.92 : std::pow((value + 0.055) / 1.055, 2.4);
+    };
+    if (!material.set_v4("baseColor", {0, 0, 0, 1}) ||
+        !material.set_v3("specularColor", {0.8F, 0.6F, 0.4F}) ||
+        !material.set_float("smoothness", 0.8F))
+    {
+        return false;
+    }
+    const auto check_specgloss_texture = [&](const char* path, const char* capture_name,
+                                             std::uint8_t alpha, bool srgb)
+    {
+        Screenshot capture;
+        if (!material.set_texture("specularTexture", path) ||
+            !screenshot(windows, renderer, fixture.root, capture_name, capture))
+        {
+            return false;
+        }
+        const auto pixel = capture.pixel(x, y);
+        const double roughness = 1.0 - 0.8 * static_cast<double>(alpha) / 255.0;
+        for (std::size_t channel = 0; channel < texture_factor.size(); ++channel)
+        {
+            const double encoded = static_cast<double>(specgloss_texel[channel]) / 255.0;
+            const double f0 = texture_factor[channel] * (srgb ? srgb_decode(encoded) : encoded);
+            const double expected = f0 / (4.0 * 3.141592653589793 * std::pow(roughness, 4));
+            const double actual = linear(pixel[channel]);
+            std::fprintf(stderr, "%s channel %zu: %.4f (reference %.4f)\n", capture_name,
+                         channel, actual, expected);
+            if (!expect(std::abs(actual - expected) < 0.035,
+                        "SpecGloss texture uses its RGB color space and linear glossiness alpha"))
+            {
+                return false;
+            }
+        }
+        return true;
+    };
+    if (!check_specgloss_texture(specgloss_srgb.path.c_str(), "specgloss-srgb-alpha160", 160,
+                                 true) ||
+        !check_specgloss_texture(specgloss_srgb_rough.path.c_str(), "specgloss-srgb-alpha80", 80,
+                                 true) ||
+        !check_specgloss_texture(specgloss_linear.path.c_str(), "specgloss-linear-alpha160", 160,
+                                 false))
+    {
+        return false;
+    }
+    return true;
+}
+
+bool test_ibl_white_furnace(const engine::EngineConfig& config)
+{
+    engine::ResourceSystem resources;
+    engine::WorldSystem world;
+    engine::WindowSystem windows;
+    engine::RenderSystem renderer(windows, &world);
+    test_support::ResourceFixture fixture;
+    auto irradiance = ibl_test_texture("textures/test-white-irradiance", true);
+    auto prefilter = ibl_test_texture("textures/test-white-prefilter", true);
+    auto lut = ibl_test_texture("textures/test-synthetic-ibl-lut", false);
+    auto albedo = test_texture("textures/test-hdr-albedo", true, false);
+    constexpr std::array<std::uint8_t, 3> albedo_texel{128, 176, 224};
+    for (std::size_t i = 0; i < albedo.data.size(); i += 4)
+    {
+        std::copy(albedo_texel.begin(), albedo_texel.end(), albedo.data.begin() + i);
+    }
+    if (!resources.initialize(config) || !world.initialize(config) || !windows.initialize(config) ||
+        !renderer.initialize(config) || irradiance.data.empty() || prefilter.data.empty() ||
+        lut.data.empty() || !fixture.add(irradiance) || !fixture.add(prefilter) ||
+        !fixture.add(lut) || !fixture.add(albedo) || !fixture.publish(resources) ||
+        !render_frames(windows, renderer, 4))
+    {
+        return false;
+    }
+    auto* scene = world.create_scene("IBL white furnace");
+    auto quad = scene ? scene->create_node("Surface") : engine::Node{};
+    auto camera_node = scene ? scene->create_node("Camera") : engine::Node{};
+    auto env_node = scene ? scene->create_node("Environment") : engine::Node{};
+    auto mesh = quad ? quad.add_component<engine::MeshRenderer>() : engine::MeshRenderer{};
+    auto camera = camera_node ? camera_node.add_component<engine::Camera>() : engine::Camera{};
+    auto environment = env_node ? env_node.add_component<engine::EnvironmentComponent>()
+                                : engine::EnvironmentComponent{};
+    engine::TransformSettings camera_pose;
+    camera_pose.position = {0, 0, 3};
+    engine::CameraSettings lens;
+    lens.projection = engine::schema::Projection::orthographic;
+    lens.orthographic_size = 2;
+    auto env = environment.settings();
+    env.ibl_enabled = true;
+    env.ibl_intensity = 1;
+    if (!engine::ResourceSystem::path_to_guid(irradiance.path, env.ibl_irradiance_guid) ||
+        !engine::ResourceSystem::path_to_guid(prefilter.path, env.ibl_prefilter_guid) ||
+        !engine::ResourceSystem::path_to_guid(lut.path, env.ibl_lut_guid) ||
+        !expect(mesh && camera && environment && mesh.set_mesh_data(textured_quad()) &&
+                    camera.set_settings(lens) &&
+                    camera_node.get_component<engine::Transform>().set_settings(camera_pose) &&
+                    scene->set_active_camera(camera) && environment.set_settings(env),
+                "assemble the IBL white furnace with formal texture resources"))
+    {
+        return false;
+    }
+    auto material = mesh.material();
+    if (!material.set_type("builtin://materials/default-pbr") ||
+        !material.set_v4("baseColor", {1, 1, 1, 1}) || !material.set_float("normalScale", 0))
+    {
+        return false;
+    }
+    // Screenshot is SDR Reinhard + sRGB; reverse both transforms. The
+    // tolerance covers 8-bit quantization, and this is not a float readback.
+    const auto linear = [](std::uint8_t value)
+    {
+        const double encoded = srgb_to_linear(static_cast<double>(value) / 255.0);
+        return encoded / (1.0 - encoded);
+    };
+    // Independent Smith-GGX numerical integration (16,384 samples, stratified
+    // polar CDF / irrational azimuth) gives environment Fresnel 0.2740 at
+    // N.V=cos(80 deg), roughness=0.5, F0=0.04. The runtime uses a DFG fit
+    // when no LUT exists, so allow its measured approximation and 8-bit error.
+    auto ambient = env;
+    ambient.ibl_enabled = false;
+    ambient.ambient_intensity = 1;
+    constexpr double pi = 3.141592653589793;
+    const double grazing_angle = 80.0 * pi / 180.0;
+    camera_pose.position = {3.0 * std::sin(grazing_angle), 0, 3.0 * std::cos(grazing_angle)};
+    camera_pose.rotation = {0, 80, 0};
+    if (!environment.set_settings(ambient) ||
+        !camera_node.get_component<engine::Transform>().set_settings(camera_pose) ||
+        !material.set_float("roughness", 0.5F))
+    {
+        return false;
+    }
+    constexpr std::array<float, 3> ambient_metallic{0, 0.5F, 1};
+    for (const float metallic : ambient_metallic)
+    {
+        Screenshot capture;
+        if (!material.set_float("metallic", metallic) ||
+            !screenshot(windows, renderer, fixture.root, "ambient-no-ibl", capture))
+        {
+            return false;
+        }
+        const double actual = linear(capture.pixel(capture.width / 2, capture.height / 2)[0]);
+        const double expected = (1.0 - metallic) * (1.0 - 0.2740);
+        std::fprintf(stderr, "No-IBL ambient grazing m=%.2f: %.4f (integral %.4f)\n",
+                     metallic, actual, expected);
+        if (!expect(std::abs(actual - expected) < 0.045,
+                    "diffuse-only ambient respects Fresnel and metallic mixing without an IBL"))
+        {
+            return false;
+        }
+    }
+    // Colored SpecGloss, cos(60 deg), roughness 0.5. Independent integrated
+    // Fresnel is 0.11869 / 0.38231 / 0.78046 for F0 0.1 / 0.4 / 0.8.
+    // The extension's diffuse factor is 1 - max(F0) = 0.2.
+    constexpr double spec_angle = 60.0 * pi / 180.0;
+    camera_pose.position = {3.0 * std::sin(spec_angle), 0, 3.0 * std::cos(spec_angle)};
+    camera_pose.rotation = {0, 60, 0};
+    Screenshot ambient_specgloss;
+    if (!camera_node.get_component<engine::Transform>().set_settings(camera_pose) ||
+        !material.set_float("specularWorkflow", 1) || !material.set_float("smoothness", 0.5F) ||
+        !material.set_v3("specularColor", {0.1, 0.4, 0.8}) ||
+        !screenshot(windows, renderer, fixture.root, "ambient-no-ibl-specgloss", ambient_specgloss))
+    {
+        return false;
+    }
+    constexpr std::array<double, 3> ambient_reference{0.17626, 0.12354, 0.04391};
+    const auto ambient_pixel = ambient_specgloss.pixel(ambient_specgloss.width / 2,
+                                                      ambient_specgloss.height / 2);
+    for (std::size_t channel = 0; channel < ambient_reference.size(); ++channel)
+    {
+        const double actual = linear(ambient_pixel[channel]);
+        std::fprintf(stderr, "No-IBL ambient SpecGloss channel %zu: %.4f (integral %.4f)\n",
+                     channel, actual, ambient_reference[channel]);
+        if (!expect(std::abs(actual - ambient_reference[channel]) < 0.025,
+                    "colored SpecGloss ambient conserves diffuse energy without an IBL"))
+        {
+            return false;
+        }
+    }
+    if (!material.set_float("specularWorkflow", 0) || !environment.set_settings(env))
+    {
+        return false;
+    }
+    constexpr std::array<float, 3> metallic_values{0, 0.5F, 1};
+    constexpr std::array<float, 3> roughness_values{0.1F, 0.5F, 1};
+    constexpr std::array<float, 3> view_angles{0, 60, 80};
+    for (const float angle : view_angles)
+    {
+        const double radians = angle * 3.141592653589793 / 180.0;
+        camera_pose.position = {3.0 * std::sin(radians), 0, 3.0 * std::cos(radians)};
+        camera_pose.rotation = {0, angle, 0};
+        if (!camera_node.get_component<engine::Transform>().set_settings(camera_pose))
+        {
+            return false;
+        }
+        for (const float metallic : metallic_values)
+        {
+            for (const float roughness : roughness_values)
+            {
+                Screenshot capture;
+                const auto name = "ibl-white-" + std::to_string(angle) + "-" +
+                                  std::to_string(metallic) + "-" + std::to_string(roughness);
+                if (!material.set_float("metallic", metallic) ||
+                    !material.set_float("roughness", roughness) ||
+                    !screenshot(windows, renderer, fixture.root, name.c_str(), capture))
+                {
+                    return false;
+                }
+                const auto pixel = capture.pixel(capture.width / 2, capture.height / 2);
+                const double actual = linear(pixel[0]);
+                std::fprintf(stderr, "IBL white furnace angle=%.0f m=%.2f r=%.2f: %.4f\n",
+                             angle, metallic, roughness, actual);
+                if (!expect(std::abs(actual - 1.0) < 0.08,
+                            "white furnace conserves energy across angles and materials"))
+                {
+                    return false;
+                }
+            }
+        }
+    }
+    camera_pose.position = {0, 0, 3};
+    camera_pose.rotation = {0, 0, 0};
+    Screenshot colored;
+    if (!camera_node.get_component<engine::Transform>().set_settings(camera_pose) ||
+        !material.set_v4("baseColor", {0.8, 0.2, 0.1, 1}) ||
+        !material.set_float("metallic", 0.5F) || !material.set_float("roughness", 0.5F) ||
+        !screenshot(windows, renderer, fixture.root, "ibl-colored-half-metal", colored))
+    {
+        return false;
+    }
+    // Independent scalar evaluation of the upstream Fdez-Aguera split sum at
+    // normal incidence, with the fixture's explicitly known A=0.5, B=0.25.
+    const auto reflected = [](double f0)
+    {
+        const double single = 0.5 * f0 + 0.25;
+        const double average = f0 + (1.0 - f0) / 21.0;
+        return single + 0.25 * single * average / (1.0 - 0.25 * average);
+    };
+    const auto pixel = colored.pixel(colored.width / 2, colored.height / 2);
+    constexpr std::array<double, 3> base{0.8, 0.2, 0.1};
+    for (std::size_t channel = 0; channel < base.size(); ++channel)
+    {
+        const double dielectric = reflected(0.04);
+        const double expected = 0.5 * (base[channel] * (1.0 - dielectric) + dielectric) +
+                                0.5 * reflected(base[channel]);
+        const double actual = linear(pixel[channel]);
+        std::fprintf(stderr, "IBL colored half-metal channel %zu: %.4f (reference %.4f)\n",
+                     channel, actual, expected);
+        if (!expect(std::abs(actual - expected) < 0.04,
+                    "colored metal and dielectric lobes are mixed after IBL evaluation"))
+        {
+            return false;
+        }
+    }
+    Screenshot specgloss;
+    if (!material.set_float("specularWorkflow", 1) || !material.set_float("smoothness", 0.5F) ||
+        !material.set_v4("baseColor", {1, 1, 1, 1}) ||
+        !material.set_v3("specularColor", {0.1, 0.4, 0.8}) ||
+        !screenshot(windows, renderer, fixture.root, "ibl-specgloss-colored", specgloss))
+    {
+        return false;
+    }
+    const auto specgloss_pixel = specgloss.pixel(specgloss.width / 2, specgloss.height / 2);
+    constexpr std::array<double, 3> specgloss_f0{0.1, 0.4, 0.8};
+    for (std::size_t channel = 0; channel < specgloss_f0.size(); ++channel)
+    {
+        const double reflectance = reflected(specgloss_f0[channel]);
+        const double expected = 0.2 * (1.0 - reflectance) + reflectance;
+        const double actual = linear(specgloss_pixel[channel]);
+        std::fprintf(stderr, "IBL SpecGloss channel %zu: %.4f (reference %.4f)\n", channel,
+                     actual, expected);
+        if (!expect(std::abs(actual - expected) < 0.04,
+                    "SpecGloss IBL respects colored Fresnel and diffuse input"))
+        {
+            return false;
+        }
+    }
+    // Exercise the real material texture, direct light and IBL simultaneously.
+    // Decode the SDR screenshot only while all channels remain unclipped;
+    // this tests scene composition with quantization, not float HDR readback.
+    auto light_node = scene->create_node("HDR composition light");
+    auto light = light_node ? light_node.add_component<engine::Light>() : engine::Light{};
+    auto light_settings = light.settings();
+    light_settings.intensity = 3;
+    if (!light || !light.set_settings(light_settings) || !light.set_enabled(false) ||
+        !material.set_float("specularWorkflow", 0) ||
+        !material.set_v4("baseColor", {1, 1, 1, 1}) ||
+        !material.set_texture("baseColorTexture", albedo.path) ||
+        !material.set_float("metallic", 0.5F) || !material.set_float("roughness", 0.5F))
+    {
+        return false;
+    }
+    Screenshot ibl_only, direct_only, combined;
+    auto no_ibl = env;
+    no_ibl.ibl_enabled = false;
+    if (!screenshot(windows, renderer, fixture.root, "hdr-composition-ibl", ibl_only) ||
+        !environment.set_settings(no_ibl) || !light.set_enabled(true) ||
+        !screenshot(windows, renderer, fixture.root, "hdr-composition-direct", direct_only) ||
+        !environment.set_settings(env) ||
+        !screenshot(windows, renderer, fixture.root, "hdr-composition-combined", combined))
+    {
+        return false;
+    }
+    const auto ibl_pixel = ibl_only.pixel(ibl_only.width / 2, ibl_only.height / 2);
+    const auto direct_pixel = direct_only.pixel(direct_only.width / 2, direct_only.height / 2);
+    const auto combined_pixel = combined.pixel(combined.width / 2, combined.height / 2);
+    const auto srgb_decode = [](double value)
+    { return value <= 0.04045 ? value / 12.92 : std::pow((value + 0.055) / 1.055, 2.4); };
+    for (std::size_t channel = 0; channel < albedo_texel.size(); ++channel)
+    {
+        if (!expect(ibl_pixel[channel] < 254 && direct_pixel[channel] < 254 &&
+                        combined_pixel[channel] < 254,
+                    "HDR composition screenshot must not saturate"))
+        {
+            return false;
+        }
+        const double color = srgb_decode(static_cast<double>(albedo_texel[channel]) / 255.0);
+        const double dielectric = reflected(0.04);
+        const double expected_ibl = 0.5 * (color * (1.0 - dielectric) + dielectric) +
+                                    0.5 * reflected(color);
+        const double f0 = 0.5 * (0.04 + color);
+        const double expected_direct = 3.0 * (0.5 * 0.96 * color / pi +
+                                               f0 / (4.0 * pi * std::pow(0.5, 4)));
+        const double actual_ibl = linear(ibl_pixel[channel]);
+        const double actual_direct = linear(direct_pixel[channel]);
+        const double actual_combined = linear(combined_pixel[channel]);
+        // One full code step bounds 8-bit rounding and conversion; the fixed
+        // allowance covers half-float and actual pixel-center direction.
+        const double quantization = linear(combined_pixel[channel] + 1) - actual_combined;
+        const double tolerance = quantization + 0.025;
+        const double ibl_tolerance = linear(ibl_pixel[channel] + 1) - actual_ibl + 0.015;
+        const double direct_tolerance =
+            linear(direct_pixel[channel] + 1) - actual_direct + 0.025;
+        std::fprintf(stderr,
+                     "HDR composition channel %zu: IBL %.4f/%.4f direct %.4f/%.4f "
+                     "combined %.4f/%.4f tolerance %.4f\n",
+                     channel, actual_ibl, expected_ibl, actual_direct, expected_direct,
+                     actual_combined, expected_ibl + expected_direct, tolerance);
+        if (!expect(std::abs(actual_ibl - expected_ibl) < ibl_tolerance &&
+                        std::abs(actual_direct - expected_direct) < direct_tolerance &&
+                        std::abs(actual_combined - expected_ibl - expected_direct) < tolerance &&
+                        std::abs(actual_combined - actual_ibl - actual_direct) <
+                            tolerance + ibl_tolerance + direct_tolerance,
+                    "textured direct and IBL contributions add in the linear scene"))
+        {
+            return false;
+        }
+    }
+    return true;
 }
 
 bool test_gpu_skinning(const engine::EngineConfig& config)
@@ -1222,6 +2201,45 @@ bool test_textured_renderer(const engine::EngineConfig& config, bool shared)
         !screenshot(windows, renderer, fixture.root, "gray-linear", image) ||
         !expect(near_color(image.pixel(cx, cy), 188, 188, 188),
                 "linear data receives display encoding exactly once"))
+    {
+        return false;
+    }
+
+    // Linear inputs straddle the IEC sRGB transfer break point. This catches
+    // the former gamma 2.2 approximation even when middle gray looks similar.
+    auto environment_node = scene->create_node("Clear color");
+    auto environment = environment_node.add_component<engine::EnvironmentComponent>();
+    auto background = environment.settings();
+    background.clear_color = 0x0a407fff;
+    Screenshot srgb_dark;
+    if (!expect(environment && environment.set_settings(background) &&
+                    mesh.material().set_texture("baseColorTexture", "builtin://textures/white-srgb") &&
+                    mesh.material().set_v4("baseColor", {0.001, 0.0031308, 0.01, 1}),
+                "configure dark linear colors and display-encoded background") ||
+        !screenshot(windows, renderer, fixture.root, "srgb-dark", srgb_dark))
+    {
+        return false;
+    }
+    const auto actual_dark = srgb_dark.pixel(cx, cy);
+    const auto actual_clear = srgb_dark.pixel(0, 0);
+    constexpr std::array<double, 3> dark_linear{0.001, 0.0031308, 0.01};
+    constexpr std::array<int, 3> clear_display{10, 64, 127};
+    for (std::size_t channel = 0; channel < 3; ++channel)
+    {
+        const double expected = 255.0 * linear_to_srgb(dark_linear[channel]);
+        std::fprintf(stderr, "sRGB dark channel %zu: %u (reference %.2f), clear %u\n", channel,
+                     actual_dark[channel], expected, actual_clear[channel]);
+        if (!expect(std::abs(actual_dark[channel] - expected) <= 2.0,
+                    "linear dark values use the exact sRGB display transfer") ||
+            !expect(std::abs(static_cast<int>(actual_clear[channel]) - clear_display[channel]) <= 2,
+                    "background display color survives the sRGB decode/encode round trip"))
+        {
+            return false;
+        }
+    }
+    if (!mesh.material().set_v4("baseColor", {1, 1, 1, 1}) ||
+        !mesh.material().set_texture("baseColorTexture", "textures/gray-linear") ||
+        !render_frames(windows, renderer, 8))
     {
         return false;
     }
@@ -2219,6 +3237,179 @@ bool test_reflections_water_and_diffuse_capture(const engine::EngineConfig& conf
     {
         return false;
     }
+    // Compare the actual reflected contribution, not the overall brightness:
+    // every material is captured with SSR both on and off. A white metallic
+    // surface has F0=1; the matching dielectric has F0=0.04, and the mixed
+    // metallic value must produce an intermediate single-scattering response.
+    auto ground_material = ground_mesh.material();
+    if (!ground_material.set_v4("baseColor", {1, 1, 1, 1}))
+    {
+        return false;
+    }
+    std::array<std::uint64_t, 3> ssr_energy{};
+    const std::array<float, 3> metallic_values{0.0F, 0.5F, 1.0F};
+    for (std::size_t i = 0; i < metallic_values.size(); ++i)
+    {
+        Screenshot enabled;
+        Screenshot disabled;
+        post_settings.ssr_enabled = true;
+        if (!ground_material.set_float("metallic", metallic_values[i]) ||
+            !post.set_settings(post_settings) ||
+            !screenshot(windows, renderer, fixture.root, "ssr-f0-on", enabled))
+        {
+            return false;
+        }
+        post_settings.ssr_enabled = false;
+        if (!post.set_settings(post_settings) ||
+            !screenshot(windows, renderer, fixture.root, "ssr-f0-off", disabled))
+        {
+            return false;
+        }
+        for (std::size_t pixel = 0; pixel < enabled.pixels.size(); ++pixel)
+        {
+            for (std::size_t channel = 0; channel < 3; ++channel)
+            {
+                const int delta = static_cast<int>(enabled.pixels[pixel][channel]) -
+                                  static_cast<int>(disabled.pixels[pixel][channel]);
+                ssr_energy[i] += static_cast<std::uint64_t>(std::max(delta, 0));
+            }
+        }
+    }
+    std::fprintf(stderr, "window/render SSR display-space contribution F0 dielectric/mixed/metal: "
+                         "%llu/%llu/%llu\n",
+                 static_cast<unsigned long long>(ssr_energy[0]),
+                 static_cast<unsigned long long>(ssr_energy[1]),
+                 static_cast<unsigned long long>(ssr_energy[2]));
+    if (!expect(ssr_energy[0] < ssr_energy[1] && ssr_energy[1] < ssr_energy[2],
+                "SSR reflection responds to dielectric, mixed, and metallic F0") ||
+        !ground_material.set_float("metallic", 0) ||
+        !ground_material.set_v4("baseColor", {0.18F, 0.18F, 0.18F, 1}))
+    {
+        return false;
+    }
+    // Exercise IBL and SSR together using the same formal synthetic textures as
+    // the separate white-furnace test. Distinguish enabling IBL from enabling
+    // SSR so that neither comparison can pass simply because the scene changed.
+    auto irradiance = ibl_test_texture("textures/ssr-white-irradiance", true);
+    auto prefilter = ibl_test_texture("textures/ssr-white-prefilter", true);
+    auto lut = ibl_test_texture("textures/ssr-synthetic-lut", false);
+    auto ssr_ibl_environment = environment_settings;
+    ssr_ibl_environment.ibl_enabled = true;
+    ssr_ibl_environment.ibl_intensity = 1;
+    if (irradiance.data.empty() || prefilter.data.empty() || lut.data.empty() ||
+        !fixture.add(irradiance) || !fixture.add(prefilter) || !fixture.add(lut) ||
+        !fixture.publish(resources) ||
+        !engine::ResourceSystem::path_to_guid(irradiance.path,
+                                             ssr_ibl_environment.ibl_irradiance_guid) ||
+        !engine::ResourceSystem::path_to_guid(prefilter.path,
+                                             ssr_ibl_environment.ibl_prefilter_guid) ||
+        !engine::ResourceSystem::path_to_guid(lut.path, ssr_ibl_environment.ibl_lut_guid) ||
+        !environment.set_settings(ssr_ibl_environment))
+    {
+        return false;
+    }
+    // Loading an IBL resource must not affect the no-IBL SSR path. Both the
+    // surface shader and SSR must choose the same DFG fallback when disabled.
+    Screenshot ibl_disabled_loaded;
+    Screenshot ibl_disabled_absent;
+    ssr_ibl_environment.ibl_enabled = false;
+    post_settings.ssr_enabled = true;
+    if (!post.set_settings(post_settings) || !environment.set_settings(ssr_ibl_environment) ||
+        !screenshot(windows, renderer, fixture.root, "ssr-ibl-disabled-loaded", ibl_disabled_loaded) ||
+        !environment.set_settings(environment_settings) ||
+        !screenshot(windows, renderer, fixture.root, "ssr-ibl-disabled-absent", ibl_disabled_absent))
+    {
+        return false;
+    }
+    int disabled_ibl_difference = 0;
+    for (std::size_t pixel = 0; pixel < ibl_disabled_loaded.pixels.size(); ++pixel)
+    {
+        for (std::size_t channel = 0; channel < 3; ++channel)
+        {
+            disabled_ibl_difference = std::max(disabled_ibl_difference, std::abs(
+                static_cast<int>(ibl_disabled_loaded.pixels[pixel][channel]) -
+                static_cast<int>(ibl_disabled_absent.pixels[pixel][channel])));
+        }
+    }
+    std::fprintf(stderr, "SSR disabled IBL loaded/absent maximum pixel difference: %d\n",
+                 disabled_ibl_difference);
+    ssr_ibl_environment.ibl_enabled = true;
+    if (!expect(disabled_ibl_difference <= 2,
+                "disabled IBL does not change SSR based on retained resource GUIDs") ||
+        !environment.set_settings(ssr_ibl_environment))
+    {
+        return false;
+    }
+    Screenshot ibl_without_ssr;
+    Screenshot ibl_with_ssr;
+    post_settings.ssr_enabled = false;
+    if (!post.set_settings(post_settings) ||
+        !screenshot(windows, renderer, fixture.root, "ibl-without-ssr", ibl_without_ssr))
+    {
+        return false;
+    }
+    post_settings.ssr_enabled = true;
+    if (!post.set_settings(post_settings) ||
+        !screenshot(windows, renderer, fixture.root, "ibl-with-ssr", ibl_with_ssr))
+    {
+        return false;
+    }
+    std::size_t ibl_changed = 0;
+    std::size_t ibl_ssr_changed = 0;
+    for (std::size_t pixel = 0; pixel < ibl_with_ssr.pixels.size(); ++pixel)
+    {
+        int ibl_difference = 0;
+        int ssr_difference = 0;
+        for (std::size_t channel = 0; channel < 3; ++channel)
+        {
+            ibl_difference += std::abs(static_cast<int>(ibl_without_ssr.pixels[pixel][channel]) -
+                                       static_cast<int>(without_ssr.pixels[pixel][channel]));
+            ssr_difference += std::abs(static_cast<int>(ibl_with_ssr.pixels[pixel][channel]) -
+                                       static_cast<int>(ibl_without_ssr.pixels[pixel][channel]));
+        }
+        ibl_changed += ibl_difference > 6;
+        ibl_ssr_changed += ssr_difference > 6;
+    }
+    std::fprintf(stderr, "window/render IBL changed pixels: %zu; SSR with IBL: %zu\n",
+                 ibl_changed, ibl_ssr_changed);
+    Screenshot specgloss_ibl_on;
+    Screenshot specgloss_ibl_off;
+    if (!ground_material.set_float("specularWorkflow", 1) ||
+        !ground_material.set_v4("baseColor", {0.18F, 0.18F, 0.18F, 1}) ||
+        !ground_material.set_v3("specularColor", {0.04, 0.3, 0.8}) ||
+        !ground_material.set_float("smoothness", 0.9F) ||
+        !screenshot(windows, renderer, fixture.root, "specgloss-ibl-ssr-on", specgloss_ibl_on))
+    {
+        return false;
+    }
+    post_settings.ssr_enabled = false;
+    if (!post.set_settings(post_settings) ||
+        !screenshot(windows, renderer, fixture.root, "specgloss-ibl-ssr-off", specgloss_ibl_off))
+    {
+        return false;
+    }
+    std::array<std::uint64_t, 3> specgloss_changes{};
+    for (std::size_t pixel = 0; pixel < specgloss_ibl_on.pixels.size(); ++pixel)
+    {
+        for (std::size_t channel = 0; channel < 3; ++channel)
+        {
+            specgloss_changes[channel] += static_cast<std::uint64_t>(std::abs(
+                static_cast<int>(specgloss_ibl_on.pixels[pixel][channel]) -
+                static_cast<int>(specgloss_ibl_off.pixels[pixel][channel])));
+        }
+    }
+    std::fprintf(stderr, "window/render SpecGloss SSR+IBL RGB change: %llu/%llu/%llu\n",
+                 static_cast<unsigned long long>(specgloss_changes[0]),
+                 static_cast<unsigned long long>(specgloss_changes[1]),
+                 static_cast<unsigned long long>(specgloss_changes[2]));
+    if (!expect(ibl_changed > 16 && ibl_ssr_changed > 16 && specgloss_changes[0] > 100 &&
+                    specgloss_changes[1] > 100 && specgloss_changes[2] > 100,
+                "IBL and SSR both contribute in the same rendered scene") ||
+        !ground_material.set_float("specularWorkflow", 0) ||
+        !environment.set_settings(environment_settings))
+    {
+        return false;
+    }
     for (auto light : local_lights)
     {
         auto settings = light.settings();
@@ -3069,7 +4260,9 @@ int main(int, char**)
     bool textures_passed = scene_passed && test_textured_renderer(config, false);
     textures_passed = textures_passed && test_textured_renderer(config, true);
     const bool sampling_passed = textures_passed && test_scene_sampling(config);
-    const bool skinning_passed = sampling_passed && test_gpu_skinning(config);
+    const bool skinning_passed = sampling_passed && test_orthographic_pbr_view(config) &&
+                                 test_pbr_occlusion_lighting(config) &&
+                                 test_ibl_white_furnace(config) && test_gpu_skinning(config);
     const bool settings_passed =
         skinning_passed && test_render_settings_and_capture(config) && test_async_capture(config);
     const bool reflection_passed =

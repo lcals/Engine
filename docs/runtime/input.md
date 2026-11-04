@@ -80,7 +80,7 @@ state / delta 相同也不代表单位相同。首版同一个 delta 动作只�
 
 ## 设备覆盖与多手柄
 
-设备能力以本地 SDL 3.2.24 实际可报告的输入为准：
+设备能力以当前固定 SDL 3.4.20 实际可报告的输入为准：
 
 - 键盘覆盖有效 scancode，修饰键可以参与组合；文字与输入法使用独立 TEXT_INPUT / TEXT_EDITING 链路。按键位置标识和展示名称分开，不从按键事件拼中文。
 - 鼠标支持设备上报的按钮、侧键、双向滚轮、窗口逻辑坐标和相对位移。可区分来源的平台保留设备身份，无法区分的键鼠明确呈现为聚合来源。
@@ -165,6 +165,6 @@ RuntimeHost 初始化 WindowSystem 后创建并初始化 InputSystem；输入在
 
 ## 参考与取舍
 
-设备与事件基线来自本地已安装的 SDL 3.2.24 头文件，对应上游 [SDL_events.h](https://github.com/libsdl-org/SDL/blob/release-3.2.24/include/SDL3/SDL_events.h)、[SDL_gamepad.h](https://github.com/libsdl-org/SDL/blob/release-3.2.24/include/SDL3/SDL_gamepad.h) 和 [SDL_mouse.h](https://github.com/libsdl-org/SDL/blob/release-3.2.24/include/SDL3/SDL_mouse.h)。实现时按该版本可用接口编码，不直接套用更新版本的文档能力。
+当前依赖固定 SDL 3.4.20；设备与事件接口对应上游 [SDL_events.h](https://github.com/libsdl-org/SDL/blob/release-3.4.20/include/SDL3/SDL_events.h)、[SDL_gamepad.h](https://github.com/libsdl-org/SDL/blob/release-3.4.20/include/SDL3/SDL_gamepad.h) 和 [SDL_mouse.h](https://github.com/libsdl-org/SDL/blob/release-3.4.20/include/SDL3/SDL_mouse.h)。最初输入设计采用 3.2.24 的接口子集；升级库不自动向引擎 SDK 暴露新的设备能力，仍以已实现绑定及实际验证为准。
 
 本地 `references/The-Forge-master` 的 `InputCommon.h`、`TouchInput.h` 支持采用统一动作来源和原生虚拟触摸的方向；本设计另行处理多来源边沿、独立通道及热插拔，不继承其固定容量、直接求和或固定半屏区域。Ant 的原生输入 / 脚本业务分工可作为参考，但本项目将逐事件映射和触摸运动留在 C++，避免高频脚本转发。

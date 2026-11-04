@@ -96,6 +96,15 @@ mipmaps = true
 - 设置、源图片、Schema 和编码器版本均参与增量键。输出为 `cache/gen/<完整GUID>` 中的 TextureData/BasisU 资源；Shader sampler 默认纹理和材质纹理引用进入统一依赖树、打包和同步。
 - 旧图片若使用 `importer = "source"`，修改为 `texture` 时保留原 GUID；不自动改变已有原始二进制的用途。单边最大8192、总像素最多16M，解码前检查图片头。
 
+**法线和 ORM 的颜色空间必须检查**：普通 LDR 图片没有显式指定 `srgb` 时按颜色贴图处理，默认启用 sRGB 解码；导入器不会根据文件名或材质绑定自动推断用途。给法线或 ORM 图片的邻接 `.meta` 增加以下设置，并保留该文件原有 GUID 和其他选项；若已有 `[texture]` 表，只需在该表中加入或修改 `srgb`，不要重复创建同名表：
+
+```toml
+[texture]
+srgb = false
+```
+
+例如未压缩的 8 位通道 `128`，作为线性数据时约为 `0.502`，但误作 sRGB 解码后约为 `0.216`。对法线 XY，Shader 将其映射到 `[-1,1]` 后分别约为 `0.004` 和 `-0.568`，会明显改变方向；ORM 的遮蔽、粗糙度或金属度也会被错误改变。纹理绑定本身当前不校验颜色用途；修改 `.meta` 后重新导入，由正常增量管线更新资源。
+
 BasisU 使用已有依赖的 C++ 编码接口，整体并行度由项目 `import_threads` 控制（默认 8），每任务编码器使用单线程。`third_party/overlay-ports/basisu/quiet-library-output.patch` 将上游 HDR 输入诊断写到 stderr，确保 MCP stdout 只承载协议。
 
 KTX 使用独立 `texture_ktx` 导入器，支持线性 RGBA16F / RG16F 的 KTX1 二维或 cube 纹理，单层 mip 或完整 mip 链；不重新压缩或生成 mip。`.meta` 使用 `compression = "none"`、`srgb = false`，`format` 为 `auto` 或与容器一致的半浮点格式；若指定 `mipmaps`，须与源文件一致。生成的 TextureData 保留 KTX 数据，经统一目录加载后由 bgfx 创建纹理。当前不支持 KTX2、纹理数组或体纹理。

@@ -72,7 +72,7 @@ public:
 
 private:
     void handleFileAction(efsw::WatchID, const std::string&, const std::string&, efsw::Action,
-                          std::string) override
+                          const std::string&) override
     {
         changed_at_.store(milliseconds());
         serial_.fetch_add(1);

@@ -129,7 +129,11 @@ bool material_remaps(editor::AssetPipelineSystem& pipeline, const Project& proje
             default_material = node->material_guids()->Get(0)->str();
         }
     }
-    if (!expect(slots > 0, "fixture has material slots"))
+    Guid expected_pbr;
+    if (!expect(slots > 0 &&
+                    ResourceSystem::path_to_guid("builtin://materials/default-pbr", expected_pbr) &&
+                    default_material == expected_pbr,
+                "FBX material slots without explicit remaps use the builtin PBR material"))
     {
         return false;
     }

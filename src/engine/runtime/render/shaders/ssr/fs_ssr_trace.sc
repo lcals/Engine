@@ -8,6 +8,7 @@ $input v_texcoord0
  */
 #include "bgfx_shader.sh"
 #include "ssr_common.sh"
+#include "dfg_approx.sh"
 SAMPLER2D(s_ssr_scene, 0);
 SAMPLER2D(s_ssr_ibl, 1);
 SAMPLER2D(s_ssr_depth, 2);
@@ -141,13 +142,11 @@ void main()
     }
     else
     {
-        // Three.js r180 DFGApprox (MIT), 0af9729d0c143a86a1d725d6e2c3ad83301f3f34.
-        // See third_party/notices/threejs-reflections.md. SSR remains useful before IBL baking.
-        vec4 r = surface.w * vec4(-1.0, -0.0275, -0.572, 0.022)
-                 + vec4(1.0, 0.0425, 1.04, -0.04);
-        float a004 = min(r.x * r.x, exp2(-9.28 * n_dot_v)) * r.x + r.y;
-        lut = vec2(-1.04, 1.04) * a004 + r.zw;
+        lut = pbr_dfg_approx(n_dot_v, surface.w);
     }
+    // Replace only the matching linear split-sum part of environment specular.
+    // The remaining nonlinear/multiple-scattering IBL is left in scene color:
+    // the surface buffer does not contain enough information to reconstruct it.
     vec3 brdf = specular.rgb * lut.x + vec3_splat(lut.y);
     float attenuation = texture2D(s_ssr_ibl, v_texcoord0).a;
     gl_FragColor = vec4(clamp(radiance * brdf * attenuation, vec3_splat(0.0), vec3_splat(65504.0)), confidence);

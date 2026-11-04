@@ -27,6 +27,8 @@ CSM、AO、HDR、Bloom 和 IBL 在各平台使用同一套通道与 Shader 源�
 
 可见物体、相机和光源全部以 `Node + Component` 表达。渲染器不创建隐含的相机、灯光或物体，也不持有跨帧组件指针。一个场景选择一个活动相机，累加预算内的启用方向光、点光或聚光（默认 256，可配置至 4096）；超出数量返回失败。场景绘制要求有效的观察相机，可绘制来源包括启用的 MeshRenderer、3D 文字及渲染扩展；UI 独立绘制，不能以没有网格判断整个窗口为空白。没有 Light 时 PBR 不获得直接照明，无光照材质仍可显示。
 
+灯的颜色及 `intensity` 在线性空间参与计算，目前强度是引擎相对量，尚未标定为 lux 或 candela。方向光没有距离衰减；点光和聚光以 `max(d², 0.01)` 作距离平方分母，并乘范围淡出 `clamp(1 - d/range, 0, 1)²`；聚光另外在内外锥夹角余弦之间执行平滑过渡。该范围淡出是有界光源的实时近似；设置数值不能直接当作其他 DCC 中同名物理单位的等价数值。
+
 调用方可向 `prepare_scene(camera)` 和 `render(camera)` 显式提交借用镜头，替代本次绘制使用的活动相机。该镜头可以属于调用方独立场景，渲染器不持有它、不改写项目场景数据；未传入时继续使用项目活动镜头。编辑器预览使用独立的隐藏镜头，后处理仍读取项目场景活动相机的 `PostProcessComponent`，不将预览视角保存到场景。
 
 节点世界矩阵为列主序，局部 -Z 表示相机朝向和方向光传播方向。相机提供透视视场角或正交竖直半高及近远裁剪面，窗口像素尺寸决定宽高比；视图基忽略缩放大小，避免非均匀缩放扭曲镜头。模型法线使用世界矩阵逆转置；负缩放按行列式切换剔除方向。窗口缩放更新交换链和投影。
@@ -41,7 +43,9 @@ CSM、AO、HDR、Bloom 和 IBL 在各平台使用同一套通道与 Shader 源�
 
 调用方仍可通过 `MeshRenderer::set_deformation` 直接覆写位置、法线及切线，与 palette 路径互斥。此路径参考 bgfx `35-dynamic` 建立独立动态 VB，变形修订变化时只更新顶点，不重建静态索引缓冲；清除变形恢复源 VB 并释放实例输出。两条路径均保留源网格、材质槽、UV、颜色、索引及子网格范围，全部场景通道读取相同的实例顶点和更新后边界。
 
-材质实例以名字和数值类型匹配参数，支持 `SetFloat`、`SetV2`、`SetV3`、`SetV4` 与具名 `SetTexture`；未知路径、参数或类型及非法数值返回失败并保留原值。内置材质提供无光照、PBR 和 Blinn–Phong。PBR 采用 Cook–Torrance 模型中的 GGX 分布、相关 Smith 可见性和 Schlick Fresnel，支持基础色、切线空间法线及 ORM（AO、粗糙度、金属度）贴图，颜色纹理由 sRGB 解码至线性空间。受光照材质叠加直接光、环境光与启用的 IBL；无光照材质不计算这些照明。全部场景材质始终输出线性 RGBA16F，最后统一执行显示转换。HDR 关闭时按不透明颜色 alpha 的权重，只对受光照材质执行曝光、Reinhard 或可选 ACES 映射，保留原有 unlit 外观；开启时全场景统一映射，最终屏幕仍为 SDR。
+材质实例以名字和数值类型匹配参数，支持 `SetFloat`、`SetV2`、`SetV3`、`SetV4` 与具名 `SetTexture`；未知路径、参数或类型及非法数值返回失败并保留原值。内置材质提供无光照、PBR 和 Blinn–Phong。PBR 采用 Cook–Torrance 模型中的 GGX 分布、相关 Smith 可见性和 Schlick Fresnel，支持基础色、切线空间法线及 ORM（AO、粗糙度、金属度）贴图，颜色纹理由 sRGB 解码至线性空间。受光照材质叠加直接光、环境光与启用的 IBL；无光照材质不计算这些照明。全部场景材质始终输出线性 RGBA16F，最后统一执行显示转换。HDR 关闭时按不透明颜色 alpha 的权重，只对受光照材质执行曝光、Reinhard 或可选 ACES 映射，保留原有 unlit 外观；开启时全场景统一映射，最终屏幕仍为 SDR，使用标准 sRGB 分段编码。清屏及 3D 字体使用对应的 sRGB 反变换；UI 在最终输出后维持显示空间预乘混合。
+
+默认受光流程统一为 `builtin://materials/default-pbr` → `builtin://shaders/pbr`，采用 metallic/roughness：新 Mesh、新增材质槽、美术模型未显式映射的材质、地形和破坏碎块都使用此入口。Unlit/Blinn–Phong 仅由调用方明确选择，UI、字体及调试绘制按专用用途使用对应 Shader。发光实体使用 PBR 的 `emissionColor`/`emissionTexture`，不通过 Unlit 模拟普通受光表面。
 
 `Material.SetTexture(name, path)` 按 Shader 的 sampler 声明设置贴图，`GetTexture(name)` 返回当前资源路径。内置参数为 `baseColorTexture`、`normalTexture`、`ormTexture`（AO/Roughness/Metallic）；法线与 ORM 使用线性贴图。普通图片的导入压缩、颜色空间与 mipmap 配置见[资源管线](../editor/asset-pipeline.md)。
 
@@ -50,6 +54,14 @@ CSM、AO、HDR、Bloom 和 IBL 在各平台使用同一套通道与 Shader 源�
 内置 PBR/Unlit/Blinn–Phong 提供具名 `alphaCutoff` float 参数（0..1，默认 0 关闭）；覆盖率为基础色纹理 alpha、`baseColor.a` 和顶点 alpha 的乘积。通过 `SetFloat("alphaCutoff", 0.5)` 或 `.material` 的 `[[parameters]]` 设置；低于阈值的片元丢弃，其余按不透明表面写入深度。主 pass 与阴影 pass 共享裁切函数，阴影按子网格取得对应材质的阈值、基础色和纹理；自定义 Shader 须声明同名 `alphaCutoff`（float）、`baseColor`（v4）、`baseColorTexture`（sampler），并在主 pass 执行相同裁切。缺少阈值表示不裁切，启用后缺少配套声明则明确失败。半透明由 Material.blend_mode 单独设置，`.material` 使用 `blend = "alpha_blend"` 或 `"premultiplied"`，按子网格视空间深度排序，不写入不透明深度。
 
 内置 PBR 的 `specularWorkflow = 1` 启用反射色工作流：`specularColor`（v3）乘 `specularTexture.rgb` 得到线性反射色，粗糙度来自 `1 - smoothness * specularTexture.a`；默认 0 仍走原有 metallic/roughness 与 ORM。SpecGloss 纹理的颜色通道按资源 sRGB 配置解码，alpha 保持线性。`normalScale`（0..8，默认 1）缩放切线空间法线的 XY。`uvTransform`（v4，默认 1,1,0,0）给所有表面纹理提供 scale.xy/offset.zw，阴影裁切使用同一变换；自定义 Shader 缺少该参数时阴影使用原始 UV。
+
+直接光以插值的基础法线判断光源是否处于当前表面一侧，避免法线贴图将背面的光带到正面；双面材质按朝向后的贴图法线选择表面一侧。PBR 的直接漫反射进一步采用 [Ray Tracing Gems 第 12 章的微表面遮蔽](../../third_party/notices/ray-tracing-gems-terminator.md)，平滑扰动法线在基础表面明暗交界处的响应；同样用于漫反射烘焙捕获。系数保持固定上游值，没有按截图拟合；镜面 GGX 和预卷积 IBL 不额外乘该因子。这是使用平滑基础法线的近似，不是三角面几何法线或真实位移，也不替代场景阴影；glTF 没有强制规定唯一的终止线校正方法。
+
+ORM 的 R 通道表示材质环境遮蔽，衰减环境光和环境反射，不衰减直接光与自发光；屏幕空间 AO 也是间接照明的遮蔽。法线缩放按切线空间法线 XY 缩放后重新归一化，遵循 [glTF 2.0 材质规范](https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html#materials)；不同 DCC 的法线强度控件不一定使用同一公式。正交相机使用平行视线，透视相机使用片元到相机的视线。
+
+两种 PBR 工作流的直接光均参考 glTF 2.0 附录 B，采用 Schlick Fresnel（F90 = 1）和相关 Smith GGX 可见性；金属粗糙度工作流将介质与金属的完整响应按金属度混合。反射色工作流按 [KHR_materials_pbrSpecularGlossiness](https://github.com/KhronosGroup/glTF/blob/main/extensions/2.0/Archived/KHR_materials_pbrSpecularGlossiness/README.md) 定义 `F0 = specular`、`c_diff = diffuse * (1 - max(specular))`，再按 glTF BRDF 使用 `(1 - F) * c_diff / π`。该扩展已被 Khronos 归档，材质仍沿用项目自身的纹理及光滑度参数约定。GGX 分布采用数值稳定的等价形式，避免低粗糙度高光被固定分母阈值削平。当前最小粗糙度为 0.045；glTF 附录 B 同时指出其 Fresnel 混合仍是近似，不应把它视为完美的物理能量守恒。
+
+启用 IBL 时，金属粗糙度材质参照固定版本 [Khronos glTF Sample Renderer](../../third_party/notices/gltf-sample-renderer.md) 分别计算介质与金属的环境 Fresnel 和多次散射后混合，介质漫反射按其反射比例衰减；反射色工作流对其 `c_diff` 使用相同的环境 Fresnel 混合。SSR 仅替换可由现有表面缓冲中 F0 重建的线性 split-sum 项，其余环境反射保留，因此 SSR 仍是近似。IBL 未启用或没有有效 LUT 时，环境光、光照贴图及探针的漫反射使用 Three.js DFG 拟合估计 Fresnel 能量分配；SSR 使用同一 DFG 回退。关闭 IBL 后，即使已有烘焙纹理仍被加载，SSR 也不继续使用其 LUT。合成白炉 GPU 测试和平台限制见 [测试文档](../testing.md)。
 
 `builtin://shaders/blinn-phong` 提供 Lambert 漫反射与 Blinn–Phong 高光，默认材质为 `builtin://materials/default-blinn-phong`；仍使用基础色、法线、SpecGloss 与发光的命名参数。直接光高光颜色为 `specularColor * specularTexture.rgb`，指数为 `2^(10*smoothness+1)`，不执行 PBR 的能量扣减与漫反射除 π。直接光响应适配 bgfx `18-ibl/fs_ibl_mesh.sc` 的 Lambert、半程向量幂函数与光滑度指数映射；为经验型材质移除其高光归一化、额外 N·L 与 Fresnel，并将指数偏置设为 1。环境照明复用本引擎的 GGX split-sum IBL 路径，不等同于该范例的完整材质模型。
 
@@ -83,6 +95,10 @@ Tracy、CPU/GPU 统计及采集工具统一见[性能采样](performance.md)；�
 
 截图由 bgfx 帧回调输出 PNG，场景必须继续提交帧。编辑器校验相对路径并创建父目录，渲染器仅接受宿主提供的明确路径；MCP 不自行绘制图片。命令回执完成只表示请求已接受，截图自身的 `pending` 还须通过 `get_frame_capture` 查询；命令通道的 `activation: pending` 则按原请求身份查询 `get_editor_receipt`，不重复提交。
 
+原生调用方可用 `RenderSystem::request_hdr_capture()` 排队捕获下一帧正式场景，并继续调用 `render()`，通过 `hdr_capture_status()` 查询；状态为 `complete` 后使用 `take_hdr_capture()` 接收 `SceneCaptureImage`。RGB 是线性浮点数，允许大于 1；返回尺寸是实际场景目标的物理像素，行从上至下、RGBA 紧密排列。源数据为 RGBA16F，扩展为 float 返回，Alpha 原样保留。结果包含材质、光照、反射、透明和场景扩展，位于 Bloom、曝光、色调映射及 UI 之前；它不是显示器 HDR 输出或 PNG 截图。
+
+同一时刻只接受一个未取走请求，未初始化、没有活动场景或上次读回仍在退役时请求失败。提交帧时才检查可绘制内容及实际相机，因此可以在请求后通过 `render(camera)` 指定独立场景中的相机；若提交帧没有有效相机或可绘制内容，请求会取消。`cancel_hdr_capture()`、场景释放、设备重建及目标尺寸改变会取消当前结果；即使已取消，bgfx 仍须完成在途读回后才能回收缓冲。平台不支持 blit、读回或所需格式时状态为 `failed`，不会退回 SDR。MSAA 读取透明合成目标 resolve 后的结果。原始浮点值的实际用途和图像文件编码由调用方决定。
+
 `request_screenshot()` 接收调用方提供的绝对 UTF-8 PNG 路径，仅负责排队。宿主继续提交帧，bgfx 回调通过已选 bimg 编码器和 SDL3 IO 写出原始渲染结果，`screenshot_status()` 报告 pending、complete 或 failed。回调正确处理 BGRA、行步长及原点翻转；写入失败不会报告完成。路径选择、目录创建和编辑器相对路径权限检查由调用方负责，核心无需桌面截图权限。
 
 ## 场景环境参数
@@ -91,7 +107,7 @@ Tracy、CPU/GPU 统计及采集工具统一见[性能采样](performance.md)；�
 
 `RenderSettings` 是这些组件组成的只读帧快照，`RenderSystem::settings()` 只负责读取；环境、后处理和灯光组件分别承担写入与校验。无场景时 `set_idle_clear_color()` 只修改待机清屏色，不影响以后加载的场景；编辑器 `set_render_settings` 此时也仅接受 `clearColor`。默认环境光强度为 0，IBL、AO、HDR、Bloom 与阴影关闭，曝光为 1，使用 Reinhard。核心不识别调用方是编辑器、项目还是截图工具。
 
-可选三色环境光按世界法线 Y 在天空、赤道与地面颜色间插值，再乘环境强度。常量/三色环境光与 IBL 独立，可同时贡献照明；调试曝光时需一并检查二者，避免重复补光使画面发灰。`fog_mode` 可选 none、linear、exponential、exponential_squared。线性雾保留片元到相机的世界距离，从 `fog_start` 到 `fog_end` 混合线性雾色；指数雾与平方指数雾使用相机前向深度减近裁面后的非负距离 d，透过率分别为 `exp(-fog_density*d)` 与 `exp(-(fog_density*d)^2)`，随后进行输出处理。fog_density 为非负有限值，0 表示没有衰减。三色环境和雾默认关闭，颜色参数为线性 0..1；这些值属于环境组件，不含具体资源来源的特殊分支。
+可选三色环境光按世界法线 Y 在天空、赤道与地面颜色间插值，再乘环境强度。常量/三色环境光与 IBL 独立，可同时贡献照明；调试曝光时需一并检查二者，避免重复补光使画面发灰。`fog_mode` 可选 none、linear、exponential、exponential_squared。线性雾在透视相机下使用片元到相机的世界距离，在正交相机下使用前向深度，从 `fog_start` 到 `fog_end` 混合线性雾色；指数雾与平方指数雾使用相机前向深度减近裁面后的非负距离 d，透过率分别为 `exp(-fog_density*d)` 与 `exp(-(fog_density*d)^2)`，随后进行输出处理。fog_density 为非负有限值，0 表示没有衰减。三色环境和雾默认关闭，颜色参数为线性 0..1；这些值属于环境组件，不含具体资源来源的特殊分支。
 
 脚本 `EnvironmentComponent.SetAmbientTricolor(sky, equator, ground, intensity)` 接受三个线性 `[r,g,b]` 数组；`SetAmbient()` 切回单色环境光。`EnvironmentComponent.SetLinearFog(enabled, r, g, b, start, end)` 要求 `0 <= start < end`；`EnvironmentComponent.SetExponentialFog(enabled, r, g, b, density, squared=false)` 在 `squared=true` 时使用平方指数雾。MCP `set_render_settings` 对应字段为 `ambientTricolor`、`ambientSkyColor`、`ambientEquatorColor`、`ambientGroundColor`、`fogMode`、`fogColor`、`fogStart`、`fogEnd`、`fogDensity`，并保留 `linearFog` 兼容入口。
 
@@ -131,7 +147,7 @@ MeshRenderer 的 `cast_shadows` 默认 true；设为 false 后，该组件仍在
 
 主 pass 按观察镜头的正向深度选级，16 点 PCF 的每次采样限制在本级 tile 内。每级末尾的混合区与下一层平滑过渡，最后一级在同样区间淡出；混合比例为 0 时使用硬切换。下一级投影向前扩展以覆盖混合区。坐标变换处理各后端的屏幕原点和深度范围；超出有效投影或阴影距离返回全可见。没有投影方向光时仍可为点光与聚光提交 atlas；没有任何阴影面时释放专属 GPU 对象。聚合设置只查询和修改方向光，逐灯编辑应直接使用 `Light`。
 
-CSM 参考实际依赖版本的 [bgfx `16-shadowmaps`](https://github.com/bkaradzic/bgfx/tree/7a70927d2af7ffcc5cef9c9e8f4c821e31fcb099/examples/16-shadowmaps)（commit `7a70927d2af7ffcc5cef9c9e8f4c821e31fcb099`）：`shadowmaps.cpp` 提供混合划分和纹素稳定思路，`fs_shadowmaps_color_lighting_main.sh` 提供分级采样结构。引擎适配为单 atlas、相机深度选级、包围球稳定范围、交界重叠混合和末级淡出，PCF 保留 `15-shadowmaps-simple/fs_sms_shadow.sh` 的 4×4 布局，并增加 tile 边界限制。Dario Manesku 的示例版权与 BSD-2-Clause 条款保留在 [bgfx 许可](../../third_party/notices/bgfx.txt)。
+CSM 参考引入时固定的 [bgfx `16-shadowmaps`](https://github.com/bkaradzic/bgfx/tree/7a70927d2af7ffcc5cef9c9e8f4c821e31fcb099/examples/16-shadowmaps)（commit `7a70927d2af7ffcc5cef9c9e8f4c821e31fcb099`）：`shadowmaps.cpp` 提供混合划分和纹素稳定思路，`fs_shadowmaps_color_lighting_main.sh` 提供分级采样结构。引擎适配为单 atlas、相机深度选级、包围球稳定范围、交界重叠混合和末级淡出，PCF 保留 `15-shadowmaps-simple/fs_sms_shadow.sh` 的 4×4 布局，并增加 tile 边界限制。运行库升级不改写原始算法来源；Dario Manesku 的示例版权与 BSD-2-Clause 条款保留在 [bgfx 许可](../../third_party/notices/bgfx.txt)。
 
 `shadow_bias` 是共用的归一化深度偏移。级联距离、投射物深度范围和场景尺度改变后，应重新对比斜面自阴影与接触阴影；偏移过小可能出现条纹，过大可能使投影脱离物体。纹素对齐和交界混合不代替偏移调整，也不保证任意运动下完全无闪烁。
 
@@ -144,7 +160,7 @@ CSM 参考实际依赖版本的 [bgfx `16-shadowmaps`](https://github.com/bkarad
 实现沿用 RenderSystem、普通组件、材质资源与 scene_bake 插件；来源、固定版本和限制见[上游适配记录](rendering-upstream-plan.md)。
 
 - 灯光使用全视锥深度分簇，透明面按自身深度取灯；局部簇超预算时遍历完整灯列表，保持照明正确。项目 `settings/parallel.toml` 的 `[defaults.render]` 配置预算，移动端覆盖使用 `[profiles.mobile.render]`，运行包读取汇总设置中的 `parallel.render`。
-- 相机 `PostProcessComponent.SetScreenSpaceReflections(enabled, resolutionScale?, maxSteps?, maxDistance?, thickness?, roughnessCutoff?)` 开启 SSR；材质法线、粗糙度与 F0 来自共享表面 Shader。SSR 命中替换原 IBL 镜面项，未命中保留环境反射。首版没有时序降噪，屏幕外对象使用平面捕获或 IBL。
+- 相机 `PostProcessComponent.SetScreenSpaceReflections(enabled, resolutionScale?, maxSteps?, maxDistance?, thickness?, roughnessCutoff?)` 开启 SSR；材质法线、粗糙度与 F0 来自共享表面 Shader。SSR 命中时替换 IBL 镜面的线性 split-sum 子项，其余环境反射近似保留；未命中保留原环境反射。没有启用 IBL 时，SSR 使用 DFG 拟合计算屏幕反射，不依赖残留的烘焙 LUT。首版没有时序降噪，屏幕外对象使用平面捕获或 IBL。
 - 反射面所在普通 Node 添加 `PlanarReflectionComponent`，局部 XZ 为平面；`SetSettings(resolutionScale, clipBias)` 设置捕获。独立镜像相机绘制建筑、裁切材质和蒙皮角色，不递归捕获透明面。超预算的面使用环境回退。
 - `builtin://shaders/water` 和 `builtin://materials/default-water` 提供双层流动法线、Fresnel、实时平面倒影、深度约束的屏幕折射及吸收。水仍是普通材质，参数由 `SetFloat/SetV*` 设置，常用参数为 `waterIor`（默认 1.333）、`waterFlow`、`refractionStrength`（0..1，默认 1，按折射率投影到背景）、`absorptionDistance`、`absorptionColor`、`shoreFadeDistance`、`reflectionStrength`。冻结的不透明颜色和透明输出、采样深度与深度附件分别保存，避免读写同一纹理。
 - Lightmap 按 MeshRenderer 实例绑定，UV2 使用 xatlas；在接收网格世界包围盒中心采样 SH9 探针。只有显式 `bake_static=true` 的不可变网格参与静态烘焙；角色、碎块和可破坏对象默认只接收实时直射与探针。网格、实例或探针体积变换改变后旧结果失效。

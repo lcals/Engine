@@ -2,14 +2,17 @@
 
 #include "editor/asset_pipeline/asset_io.hpp"
 #include "editor/asset_pipeline/importer_utils.hpp"
+#include "editor/mesh/mesh_tangents.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/utils/path_utils.hpp"
+
 
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdint>
 #include <limits>
+#include <map>
 #include <set>
 #include <span>
 
@@ -18,6 +21,11 @@ namespace engine::plugins::fbx_import
 namespace
 {
 using namespace editor::asset_pipeline;
+
+bool finite_float(double value)
+{
+    return std::isfinite(value) && std::abs(value) <= std::numeric_limits<float>::max();
+}
 
 bool read_motion_settings(const toml::table& settings, FbxDocument& document, std::string& error)
 {
@@ -532,9 +540,19 @@ bool convert_skeleton(const FbxDocument& document, schema::SkeletonDataT& output
     return !output.joints.empty();
 }
 
-bool convert_mesh(const FbxDocument& document, const ufbx_node& node, schema::MeshDataT& output,
+bool convert_mesh(const FbxDocument& document, const ufbx_node& node, schema::MeshDataT& result,
                   std::string& error)
 {
+    if (node.mesh == nullptr)
+    {
+        error = "FBX node has no mesh";
+        return false;
+    }
+    // Publish a complete result only after all corners and tangent splits are
+    // valid. Preserve caller-assigned resource identity, including skin linkage.
+    schema::MeshDataT output;
+    output.path = result.path;
+    output.skeleton_guid = result.skeleton_guid;
     const auto& mesh = *node.mesh;
     if (mesh.num_triangles == 0 ||
         mesh.num_triangles > std::numeric_limits<std::uint32_t>::max() / 3 ||
@@ -582,6 +600,11 @@ bool convert_mesh(const FbxDocument& document, const ufbx_node& node, schema::Me
     std::map<std::uint32_t, std::uint32_t> corners;
     std::map<std::uint32_t, std::vector<std::uint32_t>> parts;
     std::vector<std::uint32_t> triangles(mesh.max_face_triangles * 3);
+    // Tangent and bitangent are UV.x/UV.y directions in the same geometry space
+    // as the normal (ufbx_mesh). Derive the sign after ufbx applies geometry
+    // transforms instead of trusting an untransformed optional fourth channel.
+    bool retain_tangents = document.normals_mode == "import" && mesh.vertex_uv.exists &&
+                           mesh.vertex_tangent.exists && mesh.vertex_bitangent.exists;
     for (std::size_t face_index = 0; face_index < mesh.faces.count; ++face_index)
     {
         const auto face = mesh.faces.data[face_index];
@@ -611,6 +634,12 @@ bool convert_mesh(const FbxDocument& document, const ufbx_node& node, schema::Me
             if (inserted)
             {
                 const auto position = ufbx_get_vertex_vec3(&mesh.vertex_position, corner);
+                if (!finite_float(position.x) || !finite_float(position.y) ||
+                    !finite_float(position.z))
+                {
+                    error = "FBX mesh position exceeds finite float precision";
+                    return false;
+                }
                 auto normal = generated_normals.empty()
                                   ? ufbx_get_vertex_vec3(&mesh.vertex_normal, corner)
                                   : generated_normals[normal_indices[corner]];
@@ -629,7 +658,42 @@ bool convert_mesh(const FbxDocument& document, const ufbx_node& node, schema::Me
                 if (mesh.vertex_uv.exists)
                 {
                     const auto uv = ufbx_get_vertex_vec2(&mesh.vertex_uv, corner);
+                    if (!finite_float(uv.x) || !finite_float(uv.y))
+                    {
+                        error = "FBX mesh UV exceeds finite float precision";
+                        return false;
+                    }
                     output.texcoords.emplace_back(uv.x, uv.y);
+                }
+                if (retain_tangents)
+                {
+                    const auto tangent = ufbx_get_vertex_vec3(&mesh.vertex_tangent, corner);
+                    const auto bitangent = ufbx_get_vertex_vec3(&mesh.vertex_bitangent, corner);
+                    const double nx = normal.y * tangent.z - normal.z * tangent.y;
+                    const double ny = normal.z * tangent.x - normal.x * tangent.z;
+                    const double nz = normal.x * tangent.y - normal.y * tangent.x;
+                    const double cross_length = std::hypot(nx, ny, nz);
+                    const double bitangent_length =
+                        std::hypot(bitangent.x, bitangent.y, bitangent.z);
+                    const double orientation =
+                        nx * bitangent.x + ny * bitangent.y + nz * bitangent.z;
+                    if (!finite_float(tangent.x) || !finite_float(tangent.y) ||
+                        !finite_float(tangent.z) || !std::isfinite(cross_length) ||
+                        !std::isfinite(bitangent_length) ||
+                        !std::isfinite(orientation) || cross_length <= 1.0e-12 ||
+                        bitangent_length <= 1.0e-12 ||
+                        std::abs(orientation) <= 1.0e-6 * cross_length * bitangent_length)
+                    {
+                        // Tangents are an all-or-nothing vertex stream. If any
+                        // frame is unusable, regenerate the complete stream below.
+                        output.tangents.clear();
+                        retain_tangents = false;
+                    }
+                    else
+                    {
+                        output.tangents.emplace_back(tangent.x, tangent.y, tangent.z,
+                                                     orientation < 0.0 ? -1.0 : 1.0);
+                    }
                 }
                 if (mesh.vertex_color.exists)
                 {
@@ -656,7 +720,17 @@ bool convert_mesh(const FbxDocument& document, const ufbx_node& node, schema::Me
                                       static_cast<std::uint32_t>(indices.size()), material);
         output.indices.insert(output.indices.end(), indices.begin(), indices.end());
     }
-    return !output.indices.empty();
+    if (output.indices.empty())
+    {
+        error = "FBX mesh triangulation produced no indices";
+        return false;
+    }
+    if (!editor::generate_mesh_tangents(output, error))
+    {
+        return false;
+    }
+    result = std::move(output);
+    return true;
 }
 
 bool convert_animation(const FbxDocument& source, const FbxDocument& skeleton,

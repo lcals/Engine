@@ -27,26 +27,32 @@ bool RenderSurface::initialize(SDL_Window& window, void* context, SuspendCallbac
     return true;
 }
 
-SurfaceChange RenderSurface::poll(bgfx::PlatformData& data, std::uint32_t& width,
+SurfaceChange RenderSurface::poll(bgfx::SwapChain& swap_chain, std::uint32_t& width,
                                   std::uint32_t& height)
 {
-    data = {};
+    swap_chain = {};
     width = 0;
     height = 0;
-    bgfx::PlatformData candidate{};
+    bgfx::PlatformData candidate_data{};
+    bgfx::SwapChain candidate{};
     std::uint32_t candidate_width = 0;
     std::uint32_t candidate_height = 0;
     if (window_ == nullptr || current_.nwh == nullptr ||
-        !read_size(candidate_width, candidate_height) || !read_platform_data(candidate))
+        !read_size(candidate_width, candidate_height) ||
+        !read_platform_data(candidate_data, candidate))
     {
         return SurfaceChange::error;
     }
-    if (candidate.ndt != current_.ndt || candidate.type != current_.type)
+    if (candidate.ndt != current_.ndt || candidate_data.type != platform_data_.type)
     {
         SDL_LogError(SDL_LOG_CATEGORY_RENDER, "Native display changed; renderer restart required");
         return SurfaceChange::error;
     }
-    data = candidate;
+    swap_chain = current_;
+    swap_chain.nwh = candidate.nwh;
+    swap_chain.ndt = candidate.ndt;
+    swap_chain.width = candidate_width;
+    swap_chain.height = candidate_height;
     width = candidate_width;
     height = candidate_height;
     if (candidate.nwh == current_.nwh)
@@ -57,7 +63,7 @@ SurfaceChange RenderSurface::poll(bgfx::PlatformData& data, std::uint32_t& width
     {
         return SurfaceChange::recreate;
     }
-    current_ = candidate;
+    current_ = swap_chain;
     return SurfaceChange::rebind;
 }
 

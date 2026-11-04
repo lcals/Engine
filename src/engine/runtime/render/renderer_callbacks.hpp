@@ -46,7 +46,8 @@ struct RenderSystem::RendererCallbacks final : bgfx::CallbackI
     void captureEnd() override;
     void captureFrame(const void* data, std::uint32_t size) override;
     void screenShot(const char* path, std::uint32_t width, std::uint32_t height,
-                    std::uint32_t pitch, const void* data, std::uint32_t size, bool yflip) override;
+                    std::uint32_t pitch, bgfx::TextureFormat::Enum format, const void* data,
+                    std::uint32_t size, bool yflip) override;
 };
 
 } // namespace engine

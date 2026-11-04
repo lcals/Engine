@@ -59,13 +59,49 @@ target_link_libraries(engine_resource PRIVATE example::example)
 
 仅实现内部使用的依赖选择 `PRIVATE`；公开头文件需要的依赖选择 `PUBLIC`。没有可用跨平台 vcpkg port 时，将上游库固定为 Git 子模块，源码放在 `third_party/`，构建接入放在 `cmake/dependencies/`。不要把构建产物放入 Git。
 
+### 当前固定版本
+
+2026-11-04 的稳定版本核查以各上游正式 release/tag 为准；V8 采用已发布 Chrome Stable 的精确 `DEPS`，没有正式发布的算法库采用固定上游提交。vcpkg baseline 为 [`8450b1326545e5e933c36d698c74df072ffca6d0`](https://github.com/microsoft/vcpkg/tree/8450b1326545e5e933c36d698c74df072ffca6d0)；下表说明直接依赖，完整传递依赖由该 baseline 与 [manifest](../vcpkg.json) 的 feature 闭包锁定。版本选择不等于平台验收，实际结果单独见[测试文档](testing.md)。
+
+| 用途 | 固定依赖 | 来源与维护 |
+| --- | --- | --- |
+| 基础格式与 JSON | fmt 12.2.0、nlohmann-json 3.12.0 | baseline；保留该版的 port 修复。 |
+| 异步日志 | Quill 13.1.0 | baseline；LogSystem 通过官方 Sink 扩展点保留无异常文件/平台输出契约。 |
+| 平台窗口与输入 | SDL 3.4.20 | overlay；含同版 Android Java glue 与 Windows 文件共享修复。 |
+| 渲染及图像工具 | bgfx.cmake 1.167.9605-606（API 167） | overlay；bgfx/bx/bimg/shaderc 来自同一正式归档。 |
+| Shader 交叉编译 | glslang 16.4.0、SPIRV-Cross/Headers/Tools 1.4.363.0 | baseline；旧 PointSize 查询兼容 overlay 已删除。 |
+| ECS 与任务 | Flecs 4.2.0、oneTBB 2023.2.0 | overlay；TBB 具体 task 类型销毁补丁已由上游覆盖。 |
+| 物理与导航 | Jolt 5.6.0、Recast Navigation 1.6.0 | baseline。 |
+| UI 与编辑器界面 | RmlUi 6.3、Dear ImGui 1.93.0 docking | baseline；仅启用实际需要的绑定。 |
+| 字体离线解析 | FreeType 2.15.0 | baseline；运行包仍消费生成的字体资源。 |
+| 纹理与浮点图像 | Basis Universal 2.50、TinyEXR 3.3.0 | overlay；保留 BasisU 移动端库构建及 stdio 输出适配。 |
+| 资源跨语言模型 | FlatBuffers 25.12.19 维护发布 `v25.12.19-2026-02-06-03fffb2` | overlay；原生库与 host `flatc` 同版。 |
+| 文件监听与目录数据库 | efsw 1.7.3、SQLite 3.54.1 | efsw overlay，SQLite baseline。 |
+| 网格处理 | meshoptimizer 1.3、MikkTSpace `3e895b49` | Mikk 保留有来源的极小夹角数值补丁。 |
+| 建模 | Manifold 3.5.4、earcut.hpp 3.2.4、Clipper2 2.0.1 | baseline。 |
+| 性能采集 | Tracy 0.14.1 | baseline；仍按构建选项启用。 |
+| 项目设置 | toml++ 3.4.0 | baseline；TOML 仍仅由编辑器读取。 |
+| QuickJS 后端 | quickjs-ng 0.18.0 | overlay；保留无副作用模块预检契约。 |
+| 可选 USD 导入 | OpenUSD 26.11.1 | overlay；迁移静态插件与安装目录适配，删除上游已覆盖的 OIIO 3 补丁。 |
+| TS 工具及 JS 模型 | TypeScript 7.0.2、npm flatbuffers 25.9.23 | 项目 package-lock；npm 与原生 FlatBuffers 发布渠道独立。 |
+| 动画 | ozz-animation 0.17.0，`744eb9d9` | Git 子模块；覆盖只应用到构建副本。 |
+| V8 后端 | 15.7.112.23，`440c1c46` | Chrome Stable 157.0.8103.38 的 shipping `DEPS`；固定其完整工具链。 |
+| 特效与破坏 | Effekseer 1808，`b5700082`；Blast 5.1.0，`636e7eb4` | 当前正式稳定版，保留必要平台补丁。 |
+| FBX 源文件解析 | ufbx 0.23.1，`26a482ae` | 当前正式稳定版，Git 子模块。 |
+| 无正式发布的固定算法库 | xatlas `f700c779`、efkbgfx `7d89c3c3`、Transvoxel `51a494f0`、lightmapper `4fd3bf4e` | 核查时均等于上游 HEAD；Git 仍固定精确提交，不在构建时追踪分支。 |
+| Android 工具链 | Gradle 9.8.2、AGP 9.5.0、NDK r30、Build Tools 37.0.0 | [平台说明](runtime/android.md)记录官方来源和 wrapper 哈希；min/target API 策略保持。 |
+
+部分版本没有改变，是因为该稳定渠道尚无更新：BasisU 2.50、bgfx API 167、nlohmann-json 3.12.0、Recast 1.6.0、Tracy 0.14.1、Manifold 3.5.4、earcut.hpp 3.2.4、toml++ 3.4.0 和传递依赖 Boost 1.92.0、zstd 1.5.7 已为此次核查的最新稳定版。MikkTSpace 无 tag/release 且上游 HEAD 未变。npm flatbuffers 25.9.23 仍为 npm `latest`，不把未发布的原生源码 package 版本冒充 npm 发布。
+
+overlay 的具体归档 SHA512、来源许可与补丁去留见 [overlay 说明](../third_party/overlay-ports/README.md)和 [vcpkg 许可](../third_party/notices/vcpkg.md)。引入时固定的渲染范例或论文来源保留原始提交；升级运行依赖不改写算法来源，也不自动接入新上游示例。
+
 ### 上游依赖的本地补丁
 
 有上游问题时，补丁保存在仓库中，不直接修改依赖的检出目录或 vcpkg 安装目录。
 
 - vcpkg 包：在 `third_party/overlay-ports/<port>/` 放置该 port 的完整定义及补丁，并在 `portfile.cmake` 中用 `PATCHES` 应用。根目录 `vcpkg-configuration.json` 已启用此目录。覆盖文件变化会使下一次 CMake 构建先重新配置，vcpkg 按新的 port 内容重建安装包。具体约定见 [overlay-ports/README.md](../third_party/overlay-ports/README.md)。
 - ozz-animation：在 `third_party/overrides/ozz-animation/` 放置与上游源码相对路径一致的替换文件。CMake 从固定 Git 提交准备源码副本；输入变化或副本缺失时才重新准备，未改变内容保留时间戳，不修改 Git 子模块。具体约定见 [overrides/README.md](../third_party/overrides/README.md)。
-- QuickJS：固定 quickjs-ng 0.10.1 port 位于 `third_party/overlay-ports/quickjs-ng/`，模块图预检扩展以补丁应用到构建副本；选择 V8 或关闭脚本时不安装该 feature。
+- QuickJS：固定 quickjs-ng 0.18.0 port 位于 `third_party/overlay-ports/quickjs-ng/`，模块图预检扩展以补丁应用到构建副本；选择 V8 或关闭脚本时不安装该 feature。
 - V8：`cmake/dependencies/prepare_v8.cmake` 在忽略的构建目录准备固定版本的 gclient 工作副本，并在 GN 生成前应用 `third_party/overrides/v8/` 中的补丁；上游子模块只读。各平台兼容补丁的适用版本与移除条件见 [V8 覆盖说明](../third_party/overrides/v8/README.md)。
 
 新增补丁时记录其上游问题和移除条件；上游修复后删除本地覆盖并重新验证。

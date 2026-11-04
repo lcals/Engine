@@ -1,9 +1,8 @@
-diff --git a/toolchain/apple/linker_driver.py b/toolchain/apple/linker_driver.py
 --- a/toolchain/apple/linker_driver.py
 +++ b/toolchain/apple/linker_driver.py
-@@ -171,6 +171,23 @@
-                 "Usage: linker_driver.py -Wcrl,driver,<compiler-driver> "
-                 "[linker-args]...")
+@@ -174,6 +174,23 @@
+                 "[linker-args]..."
+             )
  
 +        # The downloaded Clang package omits libLTO, but its driver still
 +        # supplies that path to Apple's linker. Select Xcode's matching library
@@ -24,16 +23,15 @@ diff --git a/toolchain/apple/linker_driver.py b/toolchain/apple/linker_driver.py
 +
          if self._get_linker_output() is None:
              raise ValueError(
-                 'Could not find path to linker output (-o or --output)')
-diff --git a/toolchain/apple/toolchain.gni b/toolchain/apple/toolchain.gni
+                 'Could not find path to linker output (-o or --output)'
 --- a/toolchain/apple/toolchain.gni
 +++ b/toolchain/apple/toolchain.gni
-@@ -412,7 +412,7 @@
-         # }
+@@ -515,7 +515,7 @@
  
-         rspfile_content = "{{rustdeps}} {{externs}} SOURCES {{sources}}"
--        command = "\"$python_path\" \"$rustc_wrapper\" --rustc=$rustc --depfile=$depfile --rsp=$rspfile -- -Clinker=\"${_cxx}\" $rustc_common_args --emit=dep-info=$depfile,link -o $dllname LDFLAGS {{ldflags}} RUSTENV {{rustenv}}"
-+        command = "$linker_driver_env \"$python_path\" \"$rustc_wrapper\" --rustc=$rustc --depfile=$depfile --rsp=$rspfile -- -Clinker=\"$linker_driver\" $rustc_common_args --emit=dep-info=$depfile,link -o $dllname LDFLAGS $linker_driver_args {{ldflags}} -Wl,-no_warn_duplicate_libraries RUSTENV {{rustenv}}"
+         rspfile_content =
+             "$rustc_common_args {{rustdeps}} {{externs}} SOURCES {{sources}}"
+-        command = "$rustc_wrapper --depfile=$depfile --emit=dep-info=$depfile,link -o $dllname -- -Clinker=\"${_cxx}\" {{source}} LDFLAGS $bin_flag {{ldflags}} RUSTENV {{rustenv}}"
++        command = "$linker_driver_env $rustc_wrapper --depfile=$depfile --emit=dep-info=$depfile,link -o $dllname -- -Clinker=\"$linker_driver\" {{source}} LDFLAGS $linker_driver_args $bin_flag {{ldflags}} -Wl,-no_warn_duplicate_libraries RUSTENV {{rustenv}}"
          rust_sysroot = rust_sysroot_relative
+         inputs = rustc_wrapper_inputs
        }
-     }

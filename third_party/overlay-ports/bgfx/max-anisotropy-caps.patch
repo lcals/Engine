@@ -1,0 +1,73 @@
+--- a/bgfx/include/bgfx/bgfx.h
++++ b/bgfx/include/bgfx/bgfx.h
+@@ -679,6 +679,7 @@
+ 		                                        ///    - `BGFX_CAPS_FORMAT_TEXTURE_BACKBUFFER` - Texture format can be used as back buffer format.
+ 		                                        ///    - `BGFX_CAPS_FORMAT_TEXTURE_VIDEO_DECODE_DST` - Texture format can be used as video
+ 		                                        ///      decode destination.
++		uint8_t maxAnisotropy;                  //!< Maximum sampler anisotropy; 1 means unsupported/unreported.
+ 		uint32_t codecs[VideoCodec::Count];     //!< Supported video codec capabilities flags. A non-zero entry means the codec is
+ 		                                        ///  supported for hardware decode; bits describe sample depths and chroma
+ 		                                        ///  subsamplings:
+--- a/bgfx/include/bgfx/c99/bgfx.h
++++ b/bgfx/include/bgfx/c99/bgfx.h
+@@ -765,6 +765,7 @@
+      *   - `BGFX_CAPS_VIDEO_CODEC_CHROMA_422` - 4:2:2 chroma subsampling is supported.
+      *   - `BGFX_CAPS_VIDEO_CODEC_CHROMA_444` - 4:4:4 chroma subsampling is supported.
+      */
++    uint8_t              maxAnisotropy;      /** Maximum sampler anisotropy; 1 means unsupported/unreported. */
+     uint32_t             codecs[BGFX_VIDEO_CODEC_COUNT];
+ 
+ } bgfx_caps_t;
+--- a/bgfx/scripts/bgfx.idl
++++ b/bgfx/scripts/bgfx.idl
+@@ -914,6 +914,7 @@
+ 		---   - `BGFX_CAPS_FORMAT_TEXTURE_BACKBUFFER` - Texture format can be used as back buffer format.
+ 		---   - `BGFX_CAPS_FORMAT_TEXTURE_VIDEO_DECODE_DST` - Texture format can be used as video
+ 		---     decode destination.
++	.maxAnisotropy "uint8_t" --- Maximum sampler anisotropy; 1 means unsupported/unreported.
+ 	.codecs       "uint32_t[VideoCodec::Count]"
+ 		--- Supported video codec capabilities flags. A non-zero entry means the codec is
+ 		--- supported for hardware decode; bits describe sample depths and chroma
+--- a/bgfx/src/bgfx.cpp
++++ b/bgfx/src/bgfx.cpp
+@@ -4701,6 +4701,7 @@
+ 		}
+ 
+ 		bx::memSet(&g_caps, 0, sizeof(g_caps) );
++		g_caps.maxAnisotropy = 1;
+ 		g_caps.limits.maxDrawCalls = BX_ENABLED(BGFX_CONFIG_DYNAMIC_FRAME_STORAGE)
+ 			? BGFX_CONFIG_MAX_DRAW_CALLS
+ 			: init.limits.numDrawCalls
+--- a/bgfx/src/renderer_mtl.cpp
++++ b/bgfx/src/renderer_mtl.cpp
+@@ -1084,6 +1084,8 @@
+ 				s_textureFormat[TextureFormat::RG8].fmtSrgb = MTL::PixelFormatInvalid;
+ 			}
+ 
++			g_caps.maxAnisotropy = 16;
++
+ 			bool hasPacked16Formats;
+ 			CHECK_FEATURE_AVAILABLE(
+ 				  hasPacked16Formats
+--- a/bgfx/src/renderer_d3d12.cpp
++++ b/bgfx/src/renderer_d3d12.cpp
+@@ -1807,6 +1807,7 @@
+ 					| BGFX_CAPS_VERTEX_ATTRIB_UINT10
+ 					| BGFX_CAPS_VIEWPORT_LAYER_ARRAY
+ 					);
++				g_caps.maxAnisotropy = D3D12_REQ_MAXANISOTROPY;
+ 				g_caps.limits.maxTextureSize      = D3D12_REQ_TEXTURE2D_U_OR_V_DIMENSION;
+ 				g_caps.limits.maxTextureLayers    = D3D12_REQ_TEXTURE2D_ARRAY_AXIS_DIMENSION;
+ 				g_caps.limits.maxFBAttachments    = bx::min<uint8_t>(16, BGFX_CONFIG_MAX_FRAME_BUFFER_ATTACHMENTS);
+--- a/bgfx/src/renderer_vk.cpp
++++ b/bgfx/src/renderer_vk.cpp
+@@ -2182,6 +2182,9 @@
+ 					&& NULL != vkCmdSetFragmentShadingRateKHR
+ 					;
+ 
++				g_caps.maxAnisotropy = m_deviceFeatures.samplerAnisotropy
++					? uint8_t(bx::clamp(m_deviceProperties.limits.maxSamplerAnisotropy, 1.0f, 255.0f))
++					: 1;
+ 				const uint32_t maxAttachments = bx::min<uint32_t>(
+ 					  m_deviceProperties.limits.maxFragmentOutputAttachments
+ 					, m_deviceProperties.limits.maxColorAttachments

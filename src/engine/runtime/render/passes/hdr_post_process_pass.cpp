@@ -1,6 +1,7 @@
 #include "runtime/render/passes/hdr_post_process_pass.hpp"
 
 #include "runtime/performance/profiling.hpp"
+#include "runtime/render/render_color.hpp"
 #include "runtime/render/render_constants.hpp"
 #include "runtime/render/render_sampling.hpp"
 #include "runtime/render/render_settings.hpp"
@@ -32,8 +33,7 @@ bool supports_hdr(const bgfx::Caps& caps, std::uint16_t width, std::uint16_t hei
         BGFX_CAPS_FORMAT_TEXTURE_2D | BGFX_CAPS_FORMAT_TEXTURE_FRAMEBUFFER;
     if (!valid_msaa_samples(samples) || width == 0 || height == 0 ||
         width > caps.limits.maxTextureSize || height > caps.limits.maxTextureSize ||
-        caps.limits.maxTextureSamplers < 2 || caps.limits.maxFBAttachments < 3 ||
-        (caps.supported & BGFX_CAPS_TEXTURE_BLIT) == 0)
+        caps.limits.maxTextureSamplers < 2 || caps.limits.maxFBAttachments < 3)
     {
         SDL_LogError(SDL_LOG_CATEGORY_RENDER,
                      "HDR target dimensions or sampler limits are invalid (%u x %u, max=%u)",
@@ -270,7 +270,7 @@ void HdrPostProcessPass::begin_scene(std::uint32_t clear_color)
         clear[index] = static_cast<float>((clear_color >> shift) & 0xffU) / 255.0F;
         if (index != 3)
         {
-            clear[index] = std::pow(clear[index], 2.2F);
+            clear[index] = display_srgb_to_linear(clear[index]);
         }
     }
     clear[3] = 0.0F;
@@ -297,7 +297,8 @@ void HdrPostProcessPass::begin_transparency(bgfx::TextureHandle frozen_scene, co
     {
         // A previous multisampled frame may have attached this view to its old target.
         bgfx::setViewFrameBuffer(scene_copy_view, BGFX_INVALID_HANDLE);
-        bgfx::blit(scene_copy_view, final_color_, 0, 0, frozen_scene);
+        bgfx::blit(scene_copy_view, bgfx::TextureRegion{.handle = final_color_},
+                   bgfx::TextureRegion{.handle = frozen_scene});
     }
     else
     {

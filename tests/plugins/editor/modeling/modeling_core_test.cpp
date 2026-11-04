@@ -80,6 +80,40 @@ bool closed(const schema::MeshDataT& mesh)
     return true;
 }
 
+bool mirrored_uv_tangents()
+{
+    engine::plugins::modeling::MeshPrimitiveOptions options;
+    options.type = engine::plugins::modeling::MeshPrimitive::plane;
+    schema::EditableMeshDataT model;
+    schema::MeshDataT mesh;
+    std::string error;
+    if (!engine::plugins::modeling::MeshPrimitives::create(options, model, error) ||
+        !expect(model.faces.size() == 1 && model.faces.front()->vertices.size() == 4,
+                "create quad for mirrored UV tangent test"))
+    {
+        return false;
+    }
+    model.faces.front()->texcoords = {{0, 0}, {1, 1}, {0, 1}, {1, 0}};
+    if (!expect(engine::plugins::modeling::EditableMesh::compile(model, "mirrored.mesh", mesh,
+                                                                 error),
+                "compile modeling mesh with mirrored UVs", error) ||
+        !expect(mesh.vertices.size() > 4 && mesh.indices.size() == 6 &&
+                    mesh.tangents.size() == mesh.vertices.size() &&
+                    mesh.colors.size() == mesh.vertices.size(),
+                "modeling compilation splits the shared mirrored UV frame"))
+    {
+        return false;
+    }
+    bool positive = false;
+    bool negative = false;
+    for (auto index : mesh.indices)
+    {
+        positive |= mesh.tangents[index].w() == 1;
+        negative |= mesh.tangents[index].w() == -1;
+    }
+    return expect(positive && negative, "modeling mesh retains both UV handedness values");
+}
+
 bool primitives()
 {
     std::string error;
@@ -697,7 +731,7 @@ bool split_and_edge_loop()
 
 int main()
 {
-    return primitives() && polygon_hole() && topology() && attributes_and_edges() &&
+    return mirrored_uv_tangents() && primitives() && polygon_hole() && topology() && attributes_and_edges() &&
                    loop_cut_and_normals() && extruded_hole() && boundary_and_attributes() &&
                    bridge_caps() && extruded_edges() && point_edge_transform() && group_inset() &&
                    split_and_edge_loop()

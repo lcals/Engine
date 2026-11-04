@@ -4,7 +4,7 @@ $input v_texcoord0
  * Adapted from bgfx examples/09-hdr/fs_hdr_tonemap.sc and vs_hdr_tonemap.sc.
  * Copyright 2011-2025 Branimir Karadzic. BSD-2-Clause.
  * See third_party/notices/bgfx-hdr.md. Compose linear scene and Bloom before the
- * single exposure, tone mapping and gamma conversion; UI is drawn afterward.
+ * single exposure, tone mapping and sRGB conversion; UI is drawn afterward.
  */
 
 #include "hdr_helpers.sh"

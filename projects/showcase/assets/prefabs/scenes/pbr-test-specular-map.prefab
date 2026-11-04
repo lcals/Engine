@@ -1,0 +1,93 @@
+root = "1"
+
+[[nodes]]
+id = "1"
+name = "Material comparison"
+parent = "0"
+
+[[nodes.components]]
+type = "transform"
+
+[[nodes]]
+id = "2"
+name = "specular-map 1"
+parent = "1"
+
+[[nodes.components]]
+type = "transform"
+position = [-2.2, 1.1, 0.0]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "a0e3606e-b1b6-440b-b79e-fa7ee383ab0e"
+material = "932053d2-261b-5434-9e5b-f382c47a540b"
+
+[[nodes]]
+id = "3"
+name = "specular-map 2"
+parent = "1"
+
+[[nodes.components]]
+type = "transform"
+position = [0, 1.1, 0.0]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "a0e3606e-b1b6-440b-b79e-fa7ee383ab0e"
+material = "83d6eb4d-1d73-56e2-9072-04739622cdf0"
+
+[[nodes]]
+id = "4"
+name = "specular-map 3"
+parent = "1"
+
+[[nodes.components]]
+type = "transform"
+position = [2.2, 1.1, 0.0]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "a0e3606e-b1b6-440b-b79e-fa7ee383ab0e"
+material = "8697aa12-727d-561a-9bb3-899bac4ba550"
+
+[[nodes]]
+id = "5"
+name = "specular-map 4"
+parent = "1"
+
+[[nodes.components]]
+type = "transform"
+position = [-2.2, -1.1, 0.0]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "a0e3606e-b1b6-440b-b79e-fa7ee383ab0e"
+material = "2d0748db-c6f0-510b-8949-35111d06010b"
+
+[[nodes]]
+id = "6"
+name = "specular-map 5"
+parent = "1"
+
+[[nodes.components]]
+type = "transform"
+position = [0, -1.1, 0.0]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "a0e3606e-b1b6-440b-b79e-fa7ee383ab0e"
+material = "42d74bb2-121c-5b75-ad4b-a1aa25664290"
+
+[[nodes]]
+id = "7"
+name = "specular-map 6"
+parent = "1"
+
+[[nodes.components]]
+type = "transform"
+position = [2.2, -1.1, 0.0]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "a0e3606e-b1b6-440b-b79e-fa7ee383ab0e"
+material = "639b5a12-5d38-54f5-b5f9-1da6378a39ee"

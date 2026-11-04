@@ -13,7 +13,8 @@ function(engine_configure_modeling_plugin)
     target_link_libraries(
         engine_modeling
         PUBLIC engine::core engine::scene_data
-        PRIVATE engine::resource earcut_hpp::earcut_hpp manifold::manifold xatlas::xatlas)
+        PRIVATE engine::resource engine_editor_mesh_tangents earcut_hpp::earcut_hpp
+                manifold::manifold xatlas::xatlas)
     engine_apply_options(engine_modeling)
     if(TARGET engine_editor)
         add_library(engine_modeling_editor STATIC

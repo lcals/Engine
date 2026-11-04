@@ -182,7 +182,8 @@ bool ScreenSpaceReflectionPass::prepare(std::uint16_t width, std::uint16_t heigh
     for (std::uint16_t index = 0; index < hierarchy_frames_.size(); ++index)
     {
         bgfx::Attachment attachment;
-        attachment.init(hierarchy_[index % 2], bgfx::Access::Write, 0, 1, index, BGFX_RESOLVE_NONE);
+        attachment.init(hierarchy_[index % 2], bgfx::Access::Write, 0, 1, index,
+                        BGFX_ATTACHMENT_NONE);
         hierarchy_frames_[index] = bgfx::createFrameBuffer(1, &attachment, false);
         ++levels_;
         if (mip_width == 1 && mip_height == 1)

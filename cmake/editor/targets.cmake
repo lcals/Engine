@@ -1,3 +1,11 @@
+if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS OR "editor/modeling" IN_LIST ENGINE_SELECTED_PLUGINS)
+    add_library(engine_editor_mesh_tangents STATIC src/engine/editor/mesh/mesh_tangents.cpp)
+    target_compile_features(engine_editor_mesh_tangents PRIVATE cxx_std_20)
+    target_include_directories(engine_editor_mesh_tangents PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+    target_link_libraries(engine_editor_mesh_tangents PRIVATE engine::scene_data mikktspace::mikktspace)
+    engine_apply_options(engine_editor_mesh_tangents)
+endif()
+
 if(ENGINE_ENABLE_EDITOR_DEPS)
     engine_add_system(editor project)
     # toml++ 的 formatter 在异常开关下具有不同布局；所有自有目标统一采用无异常头文件实现。
@@ -57,6 +65,7 @@ endif()
 
 if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
     engine_add_system(editor asset_pipeline)
+    target_link_libraries(engine_asset_pipeline PRIVATE engine_editor_mesh_tangents)
     target_sources(
         engine_asset_pipeline
         PRIVATE src/engine/editor/asset_pipeline/asset_metadata.cpp

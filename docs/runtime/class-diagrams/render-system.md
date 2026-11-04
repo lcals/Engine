@@ -161,7 +161,7 @@ classDiagram
         <<final>>
         +initialize(SDL_Window& window, void#42; context, SuspendCallback suspend) bool
         +prepare(bgfx::Init& init, bool& available) bool
-        +poll(bgfx::PlatformData& data, uint32_t& width, uint32_t& height) SurfaceChange
+        +poll(bgfx::SwapChain& swap_chain, uint32_t& width, uint32_t& height) SurfaceChange
         +release() void
         +shutdown() void
     }
@@ -188,18 +188,22 @@ classDiagram
     class PlatformData {
         <<external>>
     }
+    class SwapChain {
+        <<external>>
+    }
     RenderSurface --> SDL_Window : 持续借用至shutdown
     RenderSurface --> RenderSystem : 借用回调上下文至shutdown
     RenderSurface ..> SurfaceChange : 返回表面变化
     RenderSurface ..> Init : 填写后端与表面参数
-    RenderSurface ..> PlatformData : 返回当前平台句柄
+    RenderSurface ..> PlatformData : 填写设备与原生句柄类型
+    RenderSurface ..> SwapChain : 返回窗口句柄与像素尺寸
     RenderSurface o-- ANativeWindow : Android持有共享原生引用
     RenderSurface *-- SDL_MetalView : Apple创建并销毁视图
 ```
 
-图中的 `Init` 和 `PlatformData` 均来自 `bgfx`。`SuspendCallback` 为 `void (*)(void*) noexcept`。窗口和回调上下文借用持续到 `shutdown()`，所有操作在 SDL 主线程；本系统用回调通知 `RenderSystem` 暂停 GPU，表面对象不执行场景绘制。`prepare()` 只写入 `bgfx::Init` 的后端、平台句柄与像素尺寸，保留其他配置；成功且 `available=false` 表示暂时无可用表面，调用方等待恢复后重试。
+图中的 `Init`、`PlatformData` 和 `SwapChain` 均来自 `bgfx`。`SuspendCallback` 为 `void (*)(void*) noexcept`。窗口和回调上下文借用持续到 `shutdown()`，所有操作在 SDL 主线程；本系统用回调通知 `RenderSystem` 暂停 GPU，表面对象不执行场景绘制。`prepare()` 只写入 `bgfx::Init` 的后端、`platformData` 和 `swapChain` 的原生句柄及像素尺寸，保留其他配置；成功且 `available=false` 表示暂时无可用表面，调用方等待恢复后重试。平台后端显式固定，初始化禁用 bgfx 自动回退。
 
-`poll()` 借用并填写 `bgfx::PlatformData`，不调用 bgfx；句柄不变仍返回最新尺寸。`rebind` 要求调用方重新提交平台数据，`recreate` 要求先关闭 GPU 再准备表面；原生 display 或类型变化返回 `error`，失败时清空输出。`release()` 必须在 bgfx 关闭后调用，释放平台句柄但保留观察器和窗口借用；`shutdown()` 先撤销回调，再释放并清除借用，不触发暂停回调。对象不可复制或移动，析构调用可重复的 `shutdown()`；释放与关闭为 `noexcept`，状态返回值为 `[[nodiscard]]`。
+`poll()` 借用并填写 `bgfx::SwapChain`，不调用 bgfx；句柄不变仍返回最新尺寸及保留的交换链设置。`rebind` 要求调用方通过 `bgfx::reset(global_flags, &swap_chain)` 提交交换链，`recreate` 要求先关闭 GPU 再准备表面；Android 原生窗口或 Apple Metal layer 身份变化均使用完整重建，避免使用 bgfx 内部强制 reset 标志。原生 display 或类型变化返回 `error`，失败时清空输出。VSync 与各向异性属于设备设置，继续通过 reset 全局 flags 提交。`release()` 必须在 bgfx 关闭后调用，释放平台句柄但保留观察器和窗口借用；`shutdown()` 先撤销回调，再释放并清除借用，不触发暂停回调。对象不可复制或移动，析构调用可重复的 `shutdown()`；释放与关闭为 `noexcept`，状态返回值为 `[[nodiscard]]`。
 
 ### 渲染回调
 
@@ -225,13 +229,48 @@ classDiagram
 
 ```cpp
 void screenShot(const char* path, uint32_t width, uint32_t height,
-                uint32_t pitch, const void* data, uint32_t size,
-                bool yflip) override;
+                uint32_t pitch, bgfx::TextureFormat::Enum format,
+                const void* data, uint32_t size, bool yflip) override;
 ```
 
-回调实现 bgfx 的日志和截图契约，用互斥量同步待写路径、原子状态同步回执，通过 bimg 和 SDL3 IO 写出截图。其他 profiler、缓存与视频捕获回调保持契约空实现，缓存查询报告缺失；不在此引入性能采样或视频录制业务。
+回调实现 bgfx 的日志和截图契约，用互斥量同步待写路径、原子状态同步回执，通过 bimg 和 SDL3 IO 写出截图。PNG 截图当前只接受 `BGRA8`，其他格式报告已有失败状态，避免将 HDR 或浮点输出误读为 SDR 像素。其他 profiler、缓存与视频捕获回调保持契约空实现，缓存查询报告缺失；不在此引入性能采样或视频录制业务。
 
 ## 公开接口
+
+### 场景线性 HDR 帧捕获
+
+现有 PNG 截图是经过色调映射的 SDR 图像；漫反射捕获使用独立烘焙视角与通道，不能代表实际画面。此通用场景帧捕获契约不改变现有截图或烘焙捕获。
+
+```mermaid
+classDiagram
+    class RenderSystem {
+        +request_hdr_capture() bool
+        +hdr_capture_status() SceneCaptureStatus
+        +take_hdr_capture(SceneCaptureImage& output) bool
+        +cancel_hdr_capture() void
+    }
+    class SceneCaptureImage {
+        +uint16_t width
+        +uint16_t height
+        +vector~float~ rgba
+    }
+    class SceneCaptureStatus {
+        <<enumeration>>
+        idle
+        pending
+        complete
+        cancelled
+        failed
+    }
+    RenderSystem ..> SceneCaptureImage : 完成时转移像素
+    RenderSystem ..> SceneCaptureStatus : 查询异步回执
+```
+
+- 主线程请求下一次成功提交的场景帧；读取正常场景透明合成及扩展之后、Bloom、曝光和色调映射之前的颜色。它包含直接光、IBL、透明及现有场景效果，不包含后续 UI、Bloom 或显示输出转换。调用方继续提交帧并轮询回执。
+- 捕获当前目标实际像素尺寸，返回自上而下、紧密排列的线性 RGBA 浮点数组，RGB 可大于 1；源目标精度为 RGBA16F，读取时转换为 float，不做归一化、曝光或显示色域转换。Alpha 保留源目标值，不宣称为最终透明度。
+- 一次只接受一个未取走的请求；无活动场景或设备、请求已占用时返回 false。相机可能由后续 `render(camera)` 指定，包括独立场景中的相机，因此接受请求时不依赖活动相机；实际提交帧若无有效相机或可绘制内容则取消请求。有效帧已提交后，后续帧临时失去相机或重建 MSAA 目标不会丢弃该帧的读回。设备不支持颜色目标解析/异步回读、目标分配或 GPU 提交失败时置 failed，禁止静默降级为 SDR；MSAA 必须读取正确 resolve 后结果。
+- `complete` 后 `take_hdr_capture` 将结果移动给调用方并回到 idle；其他状态取图返回 false 并清空输出。取消、场景释放、设备重置或关闭时安全退役 GPU 资源并报告 cancelled，失效异步结果不能覆盖后续请求；尚未完成时不得访问结果缓冲。捕获和既有漫反射捕获各自保持独立状态，不改变原接口。
+- 上述接口已获用户评审确认。它使用 bgfx 的 `TextureRegion`、`blit` 和异步 `read`，借用现有帧号确定回读完成；RGBA16F 转换使用 bx 半浮点转换，行方向按 bgfx `originBottomLeft` 归一化。
 
 ```mermaid
 classDiagram
@@ -264,6 +303,10 @@ classDiagram
         +stats_visible() bool
         +request_screenshot(string_view utf8_png_path) bool
         +screenshot_status() ScreenshotStatus
+        +request_hdr_capture() bool
+        +hdr_capture_status() SceneCaptureStatus
+        +take_hdr_capture(SceneCaptureImage& output) bool
+        +cancel_hdr_capture() void
         +render(Camera camera) bool
         #on_initialize(const EngineConfig& config) bool
         #on_shutdown() void
@@ -459,7 +502,7 @@ C++ 限定符：构造为 `explicit` 且 `noexcept`，`world` 默认为 `nullptr
 
 方向光在 `LightData` 中保存级联数量 `shadow_cascades`（1、2、4，默认 4）、阴影距离 `shadow_distance`（默认 150，范围 `(0, 100000]`）、对数/均匀混合比例 `shadow_split_lambda`（默认 0.6，范围 `[0, 1]`）及交界混合比例 `shadow_cascade_blend`（默认 0.1，范围 `[0, 0.3]`）。`RenderSettings` 只是对应组件的快照，不保存另一份场景策略。MCP 编辑这些值仍使用已有可撤销渲染命令；普通编辑器预览以显式相机决定级联，光照参数仍来自世界场景。
 
-渲染内部参考实际依赖 [bgfx `16-shadowmaps`](https://github.com/bkaradzic/bgfx/tree/7a70927d2af7ffcc5cef9c9e8f4c821e31fcb099/examples/16-shadowmaps)（commit `7a70927d2af7ffcc5cef9c9e8f4c821e31fcb099`）的混合距离划分、视锥分段及纹素对齐思路，复用现有 packed-depth/PCF 阴影 pass。四级放入同一 2×2 atlas，`shadow_resolution` 表示 CSM 所占区域的边长（4096 即每级 2048），只占原有纹理槽 15；统一 atlas 还容纳局部光源阴影，完整尺寸由 RenderConfig 指定。View 0 为 GPU 蒙皮，镜像组从 1、40 开始，主阴影从 80 开始，主场景为 113，UI 保留 200；完整分区见[分簇光照与反射契约](forward-lighting-reflections.md)。单级使用完整 CSM 区域；两级使用两个半边长 tile。
+渲染内部参考引入时固定的 [bgfx `16-shadowmaps`](https://github.com/bkaradzic/bgfx/tree/7a70927d2af7ffcc5cef9c9e8f4c821e31fcb099/examples/16-shadowmaps)（commit `7a70927d2af7ffcc5cef9c9e8f4c821e31fcb099`）的混合距离划分、视锥分段及纹素对齐思路，复用现有 packed-depth/PCF 阴影 pass。四级放入同一 2×2 atlas，`shadow_resolution` 表示 CSM 所占区域的边长（4096 即每级 2048），只占原有纹理槽 15；统一 atlas 还容纳局部光源阴影，完整尺寸由 RenderConfig 指定。View 0 为 GPU 蒙皮，镜像组从 1、40 开始，主阴影从 80 开始，主场景为 113，UI 保留 200；完整分区见[分簇光照与反射契约](forward-lighting-reflections.md)。单级使用完整 CSM 区域；两级使用两个半边长 tile。
 
 每级使用镜头视锥段的包围球保持旋转时范围稳定，中心对齐纹素，深度范围包含相应投射物。Shader 按正向相机深度选级，在每级最后一段混合区采样下一层；下一级投影向前扩展以覆盖该混合区，PCF 每个采样点限制在本级 tile 的半纹素内边界。最后一级按相同比例淡出至全可见；混合比例为 0 时硬切换。实际阴影远端取相机远裁面与 `shadow_distance` 的较小值，远端不超过近裁面时不提交阴影。
 
@@ -522,6 +565,13 @@ classDiagram
 采用固定 bgfx `7a70927d2af7ffcc5cef9c9e8f4c821e31fcb099` 的 `09-hdr` 通道组织、全屏三角形和归一化 blur9。适配为真正 RGBA16F 线性场景目标，替代上游 RGBE8 与提前 gamma；沿用显式曝光，不加入自动测光。View 113 为场景，134 为共用颜色及深度附件的插件透明绘制，135 为半尺寸亮部提取，136 为八分之一尺寸纵向 blur9，137 为横向 blur9、HDR 合成与一次色调映射/gamma；UI View 200 后绘制，不受 Bloom 影响。亮部阈值使用曝光前线性颜色，模糊结果与场景先相加，再一起曝光与映射。关闭 Bloom 只保留 HDR 合成并释放两个中间目标；关闭 HDR 仍保留线性场景及最终输出所需资源；明确停止和设备重建释放通道，尺寸变化只重建尺寸相关目标。
 
 场景 Shader 通过既有 `u_tonemap.z` 获知目标：为 1 时输出未曝光、未 tone map、未 gamma 的线性颜色；为 0 保持 SDR 输出。内置材质与项目天空共用这一契约，HDR 路径对无光照材质也统一执行最终画面映射。自定义 Shader 必须遵守该输出语义。3D 字体保留场景深度与预乘 alpha，调用方显式请求线性输出；UI 字体维持显示色输出。
+
+**精确 sRGB 显示编码**。沿用现有 Pass 和公开接口，使用固定 bgfx `7a70927d2af7ffcc5cef9c9e8f4c821e31fcb099` 的 `examples/common/shaderlib.sh` 中 `toGammaAccurate` / `toLinearAccurate` 对应的 IEC sRGB 分段转换；颜色贴图的 sRGB 采样由 GPU 解码：
+
+- 维持场景和 Bloom 的线性 RGBA16F、当前曝光及色调映射和 SDR backbuffer；最终 resolve 对线性 RGB 使用精确 sRGB 编码一次，alpha 不作颜色转换，不再额外启用 backbuffer 的硬件 sRGB 编码。
+- 主视图和平面反射清屏 RGB 按显示色先精确解码至线性；3D 字体的显示色先解预乘、精确解码，再按原 alpha 预乘，衔接[字体绘制契约](font-system.md)。覆盖率及 alpha 保持线性；无映射时清屏和完全不透明的字体保留输入显示色，半透明边缘以实际混合行为为准。
+- UI 仍在最终输出后使用显示色和既有预乘 alpha 混合，UI 纹理、顶点和字体不重复编码。该最小方案保留显示空间混合的现有限制；不把它称为线性空间 UI 合成，也不在此项中改变 UI 的混合契约。
+- Blender 比较夹具和窗口测试使用同一精确显示转换，保留并标注 gamma 2.2 历史数据，不能直接将不同显示转换的截图数值混为一谈。HDR 线性回读不依赖该输出编码。
 
 常驻节点接入：Mesh、文字和阴影投射物从 `WorldSystem::scenes()` 收集，节点 ID 在世界内唯一；相机、灯光/环境参数及后处理仍取当前活动场景。没有活动场景时不使用保留容器里的旧镜头，常驻 UI 继续同步并绘制，已有常驻 Mesh 的 GPU 几何可保留。普通切换不调用扩展、UI 或字体的 `release_scene()`；明确停止、全部场景消失或设备释放仍执行完整清理。
 

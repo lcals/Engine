@@ -3,10 +3,14 @@
 上游：<https://github.com/cloudwu/efkbgfx>，固定提交
 `7d89c3c31a8d8d544217b431f9400b2b50003321`，MIT。
 配合 Effekseer 官方 `1808`，提交 `b5700082b49bc5f919610880dafddc90211a9a4e`。
+bgfx 使用 `1.167.9605-606`（API 167），提交
+`b2513038f4b753ebeced40821c193978daa0492f`。
 
 `effekseer-1808.patch` 在 CMake 构建目录的副本上应用，保持 Git 子项目原样：
 
 - 跟随官方 `RenderStateBase` 成员重命名 `next_` / `active_`。
+- 跟随 bgfx API 167 的 C99 `create_texture_2d` 契约，为适配器创建的代理纹理
+  显式传入 `external = 0`，由 bgfx 创建并管理原生纹理。
 - 每次绘制前将宿主提供的深度纹理及重建参数提交给官方 `Renderer::Impl`；
   `RendererCommon` 通过此实现读取深度，不经过旧适配器的虚函数覆写。
 - 深度与背景附件是宿主借用资源，适配器释放时不销毁这些 GPU 纹理；

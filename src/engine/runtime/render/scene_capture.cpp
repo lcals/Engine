@@ -13,6 +13,7 @@
 #include "runtime/world/world_system.hpp"
 #include <algorithm>
 #include <bx/math.h>
+#include <bx/math.h>
 #include <cmath>
 #include <set>
 #include <utility>
@@ -22,6 +23,149 @@
 
 namespace engine
 {
+bool RenderSystem::request_hdr_capture()
+{
+    const auto* scene = world_ ? world_->scene() : nullptr;
+    if (!is_initialized() || !renderer_initialized_ || !scene ||
+        hdr_capture_status_ == SceneCaptureStatus::pending ||
+        hdr_capture_status_ == SceneCaptureStatus::complete ||
+        (scene_resources_ && scene_resources_->hdr_capture_pending))
+    {
+        return false;
+    }
+    hdr_capture_scene_id_ = scene->id();
+    hdr_capture_status_ = SceneCaptureStatus::pending;
+    return true;
+}
+
+SceneCaptureStatus RenderSystem::hdr_capture_status() const noexcept
+{
+    return hdr_capture_status_;
+}
+
+void RenderSystem::cancel_hdr_capture() noexcept
+{
+    if (hdr_capture_status_ != SceneCaptureStatus::pending &&
+        hdr_capture_status_ != SceneCaptureStatus::complete)
+    {
+        return;
+    }
+    hdr_capture_status_ = SceneCaptureStatus::cancelled;
+    hdr_capture_scene_id_ = 0;
+    // bgfx still owns the destination pointer until its returned frame. Never
+    // resize or clear the backing buffer while a readback is in flight.
+    if (scene_resources_ && !scene_resources_->hdr_capture_pending)
+    {
+        scene_resources_->hdr_capture_pixels.clear();
+    }
+}
+
+void RenderSystem::submit_hdr_capture()
+{
+    if (hdr_capture_status_ != SceneCaptureStatus::pending || !scene_resources_ ||
+        scene_resources_->hdr_capture_pending)
+    {
+        return;
+    }
+    const auto* scene = world_ ? world_->scene() : nullptr;
+    if (!scene || scene->id() != hdr_capture_scene_id_)
+    {
+        cancel_hdr_capture();
+        return;
+    }
+    auto& resources = *scene_resources_;
+    const auto* caps = bgfx::getCaps();
+    constexpr auto readback_flags = BGFX_TEXTURE_BLIT_DST | BGFX_TEXTURE_READ_BACK;
+    const auto source = resources.hdr_post_process.scene_color();
+    if (!caps || !bgfx::isValid(source) || width_ == 0 || height_ == 0 || width_ > UINT16_MAX ||
+        height_ > UINT16_MAX ||
+        !bgfx::isTextureValid(0, false, 1, bgfx::TextureFormat::RGBA16F, readback_flags))
+    {
+        hdr_capture_status_ = SceneCaptureStatus::failed;
+        return;
+    }
+    resources.hdr_capture_width = static_cast<std::uint16_t>(width_);
+    resources.hdr_capture_height = static_cast<std::uint16_t>(height_);
+    resources.hdr_capture_readback =
+        bgfx::createTexture2D(resources.hdr_capture_width, resources.hdr_capture_height, false, 1,
+                              bgfx::TextureFormat::RGBA16F, readback_flags);
+    if (!bgfx::isValid(resources.hdr_capture_readback))
+    {
+        hdr_capture_status_ = SceneCaptureStatus::failed;
+        return;
+    }
+    resources.hdr_capture_pixels.resize(static_cast<std::size_t>(width_) * height_ * 4);
+    // bgfx resolves multisample attachments when the drawing view ends. The
+    // capture view follows transparent/extension and final display resolve;
+    // display resolve samples but does not modify this linear scene texture.
+    const bgfx::TextureRegion readback{.handle = resources.hdr_capture_readback};
+    bgfx::blit(render_detail::hdr_capture_view, readback, bgfx::TextureRegion{.handle = source});
+    resources.hdr_capture_ready_frame = bgfx::read(readback, resources.hdr_capture_pixels.data());
+    resources.hdr_capture_pending = true;
+}
+
+void RenderSystem::poll_hdr_capture()
+{
+    const auto* scene = world_ ? world_->scene() : nullptr;
+    if ((hdr_capture_status_ == SceneCaptureStatus::pending ||
+         hdr_capture_status_ == SceneCaptureStatus::complete) &&
+        (!scene || scene->id() != hdr_capture_scene_id_))
+    {
+        cancel_hdr_capture();
+    }
+    if (!scene_resources_ || !scene_resources_->hdr_capture_pending ||
+        static_cast<std::int32_t>(frame_number_ - scene_resources_->hdr_capture_ready_frame) < 0)
+    {
+        return;
+    }
+    auto& resources = *scene_resources_;
+    resources.hdr_capture_pending = false;
+    bgfx::destroy(resources.hdr_capture_readback);
+    resources.hdr_capture_readback = BGFX_INVALID_HANDLE;
+    if (hdr_capture_status_ == SceneCaptureStatus::pending)
+    {
+        hdr_capture_status_ = SceneCaptureStatus::complete;
+    }
+    else
+    {
+        resources.hdr_capture_pixels.clear();
+    }
+}
+
+bool RenderSystem::take_hdr_capture(SceneCaptureImage& output)
+{
+    output = {};
+    const auto* scene = world_ ? world_->scene() : nullptr;
+    if (hdr_capture_status_ == SceneCaptureStatus::complete &&
+        (!scene || scene->id() != hdr_capture_scene_id_))
+    {
+        cancel_hdr_capture();
+    }
+    if (hdr_capture_status_ != SceneCaptureStatus::complete || !scene_resources_)
+    {
+        return false;
+    }
+    auto& resources = *scene_resources_;
+    output.width = resources.hdr_capture_width;
+    output.height = resources.hdr_capture_height;
+    output.rgba.resize(resources.hdr_capture_pixels.size());
+    const std::size_t row = static_cast<std::size_t>(output.width) * 4;
+    const bool flip = bgfx::getCaps()->originBottomLeft;
+    for (std::size_t y = 0; y < output.height; ++y)
+    {
+        const auto source_row = flip ? output.height - 1 - y : y;
+        for (std::size_t x = 0; x < row; ++x)
+        {
+            output.rgba[y * row + x] =
+                bx::halfToFloat(resources.hdr_capture_pixels[source_row * row + x]);
+        }
+    }
+    resources.hdr_capture_pixels.clear();
+    hdr_capture_scene_id_ = 0;
+    hdr_capture_status_ = SceneCaptureStatus::idle;
+    return true;
+}
+
 namespace
 {
 void append_value(std::vector<std::uint8_t>& bytes, const auto& value)
@@ -237,10 +381,10 @@ bool RenderSystem::draw_diffuse_capture(const RenderSettings& rendering)
         {
             return fail();
         }
-        bgfx::blit(render_detail::capture_copy_view, resources.capture_readback, 0, 0,
-                   resources.capture_color);
-        resources.capture_ready_frame =
-            bgfx::readTexture(resources.capture_readback, resources.capture_pixels.data());
+        const bgfx::TextureRegion readback{.handle = resources.capture_readback};
+        bgfx::blit(render_detail::capture_copy_view, readback,
+                   bgfx::TextureRegion{.handle = resources.capture_color});
+        resources.capture_ready_frame = bgfx::read(readback, resources.capture_pixels.data());
         resources.capture_pending = true;
     }
     return true;
@@ -253,9 +397,7 @@ bool RenderSystem::request_diffuse_capture(const SceneCaptureRequest& request)
         request.height == 0 || request.width > bgfx::getCaps()->limits.maxTextureSize ||
         request.height > bgfx::getCaps()->limits.maxTextureSize ||
         !render_detail::finite_matrix(request.view.data()) ||
-        !render_detail::finite_matrix(request.projection.data()) ||
-        (bgfx::getCaps()->supported & (BGFX_CAPS_TEXTURE_BLIT | BGFX_CAPS_TEXTURE_READ_BACK)) !=
-            (BGFX_CAPS_TEXTURE_BLIT | BGFX_CAPS_TEXTURE_READ_BACK))
+        !render_detail::finite_matrix(request.projection.data()))
     {
         return false;
     }

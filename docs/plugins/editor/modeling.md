@@ -49,7 +49,7 @@
 | 选择查询 | 连通面、扩张/收缩、四边形对边环、沿边连续环 | modeling_select |
 | 实体与轮廓 | 三种布尔、切割封口、选边多段倒角、轮廓扫掠、旋转体、平面镜像 | modeling_create / modeling_edit |
 | UV | 平面/盒/柱/球投影、UV变换、逐面岛、xatlas跨面图集展开与接缝、Hotspot匹配 | modeling_edit |
-| 表面属性 | 每角颜色、材质槽、平滑组、按角度自动平滑、生成法线和切线 | modeling_edit；材质具名参数继续用已有组件工具 |
+| 表面属性 | 每角颜色、材质槽、平滑组、按角度自动平滑、生成法线及 MikkTSpace 切线（必要时拆点） | modeling_edit；材质具名参数继续用已有组件工具 |
 | 编辑工作流 | 模型与节点映射、持续镜像模式、复制/组合/分离、撤销重做、文件保存与恢复 | modeling_get / duplicate / combine / separate / delete / save / load |
 | 场景组装与保存 | Node + Camera/Light、活动相机、材质换型及完整场景源发布 | create_node / set_active_camera / set_material_type / save_scene（通用编辑器模块） |
 | 契约发现 | 操作参数、示例和限制 | modeling_help |

@@ -402,7 +402,8 @@ std::string_view TextureImporter::default_meta() const noexcept
 
 std::string_view TextureImporter::version() noexcept
 {
-    return "basisu-" BASISU_LIB_VERSION_STRING "-texture-importer-2";
+    // TinyEXR 3.3 and stb 2026-08-02 also change decoding, independent of the BasisU version.
+    return "basisu-" BASISU_LIB_VERSION_STRING "-texture-importer-3";
 }
 
 bool TextureImporter::initialize(std::string& error)

@@ -22,10 +22,15 @@ def test(root, temporary):
     before = {p.relative_to(project): p.read_bytes() for p in project.rglob("*") if p.is_file()}
 
     def compile(source, source_path="scripts/mcp-check.ts", error=None):
-        request.write_text(json.dumps({"sourcePath": source_path, "source": source}), encoding="utf-8")
+        request.write_text(
+            json.dumps({"sourcePath": source_path, "source": source}), encoding="utf-8"
+        )
         result = subprocess.run(
             ["node", str(builder), "--project", str(project), "--snippet", str(request)],
-            capture_output=True, text=True, encoding="utf-8", timeout=30,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=30,
         )
         if error:
             assert result.returncode != 0 and error in result.stderr, result.stderr
@@ -37,16 +42,17 @@ def test(root, temporary):
         assert len(output["javascript"].encode("utf-8")) <= 256 * 1024
         return output
 
-    source = '''import Counter, { counter } from "./state.js";
+    source = """import Counter, { counter } from "./state.js";
 export default function(args: { increment: number }, gameplay: { calls: number }) {
     counter.value += args.increment;
     gameplay.calls++;
     return { value: counter.value, calls: gameplay.calls, sameType: counter instanceof Counter };
-}'''
+}"""
     compiled = temporary / "compiled.json"
     compiled.write_text(json.dumps(compile(source)), encoding="utf-8")
     runner = temporary / "run.mjs"
-    runner.write_text('''import fs from "node:fs";
+    runner.write_text(
+        """import fs from "node:fs";
 import vm from "node:vm";
 import * as state from "./state.mjs";
 const { javascript } = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
@@ -62,29 +68,83 @@ for (let i = 0; i < 2; i++) {
     results.push(module.exports.default({ increment: 2 }, gameplay));
 }
 process.stdout.write(JSON.stringify(results));
-''', encoding="utf-8")
-    ran = subprocess.run(["node", str(runner), str(compiled)], capture_output=True,
-                         text=True, encoding="utf-8", timeout=10)
+""",
+        encoding="utf-8",
+    )
+    ran = subprocess.run(
+        ["node", str(runner), str(compiled)],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=10,
+    )
     assert ran.returncode == 0, ran.stderr
     assert json.loads(ran.stdout) == [
         {"value": 5, "calls": 1, "sameType": True},
         {"value": 7, "calls": 2, "sameType": True},
     ], ran.stdout
+    for imports in (
+        'import * as state from "./state.js";',
+        'declare function require(name: string): any; const state = require("./state.js");',
+    ):
+        compiled.write_text(
+            json.dumps(compile(imports + """
+export default function(args: { increment: number }, gameplay: { calls: number }) {
+    state.counter.value += args.increment;
+    gameplay.calls++;
+    return { value: state.counter.value, calls: gameplay.calls,
+        sameType: state.counter instanceof state.default };
+}""")),
+            encoding="utf-8",
+        )
+        ran = subprocess.run(
+            ["node", str(runner), str(compiled)],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=10,
+        )
+        assert ran.returncode == 0, ran.stderr
+        assert json.loads(ran.stdout) == [
+            {"value": 5, "calls": 1, "sameType": True},
+            {"value": 7, "calls": 2, "sameType": True},
+        ], ran.stdout
     other = compile('export default function() { return "new source"; }')
     assert "new source" in other["javascript"] and "Counter" not in other["javascript"]
     compile('import { Scene } from "engine"; export default function() { return Scene !== null; }')
-    compile('import { counter } from "./state"; export default function() { return counter.value; }',
-            error="explicit .js path")
-    compile('import type Counter from "./state"; export default function(args: Counter) { return args.value; }')
-    compile('export default function() { const value: number = "bad"; return value; }', error="TS2322")
+    compile(
+        'import { counter } from "./state"; export default function() { return counter.value; }',
+        error="explicit .js path",
+    )
+    compile(
+        'import type Counter from "./state"; export default function(args: Counter) { return args.value; }'
+    )
+    compile(
+        'export default function() { const value: number = "bad"; return value; }', error="TS2322"
+    )
     compile('export default function() { return import("./state.js"); }', error="Dynamic import")
-    compile('await Promise.resolve(); export default function() { return null; }', error="TS1378")
-    for name in ("../escape.ts", "/absolute.ts", "scripts/../escape.ts", "scripts\\escape.ts", "x.d.ts"):
-        compile('export default function() { return null; }', source_path=name, error="assets-relative")
+    compile(
+        'declare function require(name: string): any; const name = "./state.js"; '
+        "export default function() { return require(name); }",
+        error="static module path",
+    )
+    compile("await Promise.resolve(); export default function() { return null; }", error="TS1378")
+    for name in (
+        "../escape.ts",
+        "/absolute.ts",
+        "scripts/../escape.ts",
+        "scripts\\escape.ts",
+        "x.d.ts",
+    ):
+        compile(
+            "export default function() { return null; }", source_path=name, error="assets-relative"
+        )
     compile("//" + "x" * (256 * 1024), error="exceeds 256 KiB")
     after = {p.relative_to(project): p.read_bytes() for p in project.rglob("*") if p.is_file()}
     assert before == after, "snippet compilation must not change source, meta, catalog or cache"
-    print("PASS TypeScript diagnostics, virtual paths, ESM namespace/default imports, shared state and source isolation")
+    print(
+        "PASS TypeScript diagnostics, virtual paths, ESM namespace/default imports, shared state and source isolation"
+    )
 
 
 if __name__ == "__main__":

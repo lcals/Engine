@@ -243,14 +243,16 @@ bool shader_dependencies(engine::editor::AssetPipelineSystem& pipeline, const Fi
                                     "shadow_helpers.sh",   "material_helpers.sh",
                                     "csm_helpers.sh",      "pbr_surface.sh",
                                     "pbr_lighting.sh",     "local_shadow_helpers.sh",
-                                    "cluster/lighting.sh", "fs_surface.sc"};
+                                    "cluster/lighting.sh", "fs_surface.sc",
+                                    "dfg_approx.sh"};
     constexpr std::array identities = {
         "b0000000-0000-4000-8000-000000000011", "b0000000-0000-4000-8000-000000000012",
         "b0000000-0000-4000-8000-000000000013", "b0000000-0000-4000-8000-000000000014",
         "b0000000-0000-4000-8000-000000000015", "b0000000-0000-4000-8000-000000000016",
         "b0000000-0000-4000-8000-000000000017", "b0000000-0000-4000-8000-000000000018",
         "b0000000-0000-4000-8000-000000000019", "b0000000-0000-4000-8000-00000000001a",
-        "b0000000-0000-4000-8000-00000000001b", "b0000000-0000-4000-8000-00000000001c"};
+        "b0000000-0000-4000-8000-00000000001b", "b0000000-0000-4000-8000-00000000001c",
+        "b0000000-0000-4000-8000-00000000001d"};
     const auto upstream = std::filesystem::path(ENGINE_TEST_SOURCE_DIR).parent_path() /
                           "src/engine/runtime/render/shaders";
     for (std::size_t index = 0; index < sources.size(); ++index)
@@ -873,6 +875,22 @@ bool ktx_tests()
     if (!expect(!TextureResourceCodec::validate(invalid), "reject mismatched HDR format"))
     {
         return false;
+    }
+    for (const auto* valid : {&data, &lut_data})
+    {
+        if (!expect(valid->data[44] == 0 && valid->data[45] == 0 && valid->data[46] == 0 &&
+                        valid->data[47] == 0 && TextureResourceCodec::validate(*valid),
+                    "2D and cube KTX use zero pixelDepth and remain valid"))
+        {
+            return false;
+        }
+        invalid = *valid;
+        invalid.data[44] = 1;
+        if (!expect(!TextureResourceCodec::validate(invalid),
+                    "reject nonzero pixelDepth instead of normalizing an invalid 2D/cube header"))
+        {
+            return false;
+        }
     }
     for (const auto offset : {std::size_t{48}, std::size_t{52}, std::size_t{56}, std::size_t{64}})
     {

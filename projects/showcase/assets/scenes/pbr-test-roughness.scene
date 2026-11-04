@@ -1,0 +1,81 @@
+name = "PBR material comparison"
+active_camera = 1
+
+[[nodes]]
+id = 1
+name = "Camera"
+parent = 0
+[[nodes.components]]
+type = "transform"
+position = [0.0, 0.0, 12.0]
+rotation = [0.0, 0.0, 0.0]
+[[nodes.components]]
+type = "camera"
+projection = "orthographic"
+orthographic_size = 3.6
+near_clip = 0.1
+far_clip = 100.0
+[[nodes.components]]
+type = "post_process"
+exposure = 1.0
+filmic_tonemap = false
+hdr_enabled = false
+bloom_enabled = false
+
+[[nodes]]
+id = 2
+name = "Environment"
+parent = 0
+[[nodes.components]]
+type = "transform"
+[[nodes.components]]
+type = "environment"
+ambient_color = [0.0, 0.0, 0.0]
+ambient_intensity = 0.0
+clear_color = 255
+
+[[nodes]]
+id = 3
+name = "Directional light"
+parent = 0
+[[nodes.components]]
+type = "transform"
+rotation = [-51.12334486, -29.7448813, 0.0]
+[[nodes.components]]
+type = "light"
+kind = "directional"
+color = [1.0, 1.0, 1.0, 1.0]
+intensity = 1.0
+cast_shadows = false
+
+[[prefab_instances]]
+prefab = "6f4701f0-9c1c-57d5-b549-3c40fcd74d17"
+root = "4"
+
+[[prefab_instances.node_mappings]]
+source = "1"
+target = "4"
+
+[[prefab_instances.node_mappings]]
+source = "2"
+target = "5"
+
+[[prefab_instances.node_mappings]]
+source = "3"
+target = "6"
+
+[[prefab_instances.node_mappings]]
+source = "4"
+target = "7"
+
+[[prefab_instances.node_mappings]]
+source = "5"
+target = "8"
+
+[[prefab_instances.node_mappings]]
+source = "6"
+target = "9"
+
+[[prefab_instances.node_mappings]]
+source = "7"
+target = "10"

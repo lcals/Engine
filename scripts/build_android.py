@@ -28,10 +28,10 @@ def gradle_command(java):
         executable = gradle_root / "bin" / ("gradle.bat" if os.name == "nt" else "gradle")
         if executable.is_file():
             return [str(executable)]
-        launcher = gradle_root / "lib" / "gradle-launcher-9.1.0.jar"
+        launcher = gradle_root / "lib" / "gradle-launcher-9.8.2.jar"
         if launcher.is_file():
             return [str(java), "-classpath", str(launcher), "org.gradle.launcher.GradleMain"]
-        raise ValueError("GRADLE_HOME 中没有 Gradle 9.1.0，请修正路径或取消该变量使用 wrapper。")
+        raise ValueError("GRADLE_HOME 中没有 Gradle 9.8.2，请修正路径或取消该变量使用 wrapper。")
     wrapper = ROOT / "platforms/android" / ("gradlew.bat" if os.name == "nt" else "gradlew")
     return [str(wrapper)]
 
@@ -79,16 +79,16 @@ def main():
         ),
         "",
     )
-    if revision != "27.2.12479018":
-        raise ValueError("Android 工程固定使用 NDK 27.2.12479018，请修正 ANDROID_NDK_HOME。")
+    if revision != "30.0.16248370":
+        raise ValueError("Android 工程固定使用 NDK 30.0.16248370，请修正 ANDROID_NDK_HOME。")
     java_root = require_directory("JAVA_HOME")
     java = java_root / "bin" / ("java.exe" if os.name == "nt" else "java")
     if not java.is_file():
         raise ValueError("JAVA_HOME 中没有 Java，请准备 JDK 17。")
     gradle = gradle_command(java)
     version = subprocess.check_output(gradle + ["--version"], cwd=ROOT, text=True)
-    if "Gradle 9.1.0" not in version:
-        raise ValueError("Android 工程固定使用 Gradle 9.1.0，请修正 GRADLE_HOME 或使用 wrapper。")
+    if "Gradle 9.8.2" not in version:
+        raise ValueError("Android 工程固定使用 Gradle 9.8.2，请修正 GRADLE_HOME 或使用 wrapper。")
     if not args.skip_native:
         require_directory("VCPKG_ROOT")
         cmake = shutil.which("cmake")

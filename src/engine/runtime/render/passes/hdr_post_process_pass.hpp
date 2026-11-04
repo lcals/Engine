@@ -37,6 +37,10 @@ public:
     {
         return specular_;
     }
+    [[nodiscard]] bgfx::TextureHandle scene_color() const noexcept
+    {
+        return final_color_;
+    }
     void begin_transparency(bgfx::TextureHandle frozen_scene, const float* view,
                             const float* projection);
     [[nodiscard]] bool resolve(const RenderSettings& settings);

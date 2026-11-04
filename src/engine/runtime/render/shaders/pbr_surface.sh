@@ -24,6 +24,21 @@ uniform vec4 u_surface_parameters;
 // xy: scale, zw: offset, shared by every surface texture and shadow coverage.
 uniform vec4 u_uv_transform;
 
+// Perspective rays converge at the eye; orthographic rays are parallel to the
+// camera's +Z axis in view space. Use the active view, including mirrored views.
+bool pbr_orthographic_view()
+{
+    return abs(mul(u_proj, vec4(0.0, 0.0, 0.0, 1.0)).w) > 0.5;
+}
+
+vec3 pbr_view_direction(vec3 camera_position, vec3 world_position)
+{
+    vec3 direction = pbr_orthographic_view()
+        ? mul(u_invView, vec4(0.0, 0.0, 1.0, 0.0)).xyz
+        : camera_position - world_position;
+    return direction / max(length(direction), 0.0001);
+}
+
 struct PbrSurface
 {
     vec4 base_color;

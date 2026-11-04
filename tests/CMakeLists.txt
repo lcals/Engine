@@ -35,7 +35,8 @@ endif()
 
 if(TARGET engine_platform)
     add_executable(engine_app_log_test runtime/app/app_log_test.cpp)
-    target_link_libraries(engine_app_log_test PRIVATE engine::app engine::log Threads::Threads)
+    target_link_libraries(engine_app_log_test PRIVATE engine::app engine::log Threads::Threads
+                                                    SDL3::SDL3)
     engine_apply_options(engine_app_log_test)
     add_test(NAME engine.app_log COMMAND engine_app_log_test
                                          "${CMAKE_CURRENT_BINARY_DIR}/app-log-test-output")
@@ -413,6 +414,81 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
     add_test(NAME engine.render_foundation COMMAND engine_render_foundation_test)
     set_tests_properties(engine.render_foundation PROPERTIES TIMEOUT 30)
     add_executable(engine_window_render_test runtime/render/window_render_test.cpp)
+    add_executable(engine_scene_hdr_capture_test runtime/render/scene_hdr_capture_test.cpp)
+    target_link_libraries(engine_scene_hdr_capture_test PRIVATE engine::runtime engine::window
+                          engine::render engine::world engine::resource SDL3::SDL3 bgfx::bgfx
+                          bgfx::bimg)
+    engine_apply_options(engine_scene_hdr_capture_test)
+    add_executable(engine_scene_hdr_transparency_test runtime/render/scene_hdr_transparency_test.cpp)
+    target_link_libraries(engine_scene_hdr_transparency_test PRIVATE engine::runtime engine::window
+                          engine::render engine::world engine::resource SDL3::SDL3)
+    engine_apply_options(engine_scene_hdr_transparency_test)
+    add_executable(engine_hdr_extension_test runtime/render/hdr_extension_test.cpp)
+    set(_extension_shader_dir "${CMAKE_CURRENT_BINARY_DIR}/generated/hdr-extension-test")
+    engine_render_shader_profile(_extension_shader_platform _extension_shader_profile)
+    foreach(_stage IN ITEMS vert frag)
+        if(_stage STREQUAL "vert")
+            set(_shader_type vertex)
+        else()
+            set(_shader_type fragment)
+        endif()
+        set(_extension_header "${_extension_shader_dir}/hdr_extension_test_${_stage}.bin.h")
+        add_custom_command(
+            OUTPUT "${_extension_header}"
+            COMMAND "${CMAKE_COMMAND}" -E make_directory "${_extension_shader_dir}"
+            COMMAND "${ENGINE_SHADERC_EXECUTABLE}"
+                    -f "${CMAKE_CURRENT_SOURCE_DIR}/runtime/render/hdr_extension_test.${_stage}.sc"
+                    -o "${_extension_header}" --type "${_shader_type}"
+                    --platform "${_extension_shader_platform}" --profile "${_extension_shader_profile}"
+                    --varyingdef "${PROJECT_SOURCE_DIR}/src/engine/runtime/render/shaders/varying.def.sc"
+                    -i "${ENGINE_BGFX_SHADER_INCLUDE_DIR}"
+                    --bin2c "hdr_extension_test_${_stage}"
+            DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/runtime/render/hdr_extension_test.${_stage}.sc"
+                    "${PROJECT_SOURCE_DIR}/src/engine/runtime/render/shaders/varying.def.sc"
+                    "${ENGINE_BGFX_SHADER_INCLUDE_DIR}/bgfx_shader.sh" "${ENGINE_SHADERC_EXECUTABLE}"
+            VERBATIM)
+        target_sources(engine_hdr_extension_test PRIVATE "${_extension_header}")
+    endforeach()
+    target_include_directories(engine_hdr_extension_test PRIVATE "${_extension_shader_dir}")
+    target_link_libraries(engine_hdr_extension_test PRIVATE engine::runtime engine::window
+                          engine::render engine::world SDL3::SDL3 bgfx::bgfx)
+    engine_apply_options(engine_hdr_extension_test)
+    add_executable(engine_pbr_hdr_test runtime/render/pbr_hdr_test.cpp)
+    # An isolated RGBA16F draw includes the production direct-light shader.
+    # Keep this test-only shader out of the runtime and its public interfaces.
+    engine_render_shader_profile(_test_shader_platform _test_shader_profile)
+    set(_pbr_test_shader_dir "${CMAKE_CURRENT_SOURCE_DIR}/runtime/render")
+    set(_pbr_shader_dir "${PROJECT_SOURCE_DIR}/src/engine/runtime/render/shaders")
+    set(_pbr_test_generated "${CMAKE_CURRENT_BINARY_DIR}/generated/pbr-test")
+    foreach(_stage IN ITEMS vert frag)
+        if(_stage STREQUAL "vert")
+            set(_shader_type vertex)
+        else()
+            set(_shader_type fragment)
+        endif()
+        set(_shader_header "${_pbr_test_generated}/pbr_hdr_test_${_stage}.bin.h")
+        add_custom_command(
+            OUTPUT "${_shader_header}"
+            COMMAND "${CMAKE_COMMAND}" -E make_directory "${_pbr_test_generated}"
+            COMMAND "${ENGINE_SHADERC_EXECUTABLE}"
+                    -f "${_pbr_test_shader_dir}/pbr_hdr_test.${_stage}.sc"
+                    -o "${_shader_header}" --type "${_shader_type}"
+                    --platform "${_test_shader_platform}" --profile "${_test_shader_profile}"
+                    --varyingdef "${_pbr_shader_dir}/varying.def.sc"
+                    -i "${ENGINE_BGFX_SHADER_INCLUDE_DIR}" -i "${_pbr_shader_dir}"
+                    --bin2c "pbr_hdr_test_${_stage}"
+            DEPENDS "${_pbr_test_shader_dir}/pbr_hdr_test.${_stage}.sc"
+                    "${_pbr_shader_dir}/varying.def.sc" "${_pbr_shader_dir}/pbr_helpers.sh"
+                    "${_pbr_shader_dir}/pbr_lighting.sh"
+                    "${ENGINE_BGFX_SHADER_INCLUDE_DIR}/bgfx_shader.sh" "${ENGINE_SHADERC_EXECUTABLE}"
+            VERBATIM)
+        target_sources(engine_pbr_hdr_test PRIVATE "${_shader_header}")
+    endforeach()
+    target_include_directories(engine_pbr_hdr_test PRIVATE "${_pbr_test_generated}")
+    target_link_libraries(engine_pbr_hdr_test PRIVATE engine::runtime engine::window engine::render
+                                                   engine::world SDL3::SDL3 bgfx::bgfx
+                                                   basisu::basisu_encoder)
+    engine_apply_options(engine_pbr_hdr_test)
     target_link_libraries(
         engine_window_render_test
         PRIVATE engine::runtime
@@ -422,6 +498,7 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
                 engine::resource
                 SDL3::SDL3
                 bgfx::bgfx
+                bgfx::bimg
                 basisu::basisu_encoder)
     engine_apply_options(engine_window_render_test)
     if(TARGET engine_resource_graph)
@@ -429,12 +506,26 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
         target_compile_definitions(engine_window_render_test PRIVATE ENGINE_TEST_RESOURCE_GRAPH=1)
     endif()
     if(ENGINE_ENABLE_GPU_TESTS)
+        add_test(NAME engine.scene_hdr_capture COMMAND engine_scene_hdr_capture_test)
+        set_tests_properties(engine.scene_hdr_capture PROPERTIES TIMEOUT 60 RUN_SERIAL TRUE)
+        add_test(NAME engine.scene_hdr_transparency COMMAND engine_scene_hdr_transparency_test)
+        set_tests_properties(engine.scene_hdr_transparency PROPERTIES TIMEOUT 60 RUN_SERIAL TRUE)
+        add_test(NAME engine.hdr_extension_capture COMMAND engine_hdr_extension_test)
+        set_tests_properties(engine.hdr_extension_capture PROPERTIES TIMEOUT 60 RUN_SERIAL TRUE)
         add_test(NAME engine.window_render COMMAND engine_window_render_test)
         set_tests_properties(engine.window_render PROPERTIES TIMEOUT 120 RUN_SERIAL TRUE)
+        add_test(NAME engine.pbr_hdr_direct_light COMMAND engine_pbr_hdr_test)
+        set_tests_properties(engine.pbr_hdr_direct_light
+                             PROPERTIES TIMEOUT 60 RUN_SERIAL TRUE SKIP_RETURN_CODE 77)
     endif()
 endif()
 
 if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
+    add_executable(engine_mesh_pipeline_test editor/asset_pipeline/mesh_pipeline_test.cpp)
+    target_link_libraries(engine_mesh_pipeline_test PRIVATE engine::asset_pipeline engine::resource)
+    engine_apply_options(engine_mesh_pipeline_test)
+    add_test(NAME editor.mesh_pipeline COMMAND engine_mesh_pipeline_test)
+    set_tests_properties(editor.mesh_pipeline PROPERTIES TIMEOUT 120)
     add_executable(engine_audio_pipeline_test editor/asset_pipeline/audio_pipeline_test.cpp)
     target_link_libraries(engine_audio_pipeline_test PRIVATE engine::asset_pipeline
                                                              engine::resource)
@@ -525,7 +616,8 @@ if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
             COMMAND
                 "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/editor/asset_pipeline/asset_pipeline_script_test.py"
                 --builder "$<TARGET_FILE:asset_build_app>" --project
-                "${PROJECT_SOURCE_DIR}/projects/showcase")
+                "${PROJECT_SOURCE_DIR}/projects/showcase" --shaderc "${ENGINE_SHADERC_EXECUTABLE}"
+                --shader-includes "${ENGINE_BGFX_SHADER_INCLUDE_DIR}")
         set_tests_properties(editor.asset_pipeline_scripts PROPERTIES TIMEOUT 180)
         add_test(NAME editor.portable_tools
                  COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/editor/asset_pipeline/editor_tools_test.py"
@@ -539,12 +631,16 @@ if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
                                            "PXR_PLUGINPATH_NAME=$<TARGET_FILE_DIR:usd>/usd")
     endif()
 
+    engine_render_shader_profile(_asset_shader_platform _asset_shader_profile)
     add_test(
         NAME engine.asset_tools
         COMMAND
             "${CMAKE_COMMAND}" "-DENGINE_SHADERC=${ENGINE_BGFX_SHADERC_EXECUTABLE}"
             "-DENGINE_TEXTUREC=${ENGINE_BGFX_TEXTUREC_EXECUTABLE}"
             "-DENGINE_GEOMETRYC=${ENGINE_BGFX_GEOMETRYC_EXECUTABLE}"
+            "-DENGINE_SHADER_PLATFORM=${_asset_shader_platform}"
+            "-DENGINE_SHADER_PROFILE=${_asset_shader_profile}"
+            "-DENGINE_SHADER_INCLUDE_DIR=${ENGINE_BGFX_SHADER_INCLUDE_DIR}"
             "-DENGINE_OUTPUT_DIR=${CMAKE_CURRENT_BINARY_DIR}/asset-tools-output" -P
             "${CMAKE_CURRENT_SOURCE_DIR}/editor/asset_pipeline/asset_tools_test.cmake")
     set_tests_properties(engine.asset_tools PROPERTIES TIMEOUT 100)
@@ -702,6 +798,14 @@ add_test(
         "${CMAKE_CURRENT_SOURCE_DIR}/build/plugin_selection_test.cmake")
 set_tests_properties(engine.plugin_selection PROPERTIES TIMEOUT 30)
 
+if(ENGINE_SHADERC_EXECUTABLE)
+    add_test(NAME engine.shader_toolchain
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/build/shader_toolchain_test.py"
+            --cmake "${CMAKE_COMMAND}" --source "${PROJECT_SOURCE_DIR}"
+            --shaderc "${ENGINE_SHADERC_EXECUTABLE}")
+    set_tests_properties(engine.shader_toolchain PROPERTIES TIMEOUT 120)
+endif()
+
 add_test(
     NAME engine.architecture_boundaries
     COMMAND
@@ -763,7 +867,8 @@ if(TARGET engine_fbx_import)
     target_include_directories(engine_fbx_bind_pose_test PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
     target_compile_definitions(
         engine_fbx_bind_pose_test
-        PRIVATE ENGINE_FBX_TEST_DATA_DIR="${PROJECT_SOURCE_DIR}/projects/showcase/assets/models")
+        PRIVATE ENGINE_FBX_TEST_DATA_DIR="${PROJECT_SOURCE_DIR}/projects/showcase/assets/models"
+                ENGINE_UFBX_TEST_DATA_DIR="${PROJECT_SOURCE_DIR}/third_party/ufbx/data")
     engine_apply_options(engine_fbx_bind_pose_test)
     add_test(NAME editor.fbx_bind_pose COMMAND engine_fbx_bind_pose_test)
 endif()

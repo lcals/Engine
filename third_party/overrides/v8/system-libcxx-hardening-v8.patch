@@ -1,0 +1,13 @@
+--- a/BUILD.gn
++++ b/BUILD.gn
+@@ -893,8 +893,8 @@
+ assert(!v8_enable_sandbox || v8_enable_external_code_space,
+        "The sandbox requires the external code space")
+ 
+-assert(!v8_enable_sandbox || use_safe_libcxx,
+-       "The sandbox requires libc++ hardening")
++assert(!v8_enable_sandbox || use_safe_libcxx || engine_verified_system_libcxx,
++       "The sandbox requires in-tree or explicitly verified system libc++ hardening")
+ 
+ assert(!v8_enable_memory_corruption_api || v8_enable_sandbox,
+        "The Memory Corruption API requires the sandbox")

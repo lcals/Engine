@@ -90,11 +90,12 @@ bool read_ktx_info(ByteView bytes, KtxTextureInfo& output)
     {
         return false;
     }
+    // bimg API 167 preserves the KTX dimension convention: 2D/cube depth is zero.
     bimg::ImageContainer image{};
     bx::Error error;
     if (!bimg::imageParse(image, bytes.data(), static_cast<std::uint32_t>(bytes.size()), &error) ||
-        !error.isOk() || !image.m_ktx || !image.m_ktxLE || image.m_srgb || image.m_width != width ||
-        image.m_height != height || image.m_depth != 1 || image.m_numLayers != 1 ||
+        !error.isOk() || !image.m_ktx || image.m_srgb || image.m_width != width ||
+        image.m_height != height || image.m_depth != 0 || image.m_numLayers != 1 ||
         image.m_numMips != mips || image.m_cubeMap != (faces == 6) ||
         image.m_format != (rgba ? bimg::TextureFormat::RGBA16F : bimg::TextureFormat::RG16F))
     {

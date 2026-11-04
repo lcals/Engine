@@ -69,6 +69,17 @@ schema::DestructionAssetDataT chain()
         }
         chunk->mesh->indices = {0, 2, 1, 1, 2, 3, 4, 5, 6, 5, 7, 6, 0, 1, 4, 1, 5, 4,
                                 2, 6, 3, 3, 6, 7, 0, 4, 2, 2, 4, 6, 1, 3, 5, 3, 7, 5};
+        // Keep one UV-less chunk between two chunks with different authored frames.
+        // This catches accidental regeneration of all frames while combining a group.
+        if (index != 1)
+        {
+            for (const auto& vertex : chunk->mesh->vertices)
+            {
+                chunk->mesh->texcoords.emplace_back(vertex.x(), vertex.z());
+                chunk->mesh->tangents.emplace_back(index == 0 ? 0 : 1, 0, index == 0 ? 1 : 0,
+                                                   index == 0 ? -1 : 1);
+            }
+        }
         asset.chunks.push_back(std::move(chunk));
     }
     for (std::uint32_t index = 0; index < 2; ++index)
@@ -83,9 +94,21 @@ schema::DestructionAssetDataT chain()
     return asset;
 }
 
-bool add_asset(test_support::ResourceFixture& fixture)
+bool add_asset(test_support::ResourceFixture& fixture, bool alternate_frames = false)
 {
-    const auto asset = chain();
+    auto asset = chain();
+    if (alternate_frames)
+    {
+        // Exercise the other mixed cases: authored tangent without UV, UV without
+        // authored tangent, and a chunk without either attribute.
+        asset.chunks[0]->mesh->texcoords.clear();
+        for (const auto& vertex : asset.chunks[1]->mesh->vertices)
+        {
+            asset.chunks[1]->mesh->texcoords.emplace_back(vertex.x(), vertex.z());
+        }
+        asset.chunks[2]->mesh->texcoords.clear();
+        asset.chunks[2]->mesh->tangents.clear();
+    }
     flatbuffers::FlatBufferBuilder builder;
     schema::FinishDestructionAssetDataBuffer(builder,
                                              schema::DestructionAssetData::Pack(builder, &asset));
@@ -158,6 +181,56 @@ std::vector<std::uint64_t> generated_ids(const Scene& scene)
     return result;
 }
 
+bool generated_tangents_valid(const Scene& scene, bool alternate_frames = false)
+{
+    std::size_t chunks = 0;
+    for (const auto id : generated_ids(scene))
+    {
+        const auto renderer = scene.find_node(id).get_component<MeshRenderer>();
+        const auto* mesh = renderer ? renderer.mesh_data() : nullptr;
+        if (!mesh || mesh->vertices.size() % 8 != 0 ||
+            mesh->tangents.size() != mesh->vertices.size() ||
+            mesh->texcoords.size() != mesh->vertices.size())
+        {
+            return false;
+        }
+        for (std::size_t base = 0; base < mesh->vertices.size(); base += 8)
+        {
+            double center = 0;
+            for (std::size_t i = base; i < base + 8; ++i)
+            {
+                center += mesh->vertices[i].x() / 8.0;
+            }
+            const int chunk = static_cast<int>(std::lround(center));
+            if (chunk < 0 || chunk > 2)
+            {
+                return false;
+            }
+            for (std::size_t i = base; i < base + 8; ++i)
+            {
+                const auto& tangent = mesh->tangents[i];
+                const auto& vertex = mesh->vertices[i];
+                const bool has_source_uv = alternate_frames ? chunk == 1 : chunk != 1;
+                const Vec2 expected_uv = has_source_uv ? Vec2(vertex.x(), vertex.z())
+                                                      : Vec2(vertex.x() * 0.2, vertex.y() * 0.2);
+                if ((chunk == 0 && tangent != Vec4(0, 0, 1, -1)) ||
+                    (!alternate_frames && chunk == 2 && tangent != Vec4(1, 0, 0, 1)) ||
+                    mesh->texcoords[i] != expected_uv ||
+                    !std::isfinite(tangent.x()) || !std::isfinite(tangent.y()) ||
+                    !std::isfinite(tangent.z()) ||
+                    std::abs(std::hypot(tangent.x(), tangent.y(), tangent.z()) - 1) > 1e-5 ||
+                    std::abs(tangent.y()) > 1e-5 ||
+                    (tangent.w() != -1 && tangent.w() != 1))
+                {
+                    return false;
+                }
+            }
+            ++chunks;
+        }
+    }
+    return chunks == 3;
+}
+
 Node dynamic_group(Scene& scene)
 {
     for (const auto& node : test_support::scene_nodes(scene))
@@ -208,7 +281,8 @@ struct Fixture
         resources.shutdown();
     }
 
-    bool initialize(TaskSystem* tasks = nullptr, std::size_t max_pending_requests = 64)
+    bool initialize(TaskSystem* tasks = nullptr, std::size_t max_pending_requests = 64,
+                    bool alternate_frames = false)
     {
         auto owned =
             std::make_unique<DestructionSystem>(world, physics, tasks, max_pending_requests);
@@ -216,7 +290,7 @@ struct Fixture
         std::unique_ptr<System> child = std::move(owned);
         return !destruction->synchronize() && world.add_subsystem(child) &&
                resources.initialize({}) && physics.initialize({}) && world.initialize({}) &&
-               add_asset(files) && files.publish(resources);
+               add_asset(files, alternate_frames) && files.publish(resources);
     }
 
     bool advance(unsigned frames)
@@ -238,6 +312,31 @@ struct Fixture
                (expected ? fraction < 1.0F : fraction == 1.0F);
     }
 };
+
+bool mixed_tangent_sources_contract()
+{
+    Fixture fixture;
+    if (!fixture.initialize(nullptr, 64, true))
+    {
+        return false;
+    }
+    auto* scene = fixture.world.create_scene("Mixed fragment attributes");
+    auto owner = scene ? scene->create_node("Source") : Node{};
+    auto component = owner ? owner.add_component<DestructionComponent>() : DestructionComponent{};
+    schema::DestructionDataT settings;
+    settings.destruction_guid = asset_guid;
+    if (!expect(component && component.set_settings(settings) &&
+                    fixture.destruction->synchronize() && generated_tangents_valid(*scene, true),
+                "mixed UV and tangent inputs survive initial group construction",
+                component.last_error()))
+    {
+        return false;
+    }
+    return expect(component.damage_sphere({0.5, 0, 0}, 0.1F, 1) &&
+                      component.group_count() == 2 && generated_tangents_valid(*scene, true),
+                  "mixed UV and tangent inputs survive a synchronous split",
+                  component.last_error());
+}
 
 bool retirement_contract()
 {
@@ -740,7 +839,8 @@ bool incremental_contract()
         return false;
     }
     const auto original_ids = generated_ids(*scene);
-    if (!expect(original_ids.size() == 1, "publish exactly one initial physical group"))
+    if (!expect(original_ids.size() == 1 && generated_tangents_valid(*scene),
+                "publish initial group with authored and generated tangent frames"))
     {
         return false;
     }
@@ -843,8 +943,9 @@ bool incremental_contract()
                     scene->find_node(moving_id).valid() == false &&
                     component.owns_fragment(anchored_id) &&
                     scene->find_node(anchored_id).get_component<MeshRenderer>() == anchored_mesh &&
-                    anchored_mesh.mesh_data() == anchored_data && component.snapshot(after),
-                "splitting B-C replaces only its group and retains unrelated anchored A"))
+                    anchored_mesh.mesh_data() == anchored_data && component.snapshot(after) &&
+                    generated_tangents_valid(*scene),
+                "splitting B-C retains unrelated A and all chunk tangent frames"))
     {
         return false;
     }
@@ -1362,8 +1463,9 @@ bool asynchronous_damage_contract()
     }
     const auto moved_pose = moving.get_component<Transform>().settings();
     if (!expect(moved_pose.position.x() > 0 && fixture.destruction->synchronize() &&
-                    results == std::vector<bool>{true} && component.group_count() == 3,
-                "split commits after physics has advanced the original dynamic group",
+                    results == std::vector<bool>{true} && component.group_count() == 3 &&
+                    generated_tangents_valid(*scene),
+                "async split preserves tangent frames after physics advances the group",
                 component.last_error()))
     {
         return false;
@@ -1587,7 +1689,8 @@ bool persistent_destruction_contract()
 
 int main()
 {
-    return retirement_contract() && persistent_destruction_contract() && runtime_contract() &&
+    return mixed_tangent_sources_contract() && retirement_contract() &&
+                   persistent_destruction_contract() && runtime_contract() &&
                    incremental_contract() && support_contract() && stress_contract() &&
                    asynchronous_damage_contract() && asynchronous_damage_fairness(1) &&
                    asynchronous_damage_fairness(2)

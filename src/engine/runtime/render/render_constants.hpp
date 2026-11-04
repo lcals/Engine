@@ -33,6 +33,8 @@ inline constexpr std::uint16_t ambient_occlusion_compute_view = 112;
 inline constexpr std::uint16_t hdr_bright_view = 135;
 inline constexpr std::uint16_t hdr_blur_view = 136;
 inline constexpr std::uint16_t hdr_resolve_view = 137;
+// The source is the scene HDR attachment, unchanged by display resolve.
+inline constexpr std::uint16_t hdr_capture_view = 138;
 // Capture lighting runs after the main image, before UI (200) and bake IBL views (240/241).
 inline constexpr std::uint16_t capture_shadow_view = 144;
 inline constexpr std::uint16_t capture_view = 242;

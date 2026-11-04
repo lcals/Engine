@@ -1,17 +1,16 @@
-diff --git a/DEPS b/DEPS
 --- a/DEPS
 +++ b/DEPS
-@@ -9,6 +9,9 @@
+@@ -11,6 +11,9 @@
  ]
  
  vars = {
 +  # Native embedders may supply an external Android SDK and NDK.
 +  'checkout_android_toolchain': True,
 +
-   # Fetches only the SDK boot images which match at least one of the whitelist
-   # entries in a comma-separated list.
-   #
-@@ -218,7 +221,7 @@
+   # The version of the NDK. Set here, to allow the autoroller to update this
+   # value when updating the CIPD hash.
+   'android_ndk_version': Str('2@30.0.16248370'),
+@@ -246,7 +249,7 @@
                'version': Var('android_sdk_cmdline-tools_version'),
            },
        ],
@@ -20,12 +19,12 @@ diff --git a/DEPS b/DEPS
        'dep_type': 'cipd',
    },
    'third_party/android_toolchain/ndk': {
-@@ -228,7 +231,7 @@
-         'version': 'KXOia11cm9lVdUdPlbGLu8sCz6Y4ey_HV2s8_8qeqhgC',
+@@ -256,7 +259,7 @@
+         'version': 'version:' + Var('android_ndk_version'),
        },
      ],
--    'condition': 'checkout_android',
-+    'condition': 'checkout_android and checkout_android_toolchain',
+-    'condition': 'checkout_android and '
++    'condition': 'checkout_android and checkout_android_toolchain and '
+                  '((host_os == "linux" and host_cpu == "x64") or '
+                  '(host_os == "mac" and host_cpu == "arm64"))',
      'dep_type': 'cipd',
-   },
-   'third_party/catapult': {

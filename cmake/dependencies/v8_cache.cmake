@@ -1,19 +1,33 @@
 # 只接受已知固定参数的迁移；不能覆盖用户手工改变的 GN 配置。
 function(_engine_v8_arguments_compatible _existing _expected _output)
-    set(_compatible FALSE)
-    if(_existing STREQUAL _expected)
-        set(_compatible TRUE)
-    else()
-        set(_icu_flags
-            "v8_depend_on_icu_data_file = false\nicu_copy_icudata_to_root_build_dir = false\n")
-        string(FIND "${_expected}" "${_icu_flags}" _has_icu_flags)
-        string(FIND "${_expected}" "v8_enable_i18n_support = false\n" _no_i18n)
-        if(NOT _has_icu_flags LESS 0 AND NOT _no_i18n LESS 0)
-            string(REPLACE "${_icu_flags}" "" _previous "${_expected}")
-            if(_existing STREQUAL _previous)
-                set(_compatible TRUE)
+    # 只枚举缺少完整已知参数组的旧版本，不能剥除现有参数或覆盖其值。
+    set(_migrations "engine_verified_system_libcxx = true\nv8_enable_sandbox = true\n")
+    string(FIND "${_expected}" "v8_enable_i18n_support = false\n" _no_i18n)
+    if(NOT _no_i18n EQUAL -1)
+        list(APPEND _migrations
+             "v8_depend_on_icu_data_file = false\nicu_copy_icudata_to_root_build_dir = false\n")
+    endif()
+    string(REGEX MATCH
+        "mac_deployment_target = \"([0-9]+\\.[0-9]+(\\.[0-9]+)?)\"\nmac_min_system_version = \"([0-9]+\\.[0-9]+(\\.[0-9]+)?)\"\n"
+        _macos_arguments "${_expected}")
+    if(_macos_arguments AND CMAKE_MATCH_1 STREQUAL CMAKE_MATCH_3
+       AND NOT CMAKE_MATCH_1 VERSION_LESS 13.3)
+        list(APPEND _migrations "${_macos_arguments}")
+    endif()
+    set(_candidates "${_expected}")
+    foreach(_migration IN LISTS _migrations)
+        set(_previous_candidates ${_candidates})
+        foreach(_candidate IN LISTS _previous_candidates)
+            string(FIND "${_candidate}" "${_migration}" _position)
+            if(NOT _position EQUAL -1)
+                string(REPLACE "${_migration}" "" _previous "${_candidate}")
+                list(APPEND _candidates "${_previous}")
             endif()
-        endif()
+        endforeach()
+    endforeach()
+    set(_compatible FALSE)
+    if("${_existing}" IN_LIST _candidates)
+        set(_compatible TRUE)
     endif()
     set(${_output}
         ${_compatible}
@@ -124,9 +138,12 @@ function(_engine_v8_cache_keys _prepare_output _build_output _ready_output)
     set(_files
         "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/prepare_v8.cmake"
         "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/v8_cache.cmake"
+        "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/v8_system_libcxx.cmake"
+        "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/v8_system_libcxx_probe.cpp"
         "${_engine_root}/cmake/dependencies/v8.cmake"
         "${ENGINE_V8_BUILD_ROOT}/.gitconfig"
         "${_source}/DEPS"
+        "${_source}/build/config/c++/engine_system_libcxx_guard.h"
         "${_workspace}/.gclient"
         "${_workspace}/.gclient_entries"
         "${_source}/third_party/llvm-build/Release+Asserts/cr_build_revision"
@@ -155,6 +172,11 @@ function(_engine_v8_cache_keys _prepare_output _build_output _ready_output)
         endif()
         string(APPEND _identity "android_ndk=${_ndk}\nandroid_api=${ENGINE_V8_ANDROID_API}\n")
         list(APPEND _files "${_ndk}/source.properties" "${_ndk}/meta/platforms.json")
+        foreach(_header IN ITEMS __config __config_site __assert __assertion_handler
+                                 __vector/vector.h vector span string)
+            list(APPEND _files
+                "${_ndk}/toolchains/llvm/prebuilt/${_ndk_host}/sysroot/usr/include/c++/v1/${_header}")
+        endforeach()
         foreach(_tool IN ITEMS clang llvm-ar ld.lld)
             list(APPEND _tools
                  "${_ndk}/toolchains/llvm/prebuilt/${_ndk_host}/bin/${_tool}${_ndk_tool_suffix}")
@@ -223,6 +245,10 @@ function(_engine_v8_cache_keys _prepare_output _build_output _ready_output)
             string(APPEND _identity "${_sdk_value}\n")
             if(_query STREQUAL "--show-sdk-path")
                 list(APPEND _files "${_sdk_value}/SDKSettings.json")
+                foreach(_header IN ITEMS __config __config_site __assert __assertion_handler
+                                         __configuration/hardening.h __vector/vector.h vector span string)
+                    list(APPEND _files "${_sdk_value}/usr/include/c++/v1/${_header}")
+                endforeach()
             endif()
         endforeach()
         foreach(_tool IN ITEMS ld lipo)

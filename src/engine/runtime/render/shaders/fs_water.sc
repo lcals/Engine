@@ -45,7 +45,7 @@ vec3 water_world_position(vec2 uv, float depth)
 void main()
 {
     vec3 view_offset = u_camera_position.xyz - v_world_position;
-    vec3 view_dir = normalize(view_offset);
+    vec3 view_dir = pbr_view_direction(u_camera_position.xyz, v_world_position);
     PbrSurface surface = sample_pbr_surface(v_texcoord0, v_color0, v_world_normal,
                                            v_world_tangent, view_dir);
     vec2 uv = v_texcoord0 * u_uv_transform.xy + u_uv_transform.zw;
@@ -67,7 +67,9 @@ void main()
     {
         float depth = texture2D(s_scene_depth, screen_uv).r;
         vec3 world = water_world_position(screen_uv, depth);
-        water_distance = max(length(world - u_camera_position.xyz) - length(view_offset), 0.0);
+        water_distance = pbr_orthographic_view()
+            ? max(dot(world - v_world_position, -view_dir), 0.0)
+            : max(length(world - u_camera_position.xyz) - length(view_offset), 0.0);
     }
     // Three.js getVolumeTransmissionRay / getIBLVolumeRefraction: refract in world
     // space and project the exit point. Our thickness comes from scene depth, not
@@ -127,12 +129,12 @@ void main()
     float fresnel = (f0 + (1.0 - f0) * pow(1.0 - saturate(dot(normal, view_dir)), 5.0)) *
                      u_water_parameters.w;
     vec3 color = (transmitted * attenuation + surface.base_color.rgb * (vec3_splat(1.0) - attenuation)) *
-                 (1.0 - fresnel) + reflection * fresnel;
+                 (1.0 - fresnel) + reflection * fresnel * surface.occlusion;
     for (uint index = 0u; index < uint(u_cluster_counts.x); ++index)
     {
         if (load_cluster_light(index).kind_inner.x < 0.5)
         {
-            color += direct_light(index, v_world_position, normal, view_dir, vec3_splat(0.0),
+            color += direct_light(index, v_world_position, normal, v_world_normal, view_dir, vec3_splat(0.0),
                                   surface.metallic, surface.roughness, vec3_splat(f0),
                                   surface.smoothness);
         }
@@ -144,15 +146,16 @@ void main()
         uint index = cluster_light_index(offset, item, overflow);
         if (load_cluster_light(index).kind_inner.x > 0.5)
         {
-            color += direct_light(index, v_world_position, normal, view_dir, vec3_splat(0.0),
+            color += direct_light(index, v_world_position, normal, v_world_normal, view_dir, vec3_splat(0.0),
                                   surface.metallic, surface.roughness, vec3_splat(f0),
                                   surface.smoothness);
         }
     }
-    color = color * surface.occlusion + surface.emission;
+    color += surface.emission;
     if (u_fog_color.w > 0.5)
     {
-        float fog = saturate((length(view_offset) - u_fog_range.x) /
+        float view_distance = pbr_orthographic_view() ? surface_depth : length(view_offset);
+        float fog = saturate((view_distance - u_fog_range.x) /
                             max(u_fog_range.y - u_fog_range.x, 0.0001));
         if (u_fog_color.w > 1.5)
         {

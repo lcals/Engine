@@ -1,8 +1,6 @@
-diff --git a/src/partition_alloc/scheduler_loop_quarantine.cc b/src/partition_alloc/scheduler_loop_quarantine.cc
-index d7fb206..15a679c 100644
 --- a/src/partition_alloc/scheduler_loop_quarantine.cc
 +++ b/src/partition_alloc/scheduler_loop_quarantine.cc
-@@ -70,8 +70,12 @@ void SchedulerLoopQuarantineBranch<thread_bound>::Configure(
+@@ -248,8 +248,12 @@
    if (enable_quarantine_) {
      // Already enabled, explicitly purging an existing instance.
      PurgeInternal(0);
@@ -17,22 +15,22 @@ index d7fb206..15a679c 100644
    }
  
    root_ = &root;
-@@ -85,8 +89,11 @@ template <bool thread_bound>
- bool SchedulerLoopQuarantineBranch<thread_bound>::IsQuarantinedForTesting(
-     void* object) {
+@@ -316,8 +320,11 @@
+ bool SchedulerLoopQuarantineBranch<thread_bound, quarantine_target>::
+     IsQuarantinedForTesting(void* object) {
    ScopedGuardIfNeeded<kThreadBound> guard(lock_);
 +  if (!slots_) {
 +    return false;
 +  }
-   uintptr_t slot_start = allocator_root_->ObjectToSlotStartUnchecked(object);
+   UntaggedSlotStart slot_start = SlotStart::Unchecked(object).Untag();
 -  for (const auto& slot : slots_) {
 +  for (const auto& slot : *slots_) {
-     if (slot.slot_start == slot_start) {
+     if (slot.slot_start.Untag() == slot_start) {
        return true;
      }
-@@ -103,9 +110,12 @@ void SchedulerLoopQuarantineBranch<thread_bound>::SetCapacityInBytes(
- template <bool thread_bound>
- void SchedulerLoopQuarantineBranch<thread_bound>::Purge() {
+@@ -353,9 +360,12 @@
+ template <bool thread_bound, QuarantineTarget quarantine_target>
+ void SchedulerLoopQuarantineBranch<thread_bound, quarantine_target>::Purge() {
    ScopedGuardIfNeeded<kThreadBound> guard(lock_);
 +  if (!slots_) {
 +    return;
@@ -44,15 +42,15 @@ index d7fb206..15a679c 100644
 +  PA_DCHECK(slots_->capacity() == 0);
  }
  
- template <bool thread_bound>
-@@ -152,15 +162,15 @@ void SchedulerLoopQuarantineBranch<thread_bound>::Quarantine(
+ template <bool thread_bound, QuarantineTarget quarantine_target>
+@@ -411,15 +421,15 @@
  
    // Put the entry onto the list.
    branch_size_in_bytes_ += slot_size;
 -  slots_.push_back({
 +  slots_->push_back({
        .slot_start = slot_start,
-       .bucket_index = bucket_index,
+       .bucket_index = size_details.bucket_index(),
    });
  
    // Swap randomly so that the quarantine list remain shuffled.
@@ -64,16 +62,18 @@ index d7fb206..15a679c 100644
  
    // Update stats (not locked).
    root_->count_.fetch_add(1, std::memory_order_relaxed);
-@@ -179,16 +189,20 @@ PA_ALWAYS_INLINE void
- SchedulerLoopQuarantineBranch<thread_bound>::PurgeInternal(
+@@ -440,6 +450,10 @@
+ SchedulerLoopQuarantineBranch<thread_bound, quarantine_target>::PurgeInternal(
      size_t target_size_in_bytes,
      [[maybe_unused]] bool for_destruction) {
 +  if (!slots_) {
 +    PA_DCHECK(branch_size_in_bytes_ == 0);
 +    return;
 +  }
-   int64_t freed_count = 0;
-   int64_t freed_size_in_bytes = 0;
+   if (g_no_purge.load(std::memory_order_relaxed)) {
+     return;
+   }
+@@ -451,18 +465,18 @@
  
    // Dequarantine some entries as required.
    while (target_size_in_bytes < branch_size_in_bytes_) {
@@ -82,25 +82,23 @@ index d7fb206..15a679c 100644
  
      // As quarantined entries are shuffled, picking last entry is equivalent
      // to picking random entry.
--    const auto& to_free = slots_.back();
-+    const auto& to_free = slots_->back();
-     const size_t bucket_index = to_free.bucket_index;
-     size_t slot_size = 0;
+-    SlotStart slot_start = slots_.back().slot_start;
+-    const size_t bucket_index = slots_.back().bucket_index;
++    SlotStart slot_start = slots_->back().slot_start;
++    const size_t bucket_index = slots_->back().bucket_index;
+     const size_t slot_size = BucketIndexLookup::GetBucketSize(bucket_index);
  
-@@ -246,7 +260,7 @@ SchedulerLoopQuarantineBranch<thread_bound>::PurgeInternal(
-     freed_size_in_bytes += slot_size;
-     branch_size_in_bytes_ -= slot_size;
- 
+     // Take the entry off the list before releasing it, so that anything the
+     // release runs that re-enters `PurgeInternal()` finds neither this entry
+     // nor its bytes.
 -    slots_.pop_back();
 +    slots_->pop_back();
-   }
- 
-   root_->size_in_bytes_.fetch_sub(freed_size_in_bytes,
-diff --git a/src/partition_alloc/scheduler_loop_quarantine.h b/src/partition_alloc/scheduler_loop_quarantine.h
-index 2d91eb2..6730388 100644
+     ++freed_count;
+     PA_DCHECK(slot_size > 0);
+     freed_size_in_bytes += slot_size;
 --- a/src/partition_alloc/scheduler_loop_quarantine.h
 +++ b/src/partition_alloc/scheduler_loop_quarantine.h
-@@ -222,8 +222,12 @@ class SchedulerLoopQuarantineBranch {
+@@ -349,8 +349,12 @@
      // index to slot size is more lightweight compared to its reverse look-up.
      size_t bucket_index = 0;
    };

@@ -137,6 +137,12 @@ void RenderSystem::SceneGpuResources::release() noexcept
         texture.release();
     }
     release_capture();
+    if (bgfx::isValid(hdr_capture_readback))
+    {
+        bgfx::destroy(hdr_capture_readback);
+        hdr_capture_readback = BGFX_INVALID_HANDLE;
+    }
+    hdr_capture_pixels.clear();
     for (auto& cluster : clusters)
     {
         cluster.release();
@@ -295,6 +301,7 @@ std::uint32_t RenderSystem::SceneGpuResources::resource_count() const noexcept
         count += reflection.resource_count();
     }
     count += static_cast<std::uint32_t>(bgfx::isValid(capture_framebuffer));
+    count += static_cast<std::uint32_t>(bgfx::isValid(hdr_capture_readback));
     for (const auto handle : {capture_color, capture_specular, capture_depth, capture_readback})
     {
         count += static_cast<std::uint32_t>(bgfx::isValid(handle));

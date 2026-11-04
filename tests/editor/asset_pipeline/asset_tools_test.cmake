@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 3.25)
 
-foreach(_variable IN ITEMS ENGINE_SHADERC ENGINE_TEXTUREC ENGINE_GEOMETRYC ENGINE_OUTPUT_DIR)
+foreach(_variable IN ITEMS ENGINE_SHADERC ENGINE_TEXTUREC ENGINE_GEOMETRYC ENGINE_OUTPUT_DIR
+                           ENGINE_SHADER_PLATFORM ENGINE_SHADER_PROFILE ENGINE_SHADER_INCLUDE_DIR)
     if(NOT DEFINED ${_variable} OR "${${_variable}}" STREQUAL "")
         message(FATAL_ERROR "Missing ${_variable}")
     endif()
@@ -40,19 +41,11 @@ function(run_tool _tool _output _magic)
     endif()
 endfunction()
 
-if(CMAKE_HOST_APPLE)
-    set(_shader_platform osx)
-elseif(CMAKE_HOST_WIN32)
-    set(_shader_platform windows)
-else()
-    set(_shader_platform linux)
-endif()
-
 set(_shader "${ENGINE_OUTPUT_DIR}/triangle_shader.bin")
 run_tool(
     "${ENGINE_SHADERC}"
     "${_shader}"
-    "565348"
+    "5653480e"
     -f
     "${_fixtures}/vs_triangle.sc"
     -o
@@ -60,11 +53,13 @@ run_tool(
     --type
     vertex
     --platform
-    "${_shader_platform}"
+    "${ENGINE_SHADER_PLATFORM}"
     --profile
-    120
+    "${ENGINE_SHADER_PROFILE}"
     --varyingdef
     "${_fixtures}/varying.def.sc"
+    -i
+    "${ENGINE_SHADER_INCLUDE_DIR}"
     --Werror)
 
 set(_texture "${ENGINE_OUTPUT_DIR}/blocks.ktx")

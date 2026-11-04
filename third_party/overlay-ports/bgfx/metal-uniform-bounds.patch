@@ -1,0 +1,18 @@
+--- a/bgfx/src/renderer_mtl.cpp
++++ b/bgfx/src/renderer_mtl.cpp
+@@ -2303,7 +2303,14 @@
+ 				? m_fsScratch
+ 				: m_vsScratch
+ 				;
+-			bx::memCopy(&dst[_loc], _val, _numRegs*16);
++			const uint64_t size = uint64_t(_numRegs) * 16;
++			if (_loc > sizeof(m_vsScratch) || size > sizeof(m_vsScratch) - _loc
++			|| (0 != size && NULL == _val) )
++			{
++				BGFX_FATAL(false, Fatal::InvalidShader, "Metal uniform write exceeds its stage scratch buffer.");
++				return;
++			}
++			bx::memCopy(&dst[_loc], _val, size);
+ 		}
+ 
+ 		void setShaderUniform4f(uint8_t _flags, uint32_t _loc, const void* _val, uint32_t _numRegs)

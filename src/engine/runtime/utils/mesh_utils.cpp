@@ -136,9 +136,9 @@ bool MeshUtils::validate(const schema::MeshDataT& data) noexcept
 
 bool MeshUtils::build_tangents(const schema::MeshDataT& data, std::vector<schema::Vec4>& output)
 {
-    output.clear();
     if (!validate(data))
     {
+        output.clear();
         return false;
     }
     std::vector<Vector> tangents(data.vertices.size());
@@ -191,6 +191,7 @@ bool MeshUtils::build_tangents(const schema::MeshDataT& data, std::vector<schema
         Vector normal = {vertex.nx(), vertex.ny(), vertex.nz()};
         if (!normalize(normal))
         {
+            output.clear();
             return false;
         }
         Vector tangent = tangents[index];

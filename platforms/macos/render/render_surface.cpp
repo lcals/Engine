@@ -12,6 +12,8 @@ bool RenderSurface::prepare(bgfx::Init& init, bool& available)
     {
         return false;
     }
+    // Metal layer 身份变化时复用完整重建流程，不依赖 bgfx 内部强制 reset 标志。
+    recreate_on_change_ = true;
     metal_view_ = SDL_Metal_CreateView(window_);
     if (metal_view_ == nullptr)
     {
@@ -19,25 +21,29 @@ bool RenderSurface::prepare(bgfx::Init& init, bool& available)
         return false;
     }
     bgfx::PlatformData data{};
-    if (!read_platform_data(data))
+    bgfx::SwapChain swap_chain = init.swapChain;
+    if (!read_platform_data(data, swap_chain))
     {
         release();
         return false;
     }
-    current_ = data;
+    swap_chain.width = width;
+    swap_chain.height = height;
+    current_ = swap_chain;
+    platform_data_ = data;
     init.type = bgfx::RendererType::Metal;
     init.platformData = data;
-    init.resolution.width = width;
-    init.resolution.height = height;
+    init.swapChain = swap_chain;
     available = true;
     return true;
 }
 
-bool RenderSurface::read_platform_data(bgfx::PlatformData& data) const
+bool RenderSurface::read_platform_data(bgfx::PlatformData& data, bgfx::SwapChain& swap_chain) const
 {
     data = {};
-    data.nwh = metal_view_ != nullptr ? SDL_Metal_GetLayer(metal_view_) : nullptr;
-    if (data.nwh == nullptr)
+    swap_chain.ndt = nullptr;
+    swap_chain.nwh = metal_view_ != nullptr ? SDL_Metal_GetLayer(metal_view_) : nullptr;
+    if (swap_chain.nwh == nullptr)
     {
         SDL_LogError(SDL_LOG_CATEGORY_RENDER, "Native Metal surface is unavailable");
         return false;
@@ -53,6 +59,7 @@ void RenderSurface::release() noexcept
         metal_view_ = nullptr;
     }
     current_ = {};
+    platform_data_ = {};
 }
 
 bool RenderSurface::start_watching()

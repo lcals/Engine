@@ -122,6 +122,18 @@ Debug 曾在原 180 秒等待上限内创建 9,856 个对象而超时，随后�
 
 额外 50,000 档位在原定 600 秒等待上限内完成创建 38,912 个对象，仍处于创建阶段，因此本轮没有完成 50,000 实体逐项验收。未延长或重复运行；随后正常返回菜单，原生 `get_scene.totalNodes` 回到 0，再经 `close_editor` 正常关闭专用编辑器。失败及清理回执保留于 `projects/showcase/cache/ecs-many-objects/20261103T131706Z-sizes-0ecd6366/`。10,000 的完整交互及切换至 1,000 后的回收检查通过，不外推为 50,000 或其他平台已通过。
 
+### PBR 材质球对照
+
+当前实现、全部参数组复拍、逐球指标和未覆盖范围统一见 [PBR 当前结果](../projects/showcase/tools/pbr-comparison/current-results.md)。旧阶段报告保留原数值，不能代替最新结果。
+
+2026-11-04 整体复核后，在 macOS Metal 完成受影响目标 Debug/Release 编译；Release 渲染基础、实际窗口、FBX 管线、FBX 切线、场景默认材质共 5 项不同测试通过。新增覆盖法线终止线平滑（仅直接漫反射）、无扰动法线、掠射、双面与纯金属，关闭 IBL 时 SSR 保留/移除 LUT 引用的整图最大像素差为 0。FBX 补齐非法浮点、输出复用与失败保留旧完整数据检查；新 Mesh、新槽和 FBX 缺省映射均验证默认 PBR。首次四项结果在 `build/material-comparison/final-release-tests.log`，默认入口补充两项在 `build/material-comparison/default-pbr-release-tests.log`，其中 FBX 管线重复一次，共五项不同测试；没有运行 Debug 测试。
+
+本次原参数、原生 1280×720 的 12 组引擎复拍完成，其中 11 组共 66 球与 Blender 默认参考按同一显示变换比较；法线强度 0.5/1 的 MAE 为 0.288/0.469（显示 RGB 0–255），旧标准直接光阶段为 2.855/6.705。未修改曝光、法线强度或关闭 Blender 默认校正来缩小误差。公寓与庭院 11 份实体材质和生成器改用 PBR，正式导入及两场景实窗预览完成；UI/调试专用 Shader 保留。收据和单文件详细对照入口见上述当前结果。
+
+六个金属度和粗糙度组合的正式资源、固定机位、截图方法以及与 Blender 对比的已知限制见 [PBR 材质球对照](../projects/showcase/pbr-comparison.md)。该场景通过 MCP 预览，不依赖玩法启动。
+
+以下为同日较早的仅背光保护阶段记录（当前已补充平滑遮蔽）：在 macOS Metal 增加法线贴图直接光半球回归：同一倾斜法线贴图及相同材质下，方向光分别在平滑基础法线的正面和背面；Release 实窗中心像素红通道为 160 / 0（8 位显示值）。从双面材质的背面观察并交换来光方向时，朝向观察侧及相反侧的结果同样为 160 / 0。该测试验证两侧表面直接光的可见性，不覆盖间接光、软化终止线或所有几何形状。Debug／Release 编译通过；Release `engine.render_foundation` 和 `engine.window_render` 共 2 项通过。
+
 ### 现代公寓
 
 [apartment.scene](../projects/showcase/assets/scenes/apartment.scene) 保存客厅、卧室、厨房与餐区，包含 322 个可编辑模型、相机及 5 个灯光节点。家具、摆件、倒角、变换、材质和灯光由 [create_modern_apartment.py](../scripts/create_modern_apartment.py) 通过正式 MCP 工具制作。
@@ -157,6 +169,8 @@ python3 scripts/create_modern_apartment.py --view-only \
 庭院有铺装、立面、台阶、廊架、长椅、绿植及带物理的 Player/PAB 蒙皮角色。环境由 MCP 创建并保存：231 个节点、225 个环境 Mesh、47,004 个环境三角形、31 个静态碰撞体；三棵树共 840 片薄叶，每树合并为一个 Mesh。人物在场景加载后实例化，避免保存后重复生成。贴图来源和处理见[庭院资源说明](../projects/showcase/courtyard-source.md)。
 
 范例默认使用 InPlace，位置由物理或导航推进。导航、物理交互及地形范例按速度调节动作倍率；庭院仍固定循环 walk，用于检查蒙皮，不是动画状态图。该场景尚未提供触屏摇杆。样例源法线反向，使用 FBX `.meta` 的 `normals="generate"` 导入，未修改源 FBX。
+
+2026-11-04 在 macOS 完成 FBX 切线导入修复的 Debug／Release 构建和 Release `editor.fbx_bind_pose`、`editor.fbx_pipeline` 测试。使用固定版本 ufbx 自带的混合 UV 手性 FBX 验证源切线方向及正负手性，并验证重生成法线时不沿用旧切线。源切线或副切线缺失、无效或法线重生成时，FBX 带 UV 的网格会使用上游 MikkTSpace 离线逐角生成并按需拆点；Release 测试覆盖镜像 UV、颜色和蒙皮复制、子网格、退化 UV 与无 UV。其他来源的网格仍使用各自现有路径；这些测试不能代替实际模型画面的全面验收。
 
 动画导入、动作切换、坐标适配与尚未实现的重定向／Root Motion／IK 范围见[动画模块](runtime/animation.md)；角色制作的后续方向见[制作流程](editor/character-production.md)。这些规划不属于本场景已经通过的验证。
 
@@ -235,6 +249,48 @@ python3 tests/plugins/editor/scene_bake/scene_lighting_gpu_test.py --run \
 `--binary-dir` 应与实际 Preset 输出一致。生成项目、截图、MCP 回执和 `report.json` 留在工作目录下的 `project/cache/verification/`；默认目录位于忽略的 `build/`。脚本只关闭自己启动的编辑器进程。它验证小型场景的功能，不替代大场景容量或跨平台验证。烘焙公开参数与资源契约见[照明烘焙类图](plugins/editor/class-diagrams/scene-lighting-bake.md)。
 
 ## 有日期的验证记录
+
+### 2026-11-04：V8 15.7 与升级后完整依赖，macOS ARM64 / Metal
+
+固定 V8 15.7.112.23 的正式工具链完成 macOS 13.3 部署目标下的实际重编：Debug 库 1,670 项、Release 库 1,655 项均成功；只执行 Release 上游 `Hello, World!`。保留 sandbox，使用已验证的厂商 libc++ EXTENSIVE 硬化，不以关闭安全检查或可用性诊断通过编译。准备探针验证合法访问和 vector / span / string 越界 trap，所有 V8 C++ 编译均强制版本 / 硬化模式守卫。随后根 Presets `local-ninja-v8-release` / `local-ninja-v8-debug` 全目标构建成功，包含本轮 Quill / SDL 日志桥；Debug 只编译。
+
+V8 后端完整 Release CTest **126/126 通过**，包括真实 JavaScript 执行、默认关闭能力检查、项目脚本、热重载与回滚、TS7 编译、UI MVC、导航 / 破坏绑定、GameplaySession、MCP、资源管线和真实 Metal 渲染回归。输出为 `build/dependencies-upgrade/ctest-v8-release-final.log`，引擎构建为同目录 `build-v8-integration-release-final.log` / `build-v8-integration-debug-final.log`；库构建为 `v8-build-release-macos-13.3.log` / `v8-build-debug-macos-13.3.log`。最后的原生后端编译回执为 `build-native-release-final.log` / `build-native-debug-final.log`，格式收尾后日志及 FBX / 动画六项 Release 回归也全部通过，见 `ctest-native-final-check.log`。
+
+新版 V8 的 Windows MSVC STL 与 Linux libstdc++ 尚未完成满足 sandbox 前提的嵌入适配，准备阶段明确拒绝，默认 QuickJS 不受该限制；macOS 宿主上的 Android 目前只验证独立标准库硬化探针，没有完成新版 V8 完整引擎 APK / 真机验收。既有 vcpkg 静态库的 macOS 27.0 部署目标警告仍存在，见下一节；本机结果不代表完整包兼容 macOS 13.3。接口与移植边界见[脚本文档](plugins/runtime/scripting.md)。
+
+### 2026-11-04：Quill 日志统一接入，macOS ARM64 / Metal / QuickJS
+
+Quill 13.1.0 通过正式 vcpkg port 接入现有 `LogSystem`，异步队列、后台格式化和刷新使用上游实现。私有官方 Sink 扩展点保留无异常文件 I/O、4 MiB 三代轮换和 SDL 平台输出；现有窗口、渲染、UI 及第三方的 `SDL_Log*` 经 SDL 官方输出回调进入同一日志文件，保留平台 category、priority 和筛选，不重复平台输出，也不占用 MCP 标准输出。公开接口和日志路径不变，详见[日志类图](runtime/class-diagrams/log-system.md)。
+
+`local-ninja-debug` / `local-ninja-release` 完整构建与日志桥增量构建成功，Debug 未运行测试。Release `engine.app_log` 通过，覆盖真实 SDL 日志与原生日志混合并发、错误返回前文件可读、显式刷新、中文路径、轮换、打开失败、轮换失败后持续返回失败、重开恢复及 SDL callback / userdata 恢复。随后完整 Release CTest **125/125 通过**；输出为 `build/dependencies-upgrade/ctest-quill-release-final.log`，日志定向回归为同目录 `ctest-quill-log.log`，日志桥构建为 `build-quill-bridge-release.log` 和 `build-quill-bridge-debug.log`。
+
+本次运行使用当前 macOS 宿主。链接器仍报告共享依赖缓存中部分静态对象按 macOS 27.0 构建，高于引擎 / V8 的 13.3 部署目标；未屏蔽该警告，未将本机验收表述为完整发行包通过 macOS 13.3。较旧系统发行前须统一依赖部署目标并在相应系统验收。本节不代表其他平台的 Quill 或完整引擎已实测。
+
+### 2026-11-04：全量依赖升级，macOS ARM64 / Metal / QuickJS
+
+依赖固定版本、稳定渠道和保留版本的原因见[依赖版本表](development.md#当前固定版本)。本轮更新 vcpkg baseline、补齐正式发布较新的 overlays，升级 ozz-animation、TypeScript 及 Android 构建工具；未选择的脚本后端仍不进入当前配置。官方归档保留原始 SHA512，下载与二进制缓存继续复用。以下为 Quill 接入前的阶段记录，接入后的完整回归见上一节。
+
+`local-ninja-debug`、`local-ninja-release` 完整构建及最终增量构建成功，Debug 未运行测试。Release 完整 CTest **125/125 通过**，覆盖真实 Metal 窗口、HDR/PBR、透明、反射、字体/UI、ECS、物理与角色、导航、地形/破坏、动画、FBX/USD、资源管线、TS 编译、MCP、预制体和架构规则。完整输出为 `build/dependencies-upgrade/ctest-release-final.log`，最终构建回执为同目录的 `build-release-final-check.log` 和 `build-debug-final-check.log`。
+
+兼容迁移包括 Flecs 4.2 的真实 world / stage / readonly 契约、Jolt 5.6 的角色接触结构及法向冲量数组、efsw 1.7.3 的回调签名、QuickJS 0.18 的函数捕获参数和显式 import-attribute 检查。新增角色与刚体、角色与角色接触法线回归，分别检查 begin / stay 的 A-to-B 方向；原有场景所有权、候选恢复与阶段隔离断言保留。首次测试发现的 PBR 共用夹具漏文件和 MCP 测试替身竞态已修复；没有放宽生产超时、跳过断言或降低正式 Shader。
+
+TS7 使用官方原生编译器及同版 sync / AST API。公开范例成功输出 39 个模块，输入快照与批编译的 215 项指纹、依赖图一致；跨语言测试通过真实 FlatBuffers C++ / TS / C++ 往返。独立临时脚本回归保留 default / namespace 导出、静态 require、共享状态与非法导入拒绝检查。资源指纹同步覆盖本次 TinyEXR / stb 解码更新；真实临时 shaderc 内容变化、版本号及修改时间不变时，只重建 Shader，GUID、源数据与输出内容保持，下一轮全部命中缓存，正式工具文件未改变。
+
+升级后的 Release 编辑器通过正常管线重新导入公开范例，并在原参数、原机位、原生 1280×720 下完成 12 组 PBR 复拍；编辑器退出码为 0。12 张 PNG 与本轮升级前 `1793773436458021000` 的原图逐字节一致，画面没有因依赖升级发生变化。回执、原图、清单及校验结果见 `build/material-comparison/current/1793778263179463000/`。
+
+Android 工具链单独以 Gradle 9.8.2、AGP 9.5.0、NDK r30、Build Tools 37.0.0 完成最小 Release APK 构建、16 KiB 对齐和 v2 签名检查，28 项资源打包 Python 测试通过。该证据为工具链与打包检查，不能代替完整引擎 Android APK 或真机验收；本轮未验证 Windows、Linux 或 iOS 引擎构建。
+
+### 2026-11-04：bgfx API 167，macOS ARM64 / Metal
+
+当前功能分支把 bgfx overlay 固定到 bgfx.cmake `1.167.9605-606`，运行库 API 为 `167`，宿主 `shaderc --version` 为 `1.19.167`。bgfx、bx、bimg 及工具随同一发布归档安装；SPIRV-Cross 保持 baseline 的 `1.4.309.0`，以 `#1` overlay 回补新 Shader 工具要求的上游 PointSize 查询。固定提交、补丁去留和工具范围见 [overlay 说明](../third_party/overlay-ports/README.md)。
+
+`local-ninja-debug` 和 `local-ninja-release` 整体构建成功，Debug 未运行测试。Release 的渲染基础、实窗、平面反射、HDR 场景／透明／扩展捕获、直接光浮点对照、字体/UI、纹理管线、资源构建、工具、宿主 Shader API 匹配、特效管线与运行、照明数学及文件回归共 16 项全部通过；两项架构检查也通过。窗口回归继续验证真实像素尺寸、VSync、MSAA 与各向异性切换。工具回归按当前后端编译并检查 `VSH` 二进制版本 `14`；配置回归验证原生和带 sysroot 的交叉目标都拒绝不匹配的宿主工具。
+
+本次兼容修复包括交换链初始化／重设、纹理区域复制与异步回读、截图格式参数、精确 MSAA 能力位和 Effekseer C99 调用。新版 bimg 对二维／立方体 KTX1 的 depth 语义为 `0`；引擎写入器和读取校验同步，非法 `pixelDepth=1` 仍拒绝，并新增二维与立方体回归。
+
+通过 Release 编辑器 MCP 重新导入公开 showcase，并采集 12 组 1280×720 原生 PBR 截图，编辑器退出码为 0。全部截图的 PNG SHA256 与升级前 `1793770721339431000` 那次一致，11 组 Blender 逐球误差不变；本次回执、原图及自包含报告位于 `build/material-comparison/current/1793773436458021000/`。
+
+另用高对比线性 HDR 全景图和 cubemap 各完成一次真实 IBL 烘焙，均完成 97 项任务、发布三项 KTX 及相邻 meta、正常增量导入并刷新场景，编辑器均正常退出。全景图回执在 `build/ibl-high-contrast-hdr/1793773514741883000/project/cache/verification/1793773515071122000/`，cubemap 回执在 `build/ibl-high-contrast-hdr/1793773375678584000/project/cache/verification/1793773375819501000/`。这些记录覆盖本机 Metal；其他平台只完成共享接口适配，未宣称已构建或运行通过。
 
 ### 2026-11-03：预制体与公开范例迁移，macOS ARM64 / QuickJS
 
@@ -370,3 +426,45 @@ Debug（Tracy OFF）与 Release（ON）各 7 项定向测试通过；运行时�
 直接 TS 执行覆盖当前 Gameplay/模块实例复用、Run 代次、错误隔离、JSON 结果与临时代码回收；UI 覆盖实际点击/双击、Unicode 输入、修饰键选区、遮挡、取消和源文件冲突保护。真实渲染 MCP 验证查询、设置、撤销/重做及资源身份，不以此宣称最终画面质量已验收。
 
 `close_editor` 已在真实编辑器验证完成回执先返回、正常退出码 0，并验证回执写入失败时不会提前关闭。工具数量和边界见 [MCP 覆盖](plugins/editor/mcp-coverage.md)；公开项目的用例、操作脚本及端到端结果见 [showcase 覆盖](editor/showcase-coverage.md)。V8 本轮仅做变更实现的语法编译，实际脚本执行使用默认 QuickJS；未重新声明全部仓库或其他平台通过。
+
+## PBR IBL / SSR 定向验证（2026-11-04）
+
+**精确 sRGB 输出补充验证**：macOS Metal Release 的 `engine.window_render` 对线性 RGB `0.001 / 0.0031308 / 0.01` 实测显示值 `3 / 10 / 25`，独立标准 sRGB 参考为 `3.29 / 10.31 / 25.46`（8 位量化单位）；清屏 RGB `10 / 64 / 127` 解码再编码后保持相同。`engine.planar_reflection` 检查主视图和反射共用的清屏解码在 sRGB 转折点两侧的数值，窗口测试继续覆盖真实镜面反射；该检查不单独量化反射背景像素。`engine.font_ui_render` 验证现有 UI 和 3D 字体绘制、HDR 关闭时的字体稳定性及资源生命周期，但不单独量化字体暗色样点。三个 Release 测试通过，受影响目标的 Debug 与 Release 编译通过。显示空间的 UI 预乘混合保持原有行为。历史 gamma 2.2 输出和新 sRGB 结果不能直接混用；下述历史数字保留采集时的显示变换。
+
+macOS Metal Release 的 `engine.window_render` 使用正式资源目录加载白色 RGBA16F 立方纹理及合成 RG16F split-sum LUT，验证视角 0°、60°、80°，金属度 0、0.5、1 与粗糙度 0.1、0.5、1 共 27 组白炉能量组合。截图经逆 Reinhard 与 gamma 2.2 变换后的值均约 0.998，参考为 1；有色半金属 RGB 分别为 0.8297、0.3975、0.3277，参考为 0.8351、0.3964、0.3297；允许 8 位输出量化误差。测试 LUT 为固定的合成输入，不验证 IBL 烘焙，也不代替线性浮点缓冲回读或真实 HDR 环境的验收。
+
+同一窗口测试还比较金属度 0、0.5、1 下开启和关闭 SSR 的屏幕像素，覆盖 IBL 与 SSR 同时启用及有色 SpecGloss 材质，并保留 AO、正交相机、反射及水材质回归。有色 SpecGloss 的 80° 掠射、漫反射及合成 IBL 各通道均与参考计算对照，使用截图反推线性值。无 IBL LUT 时，环境光、光照贴图和探针的漫反射使用与 SSR 相同的 Three.js DFG 拟合估计菲涅耳能量分配，不凭漫反射数据生成不存在的镜面环境；窗口测试对照多种金属度和有色 SpecGloss 的独立积分值。该拟合仍有误差：例如 80°、粗糙度 0.1 的菲涅耳估计相对独立积分绝对误差约 0.062。SSR 只替换线性反射子项，非线性与多次散射保留环境估计，不能称为完整物理反射。未实测其他图形后端。
+
+另运行 `python3 tests/plugins/editor/scene_bake/ibl_gpu_test.py --run`，在公开临时项目使用白色线性 HDR 纹理完成实际 GPU IBL 烘焙、资源发布和场景加载：97/97 作业完成，漫反射六面值为 1，预过滤各 mip 和六面值为 0.99951–1；真实 LUT 的九个采样点与独立 8192 样本积分最大绝对误差为 0.013142。接收面截图从 RGB 0 变为 186，逆显示转换约为 0.998。该结果仅验证白环境、九个 LUT 采样点以及 SDR 截图，尚不代表真实复杂 HDR 环境或线性浮点渲染读回通过。脚本通过 MCP 正常关闭编辑器，退出码为 0；测试中发现并修复了烘焙句柄重复销毁造成的退出崩溃。
+
+运行 `python3 tests/plugins/editor/scene_bake/ibl_directional_hdr_gpu_test.py` 验证非均匀线性 HDR 的实际 GPU 烘焙。512×256 的 RGBA16F 全景输入为 `L(w) = (2 + 1.2 wx, 1.5 + 0.8 wy, 1 + 0.7 wz)`，包含大于 1 的辐亮度；IBL 分辨率为 64、采样数 256、LUT 分辨率 128。完成 97/97 步；修复源 mip 滤波后，漫反射立方图 54 个样点相对解析余弦半球积分的最大绝对误差为 0.060939，预过滤立方图 7 个 mip 的 300 个样点相对独立数值积分的最大绝对误差为 0.124219，最差点位于 1×1 mip；修复前对应数值为 0.033595 和 0.083203。测试逐通道绝对误差阈值为 0.15，包含有限采样、纹理分辨率、mip 滤波及半精度存储的偏差，并非对其他环境的精度保证。截图仅用于验证资源发布和加载产生画面响应；环境是平滑的低频解析输入，截图为 8 位 SDR，尚不能代替摄影 HDR、Blender 对照或线性浮点读回。测试使用临时公开项目，经 MCP 正常关闭编辑器，退出码 0；数据位于 `build/ibl-directional-hdr/`。
+
+高对比测试 `python3 tests/plugins/editor/scene_bake/ibl_high_contrast_hdr_gpu_test.py` 使用峰值 RGB `[32, 16, 8]`、背景 `[0.2, 0.2, 0.2]`、角半径 10° 的线性 HDR 亮斑，与独立 GGX 数值积分对照。输入全景仅有基础层时，原实现直接读取不存在的全景 mip，预过滤容易漏掉或夸大亮斑。改为从立方图基础层逐级按立体角滤波并进行全景足迹采样后，64 分辨率、256 样本下 +Z 面中心红色通道的 mip 4/5/6 分别由 `0.2722/0.2311/1.8018` 变为 `1.5078/0.9106/0.9668`，独立积分参考为 `1.7999/1.0718/1.1589`。单层 cube 输入重建 mip 后对应结果为 `1.4844/0.8979/0.9541`。白环境回归仍通过；高亮结果仍有明显偏差，且 mip 1 为 `26.8125`、参考 `28.9515`，不能视为精确收敛或摄影 HDR 验收。报告与输入纹理位于 `build/ibl-high-contrast-hdr/`。
+
+标准 SpecGloss 颜色空间回归使用正式纹理资源，RGB 字节 `(128, 176, 224)` 分别按 sRGB 和线性读取，并以 alpha 160、80 覆盖线性光滑度；正入射直接光的三个颜色通道与独立 sRGB 解码及 GGX 参考对照。例如 sRGB/alpha 160 实测为 `0.2248/0.3348/0.3891`，参考为 `0.2234/0.3369/0.3856`。这些数值从 8 位截图反推线性值，仍受截图量化影响；同一窗口回归通过。
+
+非 2 的幂立方输入的 mip 生成验证使用 5×5 单层线性 HDR，+Z 面中央亮列；经实际 GPU 烘焙后，预过滤 mip 4/5/6 的五点与独立积分相比最大绝对误差为 0.07068，左右对称点差约 0.00098。测试限定此输入、1024 采样及指定点，不能推广为所有 NPOT 或摄影环境的精度保证。完整输入和回执位于 `build/ibl-npot-cube/`。
+
+全景小亮斑验证运行 `python3 tests/plugins/editor/scene_bake/ibl_panorama_footprint_gpu_test.py`，输入为 1024×512 线性 HDR 全景中 4×4 像素亮斑，峰值 2048、背景 0.25；以经纬图源像素的精确球面立体角积分作为参考。实际 GPU 烘焙输出的亮斑超出背景部分的球面积分，相对误差在赤道、接缝和近极点分别为 2.47%、2.56%、3.91%，三项均低于该固定测试的 10% 回归阈值。测试只覆盖三个位置及该尺寸，有限采样无法保证任意亚像素亮斑不丢失；报告位于 `build/ibl-panorama-footprint/`。
+
+**源 mip 选择修正后的补充验证**：上面各段保留当时的历史结果。依据 GPU Gems 3 的样本立体角与立方图平均像素立体角公式补回 `4π` 后，在相同 macOS Metal Release 和 256 样本下重新烘焙：高对比全景 +Z 面的 mip 1/4/5/6 红色通道从 `26.8125/1.5078/0.9106/0.9668` 变为 `28.8594/1.7666/1.0518/1.1875`，独立数值积分参考为 `28.9515/1.7999/1.0718/1.1589`；6 面、7 个 mip、RGB 共 126 个通道样点的平均绝对误差从 `0.07374` 降到 `0.00684`，最大值从 `2.13899` 降到 `0.09212`。单层 cube 输入的最大绝对误差为 `0.14548`；全景输入以 1024 样本烘焙时为 `0.04320`。测试增加低粗糙度 mip 1/2 的独立积分回归，允许每通道误差不超过输入对比度的 1.5%，原 mip 4/5/6 的 2% 阈值保持不变。
+
+同条件重跑平滑方向 HDR，漫反射 54 点最大绝对误差从 `0.060939` 降到 `0.009234`，预过滤 300 点从 `0.124219` 降到 `0.016797`；白环境、NPOT cube 和赤道／接缝／近极点小亮斑测试均通过，NPOT 五点最大误差为 `0.054505`、左右对称误差为 `0.000977`。这些指标只覆盖指定输入和采样点；使用平均立体角以及有限分辨率和样本数仍是近似，不保证所有高动态范围环境或其他 GPU 后端达到相同误差。
+
+`engine.pbr_hdr_direct_light` 使用生产共用的直接光 Shader，将受控结果写入 RGBA16F GPU 目标并读回，对照独立数学公式。macOS Metal Release 的七组输入覆盖方向光、金属度、低粗糙度、点光距离和聚光锥角；金属和低粗糙度高光分别为 `162.875`、`7764`，参考值为 `162.975`、`7764.916`。此测试不覆盖完整场景的材质采样、IBL、后处理或 HDR 回读，也不表示灯光已按物理单位标定。
+
+`engine.window_render` 的切线回归比较静态节点非均匀／负缩放与独立预变换几何，两组的变换结果与预变换结果的红通道均为 `126/126`；负缩放故意使用错误手性时为 `0/126`。该实窗测试输出为显示编码图像，验证范围限于测试几何、材质及所测变换。
+
+普通 `.mesh` 导入、FBX 和建模网格复用编辑器侧 MikkTSpace 切线生成。Release 的建模核心与管线、网格及贴图管线、FBX 绑定姿态和两项架构检查共 7 项通过，插件选择检查另行通过；独立启用建模和独立启用资源管线的配置也分别通过相应功能测试。普通网格测试覆盖非单位法线、镜像 UV 拆点、UV2、颜色、子网格、已有切线、无 UV 和无效数据不发布。运行时动态网格不经过编辑器离线生成，仍使用运行时既有路径。
+
+`engine.window_render` 的正式场景组合验证使用 sRGB 材质贴图、方向光和白色 IBL，分别检查直接光、IBL 与两者叠加。对 SDR 截图按已知 Reinhard 和 gamma 2.2 反变换后，组合 RGB 为 `0.9980 / 1.6691 / 2.6058`，独立解析参考为 `0.9948 / 1.6637 / 2.6336`，最大绝对误差约 `0.0278`。高亮蓝通道的一个 8 位码级约相当于 `0.0967` 的线性值；该测试可以检查指定场景的组合关系，不能替代浮点 HDR 直接回读。
+
+2026-11-04，固定版本 MikkTSpace 的小角度补丁和导入指纹更新后，macOS Debug／Release 受影响编辑器与测试目标编译通过；Release `modeling.core`、`editor.mesh_pipeline`、`editor.fbx_pipeline` 共 3/3 通过。细长三角形切线回归在补丁前失败、补丁后通过，完整 showcase 资源导入和编辑器正常关闭也已验证。HDR 捕获另以 Release `engine.scene_hdr_capture` 验证已提交帧后失去相机以及读回期间重建 MSAA 目标，1/1 通过。
+
+使用最新 Release 编辑器与 Blender 5.2，在 1280×720、相同曝光和 Reinhard、精确 sRGB 编码下采集 12 组、对照其中 11 组材质球；逐球数值和具体限制见[当前 PBR 对照](../projects/showcase/tools/pbr-comparison/current-results.md)。单文件图文报告为 `build/material-comparison/current/1793770721339431000/review.html`；这是 macOS Metal 的受控场景结果，不能代替其他后端或完整场景的验收。
+
+**透明与渲染扩展的线性 HDR 捕获**：2026-11-04，macOS Metal Release 使用 Retina 实际 256×256 帧缓冲完成 `engine.scene_hdr_transparency` 和 `engine.hdr_extension_capture`。透明测试逐像素核对去除边缘后的 240×240 区域：受光背景及两层 PBR 表面分别与解析参考比较，验证 straight alpha、premultiplied alpha 的线性排序合成；测试参考的反向排序红通道差大于 0.1。合成参考 RGB 为 `1.37001 / 0.45327 / 1.00331`，两种模式中心均为 `1.36914 / 0.45288 / 1.00293`。非受光透明层覆盖受光背景时，RGB 与解析参考比较，HDR 目标 alpha 表示的 tone-map 权重由 1 降到 0.5；同时验证不透明表面的深度遮挡。启用 4 倍曝光、Filmic 和 Bloom，捕获仍为后处理前的线性结果。
+
+扩展测试在实际 `RenderExtension` 上绘制线性 RGB `2 / 0.75 / 0.125` 色块，逐像素核对扩展区域和 sRGB 解码后的背景；关闭扩展、开启扩展及开启后处理三种情况下，整张图的最大 RGB 绝对误差均为 `0.000027`。以上测试覆盖指定场景，不单独覆盖透明边缘、MSAA 下的透明合成、扩展与透明网格的混合或深度关系；扩展测试只核对 RGB，不核对其目标 alpha。
+
+`engine.destruction_runtime` 验证碎块组装保留已有切线及手性，缺失切线按实际 UV 分块生成；同步及异步破碎后均检查数据。macOS Release 测试通过，相关 Debug 和 Release 目标均已编译。

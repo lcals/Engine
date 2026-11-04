@@ -1,0 +1,93 @@
+root = "1"
+
+[[nodes]]
+id = "1"
+name = "Material comparison"
+parent = "0"
+
+[[nodes.components]]
+type = "transform"
+
+[[nodes]]
+id = "2"
+name = "basecolor 1"
+parent = "1"
+
+[[nodes.components]]
+type = "transform"
+position = [-2.2, 1.1, 0.0]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "a0e3606e-b1b6-440b-b79e-fa7ee383ab0e"
+material = "759a8738-26dd-502a-afae-33a6da302d8d"
+
+[[nodes]]
+id = "3"
+name = "basecolor 2"
+parent = "1"
+
+[[nodes.components]]
+type = "transform"
+position = [0, 1.1, 0.0]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "a0e3606e-b1b6-440b-b79e-fa7ee383ab0e"
+material = "ad951cff-ebde-549f-981d-0d708208a5b3"
+
+[[nodes]]
+id = "4"
+name = "basecolor 3"
+parent = "1"
+
+[[nodes.components]]
+type = "transform"
+position = [2.2, 1.1, 0.0]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "a0e3606e-b1b6-440b-b79e-fa7ee383ab0e"
+material = "1fdfa896-4703-5577-9257-79823c71a7ac"
+
+[[nodes]]
+id = "5"
+name = "basecolor 4"
+parent = "1"
+
+[[nodes.components]]
+type = "transform"
+position = [-2.2, -1.1, 0.0]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "a0e3606e-b1b6-440b-b79e-fa7ee383ab0e"
+material = "071cb4da-7ed1-5653-90e0-6970fd2ee651"
+
+[[nodes]]
+id = "6"
+name = "basecolor 5"
+parent = "1"
+
+[[nodes.components]]
+type = "transform"
+position = [0, -1.1, 0.0]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "a0e3606e-b1b6-440b-b79e-fa7ee383ab0e"
+material = "caff9eca-8cc1-5981-8b52-71b42f046eb7"
+
+[[nodes]]
+id = "7"
+name = "basecolor 6"
+parent = "1"
+
+[[nodes.components]]
+type = "transform"
+position = [2.2, -1.1, 0.0]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "a0e3606e-b1b6-440b-b79e-fa7ee383ab0e"
+material = "f943b884-348b-5390-b4b4-a1bc631577d8"

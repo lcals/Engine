@@ -1,0 +1,35 @@
+shader = "00000000-0000-4000-8000-000000000001"
+
+[[parameters]]
+name = "baseColor"
+type = "v4"
+value = [0.5, 0.5, 0.5, 1]
+
+[[parameters]]
+name = "metallic"
+type = "float"
+value = 0
+
+[[parameters]]
+name = "roughness"
+type = "float"
+value = 0.5
+
+[[parameters]]
+name = "specularWorkflow"
+type = "float"
+value = 1
+
+[[parameters]]
+name = "smoothness"
+type = "float"
+value = 0.5
+
+[[parameters]]
+name = "specularColor"
+type = "v3"
+value = [0.04, 0.04, 0.04]
+
+[[textures]]
+name = "specularTexture"
+texture = "664ad54e-0f84-5c6a-9a11-71056d08d5f9"

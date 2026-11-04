@@ -4,7 +4,7 @@
 
 #include <cstdint>
 #include <filesystem>
-#include <fstream>
+#include <memory>
 #include <mutex>
 #include <string_view>
 
@@ -40,14 +40,11 @@ protected:
 
 private:
     LogSystem() noexcept;
-    [[nodiscard]] bool rotate_file();
-    void report_file_failure() noexcept;
+    struct Output;
 
     std::mutex mutex_;
-    std::ofstream file_;
+    std::shared_ptr<Output> output_;
     std::filesystem::path file_path_;
-    std::uintmax_t file_size_ = 0;
-    bool file_failed_ = false;
 };
 
 } // namespace engine

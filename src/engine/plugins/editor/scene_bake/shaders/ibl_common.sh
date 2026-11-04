@@ -38,34 +38,14 @@ vec3 transform_TBN(vec3 v, vec3 T, vec3 B, vec3 N)
 // https://developer.nvidia.com/gpugems/gpugems3/part-iii-rendering/chapter-20-gpu-based-importance-sampling
 float compute_lod(float pdf)
 {
-    // // IBL Baker (Matt Davidson)
-    // // https://github.com/derkreature/IBLBaker/blob/65d244546d2e79dd8df18a28efdabcf1f2eb7717/data/shadersD3D11/IblImportanceSamplingDiffuse.fx#L215
-    // float solidAngleTexel = 4.0 * M_PI / (6.0 * float(u_face_texture_size) * float(u_sample_count));
-    // float solidAngleSample = 1.0 / (float(u_sample_count) * pdf);
-    // float lod = 0.5 * log2(solidAngleSample / solidAngleTexel);
-
-    // // Solid angle of current sample -- bigger for less likely samples
-    // float omegaS = 1.0 / (float(u_sampleCount) * pdf);
-    // // Solid angle of texel
-    // // note: the factor of 4.0 * MATH_PI
-    // float omegaP = 4.0 * MATH_PI / (6.0 * float(u_width) * float(u_width));
-    // // Mip level is determined by the ratio of our sample's solid angle to a texel's solid angle
-    // // note that 0.5 * log2 is equivalent to log4
-    // float lod = 0.5 * log2(omegaS / omegaP);
-
-    // babylon introduces a factor of K (=4) to the solid angle ratio
-    // this helps to avoid undersampling the environment map
-    // this does not appear in the original formulation by Jaroslav Krivanek and Mark Colbert
-    // log4(4) == 1
-    // lod += 1.0;
-
-    // We achieved good results by using the original formulation from Krivanek & Colbert adapted to cubemaps
-
-    // https://cgg.mff.cuni.cz/~jaroslav/papers/2007-sketch-fis/Final_sap_0073.pdf
-
-    float lod = 0.5 * log2( 6.0 * float(u_cubemap_facesize) * float(u_cubemap_facesize) / (float(u_sample_count) * pdf));
-
-    return lod;
+    // The expected sample footprint is 1 / (N * pdf) steradians. A cube has
+    // 6 * size^2 texels covering 4*pi steradians, so omitting 4*pi selects a
+    // mip about 1.83 levels too coarse. This uses the average texel footprint;
+    // individual cube texels vary in solid angle across each face.
+    float sample_solid_angle = 1.0 / (float(u_sample_count) * max(pdf, 1e-8));
+    float texel_solid_angle = (4.0 * M_PI) /
+        (6.0 * float(u_cubemap_facesize) * float(u_cubemap_facesize));
+    return 0.5 * log2(sample_solid_angle / texel_solid_angle);
 }
 
 // Hammersley Points on the Hemisphere
@@ -182,9 +162,9 @@ vec4 importance_sample_Lambertian(int sampleidx, vec3 N)
 }
 // A separate 2D UAV is used per face, avoiding cube image-view differences on Metal.
 uniform vec4 u_bake_face;
-vec3 bake_direction(ivec2 id, ivec2 size)
+vec3 bake_direction_at(vec2 position, vec2 size)
 {
-    vec2 uv = (vec2(id) + 0.5) / vec2(size);
+    vec2 uv = position / size;
     uv.y = 1.0 - uv.y;
     uv = uv * 2.0 - 1.0;
     int face = int(u_bake_face.x);
@@ -196,5 +176,9 @@ vec3 bake_direction(ivec2 id, ivec2 size)
     else if (face == 4) direction = vec3(uv.x, uv.y, 1.0);
     else direction = vec3(-uv.x, uv.y, -1.0);
     return normalize(direction);
+}
+vec3 bake_direction(ivec2 id, ivec2 size)
+{
+    return bake_direction_at(vec2(id) + 0.5, vec2(size));
 }
 #endif

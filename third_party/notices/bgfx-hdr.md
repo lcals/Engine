@@ -2,7 +2,8 @@
 
 HDR 场景合成与 Bloom 适配 bgfx 官方 `examples/09-hdr`，固定来源为
 [`7a70927d2af7ffcc5cef9c9e8f4c821e31fcb099`](https://github.com/bkaradzic/bgfx/tree/7a70927d2af7ffcc5cef9c9e8f4c821e31fcb099/examples/09-hdr)，
-与项目使用的 bgfx.cmake `v1.129.8940-496` 对应。作者为 Branimir Karadzic，
+最初引入时对应 bgfx.cmake `v1.129.8940-496`；运行依赖现已升级到 `v1.167.9605-606`，
+这里保留算法适配的原始固定来源。作者为 Branimir Karadzic，
 许可为 BSD-2-Clause。
 
 适配文件位于 `src/engine/runtime/render/shaders/hdr/`：
@@ -14,13 +15,15 @@ HDR 场景合成与 Bloom 适配 bgfx 官方 `examples/09-hdr`，固定来源为
 - `hdr_helpers.sh`：保留上游 `common.sh` 的 `blur9` 权重
   `1 / 0.9 / 0.55 / 0.18 / 0.1`，以 `4.46` 归一化；色调映射使用已有的
   Reinhard 及上游 `examples/common/shaderlib.sh` 的 ACES 拟合。
+- `../color_space.sh`：采用同一固定提交的 `examples/common/shaderlib.sh` 中
+  `toLinearAccurate` / `toGammaAccurate` 分段 sRGB 转换，仅更名；CPU 清屏按相同公式计算。
 
 CPU 调度和目标生命周期参考同目录 `hdr.cpp`，使用独立场景目标、亮部目标、
 垂直模糊目标及最终合成通道。为适配引擎的现有场景参数，作出以下调整：
 
 - 场景和 Bloom 中间目标改用线性 RGBA16F，不沿用 RGBE8 编解码。
 - 阈值在曝光前的线性颜色上计算，移除示例亮部提取阶段的色调映射和 gamma。
-- 合成线性 Bloom 后仅执行一次曝光、Reinhard/ACES 和 gamma，保留已有 SDR 输出方式。
+- 合成线性 Bloom 后仅执行一次曝光、Reinhard/ACES 和精确 sRGB 显示编码。
 - 使用调用方明确传入的曝光，不引入示例的亮度测量、自动曝光或亮度平均贴图。
 - Bloom 强度和半径来自场景参数，两轴步长使用相同缩小目标尺寸和半径。
 - Uniform 使用 `u_hdr_params`、`u_hdr_texel`，采样器使用 `s_hdr_scene`、`s_hdr_bloom`，

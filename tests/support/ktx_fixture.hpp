@@ -30,7 +30,7 @@ inline std::string ktx_image(bool cube, bool rgba, std::uint8_t mip_count)
     bx::StaticMemoryBlockWriter writer(output.data(), static_cast<std::uint32_t>(output.size()));
     bx::Error error;
     const auto written = bimg::imageWriteKtx(
-        &writer, rgba ? bimg::TextureFormat::RGBA16F : bimg::TextureFormat::RG16F, cube, 4, 4, 1,
+        &writer, rgba ? bimg::TextureFormat::RGBA16F : bimg::TextureFormat::RG16F, cube, 4, 4, 0,
         mip_count, 1, false, pixels.data(), &error);
     return error.isOk() && written == static_cast<std::int32_t>(output.size()) ? output
                                                                                : std::string{};

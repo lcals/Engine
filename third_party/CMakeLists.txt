@@ -14,6 +14,10 @@ if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
     include("${PROJECT_SOURCE_DIR}/cmake/dependencies/asset_pipeline.cmake")
 endif()
 
+if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS OR "editor/modeling" IN_LIST ENGINE_SELECTED_PLUGINS)
+    include("${PROJECT_SOURCE_DIR}/cmake/dependencies/mesh_tangents.cmake")
+endif()
+
 if("runtime/effects" IN_LIST ENGINE_SELECTED_PLUGINS)
     include("${PROJECT_SOURCE_DIR}/cmake/dependencies/effects.cmake")
 endif()

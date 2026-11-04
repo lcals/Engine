@@ -48,21 +48,20 @@ bool scene_lifetime_phases()
     {
         return false;
     }
-    for (bool readonly : {true, false})
+    for (bool multi_threaded : {true, false})
     {
         const auto request = world.begin_restore_scene(resource);
         if (!request || world.step_restore_scene(request, 64) != SceneRestoreStatus::ready)
         {
             return false;
         }
-        if (readonly)
-        {
-            ecs_readonly_begin(world.native_world(), true);
-        }
-        else
-        {
-            ecs_defer_begin(world.native_world());
-        }
+        auto* native = world.native_world();
+        const auto marker = ecs_new(native);
+        auto* stage = ecs_get_stage(native, 0);
+        ecs_readonly_begin(native, multi_threaded);
+        ecs_add_id(stage, marker, EcsDisabled);
+        const bool staged = ecs_is_stage(stage) && !ecs_is_stage(native) &&
+                            !ecs_has_id(native, marker, EcsDisabled);
         const bool rejected = !world.destroy_scene(active->id()) &&
                               !world.load_scene("phases.scene") &&
                               world.step_restore_scene(request, 64) == SceneRestoreStatus::failed &&
@@ -71,17 +70,12 @@ bool scene_lifetime_phases()
         world.unload_scene();
         world.destroy_scene();
         const bool owners_retained = world.scene() == active && node.valid();
-        if (readonly)
-        {
-            ecs_readonly_end(world.native_world());
-        }
-        else
-        {
-            ecs_defer_end(world.native_world());
-        }
-        if (!expect(rejected && owners_retained && world.scene() == active && node &&
-                        world.step_restore_scene(request, 0) == SceneRestoreStatus::ready,
-                    "non-writable phases preserve scene owners and pending candidate entities"))
+        ecs_readonly_end(native);
+        const bool merged = ecs_has_id(native, marker, EcsDisabled);
+        ecs_delete(native, marker);
+        if (!expect(staged && merged && rejected && owners_retained && world.scene() == active &&
+                        node && world.step_restore_scene(request, 0) == SceneRestoreStatus::ready,
+                    "both readonly modes isolate stage commands and retain scene/candidate owners"))
         {
             return false;
         }
@@ -176,11 +170,19 @@ bool check()
     {
         return false;
     }
-    ecs_defer_begin(world.native_world());
-    const bool deferred_safe = !nodes.front().set_parent({});
-    ecs_defer_end(world.native_world());
-    if (!expect(deferred_safe && nodes.front().parent() == root,
-                "facade never reports deferred structural mutation as immediately committed"))
+    auto* native = world.native_world();
+    const auto marker = ecs_new(native);
+    auto* stage = ecs_get_stage(native, 0);
+    ecs_readonly_begin(native, false);
+    ecs_add_id(stage, marker, EcsDisabled);
+    const bool staged_safe = !nodes.front().set_parent({}) &&
+                             !ecs_has_id(native, marker, EcsDisabled) &&
+                             nodes.front().parent() == root;
+    ecs_readonly_end(native);
+    const bool merged = ecs_has_id(native, marker, EcsDisabled);
+    ecs_delete(native, marker);
+    if (!expect(staged_safe && merged && nodes.front().parent() == root,
+                "facade rejects queued writes; merging native stage commands keeps its parent"))
     {
         return false;
     }

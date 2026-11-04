@@ -1220,9 +1220,9 @@ struct PhysicsSystem::State final : JPH::ContactListener, JPH::CharacterContactL
                 configuration.mNumVelocitySteps);
         }
         float impulse = 0;
-        for (const auto& item : estimate.mImpulses)
+        for (const auto item : estimate.mContactImpulse)
         {
-            impulse += std::max(0.0F, item.mContactImpulse);
+            impulse += std::max(0.0F, item);
         }
         if (!std::isfinite(impulse) || impulse <= 0)
         {
@@ -1339,18 +1339,21 @@ struct PhysicsSystem::State final : JPH::ContactListener, JPH::CharacterContactL
         touched_contacts.insert_or_assign(sample.pair, sample);
     }
 
-    void OnContactAdded(const JPH::CharacterVirtual* character, const JPH::BodyID& body,
-                        const JPH::SubShapeID& subshape, JPH::RVec3Arg point, JPH::Vec3Arg normal,
+    void OnContactAdded(const JPH::CharacterVirtual* character,
+                        const JPH::CharacterContact& contact,
                         JPH::CharacterContactSettings&) override
     {
-        collect_character_contact(character, body, subshape, point, normal);
+        // Jolt 5.6 stores the normal towards the character; our event points to the other body.
+        collect_character_contact(character, contact.mBodyB, contact.mSubShapeIDB,
+                                  contact.mPosition, -contact.mContactNormal);
     }
 
-    void OnContactPersisted(const JPH::CharacterVirtual* character, const JPH::BodyID& body,
-                            const JPH::SubShapeID& subshape, JPH::RVec3Arg point,
-                            JPH::Vec3Arg normal, JPH::CharacterContactSettings&) override
+    void OnContactPersisted(const JPH::CharacterVirtual* character,
+                            const JPH::CharacterContact& contact,
+                            JPH::CharacterContactSettings&) override
     {
-        collect_character_contact(character, body, subshape, point, normal);
+        collect_character_contact(character, contact.mBodyB, contact.mSubShapeIDB,
+                                  contact.mPosition, -contact.mContactNormal);
     }
 
     void OnContactRemoved(const JPH::CharacterVirtual* character, const JPH::BodyID& body,
@@ -1362,19 +1365,19 @@ struct PhysicsSystem::State final : JPH::ContactListener, JPH::CharacterContactL
     }
 
     void OnCharacterContactAdded(const JPH::CharacterVirtual* character,
-                                 const JPH::CharacterVirtual* other,
-                                 const JPH::SubShapeID& subshape, JPH::RVec3Arg point,
-                                 JPH::Vec3Arg normal, JPH::CharacterContactSettings&) override
+                                 const JPH::CharacterContact& contact,
+                                 JPH::CharacterContactSettings&) override
     {
-        collect_character_contact(character, other, subshape, point, normal);
+        collect_character_contact(character, contact.mCharacterB, contact.mSubShapeIDB,
+                                  contact.mPosition, -contact.mContactNormal);
     }
 
     void OnCharacterContactPersisted(const JPH::CharacterVirtual* character,
-                                     const JPH::CharacterVirtual* other,
-                                     const JPH::SubShapeID& subshape, JPH::RVec3Arg point,
-                                     JPH::Vec3Arg normal, JPH::CharacterContactSettings&) override
+                                     const JPH::CharacterContact& contact,
+                                     JPH::CharacterContactSettings&) override
     {
-        collect_character_contact(character, other, subshape, point, normal);
+        collect_character_contact(character, contact.mCharacterB, contact.mSubShapeIDB,
+                                  contact.mPosition, -contact.mContactNormal);
     }
 
     void OnCharacterContactRemoved(const JPH::CharacterVirtual* character,

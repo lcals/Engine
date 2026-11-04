@@ -1,6 +1,6 @@
 --- a/config/clang/clang.gni
 +++ b/config/clang/clang.gni
-@@ -72,6 +72,10 @@
+@@ -85,6 +85,10 @@
  
    clang_base_path = default_clang_base_path
  
@@ -8,12 +8,12 @@
 +  # Keep the pinned compiler and its headers; use NDK runtimes when linking.
 +  android_clang_resource_dir = ""
 +
-   # Specifies whether or not bitcode should be embedded during compilation.
-   # This is used for creating a MLGO corpus from Chromium in the non-ThinLTO case.
+   # Specifies whether or not bitcode should be embedded during compilation. This
+   # is used for creating a MLGO corpus from Chromium in the non-ThinLTO case.
    clang_embed_bitcode = false
 --- a/config/clang/BUILD.gn
 +++ b/config/clang/BUILD.gn
-@@ -216,6 +216,9 @@
+@@ -254,6 +254,9 @@
        }
  
        _clang_lib_dir = "$clang_base_path/lib/clang/$clang_version/lib"
@@ -25,7 +25,7 @@
      }
 --- a/config/android/BUILD.gn
 +++ b/config/android/BUILD.gn
-@@ -84,6 +84,11 @@
+@@ -86,6 +86,11 @@
  # that is Android-only. Please see that target for advice on what should go in
  # :runtime_library vs. :compiler.
  config("runtime_library") {

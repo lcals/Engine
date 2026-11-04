@@ -106,10 +106,12 @@ bool write_meta(const fs::path& path, std::string_view guid, std::string_view im
 
 bool prepare_custom_shader(const fs::path& directory)
 {
-    constexpr std::array names = {"vs_font.sc", "fs_font.sc", "font_varying.def.sc"};
+    constexpr std::array names = {"vs_font.sc", "fs_font.sc", "font_varying.def.sc",
+                                  "color_space.sh"};
     constexpr std::array guids = {"59bef84c-a37d-4c1e-9dcb-f707a50e62bf",
                                   "20317145-d307-49df-b3db-62f52cdb4605",
-                                  "abfb881a-7719-4a74-9c1c-22d3f81a48f6"};
+                                  "abfb881a-7719-4a74-9c1c-22d3f81a48f6",
+                                  "b93d7c93-5c53-41e3-9330-41c7de5364c4"};
     for (std::size_t index = 0; index < names.size(); ++index)
     {
         std::string source;

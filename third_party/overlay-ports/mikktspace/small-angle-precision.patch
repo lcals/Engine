@@ -1,0 +1,24 @@
+diff --git a/mikktspace.c b/mikktspace.c
+--- a/mikktspace.c
++++ b/mikktspace.c
+@@ -1413,6 +1413,19 @@ static STSpace EvalTspace(int face_indices[], const int iFaces, const int piTriLi
+ 			// weight contribution by the angle
+ 			// between the two edge vectors
+ 			fCos = vdot(v1,v2); fCos=fCos>1?1:(fCos<(-1) ? (-1) : fCos);
+-			fAngle = (float) acos(fCos);
++			// Local engine patch: acos loses the entire angle when the float dot
++			// product rounds to 1 for a very thin but non-degenerate triangle.
++			// The cross product retains that small angular difference. Keep the
++			// original path for all other angles to preserve upstream results.
++			if (fCos == 1.0f)
++			{
++				SVec3 cross;
++				cross.x = v1.y*v2.z - v1.z*v2.y;
++				cross.y = v1.z*v2.x - v1.x*v2.z;
++				cross.z = v1.x*v2.y - v1.y*v2.x;
++				fAngle = (float) atan2(Length(cross), fCos);
++			}
++			else
++				fAngle = (float) acos(fCos);
+ 			fMagS = pTriInfos[f].fMagS;
+ 			fMagT = pTriInfos[f].fMagT;

@@ -69,7 +69,9 @@ bool compile_shaders(std::string_view target, const std::filesystem::path& cache
     std::vector<std::filesystem::path> inputs{compiler};
     for (const auto name : {"vs_cube.sc", "fs_cube.sc", "vs_font.sc", "fs_font.sc",
                             "varying.def.sc", "font_varying.def.sc", "pbr_helpers.sh",
-                            "material_helpers.sh", "shadow_helpers.sh", "csm_helpers.sh"})
+                            "pbr_surface.sh", "pbr_lighting.sh", "dfg_approx.sh", "color_space.sh",
+                            "material_helpers.sh", "shadow_helpers.sh", "csm_helpers.sh",
+                            "local_shadow_helpers.sh", "cluster/lighting.sh"})
     {
         inputs.push_back(sources / name);
     }

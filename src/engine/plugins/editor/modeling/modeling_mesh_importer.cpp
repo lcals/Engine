@@ -130,6 +130,7 @@ bool ModelingMeshImporter::convert(const editor::asset_pipeline::ImportAsset& as
     if (!EditableMesh::deserialize(bytes, editable, error) ||
         !EditableMesh::compile(editable, asset.path, mesh, error))
     {
+        error = asset.path + ": " + error;
         return false;
     }
     return write_mesh(context.output / asset.guid, mesh, error);

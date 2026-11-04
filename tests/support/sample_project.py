@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 import shutil
 
+from .typescript_toolchain import copy_typescript_toolchain
+
 
 def prepare_minimal_project(root, project):
     root = Path(root).resolve()
@@ -29,6 +31,7 @@ def prepare_minimal_project(root, project):
         "shaders/pbr_helpers.sh",
         "shaders/pbr_surface.sh",
         "shaders/pbr_lighting.sh",
+        "shaders/dfg_approx.sh",
         "shaders/material_helpers.sh",
         "shaders/shadow_helpers.sh",
         "shaders/csm_helpers.sh",
@@ -53,7 +56,7 @@ def prepare_minimal_project(root, project):
     value = json.loads(configuration.read_text(encoding="utf-8"))
     value["files"] = [str(root / "include/engine.d.ts")]
     configuration.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
-    shutil.copytree(compiler, project / "settings/node_modules/typescript")
+    copy_typescript_toolchain(compiler, project / "settings/node_modules")
     (project / "settings/resource-build.toml").write_text(
         '[[items]]\nname = "game"\nstorage = "package"\n'
         'roots = ["scripts/game.ts", "scenes/main.scene"]\nkeep = []\n',

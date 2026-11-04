@@ -8,6 +8,7 @@
 #include <bx/allocator.h>
 #include <bx/readerwriter.h>
 
+#include "cs_bake_cube_mip.bin.h"
 #include "cs_bake_irradiance.bin.h"
 #include "cs_bake_lut.bin.h"
 #include "cs_bake_panorama.bin.h"
@@ -40,7 +41,7 @@ std::uint8_t mip_count(std::uint16_t size)
     return count;
 }
 
-template <typename T> void destroy(T& handle)
+template <typename T> void destroy_handle(T& handle)
 {
     if (bgfx::isValid(handle))
     {
@@ -71,7 +72,7 @@ bool source_texture(const schema::TextureDataT& data, bgfx::TextureHandle& outpu
                          data.format == schema::TextureFormat::rgba16f;
         const auto format = hdr ? bgfx::TextureFormat::RGBA16F : bgfx::TextureFormat::RGBA8;
         const auto transcode = hdr ? basist::transcoder_texture_format::cTFRGBA_HALF
-                                  : basist::transcoder_texture_format::cTFRGBA32;
+                                   : basist::transcoder_texture_format::cTFRGBA32;
         output = bgfx::createTexture2D(static_cast<std::uint16_t>(data.width),
                                        static_cast<std::uint16_t>(data.height), data.mip_count > 1,
                                        1, format, flags);
@@ -100,8 +101,7 @@ bool source_texture(const schema::TextureDataT& data, bgfx::TextureHandle& outpu
             if (data.encoding == schema::TextureEncoding::basis)
             {
                 if (!decoder.transcode_image_level(data.data.data(), data.data.size(), 0, mip,
-                                                   pixels.data(), width * height,
-                                                   transcode))
+                                                   pixels.data(), width * height, transcode))
                 {
                     error = "Cannot decode an IBL input mip level";
                     return false;
@@ -138,7 +138,7 @@ bool ktx(std::span<const std::uint8_t> pixels, std::uint16_t size, bool cube, bo
     bx::MemoryWriter writer(&memory);
     bx::Error error;
     const auto bytes =
-        bimg::imageWriteKtx(&writer, format, cube, size, size, 1, mips ? mip_count(size) : 1, 1,
+        bimg::imageWriteKtx(&writer, format, cube, size, size, 0, mips ? mip_count(size) : 1, 1,
                             false, pixels.data(), &error);
     if (!error.isOk() || bytes <= 0)
     {
@@ -170,6 +170,7 @@ struct IblBakeJob::State
     std::size_t index = 0;
     std::array<bgfx::ProgramHandle, 4> programs{
         {BGFX_INVALID_HANDLE, BGFX_INVALID_HANDLE, BGFX_INVALID_HANDLE, BGFX_INVALID_HANDLE}};
+    bgfx::ProgramHandle cube_mip_program = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle sampler = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle parameters = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle face_uniform = BGFX_INVALID_HANDLE;
@@ -188,7 +189,9 @@ struct IblBakeJob::State
     std::uint16_t cube_size = 0;
     std::uint16_t irradiance_size = 0;
     bool input_is_cube = false;
+    bool build_cube = false;
     bool submitted = false;
+    bool blit_pending = false;
     bool reading = false;
     bool cancelled = false;
     bool finished = false;
@@ -197,15 +200,16 @@ struct IblBakeJob::State
     {
         for (auto& value : programs)
         {
-            destroy(value);
+            destroy_handle(value);
         }
-        destroy(sampler);
-        destroy(parameters);
-        destroy(face_uniform);
-        destroy(input);
-        destroy(cube);
-        destroy(scratch);
-        destroy(staging);
+        destroy_handle(cube_mip_program);
+        destroy_handle(sampler);
+        destroy_handle(parameters);
+        destroy_handle(face_uniform);
+        destroy_handle(input);
+        destroy_handle(cube);
+        destroy_handle(scratch);
+        destroy_handle(staging);
     }
 };
 
@@ -222,7 +226,7 @@ bool IblBakeJob::start(const schema::TextureDataT& source, std::uint16_t resolut
 {
     auto& s = *state_;
     const auto* caps = bgfx::getCaps();
-    const auto required = BGFX_CAPS_COMPUTE | BGFX_CAPS_TEXTURE_BLIT | BGFX_CAPS_TEXTURE_READ_BACK;
+    const auto required = BGFX_CAPS_COMPUTE;
     if (caps == nullptr)
     {
         error = "IBL baking requires initialized GPU capabilities";
@@ -253,7 +257,7 @@ bool IblBakeJob::start(const schema::TextureDataT& source, std::uint16_t resolut
     }
     if ((caps->supported & required) != required)
     {
-        return reject("IBL baking requires compute, texture blit and texture readback support");
+        return reject("IBL baking requires compute support");
     }
     const auto rgba_required = BGFX_CAPS_FORMAT_TEXTURE_2D | BGFX_CAPS_FORMAT_TEXTURE_CUBE |
                                BGFX_CAPS_FORMAT_TEXTURE_IMAGE_WRITE;
@@ -284,15 +288,18 @@ bool IblBakeJob::start(const schema::TextureDataT& source, std::uint16_t resolut
     s.input_is_cube = source.cube_map;
     s.cube_size = s.input_is_cube ? static_cast<std::uint16_t>(source.width)
                                   : std::min<std::uint16_t>(512, resolution * 2);
+    s.build_cube = !s.input_is_cube || source.mip_count < mip_count(s.cube_size);
     s.programs = {program(cs_bake_panorama), program(cs_bake_irradiance),
                   program(cs_bake_prefilter), program(cs_bake_lut)};
+    s.cube_mip_program = program(cs_bake_cube_mip);
     s.sampler = bgfx::createUniform("s_source", bgfx::UniformType::Sampler);
     s.parameters = bgfx::createUniform("u_build_ibl_param", bgfx::UniformType::Vec4);
     s.face_uniform = bgfx::createUniform("u_bake_face", bgfx::UniformType::Vec4);
     if (std::any_of(s.programs.begin(), s.programs.end(),
                     [](auto handle) { return !bgfx::isValid(handle); }) ||
-        !bgfx::isValid(s.sampler) || !bgfx::isValid(s.parameters) ||
-        !bgfx::isValid(s.face_uniform) || !source_texture(source, s.input, error))
+        !bgfx::isValid(s.cube_mip_program) || !bgfx::isValid(s.sampler) ||
+        !bgfx::isValid(s.parameters) || !bgfx::isValid(s.face_uniform) ||
+        !source_texture(source, s.input, error))
     {
         if (error.empty())
         {
@@ -301,13 +308,13 @@ bool IblBakeJob::start(const schema::TextureDataT& source, std::uint16_t resolut
         s.release();
         return false;
     }
-    if (!s.input_is_cube)
+    if (s.build_cube)
     {
         s.cube = bgfx::createTextureCube(s.cube_size, true, 1, bgfx::TextureFormat::RGBA16F,
                                          BGFX_TEXTURE_BLIT_DST | clamp_sampler);
         if (!bgfx::isValid(s.cube))
         {
-            error = "Cannot allocate the panorama conversion cubemap";
+            error = "Cannot allocate the IBL source cubemap";
             s.release();
             return false;
         }
@@ -325,7 +332,7 @@ bool IblBakeJob::start(const schema::TextureDataT& source, std::uint16_t resolut
             }
         }
     };
-    if (!s.input_is_cube)
+    if (s.build_cube)
     {
         add(State::Pass::panorama, s.cube_size, true);
     }
@@ -369,13 +376,23 @@ BakeProgress IblBakeJob::tick(std::uint32_t frame, std::string& error)
             }
             ++s.index;
         }
-        destroy(s.staging);
+        destroy_handle(s.staging);
         s.readback.clear();
     }
     if (s.cancelled)
     {
         s.release();
         return BakeProgress::cancelled;
+    }
+    // The next compute dispatch must not sample a cube level until the copy
+    // view of the frame that published its preceding face has been submitted.
+    if (s.blit_pending)
+    {
+        if (frame == s.submitted_frame)
+        {
+            return BakeProgress::running;
+        }
+        s.blit_pending = false;
     }
     if (s.index == s.work.size())
     {
@@ -408,9 +425,19 @@ BakeProgress IblBakeJob::tick(std::uint32_t frame, std::string& error)
         s.submitted = false;
         if (task.pass == State::Pass::panorama)
         {
-            bgfx::blit(copy_view, s.cube, task.mip, 0, 0, task.face, s.scratch, 0, 0, 0, 0,
-                       task.size, task.size, 1);
-            destroy(s.scratch);
+            // TextureRegion 的零 depth 表示剩余全部面；这里仅复制当前 cubemap 面。
+            const bgfx::TextureRegion destination{.handle = s.cube,
+                                                  .mip = task.mip,
+                                                  .z = task.face,
+                                                  .width = task.size,
+                                                  .height = task.size,
+                                                  .depth = 1};
+            const bgfx::TextureRegion source{
+                .handle = s.scratch, .width = task.size, .height = task.size, .depth = 1};
+            bgfx::blit(copy_view, destination, source);
+            destroy_handle(s.scratch);
+            s.submitted_frame = frame;
+            s.blit_pending = true;
             ++s.index;
             return BakeProgress::running;
         }
@@ -423,10 +450,11 @@ BakeProgress IblBakeJob::tick(std::uint32_t frame, std::string& error)
             return BakeProgress::failed;
         }
         s.readback.resize(std::size_t(task.size) * task.size * 8);
-        bgfx::blit(copy_view, s.staging, 0, 0, s.scratch);
-        s.readback_frame = bgfx::readTexture(s.staging, s.readback.data());
+        const bgfx::TextureRegion readback{.handle = s.staging};
+        bgfx::blit(copy_view, readback, bgfx::TextureRegion{.handle = s.scratch});
+        s.readback_frame = bgfx::read(readback, s.readback.data());
         s.reading = true;
-        destroy(s.scratch);
+        destroy_handle(s.scratch);
         return BakeProgress::running;
     }
     s.scratch = bgfx::createTexture2D(task.size, task.size, false, 1, format,
@@ -441,19 +469,23 @@ BakeProgress IblBakeJob::tick(std::uint32_t frame, std::string& error)
     const std::array<float, 4> parameters{
         static_cast<float>(s.samples), 0, static_cast<float>(s.cube_size),
         static_cast<float>(task.mip) / std::max(1, mip_count(s.resolution) - 1)};
-    const std::array<float, 4> face{static_cast<float>(task.face), static_cast<float>(task.mip), 0,
-                                    0};
+    const auto previous_size =
+        task.mip == 0 ? s.cube_size : std::max(1, s.cube_size >> (task.mip - 1));
+    const std::array<float, 4> face{static_cast<float>(task.face), static_cast<float>(task.mip),
+                                    static_cast<float>(previous_size), 0};
     bgfx::setUniform(s.parameters, parameters.data());
     bgfx::setUniform(s.face_uniform, face.data());
     if (!lut)
     {
-        const auto texture =
-            task.pass == State::Pass::panorama || s.input_is_cube ? s.input : s.cube;
+        const auto texture = task.pass == State::Pass::panorama ? (task.mip == 0 ? s.input : s.cube)
+                                                                : (s.build_cube ? s.cube : s.input);
         bgfx::setTexture(0, s.sampler, texture);
     }
     bgfx::setImage(lut ? 0 : 1, s.scratch, 0, bgfx::Access::Write, format);
-    bgfx::dispatch(compute_view, s.programs[static_cast<std::size_t>(task.pass)],
-                   (task.size + 7) / 8, (task.size + 7) / 8, 1);
+    const auto shader = task.pass == State::Pass::panorama && (task.mip != 0 || s.input_is_cube)
+                            ? s.cube_mip_program
+                            : s.programs[static_cast<std::size_t>(task.pass)];
+    bgfx::dispatch(compute_view, shader, (task.size + 7) / 8, (task.size + 7) / 8, 1);
     s.submitted_frame = frame;
     s.submitted = true;
     return BakeProgress::running;
