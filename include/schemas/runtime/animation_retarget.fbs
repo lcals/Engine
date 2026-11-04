@@ -1,0 +1,26 @@
+include "animation_pose.fbs";
+namespace engine.schema;
+
+enum HipsTranslationMode:ubyte { target_reference, scaled_source_delta }
+
+table RetargetJointMappingData {
+    source_joint_path:string (required);
+    target_joint_path:string (required);
+}
+
+table AnimationRetargetProfileData {
+    schema_version:uint = 1;
+    path:string (required);
+    source_skeleton_guid:string (required);
+    target_skeleton_guid:string (required);
+    source_reference_pose:[JointLocalPose];
+    target_reference_pose:[JointLocalPose];
+    joint_mappings:[RetargetJointMappingData] (required);
+    hips_translation_mode:HipsTranslationMode = target_reference;
+    source_hips_path:string;
+    target_hips_path:string;
+    hips_translation_scale:double = 1;
+}
+
+root_type AnimationRetargetProfileData;
+file_identifier "ERET";

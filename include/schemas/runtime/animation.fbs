@@ -18,6 +18,17 @@ table AnimationTrackData {
     scales:[VectorKey] (required);
 }
 
+table AnimationEventBoolean { value:bool; }
+table AnimationEventNumber { value:double; }
+table AnimationEventString { value:string (required); }
+union AnimationEventPayload { AnimationEventBoolean, AnimationEventNumber, AnimationEventString }
+table AnimationEventMarkerData {
+    marker_id:uint;
+    time:float;
+    name:string (required);
+    payload:AnimationEventPayload;
+}
+
 table AnimationData {
     schema_version:uint = 1;
     path:string (required);
@@ -25,6 +36,7 @@ table AnimationData {
     skeleton_guid:string (required);
     duration:float;
     tracks:[AnimationTrackData] (required);
+    events:[AnimationEventMarkerData];
 }
 
 root_type AnimationData;

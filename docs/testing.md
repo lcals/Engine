@@ -174,7 +174,7 @@ python3 projects/showcase/tools/create_modern_apartment.py --view-only \
 
 2026-11-04 在 macOS 完成 FBX 切线导入修复的 Debug／Release 构建和 Release `editor.fbx_bind_pose`、`editor.fbx_pipeline` 测试。使用固定版本 ufbx 自带的混合 UV 手性 FBX 验证源切线方向及正负手性，并验证重生成法线时不沿用旧切线。源切线或副切线缺失、无效或法线重生成时，FBX 带 UV 的网格会使用上游 MikkTSpace 离线逐角生成并按需拆点；Release 测试覆盖镜像 UV、颜色和蒙皮复制、子网格、退化 UV 与无 UV。其他来源的网格仍使用各自现有路径；这些测试不能代替实际模型画面的全面验收。
 
-动画导入、动作切换、坐标适配与尚未实现的重定向／Root Motion／IK 范围见[动画模块](runtime/animation.md)；角色制作的后续方向见[制作流程](editor/character-production.md)。这些规划不属于本场景已经通过的验证。
+动画导入、动作切换、坐标适配，以及新增重定向／基础 IK 与尚未实现的 RootMotion 范围见[动画模块](runtime/animation.md)；角色制作的后续方向见[制作流程](editor/character-production.md)。这些规划不属于本场景已经通过的验证。
 
 ### 射击靶场
 
@@ -401,7 +401,7 @@ Debug（Tracy OFF）与 Release（ON）各 7 项定向测试通过；运行时�
 - **图片验证器差异**：固定 bimg 的部分带 alpha 图片往返因 `m_hasAlpha` 元数据不一致导致 `texturec --validate` 失败。已测样本像素一致，元数据兼容问题未修补。
 - **渲染限制**：SSR 无屏幕外信息或时序降噪；透明按子网格排序，不解决交叉面的逐像素排序及多层折射。HDR 关闭时单通道权重只近似区分受光照／无光照贡献，加色与多层混合不能精确分离曝光。静态 GI 不随破坏实时重算，探针单点插值不能自动消除薄墙漏光；没有动态 GI 或自动局部反射立方探针。
 - **物理与音频边界**：约束关节尚未提供；动态刚体不支持父节点，球要求等比缩放，胶囊横向缩放须一致。音频无压缩／流式长音频、混响和音频总线；自动测试使用 SDL dummy，不能替代扬声器听觉验证。
-- **资源与角色边界**：FBX 未转换源材质、贴图、混合形状或双四元数蒙皮；USD 仅支持自包含静态范围。尚无通用动画状态图、运行时 Humanoid 重定向、Root Motion 驱动或 IK；控制器不附带触屏 UI。
+- **资源与角色边界**：FBX 未转换源材质、贴图、混合形状或双四元数蒙皮；USD 仅支持自包含静态范围。已接入共享 TS 普通状态机、显式 profile 运行重定向、基础 Aim／TwoBone IK、骨骼挂点和事件；其功能证据见本页最新动画验收节。分层遮罩／加法混合、RootMotion 驱动、接触脚锁和全身 IK 尚未实现；控制器不附带触屏 UI。
 - **工具与导航边界**：完整编辑器界面、移动残骸自动导航及导航代理与 Jolt 动态运动融合未完成。建模未达到 ProBuilder／UModeler 完整等价：选边倒角限闭合凸体，扫掠无闭环路径，建模 UV 仅一个通道；具体范围见[建模功能边界](plugins/editor/modeling.md#几何与持久化边界)。这与照明烘焙另行生成 UV2 是不同流程。
 
 ## 证据位置
@@ -625,3 +625,46 @@ ctest --preset ninja-engine-release --output-on-failure -R \
 ```
 
 构建缓存与日志留在忽略目录，不提交产物或本机依赖路径。既有第三方库的 macOS 最低部署版本警告仍在；本轮没有低版本 macOS、跨平台运行或性能测量。
+
+## 2026-11-04：参数驱动动画、重定向与制作命令
+
+平台为本机 macOS ARM64，脚本后端 QuickJS；只在 Release 执行功能测试，Debug 仅编译。此次范围是动画功能及其直接资源／脚本／宿主链路，没有开展敌人性能基准。
+
+实现入口与边界见[动画模块](runtime/animation.md)、[三层动画接口](runtime/scripted-animation-controller.md)、[制作 MCP](plugins/editor/class-diagrams/animation-authoring.md)。编辑器只通过 MCP 和配置文件操作，原生窗口用于预览／运行，不添加面板、时间线或图形状态机编辑器。
+
+| Release 用例 | 验证范围 |
+| --- | --- |
+| `engine.animation_state_machine_script` | 一份不可变定义、八个实例的参数／时钟／Trigger 隔离；原子参数提交、过渡打断、暂停／自然完成、Run 身份与同步条件 |
+| `engine.animation_retarget` | 异名、参考姿态与模型轴差异、目标附加父骨、目标骨长、hips 策略、共享并发与失败保持；正式 GUID 资源读取 |
+| `editor.retarget_importer` | 独立 profile 的 meta／GUID／源目标骨架依赖、增量与原子发布；坏路径／参考姿态拒绝并保留旧版本 |
+| `resource.skeleton_rig_definitions` | socket 唯一性、精确骨路径、轴、祖先链与数值校验 |
+| `engine.animation_events_script` | 真实 AnimationSystem→Run 主线程分发；标量载荷、跨循环、角色隔离、解除、回调内重播／清轨／销毁／停用、同步回调与 IK 输入校验 |
+| `engine.animation_rigging_events` | 原子播放失败、完成、零时刻／跨圈／事件预算，model／world 骨矩阵、inverse mesh binding、挂点与子树、源组件替换、detach、同帧主手挂点驱动副手 IK 与反馈拒绝 |
+| `editor.animation_authoring` | 原 FBX 邻接 meta 的事件／socket／IK 编辑，正常重导入，撤销／重做、hash 防冲突、错误拒绝与 batch 回滚 |
+| `engine.animation_event_interval` | 开闭区间、多圈顺序、同相位标记、预算整批拒绝与大周期精度边界 |
+| `engine.animation`、`engine.model_animation_script`、`editor.animation_commands` | 原播放、混合、暂停／停止、旧脚本和编辑器命令兼容 |
+| `engine.plugin_selection` | 可选 runtime retarget 独立装配，制作插件复用 FBX 导入，未选择不拉脚本或其他运行插件 |
+
+可复现命令（根预设已选中对应插件）：
+
+```sh
+cmake --build --preset ninja-engine-debug --target editor_app engine_app asset_build_app mcp_app
+cmake --build --preset ninja-engine-release --target editor_app engine_app asset_build_app mcp_app \
+  engine_animation_state_machine_script_test engine_animation_retarget_test \
+  engine_retarget_importer_test engine_skeleton_rig_definitions_test \
+  engine_animation_events_script_test engine_animation_rigging_events_test \
+  engine_animation_authoring_commands_test engine_animation_event_interval_test \
+  engine_animation_test engine_model_animation_script_test engine_animation_commands_test
+ctest --preset ninja-engine-release --output-on-failure \
+  -R '^(engine\.(animation|animation_event_interval|animation_retarget|animation_state_machine_script|animation_events_script|animation_rigging_events|model_animation_script|plugin_selection)|editor\.(retarget_importer|animation_authoring|animation_commands)|resource\.skeleton_rig_definitions)$'
+node projects/showcase/settings/node_modules/typescript/bin/tsc \
+  --project projects/showcase/settings/tsconfig.json --noEmit
+```
+
+最终结果：受影响 Debug／Release 宿主与测试目标构建均成功；Release 上述用例及 `editor.fbx_pipeline` 共 **13/13 通过**（9.82 秒），TS 类型检查通过。完整输出保留在 `build/scripted-animation-final-tests.log`。
+
+本机使用继承上述预设的 `local-ninja-debug/release`，复用已安装依赖。日志保留在忽略目录 `build/scripted-animation-*-final.log`、`build/animation-final-native-tests.log`；不将本机依赖路径写进共享预设。已知依赖带有“macOS 27 构建、13.3 链接”警告，这不是 macOS 13.3 的实际运行验收。
+
+公开范例从菜单打开 courtyard：正式资源管线导入后，用正常游戏 UI 进入，MCP 读取八个 Animator 的状态与播放身份；独立 Idle／Walk／Run 同时存在。返回菜单后重进创建新实例；停止后 UI 文档清空，再用延迟关闭命令正常退出。详细操作和临时待机表现见[项目说明](../projects/showcase/docs/animation-state-machines.md)。本机回执保留在 `build/scripted-animation-showcase-functional-receipts.jsonl`，不将这些缓存加入 Git。
+
+限制：当前只验证共享实例和功能正确性，不宣称 128 或更多敌人的性能达标。重定向差异覆盖来自合成骨架，真实多角色素材的脚底接触与美术效果仍需逐资源验收。基础 IK 不包含脚锁／全身求解／末端手掌方向锁；跨角色、递归或反馈目标明确拒绝。带主动碰撞、刚体或导航控制的挂件暂不允许跟随，以免 Transform 与物理双写。制作 MCP 的 `reimportPending` 不表示导入已发布，需等待正常管线回执；没有可视化制作面板。

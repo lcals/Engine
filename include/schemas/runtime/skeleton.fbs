@@ -1,4 +1,5 @@
 include "common.fbs";
+include "animation_pose.fbs";
 namespace engine.schema;
 
 table JointData {
@@ -11,10 +12,39 @@ table JointData {
     inverse_bind:[float] (required);
 }
 
+table SkeletonSocketData {
+    name:string (required);
+    joint_path:string (required);
+    offset:JointLocalPose (required, native_inline, native_default: "JointLocalPose(Vec3(), Vec4(0, 0, 0, 1), Vec3(1, 1, 1))");
+}
+
+table SkeletonAimIkData {
+    name:string (required);
+    joint_path:string (required);
+    order:ushort;
+    forward_joint:Vec3 (required, native_inline, native_default: "Vec3(0, 0, 1)");
+    up_joint:Vec3 (required, native_inline, native_default: "Vec3(0, 1, 0)");
+    offset_joint:Vec3 (required, native_inline);
+}
+
+table SkeletonTwoBoneIkData {
+    name:string (required);
+    start_path:string (required);
+    middle_path:string (required);
+    end_path:string (required);
+    order:ushort;
+    mid_axis_joint:Vec3 (required, native_inline, native_default: "Vec3(0, 0, 1)");
+    soften:float = 1;
+    twist_radians:float;
+}
+
 table SkeletonData {
     schema_version:uint = 1;
     path:string (required);
     joints:[JointData] (required);
+    sockets:[SkeletonSocketData];
+    aim_ik:[SkeletonAimIkData];
+    two_bone_ik:[SkeletonTwoBoneIkData];
 }
 
 root_type SkeletonData;

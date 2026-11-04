@@ -17,6 +17,7 @@
 #include "runtime/resource/codecs/skeleton_resource_codec.hpp"
 
 #include "runtime/resource/codecs/animation_resource_codec.hpp"
+#include "runtime/resource/codecs/animation_retarget_resource_codec.hpp"
 
 #include <algorithm>
 #include <array>
@@ -29,6 +30,7 @@ namespace
 const ModelResourceCodec model;
 const SkeletonResourceCodec skeleton;
 const AnimationResourceCodec animation;
+const AnimationRetargetResourceCodec animation_retarget;
 const BinaryResourceCodec binary;
 const AudioResourceCodec audio;
 const MaterialResourceCodec material;
@@ -59,6 +61,7 @@ const std::array registrations = {
     CodecEntry{schema::AssetKind::model, &model},
     CodecEntry{schema::AssetKind::skeleton, &skeleton},
     CodecEntry{schema::AssetKind::animation, &animation},
+    CodecEntry{schema::AssetKind::animation_retarget_profile, &animation_retarget},
     CodecEntry{schema::AssetKind::audio, &audio},
     CodecEntry{schema::AssetKind::font, &font},
     CodecEntry{schema::AssetKind::ui, &ui},

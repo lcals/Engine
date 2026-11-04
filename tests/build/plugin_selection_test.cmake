@@ -129,7 +129,7 @@ set(CMAKE_SYSTEM_NAME Android)
 set(ANDROID_ABI arm64-v8a)
 include("${ROOT}/cmake/plugins/selection.cmake")
 if(NOT ENGINE_PLUGIN_DEVICE_BUILD OR
-   NOT ENGINE_SELECTED_PLUGINS STREQUAL "runtime/resource_graph;runtime/character_controller;runtime/navigation_crowd;runtime/effects;runtime/terrain;runtime/destruction;runtime/script")
+   NOT ENGINE_SELECTED_PLUGINS STREQUAL "runtime/resource_graph;runtime/animation_retarget;runtime/character_controller;runtime/navigation_crowd;runtime/effects;runtime/terrain;runtime/destruction;runtime/script")
     message(FATAL_ERROR "Android defaults leaked editor plugins: ${ENGINE_SELECTED_PLUGINS}")
 endif()
 if(ENGINE_EDITOR_PLUGINS OR "modeling" IN_LIST VCPKG_MANIFEST_FEATURES OR
@@ -574,5 +574,29 @@ include("${ROOT}/cmake/plugins/selection.cmake")
 if(NOT ENGINE_SELECTED_PLUGINS STREQUAL "runtime/destruction" OR
    "destruction-authoring" IN_LIST VCPKG_MANIFEST_FEATURES)
     message(FATAL_ERROR "Runtime destruction must not pull in authoring")
+endif()
+]=])
+
+run_case(
+    animation_retarget_independent
+    ""
+    [=[
+set(ENGINE_RUNTIME_PLUGINS animation_retarget CACHE STRING "" FORCE)
+set(ENGINE_EDITOR_PLUGINS "" CACHE STRING "" FORCE)
+include("${ROOT}/cmake/plugins/selection.cmake")
+if(NOT ENGINE_SELECTED_PLUGINS STREQUAL "runtime/animation_retarget")
+    message(FATAL_ERROR "Retarget runtime unexpectedly pulls script/editor plugins: ${ENGINE_SELECTED_PLUGINS}")
+endif()
+]=])
+
+run_case(
+    animation_authoring_closure
+    ""
+    [=[
+set(ENGINE_RUNTIME_PLUGINS "" CACHE STRING "" FORCE)
+set(ENGINE_EDITOR_PLUGINS animation_tools CACHE STRING "" FORCE)
+include("${ROOT}/cmake/plugins/selection.cmake")
+if(NOT ENGINE_SELECTED_PLUGINS STREQUAL "editor/asset_import;editor/animation_tools")
+    message(FATAL_ERROR "Animation tools must only reuse the explicit FBX importer: ${ENGINE_SELECTED_PLUGINS}")
 endif()
 ]=])

@@ -870,6 +870,14 @@ if(TARGET engine_asset_pipeline)
 endif()
 
 if(TARGET engine_animation)
+    add_executable(engine_animation_event_interval_test
+                   runtime/animation/animation_event_interval_test.cpp)
+    target_link_libraries(engine_animation_event_interval_test PRIVATE engine::animation)
+    target_include_directories(engine_animation_event_interval_test
+        PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+    engine_apply_options(engine_animation_event_interval_test)
+    add_test(NAME engine.animation_event_interval COMMAND engine_animation_event_interval_test)
+
     add_executable(engine_animation_test runtime/animation/animation_test.cpp)
     target_link_libraries(engine_animation_test PRIVATE engine::animation engine::world
                                                         engine::resource)
@@ -1337,4 +1345,84 @@ if(TARGET engine_runtime AND TARGET engine_render AND TARGET engine_resource_gra
         set_tests_properties(engine.render_submission
                              PROPERTIES TIMEOUT 120 RUN_SERIAL TRUE SKIP_RETURN_CODE 77)
     endif()
+endif()
+
+if(TARGET engine_animation_retarget)
+    add_executable(engine_animation_retarget_test
+        plugins/runtime/animation_retarget/animation_retarget_test.cpp)
+    target_link_libraries(engine_animation_retarget_test
+        PRIVATE engine::animation_retarget engine::resource bgfx::bx)
+    target_include_directories(engine_animation_retarget_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/support")
+    engine_apply_options(engine_animation_retarget_test)
+    add_test(NAME engine.animation_retarget COMMAND engine_animation_retarget_test)
+endif()
+
+if(TARGET engine_animation_tools)
+    add_executable(engine_retarget_importer_test
+        plugins/editor/animation_tools/retarget_importer_test.cpp)
+    target_link_libraries(engine_retarget_importer_test
+        PRIVATE engine::animation_tools engine::asset_pipeline engine::resource engine::task)
+    target_include_directories(engine_retarget_importer_test
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/support")
+    engine_apply_options(engine_retarget_importer_test)
+    add_test(NAME editor.retarget_importer COMMAND engine_retarget_importer_test)
+endif()
+
+if(TARGET engine_script AND TARGET engine_animation AND TARGET engine_resource_graph)
+    add_executable(engine_animation_state_machine_script_test
+        plugins/runtime/script/animation_state_machine_script_test.cpp)
+    target_link_libraries(engine_animation_state_machine_script_test
+        PRIVATE engine::script engine::animation engine::world engine::resource_graph)
+    engine_apply_options(engine_animation_state_machine_script_test)
+    add_test(NAME engine.animation_state_machine_script COMMAND engine_animation_state_machine_script_test)
+endif()
+
+if(TARGET engine_resource)
+    add_executable(engine_skeleton_rig_definitions_test
+        runtime/resource/skeleton_rig_definitions_test.cpp)
+    target_link_libraries(engine_skeleton_rig_definitions_test PRIVATE engine::resource)
+    target_include_directories(engine_skeleton_rig_definitions_test
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/support")
+    engine_apply_options(engine_skeleton_rig_definitions_test)
+    add_test(NAME resource.skeleton_rig_definitions COMMAND engine_skeleton_rig_definitions_test)
+endif()
+
+if(TARGET engine_script AND TARGET engine_animation)
+    add_executable(engine_animation_events_script_test
+        plugins/runtime/script/animation_events_script_test.cpp)
+    target_link_libraries(engine_animation_events_script_test PRIVATE engine::script
+        engine::animation engine::world engine::resource engine::app engine::log)
+    target_include_directories(engine_animation_events_script_test
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/support")
+    engine_apply_options(engine_animation_events_script_test)
+    add_test(NAME engine.animation_events_script COMMAND engine_animation_events_script_test)
+endif()
+
+if(TARGET engine_animation)
+    add_executable(engine_animation_rigging_events_test
+        runtime/animation/animation_rigging_events_test.cpp)
+    target_link_libraries(engine_animation_rigging_events_test
+        PRIVATE engine::animation engine::world engine::resource)
+    engine_apply_options(engine_animation_rigging_events_test)
+    add_test(NAME engine.animation_rigging_events COMMAND engine_animation_rigging_events_test)
+endif()
+
+foreach(_animation_test engine_animation_state_machine_script_test engine_animation_rigging_events_test)
+    if(TARGET ${_animation_test})
+        target_include_directories(${_animation_test} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/support")
+    endif()
+endforeach()
+
+if(TARGET engine_animation_tools_editor)
+    add_executable(engine_animation_authoring_commands_test
+        plugins/editor/animation_tools/animation_authoring_commands_test.cpp)
+    target_link_libraries(engine_animation_authoring_commands_test
+        PRIVATE engine::animation_tools_editor engine::asset_import engine::asset_pipeline
+                engine::resource engine::task)
+    target_include_directories(engine_animation_authoring_commands_test
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/support")
+    target_compile_definitions(engine_animation_authoring_commands_test
+        PRIVATE ENGINE_FBX_TEST_DATA_DIR="${PROJECT_SOURCE_DIR}/projects/showcase/assets/models")
+    engine_apply_options(engine_animation_authoring_commands_test)
+    add_test(NAME editor.animation_authoring COMMAND engine_animation_authoring_commands_test)
 endif()

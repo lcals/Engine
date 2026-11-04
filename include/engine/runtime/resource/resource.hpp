@@ -1,6 +1,7 @@
 #pragma once
 
 #include "runtime/schema/animation_generated.h"
+#include "runtime/schema/animation_retarget_generated.h"
 #include "runtime/schema/asset_catalog_generated.h"
 #include "runtime/schema/audio_generated.h"
 #include "runtime/schema/font_generated.h"
@@ -51,6 +52,7 @@ public:
     [[nodiscard]] const schema::PrefabDataT* prefab() const noexcept;
     [[nodiscard]] const schema::SkeletonDataT* skeleton() const noexcept;
     [[nodiscard]] const schema::AnimationDataT* animation() const noexcept;
+    [[nodiscard]] const schema::AnimationRetargetProfileDataT* retarget_profile() const noexcept;
     [[nodiscard]] const schema::FontDataT* font() const noexcept;
     [[nodiscard]] const schema::UiDocumentDataT* ui() const noexcept;
     [[nodiscard]] const schema::LightProbeDataT* light_probe() const noexcept;
@@ -73,6 +75,7 @@ private:
     std::unique_ptr<schema::PrefabDataT> prefab_;
     std::unique_ptr<schema::SkeletonDataT> skeleton_;
     std::unique_ptr<schema::AnimationDataT> animation_;
+    std::unique_ptr<schema::AnimationRetargetProfileDataT> retarget_profile_;
     std::unique_ptr<schema::FontDataT> font_;
     std::unique_ptr<schema::UiDocumentDataT> ui_;
     std::unique_ptr<schema::LightProbeDataT> light_probe_;

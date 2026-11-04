@@ -1,3 +1,12 @@
+#if ENGINE_HAS_ANIMATION_TOOLS
+#include "plugins/editor/animation_tools/retarget_importer.hpp"
+#endif
+#if ENGINE_HAS_ANIMATION_TOOLS_EDITOR
+#include "plugins/editor/animation_tools/animation_authoring_commands.hpp"
+#endif
+#if ENGINE_HAS_ANIMATION_RETARGET_PLUGIN
+#include "plugins/runtime/animation_retarget/animation_retarget.hpp"
+#endif
 #include "runtime/performance/profiling.hpp"
 #if ENGINE_HAS_TERRAIN_EDITOR
 #include "plugins/editor/terrain/terrain_codec.hpp"
@@ -147,15 +156,20 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
     engine::plugins::resource_graph::ResourceGraphSystem resource_graph(resources);
 #endif
     engine::RuntimeHost runtime;
+    engine::AnimationRetargeterFactory retargeter_factory = nullptr;
+#if ENGINE_HAS_ANIMATION_RETARGET_PLUGIN
+    retargeter_factory = engine::plugins::animation_retarget::create_animation_retargeter;
+#endif
     engine::ScriptRuntimeFactory script_factory = nullptr;
 #if ENGINE_HAS_SCRIPT_PLUGIN
     script_factory = [](engine::WorldSystem& world, engine::RenderSystem& renderer,
                         engine::UiSystem& ui, engine::PhysicsSystem& physics,
                         engine::NavigationSystem& navigation, engine::InputSystem& input,
-                        engine::WindowSystem& window) -> std::unique_ptr<engine::ScriptRuntime>
+                        engine::WindowSystem& window,
+                        engine::AnimationSystem& animation) -> std::unique_ptr<engine::ScriptRuntime>
     {
         return std::make_unique<engine::plugins::script::ScriptSystem>(
-            &world, &renderer, &ui, &physics, &navigation, &input, &window);
+            &world, &renderer, &ui, &physics, &navigation, &input, &window, &animation);
     };
 #endif
 #if ENGINE_HAS_MODELING_PLUGIN
@@ -239,6 +253,14 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
             return 1;
         }
 #endif
+#if ENGINE_HAS_ANIMATION_TOOLS
+        std::unique_ptr<engine::editor::asset_pipeline::AssetImporter> retarget_importer =
+            std::make_unique<engine::plugins::animation_tools::RetargetImporter>();
+        if (!pipeline.add_importer(retarget_importer))
+        {
+            return 1;
+        }
+#endif
 #if ENGINE_HAS_ASSET_IMPORT_PLUGIN
         std::unique_ptr<engine::editor::asset_pipeline::AssetImporter> font_importer =
             std::make_unique<engine::plugins::asset_import::FontImporter>();
@@ -299,10 +321,12 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
         }
         resources.set_loader(&resource_graph);
         const bool runtime_ready = runtime.initialize(
-            config, &resources, script_factory, configure_runtime_plugins, &threads, parallel);
+            config, &resources, script_factory, configure_runtime_plugins, &threads, parallel,
+            retargeter_factory);
 #else
         const bool runtime_ready = runtime.initialize(
-            config, nullptr, script_factory, configure_runtime_plugins, &threads, parallel);
+            config, nullptr, script_factory, configure_runtime_plugins, &threads, parallel,
+            retargeter_factory);
 #endif
         if (!runtime_ready)
         {
@@ -400,6 +424,15 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
         }
 #endif
 
+#if ENGINE_HAS_ANIMATION_TOOLS_EDITOR
+        if (editor->commands() == nullptr ||
+            !engine::plugins::animation_tools::register_animation_authoring_commands(
+                *editor->commands(), project_root))
+        {
+            LogSystem::write(LogLevel::error, "Cannot register animation authoring commands");
+            return 1;
+        }
+#endif
 #if ENGINE_HAS_MODELING_PLUGIN
         if (editor->commands() != nullptr && runtime.world() != nullptr)
         {

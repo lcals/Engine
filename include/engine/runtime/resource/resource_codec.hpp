@@ -31,6 +31,8 @@ protected:
     static void store(Resource& output, std::unique_ptr<schema::PrefabDataT> data) noexcept;
     static void store(Resource& output, std::unique_ptr<schema::SkeletonDataT> data) noexcept;
     static void store(Resource& output, std::unique_ptr<schema::AnimationDataT> data) noexcept;
+    static void store(Resource& output,
+                      std::unique_ptr<schema::AnimationRetargetProfileDataT> data) noexcept;
     static void store(Resource& output, std::unique_ptr<schema::FontDataT> data) noexcept;
     static void store(Resource& output, std::unique_ptr<schema::UiDocumentDataT> data) noexcept;
     static void store(Resource& output, std::unique_ptr<schema::LightProbeDataT> data) noexcept;

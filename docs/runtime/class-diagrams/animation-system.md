@@ -9,9 +9,10 @@ classDiagram
     direction TB
     class AnimationSystem {
         <<final>>
-        +AnimationSystem(WorldSystem* world = nullptr, TaskSystem* tasks = nullptr, const AnimationConfig& config = {})
+        +AnimationSystem(WorldSystem* world = nullptr, TaskSystem* tasks = nullptr, const AnimationConfig& config = {}, unique_ptr~AnimationRetargeter~ retargeter = nullptr)
         +~AnimationSystem()
         +clear() void
+        +set_event_sink(AnimationEventSink sink) void
         #on_initialize(const EngineConfig& config) bool
         #on_tick(double delta_time) bool
         #on_shutdown() void
@@ -28,6 +29,8 @@ classDiagram
         +size_t batch_size = 16
     }
     class TaskSystem
+    class AnimationRetargeter
+    class AnimationEventSink
     class ozz["ozz-animation"] {
         <<library>>
     }
@@ -38,6 +41,8 @@ classDiagram
     WorldSystem *-- AnimationSystem : 宿主装配后的子系统所有权
     AnimationSystem --> WorldSystem : 可空借用，存活期覆盖系统
     AnimationSystem --> TaskSystem : 可空借用，完成本帧任务后返回
+    AnimationSystem *-- AnimationRetargeter : 可空注入，独占提供者
+    AnimationSystem *-- AnimationEventSink : 可空主线程完成回调
     AnimationSystem *-- AnimationConfig : 保存配置值
     AnimationSystem ..> Animator : 读取播放请求，推进时间
     AnimationSystem ..> MeshRenderer : 提交骨骼 palette 或清除瞬态变形
@@ -48,7 +53,7 @@ classDiagram
 
 - 由 `WorldSystem` 独占，通过父系统统一管理生命周期。
 - 同一个普通 `Node` 挂 `Animator` 和 `MeshRenderer`，不另建动画节点继承层次。
-- 动画、骨架与 Mesh 是独立 GUID 资源。动画引用源骨架，Mesh 引用目标骨架；目标每个关节必须在源骨架有完整名称和父层级对应，再显式映射到 ozz 的 DFS 顺序。该匹配直接使用源局部 TRS，不做参考姿态或体型补偿；缺整条轨道才使用目标默认局部姿态，缺关节或坏轨道失败。
+- 动画、骨架与 Mesh 是独立 GUID 资源。动画引用源骨架，Mesh 引用目标骨架；目标每个关节必须在源骨架有完整名称和父层级对应，再显式映射到 ozz 的 DFS 顺序。无显式 profile 时保持此严格兼容播放；指定重定向 profile 时通过注入提供者进行源／目标参考姿态和体型转换，失败保持旧播放。缺整条轨道才使用绑定局部姿态，坏轨道失败。
 - 私有场景缓存共享不可变 ozz 骨架和动画；身份包括 GUID 与资源代际，动画还包括源和目标骨架身份。各实例独占时间、采样上下文、局部姿态和 palette，只缓存世界级节点 ID，不保留节点借用。
 - 不可变编译缓存由当前采样条目共享，无存活使用者的编译动作与骨架在更新时回收；没有进程永久动画缓存。常驻 Animator 跨场景保留播放时间、混合状态、采样上下文和 palette。
 - 从已校验的 FlatBuffers 数据通过 ozz 纯内存 Builder 建立运行对象；使用 `SamplingJob`、双层 `BlendingJob` 与 `LocalToModelJob`。输出两组 Mesh 局部空间、目标 `SkeletonData` 原始关节索引顺序、列主序 float 矩阵，不是源动作索引或 ozz DFS 顺序。渲染系统以 compute 蒙皮一次，主画面、阴影和 AO 共用输出；动画不再每帧复制整个顶点流。
@@ -59,3 +64,5 @@ classDiagram
 - 删除组件或停用条件在系统更新时清理对应变形及采样条目，回收无使用者的编译缓存。Animator 在停用期间仍保存播放状态及打断过渡快照。`clear()` 支持重复调用，释放系统采样条目及编译缓存；普通场景替换按 `WorldSystem::scenes()` 的存活节点增量清理；宿主完整停止才调用 `clear()`，不等同于销毁仍存活组件的全部状态。
 
 C++ 限定符：构造、析构、`clear()` 及 `on_shutdown()` 为 `noexcept`；析构和受保护钩子标注 `override`，返回状态的钩子标注 `[[nodiscard]]`。
+
+新增公开播放、IK、挂点及事件契约分别见[动画 rigging](animation-rigging.md)、[重定向](animation-retargeting.md)与[事件](animation-events.md)。

@@ -57,6 +57,50 @@ bool AnimationResourceCodec::validate(const schema::AnimationDataT& data)
         return false;
     }
     std::set<std::uint32_t> joints;
+    if (data.events.size() > 4096)
+    {
+        return false;
+    }
+    std::set<std::uint32_t> marker_ids;
+    for (const auto& marker : data.events)
+    {
+        if (!marker || marker->marker_id == 0 || marker->name.empty() ||
+            !std::isfinite(marker->time) || marker->time < 0.0F || marker->time > data.duration ||
+            !marker_ids.insert(marker->marker_id).second)
+        {
+            return false;
+        }
+        switch (marker->payload.type)
+        {
+        case schema::AnimationEventPayload::NONE:
+            if (marker->payload.value != nullptr)
+            {
+                return false;
+            }
+            break;
+        case schema::AnimationEventPayload::AnimationEventBoolean:
+            if (!marker->payload.AsAnimationEventBoolean())
+            {
+                return false;
+            }
+            break;
+        case schema::AnimationEventPayload::AnimationEventNumber:
+            if (!marker->payload.AsAnimationEventNumber() ||
+                !std::isfinite(marker->payload.AsAnimationEventNumber()->value))
+            {
+                return false;
+            }
+            break;
+        case schema::AnimationEventPayload::AnimationEventString:
+            if (!marker->payload.AsAnimationEventString())
+            {
+                return false;
+            }
+            break;
+        default:
+            return false;
+        }
+    }
     // ozz 运行对象以 uint16 索引唯一时间点，首尾时间也由 Builder 使用。
     std::set<float> times{0.0F, data.duration};
     for (const auto& track : data.tracks)

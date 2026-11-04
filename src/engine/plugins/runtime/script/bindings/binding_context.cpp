@@ -5,6 +5,7 @@
 #include "runtime/log/log_system.hpp"
 #include "runtime/navigation/navigation_system.hpp"
 #include "runtime/resource/resource_system.hpp"
+#include "runtime/scene/animator.hpp"
 #include "runtime/scene/scene.hpp"
 #include "runtime/world/world_system.hpp"
 
@@ -48,6 +49,8 @@ void BindingContext::shutdown() noexcept
 {
     cancel_scene_load();
     async_results_.clear();
+    animation_events_.clear();
+    animation_event_cursor_ = 0;
     if (restore_mouse_mode_ && window_ != nullptr && window_->is_initialized() &&
         !window_->set_mouse_mode(previous_mouse_mode_))
     {
@@ -463,6 +466,53 @@ Node BindingContext::find_node(std::uint64_t scene_id, std::uint64_t node_id) co
     }
     auto node = world_->find_node(node_id);
     return node && node.scene()->id() == scene_id ? node : Node{};
+}
+
+bool BindingContext::push_animation_events(std::span<const AnimationEvent> events)
+{
+    constexpr std::size_t maximum_events = 4096;
+    const auto pending = animation_events_.size() - animation_event_cursor_;
+    if (!active_ || events.size() > maximum_events - pending)
+    {
+        return false;
+    }
+    if (animation_event_cursor_ != 0)
+    {
+        animation_events_.erase(animation_events_.begin(),
+                                animation_events_.begin() + animation_event_cursor_);
+        animation_event_cursor_ = 0;
+    }
+    animation_events_.insert(animation_events_.end(), events.begin(), events.end());
+    return true;
+}
+
+bool BindingContext::take_animation_event(AnimationEvent& output)
+{
+    output = {};
+    if (!active_ || !callable_)
+    {
+        return false;
+    }
+    while (animation_event_cursor_ < animation_events_.size())
+    {
+        const auto& event = animation_events_[animation_event_cursor_++];
+        const auto node = find_node(event.scene_id, event.node_id);
+        const auto animator = node ? node.get_component<Animator>() : Animator{};
+        const auto* runtime = animator ? animator.runtime() : nullptr;
+        if (animator && animator.active() &&
+            animator.instance_id() == event.component_instance_id && runtime &&
+            runtime->playback_id_ == event.playback_id &&
+            runtime->track_revision_ == event.track_revision && runtime->animation_ &&
+            runtime->animation_->info().guid == event.animation_guid &&
+            runtime->animation_->generation() == event.resource_generation)
+        {
+            output = event;
+            return true;
+        }
+    }
+    animation_events_.clear();
+    animation_event_cursor_ = 0;
+    return false;
 }
 
 double BindingContext::delta_time() const noexcept

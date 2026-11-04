@@ -37,7 +37,8 @@ RuntimeHost::~RuntimeHost() noexcept
 
 bool RuntimeHost::initialize(const EngineConfig& config, ResourceSystem* resources,
                              ScriptRuntimeFactory script_factory, RuntimeSetup setup,
-                             ThreadSystem* threads, const RuntimeParallelConfig& parallel)
+                             ThreadSystem* threads, const RuntimeParallelConfig& parallel,
+                             AnimationRetargeterFactory retargeter_factory)
 {
     if (initialized_ || owns_engine_ || engine_.is_initialized() || engine_.system_count() != 0 ||
         (resources != nullptr &&
@@ -113,12 +114,18 @@ bool RuntimeHost::initialize(const EngineConfig& config, ResourceSystem* resourc
     auto audio_system = std::make_unique<AudioSystem>(world.get());
     audio_ = audio_system.get();
     std::unique_ptr<System> audio = std::move(audio_system);
-    auto navigation_system = std::make_unique<NavigationSystem>(
-        navigation_tasks_.get(), parallel.navigation_tile_threshold);
+    auto navigation_system = std::make_unique<NavigationSystem>(navigation_tasks_.get(),
+                                                                parallel.navigation_tile_threshold);
     auto* navigation_ptr = navigation_system.get();
     std::unique_ptr<System> navigation = std::move(navigation_system);
+    auto retargeter = retargeter_factory ? retargeter_factory() : nullptr;
+    if (retargeter_factory && !retargeter)
+    {
+        shutdown();
+        return false;
+    }
     auto animation_system = std::make_unique<AnimationSystem>(
-        world.get(), animation_tasks_.get(), parallel.animation_sampling);
+        world.get(), animation_tasks_.get(), parallel.animation_sampling, std::move(retargeter));
     animation_ = animation_system.get();
     std::unique_ptr<System> animation = std::move(animation_system);
     auto font_system = std::make_unique<FontSystem>();
@@ -139,8 +146,8 @@ bool RuntimeHost::initialize(const EngineConfig& config, ResourceSystem* resourc
     ScriptRuntime* script = nullptr;
     if (script_factory != nullptr)
     {
-        auto script_system =
-            script_factory(*world, *renderer, *ui_, *physics_, *navigation_ptr, *input_, *window_);
+        auto script_system = script_factory(*world, *renderer, *ui_, *physics_, *navigation_ptr,
+                                            *input_, *window_, *animation_);
         script = script_system.get();
         std::unique_ptr<System> script_base = std::move(script_system);
         if (!world->add_subsystem(script_base))
@@ -264,16 +271,17 @@ FrameStatus RuntimeHost::poll_events(double delta_time)
     const auto completions_started = std::chrono::steady_clock::now();
     std::size_t remaining = parallel_.completions_per_frame;
     for (auto* domain : {tasks_.get(), physics_tasks_.get(), animation_tasks_.get(),
-                        navigation_tasks_.get(), background_tasks_.get(), loading_tasks_.get()})
+                         navigation_tasks_.get(), background_tasks_.get(), loading_tasks_.get()})
     {
-        const double elapsed = std::chrono::duration<double>(
-            std::chrono::steady_clock::now() - completions_started).count();
+        const double elapsed =
+            std::chrono::duration<double>(std::chrono::steady_clock::now() - completions_started)
+                .count();
         if (remaining == 0 || elapsed >= parallel_.completion_budget_seconds)
         {
             break;
         }
-        remaining -= domain->dispatch_completions(
-            remaining, parallel_.completion_budget_seconds - elapsed);
+        remaining -=
+            domain->dispatch_completions(remaining, parallel_.completion_budget_seconds - elapsed);
     }
     resources_->poll_async();
     // 上一回调可能改变文档 / 可见性；没有 SDL 事件也必须刷新持续占用事实。

@@ -1,3 +1,6 @@
+#if ENGINE_HAS_ANIMATION_TOOLS
+#include "plugins/editor/animation_tools/retarget_importer.hpp"
+#endif
 #if ENGINE_HAS_TERRAIN_EDITOR
 #include "plugins/editor/terrain/terrain_codec.hpp"
 #include "plugins/editor/terrain/terrain_importer.hpp"
@@ -161,6 +164,14 @@ int main(int argc, char** argv)
         !pipeline.add_importer(destruction_importer))
     {
         std::fputs("Cannot register destruction importer and scene codec\n", stderr);
+        return 1;
+    }
+#endif
+#if ENGINE_HAS_ANIMATION_TOOLS
+    std::unique_ptr<engine::editor::asset_pipeline::AssetImporter> retarget_importer =
+        std::make_unique<engine::plugins::animation_tools::RetargetImporter>();
+    if (!pipeline.add_importer(retarget_importer))
+    {
         return 1;
     }
 #endif

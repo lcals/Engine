@@ -65,6 +65,11 @@ const schema::AnimationDataT* Resource::animation() const noexcept
     return animation_.get();
 }
 
+const schema::AnimationRetargetProfileDataT* Resource::retarget_profile() const noexcept
+{
+    return retarget_profile_.get();
+}
+
 const schema::FontDataT* Resource::font() const noexcept
 {
     return font_.get();

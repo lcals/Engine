@@ -46,6 +46,10 @@ struct FbxDocument
     double scale_factor = 1.0;
     std::array<double, 3> rotation_offset{};
     std::map<std::string, AnimationMotionSettings> animation_motion;
+    // Authoring data remains schema-generated; the importer never writes back into the FBX.
+    schema::SkeletonDataT skeleton_authoring;
+    std::map<std::string, schema::AnimationDataT> animation_authoring;
+    std::string authoring_settings;
 };
 
 [[nodiscard]] bool load_document(const std::filesystem::path& path, FbxDocument& document,

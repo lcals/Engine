@@ -14,14 +14,14 @@ C++20 跨平台游戏引擎，使用 CMake、vcpkg 和成熟开源库。运行�
 | 输入与角色 | 键鼠、手柄、触摸、映射与重绑定、胶囊角色运动、第一/第三人称相机。[输入](docs/runtime/input.md) · [角色](docs/plugins/runtime/character-controller.md) |
 | 物理 | Jolt 刚体、碰撞、射线/扫掠、范围查询及接触事件。[物理模块](docs/runtime/physics.md) |
 | 导航 | Recast/Detour 寻路、局部瓦片更新、群体移动与避让。[导航模块](docs/runtime/navigation.md) |
-| 动画 | ozz 采样与混合、GPU 蒙皮、InPlace 动作。[动画](docs/runtime/animation.md) · [FBX/USD 导入](docs/plugins/editor/model-import.md) |
+| 动画 | ozz 采样与混合、GPU 蒙皮、InPlace、共享 TS 状态机、重定向、基础 IK、骨骼挂点与事件。[动画](docs/runtime/animation.md) · [FBX/USD 导入](docs/plugins/editor/model-import.md) |
 | UI 与字体 | RmlUi 文档、TS MVC、多字体/图片、事件与输入、UI/3D 曲线文字。[UI](docs/runtime/ui.md) · [字体](docs/runtime/font.md) |
 | 音频与特效 | SDL3 音源与空间衰减；Effekseer 粒子和模型特效。[音频](docs/runtime/audio.md) · [特效](docs/plugins/runtime/effects.md) |
 | 地形与破坏 | 体积地形挖填、土石塌方、Blast 分块破坏、Jolt 碎块碰撞。[地形](docs/plugins/runtime/terrain.md) · [破坏](docs/plugins/runtime/destruction.md) |
 | 并行与观测 | oneTBB 共享任务池、分域预算与优先度、异步委托、Tracy。[并行](docs/runtime/parallelism.md) · [性能分析](docs/runtime/performance.md) |
 | 编辑器与建模 | 项目与资源管线、场景预览、MCP 编辑、撤销/重做、建模与资源保存。[编辑器](docs/editor/editor.md) · [MCP](docs/plugins/editor/mcp.md) · [建模](docs/plugins/editor/modeling.md) |
 
-编辑器目前以 MCP 与场景预览为主要操作入口，完整图形编辑界面尚未完成。各模块文档列出具体支持范围；静态 GI 不随破坏实时重算，SSR 仍受屏幕信息限制。
+编辑器通过 MCP 与配置文件操作，原生窗口仅用于场景预览和运行，不提供图形编辑面板。各模块文档列出具体支持范围；静态 GI 不随破坏实时重算，SSR 仍受屏幕信息限制。
 
 ## 快速开始
 
