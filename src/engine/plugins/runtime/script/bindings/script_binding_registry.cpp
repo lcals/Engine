@@ -1,5 +1,7 @@
 #include "plugins/runtime/script/bindings/script_binding_registry.hpp"
+#include "plugins/runtime/script/bindings/animation_state_machine_binding.hpp"
 #include "plugins/runtime/script/bindings/animator_binding.hpp"
+#include "plugins/runtime/script/bindings/bone_attachment_binding.hpp"
 
 #include "plugins/runtime/script/bindings/app_binding.hpp"
 #include "plugins/runtime/script/bindings/audio_listener_binding.hpp"
@@ -76,7 +78,8 @@ bool ScriptBindingRegistry::initialize()
         !add<LightBinding>() || !add<MeshRendererBinding>() || !add<MaterialBinding>() ||
         !add<ColliderBinding>() || !add<RigidBodyBinding>() || !add<CharacterMotorBinding>() ||
         !add<AudioSourceBinding>() || !add<AudioListenerBinding>() || !add<AnimatorBinding>() ||
-        !add<UiComponentBinding>() || !add<UiElementBinding>() || !add<UiControllerBinding>())
+        !add<BoneAttachmentBinding>() || !add<UiComponentBinding>() || !add<UiElementBinding>() || !add<UiControllerBinding>() ||
+        !add<AnimationStateMachineBinding>())
     {
         bindings_.clear();
         return false;

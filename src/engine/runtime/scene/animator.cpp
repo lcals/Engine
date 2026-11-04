@@ -1,12 +1,15 @@
 #include "runtime/scene/animator.hpp"
 
-#include "runtime/scene/ecs_storage.hpp"
-
 #include "runtime/animation/animation_binding.hpp"
+#include "runtime/animation/animation_ik.hpp"
+#include "runtime/animation/animation_math.hpp"
+#include "runtime/animation/animation_retargeter.hpp"
+#include "runtime/animation/animation_services.hpp"
 #include "runtime/core/guid_map.hpp"
+#include "runtime/resource/codecs/animation_resource_codec.hpp"
 #include "runtime/resource/resource_system.hpp"
+#include "runtime/scene/ecs_storage.hpp"
 #include "runtime/scene/mesh_renderer.hpp"
-#include "runtime/scene/node.hpp"
 
 #include <cmath>
 #include <limits>
@@ -14,247 +17,355 @@
 
 namespace engine
 {
+namespace
+{
+bool same_resource(const ResourcePtr& a, const ResourcePtr& b)
+{
+    return (!a && !b) ||
+           (a && b && a->info().guid == b->info().guid && a->generation() == b->generation());
+}
+bool validate_overlay(const schema::AnimationDataT& animation,
+                      std::span<const schema::AnimationEventMarkerDataT> markers)
+{
+    auto data = animation;
+    for (const auto& marker : markers)
+    {
+        data.events.push_back(std::make_unique<schema::AnimationEventMarkerDataT>(marker));
+    }
+    return AnimationResourceCodec::validate(data);
+}
+bool target_skeleton(Animator animator, ResourcePtr& target)
+{
+    target.reset();
+    const auto renderer = animator.node().get_component<MeshRenderer>();
+    const auto* mesh = renderer ? renderer.mesh_data() : nullptr;
+    auto* resources = ResourceSystem::instance();
+    return mesh && resources && !mesh->skeleton_guid.empty() &&
+           resources->loader().load(mesh->skeleton_guid, target) && target && target->skeleton();
+}
+bool committed_pose(Animator animator, ResourcePtr& target, MeshRenderer& renderer)
+{
+    target.reset();
+    renderer = {};
+    if (!animator || !animator.active() || !animator.runtime()->pose_revision_ ||
+        !flecs::world(animator.node().world()->native_world())
+             .entity(animator.node().id())
+             .has<ecs_detail::Published>())
+    {
+        return false;
+    }
+    renderer = animator.node().get_component<MeshRenderer>();
+    target = animator.runtime()->target_skeleton_;
+    const auto* mesh = renderer ? renderer.mesh_data() : nullptr;
+    return renderer && renderer.active() && mesh && target && target->skeleton() &&
+           mesh->skeleton_guid == target->info().guid &&
+           animator.runtime()->pose_mesh_revision_ == renderer.mesh_revision() &&
+           animator.runtime()->pose_mesh_instance_ == renderer.instance_id() &&
+           animator.runtime()->committed_models_.size() == target->skeleton()->joints.size();
+}
+} // namespace
 
 bool Animator::register_type(ComponentRegistry& registry)
 {
     return register_component_storage<Animator, Data, Runtime>(registry);
 }
-
 Animator::Runtime* Animator::runtime() const noexcept
 {
     return runtime_state<Runtime>();
 }
-
-bool Animator::valid_settings(const schema::AnimatorDataT& settings) noexcept
+bool Animator::valid_settings(const Data& data) noexcept
 {
-    return (settings.animation_guid.empty() || GuidMap::valid_guid(settings.animation_guid)) &&
-           std::isfinite(settings.speed) && settings.speed >= 0.0F && settings.speed <= 16.0F;
+    return (data.animation_guid.empty() || GuidMap::valid_guid(data.animation_guid)) &&
+           std::isfinite(data.speed) && data.speed >= 0.0F && data.speed <= 16.0F;
 }
-
-schema::AnimatorDataT Animator::settings() const noexcept
+Animator::Data Animator::settings() const noexcept
 {
     const auto* value = read_data<Data>();
     return value ? *value : Data{};
 }
-
 bool Animator::get_settings(Data& output) const noexcept
 {
     const auto* value = read_data<Data>();
     output = value ? *value : Data{};
     return value != nullptr;
 }
-
-bool Animator::set_settings(const schema::AnimatorDataT& settings)
+bool Animator::set_settings(const Data& data)
 {
-    if (!writable())
+    if (!writable() || !valid_settings(data))
     {
         return false;
     }
-    if (!valid_settings(settings))
-    {
-        return false;
-    }
-    const bool changed = settings.animation_guid != this->settings().animation_guid;
-    auto replacement = runtime()->animation_;
+    auto* state = runtime();
+    const bool changed = data.animation_guid != settings().animation_guid;
+    auto replacement = state->animation_;
     if (changed)
     {
-        if (runtime()->revision_ == std::numeric_limits<std::uint64_t>::max())
+        if (state->revision_ == std::numeric_limits<std::uint64_t>::max())
         {
             return false;
         }
         replacement.reset();
-        if (!settings.animation_guid.empty())
+        if (!data.animation_guid.empty())
         {
             auto* resources = ResourceSystem::instance();
-            if (!resources || !resources->loader().load(settings.animation_guid, replacement) ||
-                !replacement || !replacement->animation())
+            if (!resources || !resources->loader().load(data.animation_guid, replacement) ||
+                !replacement || !replacement->animation() ||
+                !validate_overlay(*replacement->animation(), state->event_markers_))
             {
                 return false;
             }
         }
     }
-    *write_data<Data>() = settings;
+    *write_data<Data>() = data;
     modified();
-    runtime()->animation_ = std::move(replacement);
+    state->animation_ = std::move(replacement);
     if (changed)
     {
-        ++runtime()->revision_;
-        runtime()->target_skeleton_.reset();
-        runtime()->prepared_revision_ = 0;
-        const bool stopped = stop();
-        (void)stopped;
-        runtime()->awake_pending_ = settings.play_on_awake;
+        ++state->revision_;
+        state->target_skeleton_.reset();
+        state->source_skeleton_.reset();
+        state->retarget_profile_.reset();
+        state->retarget_binding_.reset();
+        state->prepared_revision_ = 0;
+        (void)stop();
+        state->awake_pending_ = data.play_on_awake;
     }
-    else if (!settings.play_on_awake)
+    else if (!data.play_on_awake)
     {
-        runtime()->awake_pending_ = false;
+        state->awake_pending_ = false;
     }
     return true;
 }
-
-bool Animator::restore_data(const schema::ComponentDataT& data)
+bool Animator::restore_data(const schema::ComponentDataT& input)
 {
-    if (!data.flags)
+    const auto* data = input.payload.AsAnimatorData();
+    if (!writable() || !input.flags || !data || !set_settings(*data) || !restore_flags(input))
     {
         return false;
     }
-    if (!writable())
-    {
-        return false;
-    }
-    const auto* settings = data.payload.AsAnimatorData();
-    if (!settings || !set_settings(*settings))
-    {
-        return false;
-    }
-    if (!restore_flags(data))
-    {
-        return false;
-    }
-    const bool stopped = stop();
-    (void)stopped;
-    runtime()->awake_pending_ = settings->play_on_awake;
+    (void)stop();
+    runtime()->awake_pending_ = data->play_on_awake;
     runtime()->prepared_revision_ = 0;
     return true;
 }
-
 bool Animator::set_animation(std::string_view path)
 {
     if (!writable())
     {
         return false;
     }
-    auto replacement = settings();
+    auto data = settings();
     if (path.empty())
     {
-        replacement.animation_guid.clear();
+        data.animation_guid.clear();
     }
-    else if (!ResourceSystem::path_to_guid(path, replacement.animation_guid))
+    else if (!ResourceSystem::path_to_guid(path, data.animation_guid))
     {
         return false;
     }
-    if (!set_settings(replacement))
+    if (!set_settings(data))
     {
         return false;
     }
-    // 显式直接选择同一动作也结束过渡，但保留原有播放时间。
-    runtime()->previous_animation_.reset();
-    runtime()->frozen_pose_.reset();
-    runtime()->fade_seconds_ = 0.0;
-    runtime()->fade_elapsed_ = 0.0;
-    runtime()->pose_dirty_ = runtime()->playback_ != AnimationPlayback::stopped;
+    auto* state = runtime();
+    if (state->retarget_binding_)
+    {
+        if (state->revision_ == std::numeric_limits<std::uint64_t>::max())
+        {
+            return false;
+        }
+        ++state->revision_;
+    }
+    state->retarget_binding_.reset();
+    state->retarget_profile_.reset();
+    state->previous_animation_.reset();
+    state->previous_source_skeleton_.reset();
+    state->previous_retarget_binding_.reset();
+    state->previous_retarget_profile_.reset();
+    state->frozen_pose_.reset();
+    state->fade_seconds_ = state->fade_elapsed_ = 0.0;
+    state->pose_dirty_ = true;
     return true;
 }
-
-bool Animator::cross_fade(std::string_view path, double seconds)
+bool Animator::play_animation(const AnimationPlayRequest& request)
 {
-    if (!writable())
+    if (!writable() || !active() || request.animation_path.empty() ||
+        !std::isfinite(request.fade_seconds) || request.fade_seconds < 0 ||
+        !std::isfinite(request.speed) || request.speed < 0 || request.speed > 16)
     {
         return false;
     }
-    auto renderer = node().get_component<MeshRenderer>();
-    const auto* mesh = renderer.valid() ? renderer.mesh_data() : nullptr;
+    auto* state = runtime();
+    const auto renderer = node().get_component<MeshRenderer>();
+    const auto* mesh = renderer ? renderer.mesh_data() : nullptr;
     auto* resources = ResourceSystem::instance();
+    ResourcePtr clip, source, target, profile;
     Guid guid;
-    ResourcePtr candidate;
-    ResourcePtr target;
-    ResourcePtr source;
-    if (!active() || path.empty() || !std::isfinite(seconds) || seconds < 0.0 ||
-        runtime()->revision_ == std::numeric_limits<std::uint64_t>::max() || mesh == nullptr ||
-        mesh->skeleton_guid.empty() || resources == nullptr ||
-        !ResourceSystem::path_to_guid(path, guid) || !resources->loader().load(guid, candidate) ||
-        candidate == nullptr || candidate->animation() == nullptr ||
-        !resources->loader().load(mesh->skeleton_guid, target) || target == nullptr ||
-        target->skeleton() == nullptr ||
-        !resources->loader().load(candidate->animation()->skeleton_guid, source) ||
-        source == nullptr || source->skeleton() == nullptr ||
-        !animation_detail::valid_binding(*mesh, *target->skeleton(), *source->skeleton(),
-                                         *candidate->animation()))
+    if (!resources || !mesh || mesh->skeleton_guid.empty() ||
+        !ResourceSystem::path_to_guid(request.animation_path, guid) ||
+        !resources->loader().load(guid, clip) || !clip || !clip->animation() ||
+        !resources->loader().load(clip->animation()->skeleton_guid, source) || !source ||
+        !source->skeleton() || !target_skeleton(*this, target) ||
+        !validate_overlay(*clip->animation(), state->event_markers_))
     {
         return false;
     }
-    if (runtime()->animation_ != nullptr &&
-        runtime()->animation_->info().guid == candidate->info().guid &&
-        runtime()->animation_->generation() == candidate->generation() &&
-        runtime()->playback_ != AnimationPlayback::stopped)
+    std::shared_ptr<const AnimationRetargetBinding> binding;
+    if (request.retarget_profile_path.empty())
     {
-        return true;
-    }
-    if (seconds > 0.0 && runtime()->animation_ != nullptr &&
-        runtime()->playback_ != AnimationPlayback::stopped)
-    {
-        ResourcePtr previous_source;
-        if (!resources->loader().load(runtime()->animation_->animation()->skeleton_guid,
-                                      previous_source) ||
-            previous_source == nullptr || previous_source->skeleton() == nullptr ||
-            !animation_detail::valid_binding(*mesh, *target->skeleton(),
-                                             *previous_source->skeleton(),
-                                             *runtime()->animation_->animation()))
+        if (!animation_detail::valid_binding(*mesh, *target->skeleton(), *source->skeleton(),
+                                             *clip->animation()))
         {
             return false;
         }
     }
-    runtime()->frozen_pose_.reset();
-    runtime()->previous_animation_ = runtime()->animation_;
-    runtime()->previous_time_ = runtime()->time_;
-    runtime()->previous_speed_ = settings().speed;
-    runtime()->previous_loop_ = settings().loop;
-    runtime()->previous_advancing_ = runtime()->playback_ == AnimationPlayback::playing;
-    if (runtime()->playback_ == AnimationPlayback::stopped)
+    else
     {
-        runtime()->previous_animation_.reset();
+        Guid profile_guid;
+        const auto* services = flecs::world(node().world()->native_world())
+                                   .try_get<animation_detail::AnimationServices>();
+        std::string error;
+        schema::AnimationDataT rest;
+        if (!services || !services->retargeter ||
+            !ResourceSystem::path_to_guid(request.retarget_profile_path, profile_guid) ||
+            !resources->loader().load(profile_guid, profile) || !profile ||
+            !profile->retarget_profile() ||
+            profile->retarget_profile()->source_skeleton_guid != source->info().guid ||
+            profile->retarget_profile()->target_skeleton_guid != target->info().guid ||
+            !animation_detail::valid_binding(*mesh, *target->skeleton(), *target->skeleton(),
+                                             rest) ||
+            !services->retargeter->prepare(*profile->retarget_profile(), *source->skeleton(),
+                                           *target->skeleton(), binding, error) ||
+            !binding)
+        {
+            return false;
+        }
     }
-    write_data<Data>()->animation_guid = std::move(guid);
+    const bool same = same_resource(state->animation_, clip) &&
+                      same_resource(state->retarget_profile_, profile) &&
+                      same_resource(state->target_skeleton_, target) &&
+                      same_resource(state->source_skeleton_, source);
+    if (!request.restart && same && state->playback_ != AnimationPlayback::stopped)
+    {
+        auto* data = write_data<Data>();
+        data->speed = request.speed;
+        data->loop = request.loop;
+        state->playback_ = AnimationPlayback::playing;
+        state->completed_ = false;
+        state->awake_pending_ = false;
+        state->pose_dirty_ = true;
+        modified();
+        return true;
+    }
+    if (state->revision_ == std::numeric_limits<std::uint64_t>::max() ||
+        state->playback_sequence_ == std::numeric_limits<std::uint64_t>::max())
+    {
+        return false;
+    }
+    if (request.fade_seconds > 0 && state->animation_ &&
+        state->playback_ != AnimationPlayback::stopped && state->target_skeleton_ &&
+        !same_resource(state->target_skeleton_, target))
+    {
+        return false;
+    }
+    state->previous_animation_ =
+        state->playback_ == AnimationPlayback::stopped ? nullptr : state->animation_;
+    state->previous_source_skeleton_ = state->source_skeleton_;
+    state->previous_retarget_profile_ = state->retarget_profile_;
+    state->previous_retarget_binding_ = state->retarget_binding_;
+    state->previous_time_ = state->time_;
+    state->previous_speed_ = settings().speed;
+    state->previous_loop_ = settings().loop;
+    state->previous_advancing_ = state->playback_ == AnimationPlayback::playing;
+    state->frozen_pose_.reset();
+    if (!same_resource(state->target_skeleton_, target))
+    {
+        state->ik_targets_.clear();
+        state->pose_revision_ = 0;
+        state->committed_models_.clear();
+    }
+    auto* data = write_data<Data>();
+    data->animation_guid = std::move(guid);
+    data->speed = request.speed;
+    data->loop = request.loop;
+    state->animation_ = std::move(clip);
+    state->target_skeleton_ = std::move(target);
+    state->source_skeleton_ = std::move(source);
+    state->retarget_profile_ = std::move(profile);
+    state->retarget_binding_ = std::move(binding);
+    ++state->revision_;
+    state->time_ = 0;
+    state->cycle_ = 0;
+    state->completed_ = false;
+    state->playback_id_ = ++state->playback_sequence_;
+    state->event_starting_ = true;
+    state->fade_seconds_ = request.fade_seconds;
+    state->fade_elapsed_ = 0;
+    state->playback_ = AnimationPlayback::playing;
+    state->awake_pending_ = false;
+    state->pose_dirty_ = true;
     modified();
-    runtime()->animation_ = std::move(candidate);
-    runtime()->target_skeleton_ = std::move(target);
-    ++runtime()->revision_;
-    runtime()->time_ = 0.0;
-    runtime()->fade_seconds_ = seconds;
-    runtime()->fade_elapsed_ = 0.0;
-    runtime()->playback_ = AnimationPlayback::playing;
-    runtime()->awake_pending_ = false;
-    runtime()->pose_dirty_ = true;
     return true;
 }
-
+bool Animator::cross_fade(std::string_view path, double seconds)
+{
+    if (!writable() || !active() || !std::isfinite(seconds) || seconds < 0 || path.empty())
+    {
+        return false;
+    }
+    // 旧接口的同一资源 no-op（包括保持暂停）保留。
+    Guid guid;
+    ResourcePtr clip;
+    auto* resources = ResourceSystem::instance();
+    if (!resources || !ResourceSystem::path_to_guid(path, guid) ||
+        !resources->loader().load(guid, clip) || !clip || !clip->animation())
+    {
+        return false;
+    }
+    if (same_resource(runtime()->animation_, clip) &&
+        runtime()->playback_ != AnimationPlayback::stopped)
+    {
+        return true;
+    }
+    AnimationPlayRequest request;
+    request.animation_path = std::string(path);
+    request.fade_seconds = seconds;
+    request.speed = settings().speed;
+    request.loop = settings().loop;
+    return play_animation(request);
+}
 std::string_view Animator::animation_path() const noexcept
 {
-    if (!valid())
-    {
-        return {};
-    }
-    return runtime()->animation_ ? std::string_view(runtime()->animation_->info().path)
-                                 : std::string_view{};
+    return valid() && runtime()->animation_ ? std::string_view(runtime()->animation_->info().path)
+                                            : std::string_view{};
 }
-
 bool Animator::play() noexcept
 {
-    if (!writable())
+    if (!writable() || !active() || !runtime()->animation_ || !runtime()->animation_->animation())
     {
         return false;
     }
-    if (!active() || !runtime()->animation_ || !runtime()->animation_->animation())
+    auto* state = runtime();
+    if (state->playback_ == AnimationPlayback::stopped)
     {
-        return false;
+        if (state->playback_sequence_ == std::numeric_limits<std::uint64_t>::max())
+        {
+            return false;
+        }
+        state->time_ = 0;
+        state->cycle_ = 0;
+        state->playback_id_ = ++state->playback_sequence_;
+        state->event_starting_ = true;
     }
-    if (runtime()->playback_ == AnimationPlayback::stopped)
-    {
-        runtime()->time_ = 0.0;
-    }
-    runtime()->playback_ = AnimationPlayback::playing;
-    runtime()->awake_pending_ = false;
-    runtime()->pose_dirty_ = true;
+    state->playback_ = AnimationPlayback::playing;
+    state->completed_ = false;
+    state->awake_pending_ = false;
+    state->pose_dirty_ = true;
     return true;
 }
-
 bool Animator::pause() noexcept
 {
-    if (!writable())
-    {
-        return false;
-    }
-    if (runtime()->playback_ == AnimationPlayback::stopped)
+    if (!writable() || runtime()->playback_ == AnimationPlayback::stopped)
     {
         return false;
     }
@@ -262,70 +373,202 @@ bool Animator::pause() noexcept
     runtime()->awake_pending_ = false;
     return true;
 }
-
 bool Animator::stop() noexcept
 {
     if (!writable())
     {
         return false;
     }
-    runtime()->previous_animation_.reset();
-    runtime()->frozen_pose_.reset();
-    runtime()->fade_seconds_ = 0.0;
-    runtime()->fade_elapsed_ = 0.0;
-    runtime()->playback_ = AnimationPlayback::stopped;
-    runtime()->time_ = 0.0;
-    runtime()->awake_pending_ = false;
-    runtime()->pose_dirty_ = false;
+    auto* state = runtime();
+    state->previous_animation_.reset();
+    state->previous_source_skeleton_.reset();
+    state->previous_retarget_profile_.reset();
+    state->previous_retarget_binding_.reset();
+    state->frozen_pose_.reset();
+    state->fade_seconds_ = state->fade_elapsed_ = 0;
+    state->playback_ = AnimationPlayback::stopped;
+    state->time_ = 0;
+    state->cycle_ = 0;
+    state->playback_id_ = 0;
+    state->completed_ = false;
+    state->event_starting_ = false;
+    state->awake_pending_ = false;
+    state->pose_dirty_ = true;
+    state->pose_revision_ = 0;
+    state->committed_models_.clear();
     auto renderer = node().get_component<MeshRenderer>();
     if (renderer)
     {
         renderer.clear_deformation();
     }
+    node().world()->invalidate_scene_state();
     return true;
 }
-
 bool Animator::seek(double seconds) noexcept
 {
     if (!writable())
     {
         return false;
     }
-    const auto* animation = runtime()->animation_ ? runtime()->animation_->animation() : nullptr;
-    if (!animation || !std::isfinite(seconds) || seconds < 0.0 || seconds > animation->duration)
+    auto* state = runtime();
+    const auto* animation = state->animation_ ? state->animation_->animation() : nullptr;
+    if (!animation || !std::isfinite(seconds) || seconds < 0 || seconds > animation->duration ||
+        state->playback_sequence_ == std::numeric_limits<std::uint64_t>::max())
     {
         return false;
     }
-    runtime()->previous_animation_.reset();
-    runtime()->frozen_pose_.reset();
-    runtime()->fade_seconds_ = 0.0;
-    runtime()->fade_elapsed_ = 0.0;
-    runtime()->time_ = seconds;
-    if (runtime()->playback_ == AnimationPlayback::stopped)
+    state->previous_animation_.reset();
+    state->previous_source_skeleton_.reset();
+    state->previous_retarget_profile_.reset();
+    state->previous_retarget_binding_.reset();
+    state->frozen_pose_.reset();
+    state->fade_seconds_ = state->fade_elapsed_ = 0;
+    state->time_ = seconds;
+    state->cycle_ = 0;
+    state->playback_id_ = ++state->playback_sequence_;
+    state->completed_ = false;
+    state->event_starting_ = false;
+    if (state->playback_ == AnimationPlayback::stopped)
     {
-        runtime()->playback_ = AnimationPlayback::paused;
+        state->playback_ = AnimationPlayback::paused;
     }
-    runtime()->pose_dirty_ = true;
-    runtime()->awake_pending_ = false;
+    state->pose_dirty_ = true;
+    state->awake_pending_ = false;
     return true;
 }
-
 AnimationPlayback Animator::playback() const noexcept
 {
-    if (!valid())
-    {
-        return {};
-    }
-    return runtime()->playback_;
+    return valid() ? runtime()->playback_ : AnimationPlayback::stopped;
 }
-
 double Animator::time() const noexcept
 {
+    return valid() ? runtime()->time_ : 0;
+}
+bool Animator::get_playback_info(AnimatorPlaybackInfo& output) const noexcept
+{
+    output = {};
     if (!valid())
     {
-        return {};
+        return false;
     }
-    return runtime()->time_;
+    const auto* state = runtime();
+    const auto* animation = state->animation_ ? state->animation_->animation() : nullptr;
+    output.playback = state->playback_;
+    output.time = state->time_;
+    output.duration = animation ? animation->duration : 0;
+    output.normalized_time =
+        output.duration > 0 ? static_cast<double>(state->cycle_) + output.time / output.duration
+                            : 0;
+    output.completed = state->completed_;
+    output.transitioning = state->fade_seconds_ > 0 && state->fade_elapsed_ < state->fade_seconds_;
+    output.playback_id = state->playback_id_;
+    return true;
 }
-
+bool Animator::get_bone_pose(std::string_view path, AnimationPoseTransform& output) const
+{
+    output = {};
+    ResourcePtr target;
+    MeshRenderer renderer;
+    std::vector<std::string> paths;
+    if (!committed_pose(*this, target, renderer) ||
+        !animation_detail::readable_joint_paths(*target->skeleton(), paths))
+    {
+        return false;
+    }
+    const auto found = std::find(paths.begin(), paths.end(), path);
+    std::array<float, 16> mesh_world;
+    ozz::math::Float4x4 inverse;
+    if (found == paths.end() || !node().get_component<Transform>().world_matrix(mesh_world.data()))
+    {
+        return false;
+    }
+    std::array<float, 16> binding;
+    const auto* mesh = renderer.mesh_data();
+    std::copy(mesh->mesh_to_skeleton.begin(), mesh->mesh_to_skeleton.end(), binding.begin());
+    if (!animation_detail::invert_matrix(animation_detail::load_matrix(binding), inverse))
+    {
+        return false;
+    }
+    output.model = runtime()->committed_models_[static_cast<std::size_t>(found - paths.begin())];
+    animation_detail::store_matrix(animation_detail::load_matrix(mesh_world) * inverse *
+                                       animation_detail::load_matrix(output.model),
+                                   output.world);
+    output.pose_revision = runtime()->pose_revision_;
+    return true;
+}
+bool Animator::get_socket_pose(std::string_view name, AnimationPoseTransform& output) const
+{
+    output = {};
+    ResourcePtr target;
+    MeshRenderer renderer;
+    if (!committed_pose(*this, target, renderer))
+    {
+        return false;
+    }
+    for (const auto& socket : target->skeleton()->sockets)
+    {
+        if (socket && socket->name == name)
+        {
+            AnimationPoseTransform bone;
+            if (!get_bone_pose(socket->joint_path, bone))
+            {
+                return false;
+            }
+            const auto offset = animation_detail::pose_matrix(socket->offset);
+            animation_detail::store_matrix(animation_detail::load_matrix(bone.model) * offset,
+                                           output.model);
+            animation_detail::store_matrix(animation_detail::load_matrix(bone.world) * offset,
+                                           output.world);
+            output.pose_revision = bone.pose_revision;
+            return true;
+        }
+    }
+    return false;
+}
+bool Animator::set_aim_ik_target(std::string_view name, const AnimationIkTarget& target)
+{
+    return writable() && animation_detail::set_ik_target(*this, name, target, false);
+}
+bool Animator::set_two_bone_ik_target(std::string_view name, const AnimationIkTarget& target)
+{
+    return writable() && animation_detail::set_ik_target(*this, name, target, true);
+}
+bool Animator::get_ik_target(std::string_view name, AnimationIkTarget& output) const
+{
+    output = {};
+    if (!valid())
+    {
+        return false;
+    }
+    const auto found = runtime()->ik_targets_.find(name);
+    if (found == runtime()->ik_targets_.end())
+    {
+        return false;
+    }
+    output = found->second;
+    return true;
+}
+bool Animator::set_event_markers(std::span<const schema::AnimationEventMarkerDataT> markers)
+{
+    if (!writable() || !runtime()->animation_ || !runtime()->animation_->animation() ||
+        runtime()->track_revision_ == std::numeric_limits<std::uint64_t>::max() ||
+        !validate_overlay(*runtime()->animation_->animation(), markers))
+    {
+        return false;
+    }
+    runtime()->event_markers_.assign(markers.begin(), markers.end());
+    ++runtime()->track_revision_;
+    return true;
+}
+void Animator::clear_event_markers() noexcept
+{
+    if (writable())
+    {
+        runtime()->event_markers_.clear();
+        if (runtime()->track_revision_ != std::numeric_limits<std::uint64_t>::max())
+        {
+            ++runtime()->track_revision_;
+        }
+    }
+}
 } // namespace engine

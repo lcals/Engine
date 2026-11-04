@@ -39,7 +39,7 @@ export const showcase_cases: readonly ShowcaseCase[] = [
     },
     {
         id: "character-animation", button: "scene-courtyard", title: "Character, animation and camera",
-        goal: "Move and jump; switch first/third person while preserving skinning and shadows.",
+        goal: "Move and jump; compare eight independent actors using one shared TS animation definition.",
         scene: "scenes/playground.scene", game: Courtyard,
     },
     {

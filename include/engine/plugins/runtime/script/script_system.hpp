@@ -15,6 +15,7 @@ class PhysicsSystem;
 class NavigationSystem;
 class InputSystem;
 class WindowSystem;
+class AnimationSystem;
 } // namespace engine
 
 namespace engine::plugins::script
@@ -25,8 +26,9 @@ class ScriptSystem final : public ScriptRuntime
 public:
     explicit ScriptSystem(WorldSystem* world = nullptr, RenderSystem* renderer = nullptr,
                           UiSystem* ui = nullptr, PhysicsSystem* physics = nullptr,
-                          NavigationSystem* navigation = nullptr,
-                          InputSystem* input = nullptr, WindowSystem* window = nullptr) noexcept;
+                          NavigationSystem* navigation = nullptr, InputSystem* input = nullptr,
+                          WindowSystem* window = nullptr,
+                          AnimationSystem* animation = nullptr) noexcept;
     ~ScriptSystem() noexcept override;
 
     // 预检只读取候选目录，不执行用户代码、不改变活动资源或旧玩法。
@@ -58,6 +60,8 @@ private:
     NavigationSystem* navigation_ = nullptr;
     InputSystem* input_ = nullptr;
     WindowSystem* window_ = nullptr;
+    // 可空借用；事件接收器解绑前保持对象有效，回调仅在主线程姿态提交后执行。
+    AnimationSystem* animation_ = nullptr;
     ScriptStatus status_;
     std::unique_ptr<State> state_;
 };

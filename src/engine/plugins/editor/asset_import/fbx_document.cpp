@@ -1,11 +1,11 @@
 #include "plugins/editor/asset_import/fbx_document.hpp"
+#include "plugins/editor/asset_import/fbx_authoring.hpp"
 
 #include "editor/asset_pipeline/asset_io.hpp"
 #include "editor/asset_pipeline/importer_utils.hpp"
 #include "editor/mesh/mesh_tangents.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/utils/path_utils.hpp"
-
 
 #include <algorithm>
 #include <array>
@@ -170,7 +170,8 @@ bool read_document_settings(const std::filesystem::path& path, FbxDocument& docu
             document.rotation_offset[index] = *angle;
         }
     }
-    return read_motion_settings(settings, document, error);
+    return read_motion_settings(settings, document, error) &&
+           read_animation_authoring(settings, document, error);
 }
 
 std::string safe_name(ufbx_string name)
@@ -377,7 +378,8 @@ bool document_settings_match(const std::filesystem::path& path, const FbxDocumen
         current.normals_mode != document.normals_mode ||
         current.scale_factor != document.scale_factor ||
         current.rotation_offset != document.rotation_offset ||
-        current.animation_motion != document.animation_motion)
+        current.animation_motion != document.animation_motion ||
+        current.authoring_settings != document.authoring_settings)
     {
         error = "FBX settings changed during import; retry the build";
         return false;
@@ -489,7 +491,7 @@ bool load_document(const std::filesystem::path& path, FbxDocument& document, std
             return false;
         }
     }
-    return true;
+    return validate_animation_authoring(document, error);
 }
 
 bool convert_skeleton(const FbxDocument& document, schema::SkeletonDataT& output,
@@ -537,6 +539,10 @@ bool convert_skeleton(const FbxDocument& document, schema::SkeletonDataT& output
             bind != bindings.end() ? bind->second : ufbx_matrix_invert(&node->node_to_world));
         output.joints.push_back(std::move(joint));
     }
+    schema::SkeletonDataT authoring(document.skeleton_authoring);
+    output.sockets = std::move(authoring.sockets);
+    output.aim_ik = std::move(authoring.aim_ik);
+    output.two_bone_ik = std::move(authoring.two_bone_ik);
     return !output.joints.empty();
 }
 
@@ -679,9 +685,8 @@ bool convert_mesh(const FbxDocument& document, const ufbx_node& node, schema::Me
                         nx * bitangent.x + ny * bitangent.y + nz * bitangent.z;
                     if (!finite_float(tangent.x) || !finite_float(tangent.y) ||
                         !finite_float(tangent.z) || !std::isfinite(cross_length) ||
-                        !std::isfinite(bitangent_length) ||
-                        !std::isfinite(orientation) || cross_length <= 1.0e-12 ||
-                        bitangent_length <= 1.0e-12 ||
+                        !std::isfinite(bitangent_length) || !std::isfinite(orientation) ||
+                        cross_length <= 1.0e-12 || bitangent_length <= 1.0e-12 ||
                         std::abs(orientation) <= 1.0e-6 * cross_length * bitangent_length)
                     {
                         // Tangents are an all-or-nothing vertex stream. If any
@@ -810,6 +815,18 @@ bool convert_animation(const FbxDocument& source, const FbxDocument& skeleton,
             track->scales.emplace_back(time, vector(pose.scale));
         }
         output.tracks.push_back(std::move(track));
+    }
+    for (const auto& [key, animation] : source.animations)
+    {
+        if (animation == &stack)
+        {
+            const auto authored = source.animation_authoring.find(key);
+            if (authored != source.animation_authoring.end())
+            {
+                output.events = schema::AnimationDataT(authored->second).events;
+            }
+            break;
+        }
     }
     return !output.tracks.empty() && apply_animation_motion(source, skeleton, stack, output, error);
 }

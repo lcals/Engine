@@ -583,9 +583,153 @@ declare module "engine" {
         GetMaterial(slot: number): Material | null;
         SetMaterialCount(count: number): boolean;
     }
+    export type AnimationParameterType = "float" | "int" | "bool" | "trigger";
+    export type ParameterValue = number | boolean;
+    export type ParameterValues = Readonly<Record<string, ParameterValue>>;
+    export type StateSource = string | null;
+    export type AnimationPredicate = (context: AnimationStateContext) => boolean;
+    export type AnimationTest = AnimationCondition | AnimationPredicate;
+    export interface AnimationStateOptions {
+        speed?: number;
+        loop?: boolean;
+    }
+    export interface AnimationTransitionOptions {
+        seconds?: number;
+        priority?: number;
+        exitTime?: number;
+        interrupt?: boolean;
+        reenter?: boolean;
+    }
+    export type AnimationActionBinding = string | Readonly<{
+        path: string;
+        retargetProfile?: string;
+    }>;
+    export type AnimationActionAliases = Readonly<Record<string, AnimationActionBinding>>;
+    /** Explicitly share this definition object; it is sealed on the first successful binding. */
+    export class AnimationStateMachine {
+        constructor(initialState: string);
+        readonly initialState: string;
+        AddParameter(name: string, type: AnimationParameterType, defaultValue?: ParameterValue): boolean;
+        AddState(state: AnimationState): boolean;
+        AddTransition(from: StateSource, to: string, condition: AnimationTest,
+                      options?: AnimationTransitionOptions): boolean;
+    }
+    /** Shared behavior. Keep mutable per-character data out of state and condition fields. */
+    export class AnimationState {
+        constructor(name: string, animationAlias: string, options?: AnimationStateOptions);
+        readonly name: string;
+        readonly animationAlias: string;
+        OnEnter(context: AnimationStateContext): void;
+        OnUpdate(context: AnimationStateContext): void;
+        OnExit(context: AnimationStateContext): void;
+    }
+    export abstract class AnimationCondition {
+        abstract Test(context: AnimationStateContext): boolean;
+    }
+    /** Borrowed only for the current synchronous callback; do not retain or await it. */
+    export class AnimationStateContext {
+        private constructor();
+        readonly state: string;
+        readonly deltaTime: number;
+        readonly stateTime: number;
+        readonly animationTime: number;
+        readonly animationDuration: number;
+        readonly normalizedTime: number;
+        readonly finished: boolean;
+        GetFloat(name: string): number | null;
+        GetInt(name: string): number | null;
+        GetBool(name: string): boolean | null;
+        IsTriggered(name: string): boolean;
+        /** Only valid in OnEnter/OnUpdate, with a value in [0,16]. */
+        SetSpeed(value: number): boolean;
+    }
     /** An independent animation action sampled onto the MeshRenderer on the same node. */
+    export interface AnimationPlayRequest {
+        animation: string;
+        retargetProfile?: string;
+        fadeSeconds?: number;
+        speed?: number;
+        loop?: boolean;
+        restart?: boolean;
+    }
+    export interface AnimationPoseTransform {
+        readonly model: readonly number[];
+        readonly world: readonly number[];
+        readonly poseRevision: bigint;
+    }
+    export interface AnimatorPlaybackInfo {
+        readonly instance: bigint;
+        readonly playbackId: bigint;
+        readonly playback: "stopped" | "playing" | "paused";
+        readonly time: number;
+        readonly duration: number;
+        readonly normalizedTime: number;
+        readonly completed: boolean;
+        readonly transitioning: boolean;
+        readonly active: boolean;
+        readonly worldPaused: boolean;
+    }
+    export interface AnimationIkTarget {
+        kind?: "point" | "node";
+        space?: "model" | "world";
+        point?: Vector3;
+        node?: Node;
+        localOffset?: Vector3;
+        pole?: Vector3;
+        weight?: number;
+        enabled?: boolean;
+    }
+    export interface AnimationEventMarker {
+        markerId: number;
+        time: number;
+        name: string;
+        payload?: boolean | number | string | null;
+    }
+    export interface AnimationEvent extends Readonly<AnimationEventMarker> {
+        readonly sceneId: bigint;
+        readonly nodeId: bigint;
+        readonly componentInstanceId: bigint;
+        readonly playbackId: bigint;
+        readonly animationGuid: string;
+        readonly resourceGeneration: bigint;
+        readonly trackRevision: bigint;
+        readonly cycle: bigint;
+    }
+    export interface JointLocalPose {
+        translation?: Vector3;
+        rotation?: {x: number; y: number; z: number; w: number};
+        scale?: Vector3;
+    }
+    export class BoneAttachment extends Component {
+        private constructor();
+        SetSource(source: Animator): boolean;
+        SetSettings(socketName: string, followEnabled?: boolean, offset?: JointLocalPose): boolean;
+        Detach(): boolean;
+        readonly following: boolean;
+    }
     export class Animator extends Component {
         private constructor();
+        PlayAnimation(request: AnimationPlayRequest): boolean;
+        GetPlaybackInfo(): AnimatorPlaybackInfo | null;
+        SetIkEnabled(enabled: boolean): boolean;
+        GetBonePose(path: string): AnimationPoseTransform | null;
+        GetSocketPose(name: string): AnimationPoseTransform | null;
+        SetAimIkTarget(name: string, target: AnimationIkTarget): boolean;
+        SetTwoBoneIkTarget(name: string, target: AnimationIkTarget): boolean;
+        GetIkTarget(name: string): AnimationIkTarget | null;
+        SetEventMarkers(markers: readonly AnimationEventMarker[]): boolean;
+        ClearEventMarkers(): boolean;
+        SubscribeEvents(callback: (event: AnimationEvent) => void): bigint | null;
+        UnsubscribeEvents(token: bigint): boolean;
+        SetStateMachine(definition: AnimationStateMachine, actionAliases: AnimationActionAliases): boolean;
+        ClearStateMachine(): boolean;
+        SetParameters(values: ParameterValues): boolean;
+        Trigger(name: string): boolean;
+        ResetTrigger(name: string): boolean;
+        SetStateMachinePaused(value: boolean): boolean;
+        readonly stateMachineState: string | null;
+        readonly stateMachinePaused: boolean | null;
+        readonly stateMachineTransitioning: boolean;
         /** Empty path clears the action; failure preserves the previous action and settings. */
         SetAnimation(path: string): boolean;
         /** Blend from the current pose. Nonnegative seconds; zero switches immediately. */

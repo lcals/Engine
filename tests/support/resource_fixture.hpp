@@ -120,6 +120,25 @@ public:
         return add_entity(probes.path, engine::schema::AssetKind::light_probe, builder, {});
     }
 
+    bool add(const engine::schema::SkeletonDataT& skeleton)
+    {
+        flatbuffers::FlatBufferBuilder builder;
+        engine::schema::FinishSkeletonDataBuffer(
+            builder, engine::schema::SkeletonData::Pack(builder, &skeleton));
+        return add_entity(skeleton.path, engine::schema::AssetKind::skeleton, builder, {});
+    }
+
+    bool add(const engine::schema::AnimationRetargetProfileDataT& profile)
+    {
+        flatbuffers::FlatBufferBuilder builder;
+        engine::schema::FinishAnimationRetargetProfileDataBuffer(
+            builder, engine::schema::AnimationRetargetProfileData::Pack(builder, &profile));
+        std::vector<std::string> dependencies{profile.source_skeleton_guid,
+                                              profile.target_skeleton_guid};
+        return add_entity(profile.path, engine::schema::AssetKind::animation_retarget_profile,
+                          builder, dependencies);
+    }
+
     bool add(const engine::schema::MaterialDataT& definition)
     {
         engine::schema::MaterialDataT material(definition);

@@ -43,7 +43,7 @@ bool AnimatorCodec::read(const toml::table& table, schema::ComponentDataT& compo
         error = "animator.speed must be finite";
         return false;
     }
-    for (const auto* key : {"loop", "play_on_awake"})
+    for (const auto* key : {"loop", "play_on_awake", "ik_enabled"})
     {
         if (table.contains(key))
         {
@@ -53,7 +53,18 @@ bool AnimatorCodec::read(const toml::table& table, schema::ComponentDataT& compo
                 error = std::string("animator.") + key + " must be boolean";
                 return false;
             }
-            (std::string_view(key) == "loop" ? value.loop : value.play_on_awake) = *parsed;
+            if (std::string_view(key) == "loop")
+            {
+                value.loop = *parsed;
+            }
+            else if (std::string_view(key) == "play_on_awake")
+            {
+                value.play_on_awake = *parsed;
+            }
+            else
+            {
+                value.ik_enabled = *parsed;
+            }
         }
     }
     component.payload.Set(std::move(value));
@@ -73,5 +84,6 @@ void AnimatorCodec::write(const schema::ComponentDataT& component, toml::table& 
     table.insert("speed", value->speed);
     table.insert("loop", value->loop);
     table.insert("play_on_awake", value->play_on_awake);
+    table.insert("ik_enabled", value->ik_enabled);
 }
 } // namespace engine::editor::asset_pipeline

@@ -118,6 +118,7 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
                 src/engine/runtime/resource/codecs/ui_resource_codec.cpp
                 src/engine/runtime/resource/codecs/model_resource_codec.cpp
                 src/engine/runtime/resource/codecs/skeleton_resource_codec.cpp
+                src/engine/runtime/resource/codecs/animation_retarget_resource_codec.cpp
                 src/engine/runtime/resource/codecs/animation_resource_codec.cpp
                 src/engine/runtime/resource/resource_catalog.cpp
                 src/engine/runtime/resource/virtual_file_system.cpp)
@@ -144,6 +145,8 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
                 src/engine/runtime/scene/rigid_body.cpp
                 src/engine/runtime/scene/audio_source.cpp
                 src/engine/runtime/scene/animator.cpp
+                src/engine/runtime/scene/animator_ik.cpp
+                src/engine/runtime/scene/bone_attachment.cpp
                 src/engine/runtime/scene/ui_component.cpp
                 src/engine/runtime/scene/text_component.cpp
                 src/engine/runtime/scene/model_instantiation.cpp
@@ -164,7 +167,7 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
     target_link_libraries(
         engine_world
         PUBLIC engine::scene_data
-        PRIVATE engine::scene_ecs engine::resource engine::log bgfx::bx)
+        PRIVATE engine::scene_ecs engine::resource engine::log bgfx::bx ozz_base)
     target_include_directories(engine_world PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
 
     engine_add_system(runtime physics)
@@ -189,6 +192,9 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
         PRIVATE RecastNavigation::Recast RecastNavigation::Detour RecastNavigation::DetourCrowd)
 
     engine_add_system(runtime animation)
+    target_sources(engine_animation PRIVATE
+        src/engine/runtime/animation/animation_event_interval.cpp
+        src/engine/runtime/animation/animation_ik.cpp)
     engine_enable_profiling(engine_animation)
     target_include_directories(engine_animation PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
     target_link_libraries(engine_animation PRIVATE engine::task ozz_animation ozz_animation_offline
@@ -197,6 +203,7 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
     get_target_property(_ozz_include ozz_animation INTERFACE_INCLUDE_DIRECTORIES)
     if(_ozz_include)
         target_include_directories(engine_animation SYSTEM PRIVATE ${_ozz_include})
+        target_include_directories(engine_world SYSTEM PRIVATE ${_ozz_include})
     endif()
 
     engine_add_system(runtime font)

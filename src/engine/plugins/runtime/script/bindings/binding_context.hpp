@@ -1,6 +1,7 @@
 #pragma once
 
 #include "plugins/runtime/script/vm/script_vm.hpp"
+#include "runtime/animation/animation_events.hpp"
 #include "runtime/resource/resource_load.hpp"
 #include "runtime/schema/input_generated.h"
 #include "runtime/storage/key_value_store.hpp"
@@ -81,6 +82,8 @@ public:
     [[nodiscard]] std::uint64_t scene_id() const noexcept;
     void set_scene_id(std::uint64_t value) noexcept;
     [[nodiscard]] Node find_node(std::uint64_t scene_id, std::uint64_t node_id) const noexcept;
+    [[nodiscard]] bool push_animation_events(std::span<const AnimationEvent> events);
+    [[nodiscard]] bool take_animation_event(AnimationEvent& output);
     [[nodiscard]] double delta_time() const noexcept;
     [[nodiscard]] KeyValueStore& storage();
     void set_storage_error(std::string_view error);
@@ -109,6 +112,8 @@ private:
     };
     std::map<std::uint64_t, std::shared_ptr<AsyncResult>> async_results_;
     std::uint64_t async_sequence_ = 0;
+    std::vector<AnimationEvent> animation_events_;
+    std::size_t animation_event_cursor_ = 0;
     WorldSystem* world_ = nullptr;
     RenderSystem* renderer_ = nullptr;
     UiSystem* ui_ = nullptr;

@@ -313,13 +313,13 @@ bool FbxImporter::inspect_batch(const ImportContext& context, std::string& finge
             return false;
         }
     }
-    if (!schema_fingerprint(
-            {"common.fbs", "model.fbs", "mesh.fbs", "skeleton.fbs", "animation.fbs"}, fingerprint,
-            error))
+    if (!schema_fingerprint({"common.fbs", "model.fbs", "mesh.fbs", "skeleton.fbs", "animation.fbs",
+                             "animation_pose.fbs"},
+                            fingerprint, error))
     {
         return false;
     }
-    fingerprint += ":ufbx-0.23.1:ozz-0.17.0:mikktspace-3e895b49-angle-precision-1:fbx-importer-12" +
+    fingerprint += ":ufbx-0.23.1:ozz-0.17.0:mikktspace-3e895b49-angle-precision-1:fbx-importer-13" +
                    editor::mesh_lod_fingerprint();
     return true;
 }

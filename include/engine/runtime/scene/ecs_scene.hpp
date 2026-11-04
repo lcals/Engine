@@ -29,6 +29,14 @@ struct NodeRuntime
     bool visible_in_hierarchy = true;
 };
 
+struct TransformDrive
+{
+    ComponentType owner_type = ComponentType::NONE;
+    std::uint64_t owner_instance_id = 0;
+    std::array<float, 16> local{1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+    bool active = false;
+};
+
 struct WorldTransform
 {
     std::array<float, 16> matrix{1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};

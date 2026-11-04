@@ -127,7 +127,8 @@ void Component::modified() noexcept
         return;
     }
     ++current->revision;
-    if (type_ == ComponentType::TransformData)
+    if (type_ == ComponentType::TransformData || type_ == ComponentType::AnimatorData ||
+        type_ == ComponentType::BoneAttachmentData)
     {
         node_.world()->invalidate_scene_state();
     }

@@ -58,6 +58,7 @@ roots = [
     "scenes/playground.scene",
     "prefabs/characters/player.prefab",
     "models/locomotions.fbx/animations/walk",
+    "models/locomotions.fbx/animations/run",
     "materials/character.material",
 ]
 keep = [

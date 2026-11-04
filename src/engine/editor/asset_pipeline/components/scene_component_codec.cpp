@@ -15,6 +15,7 @@
 #include "editor/asset_pipeline/components/rigid_body_codec.hpp"
 
 #include "editor/asset_pipeline/components/animator_codec.hpp"
+#include "editor/asset_pipeline/components/bone_attachment_codec.hpp"
 
 #include "editor/asset_pipeline/components/character_motor_codec.hpp"
 
@@ -35,11 +36,12 @@ std::vector<std::unique_ptr<SceneComponentCodec>>& extensions()
     return entries;
 }
 
-const std::array<const SceneComponentCodec*, 16>& codecs()
+const std::array<const SceneComponentCodec*, 17>& codecs()
 {
     static const UiCodec ui;
     static const TextCodec text;
     static const AnimatorCodec animator;
+    static const BoneAttachmentCodec bone_attachment;
     static const CharacterMotorCodec motor;
     static const TransformCodec transform;
     static const CameraCodec camera;
@@ -54,10 +56,11 @@ const std::array<const SceneComponentCodec*, 16>& codecs()
     static const PlanarReflectionCodec planar_reflection;
     static const LightProbeVolumeCodec light_probe_volume;
 
-    static const std::array<const SceneComponentCodec*, 16> entries{&ui,
+    static const std::array<const SceneComponentCodec*, 17> entries{&ui,
                                                                     &text,
                                                                     &motor,
                                                                     &animator,
+                                                                    &bone_attachment,
                                                                     &transform,
                                                                     &camera,
                                                                     &light,

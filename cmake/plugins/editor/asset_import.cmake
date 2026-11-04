@@ -10,6 +10,7 @@ function(engine_configure_asset_import_plugin)
         engine_asset_import STATIC
         src/engine/plugins/editor/asset_import/fbx_importer.cpp
         src/engine/plugins/editor/asset_import/fbx_document.cpp
+        src/engine/plugins/editor/asset_import/fbx_authoring.cpp
         src/engine/plugins/editor/asset_import/fbx_motion.cpp
         src/engine/plugins/editor/asset_import/usd_importer.cpp
         src/engine/plugins/editor/asset_import/font_importer.cpp

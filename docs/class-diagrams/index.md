@@ -40,6 +40,7 @@
 - [逐类型资源导入](../editor/class-diagrams/asset-importers.md)：通用导入契约、显式登记与每类资源独立转换。
 - [统一资源导入插件](../plugins/editor/class-diagrams/asset-import.md)：FBX、USD、字体、UI 与 JSON 归同一 editor/asset_import 插件，逐类型实现与宿主登记保持独立。
 - [FBX 模型资源导入](../plugins/editor/class-diagrams/fbx-importer.md)：ufbx 解析、稳定子资源、骨骼与动画采样。
+- [动画制作与源元数据](../plugins/editor/class-diagrams/animation-authoring.md)：socket、IK 与事件轨的源 meta 制作、同一 EditorCommands 事务与 MCP 转发。
 - [USD 静态模型导入](../plugins/editor/class-diagrams/usd-import.md)：统一导入插件内的 USD 实现、自包含静态多边形及增量子网格。
 - [字体资源导入](../plugins/editor/class-diagrams/font-importer.md)：统一导入插件内的 FontImporter 读取 TTF 和 meta，生成共享字形曲线与度量资源。
 - [UI 资源导入](../plugins/editor/class-diagrams/ui-importer.md)：文档、字体和图片引用转换为标准运行资源依赖。
@@ -68,6 +69,7 @@
 - [特效系统与组件](../plugins/runtime/class-diagrams/effects.md)：独立 EffectSystem、EffectComponent、共享资源与实例播放生命周期。
 - [特效导入与 MCP](../plugins/editor/class-diagrams/effect-importer.md)：官方效果字节、meta 依赖映射、可撤销编辑和播放命令。
 - [动画组件](../runtime/class-diagrams/animator.md)：片段选择、双动作过渡、播放、暂停、定位及运行状态。
+- [动画扩展实现评审](../runtime/scripted-animation-controller.md#实现接口评审)：本轮新增接口的集中入口，当前待评审；包含 [TS 状态机](../plugins/runtime/class-diagrams/animation-state-machine.md)、[重定向核心契约](../runtime/class-diagrams/animation-retargeting.md)、[可选重定向实现](../plugins/runtime/class-diagrams/animation-retarget.md)、[IK 与挂点](../runtime/class-diagrams/animation-rigging.md)、[事件注入](../runtime/class-diagrams/animation-events.md)。
 - [角色物理组件](../runtime/class-diagrams/character-motor.md)：胶囊运动、地面/台阶与 Jolt 查询，不解释输入。
 - [角色控制器](../plugins/runtime/class-diagrams/character-controller.md)：可选运行时输入与第一/第三人称相机策略。
 - [物理组件](../runtime/class-diagrams/physics-components.md)：Collider、RigidBody、碰撞形状、运动设置与瞬态冲量。

@@ -3,8 +3,10 @@
 #include "runtime/log/log_system.hpp"
 #include "runtime/performance/profiling.hpp"
 #include "runtime/resource/resource_system.hpp"
+#include "runtime/scene/bone_attachment.hpp"
 #include "runtime/scene/ecs_storage.hpp"
 #include "runtime/scene/scene.hpp"
+#include "runtime/scene/transform.hpp"
 
 #include <flecs.h>
 
@@ -354,6 +356,7 @@ bool WorldSystem::on_initialize(const EngineConfig&)
     current.component<schema::PrefabInstanceDataT>();
     current.component<ecs_detail::NodeRuntime>();
     current.component<ecs_detail::WorldTransform>();
+    current.component<ecs_detail::TransformDrive>();
     current.component<ecs_detail::Published>();
     current.component<ecs_detail::SceneMember>()
         .add(flecs::Exclusive)
@@ -459,22 +462,53 @@ bool WorldSystem::refresh_scene_state()
                     const double cy = std::cos(value.rotation.y() * radians);
                     const double sz = std::sin(value.rotation.z() * radians);
                     const double cz = std::cos(value.rotation.z() * radians);
-                    const std::array<double, 16> local{cz * cy * value.scale.x(),
-                                                       sz * cy * value.scale.x(),
-                                                       -sy * value.scale.x(),
-                                                       0,
-                                                       (cz * sy * sx - sz * cx) * value.scale.y(),
-                                                       (sz * sy * sx + cz * cx) * value.scale.y(),
-                                                       cy * sx * value.scale.y(),
-                                                       0,
-                                                       (cz * sy * cx + sz * sx) * value.scale.z(),
-                                                       (sz * sy * cx - cz * sx) * value.scale.z(),
-                                                       cy * cx * value.scale.z(),
-                                                       0,
-                                                       value.position.x(),
-                                                       value.position.y(),
-                                                       value.position.z(),
-                                                       1};
+                    std::array<double, 16> local{cz * cy * value.scale.x(),
+                                                 sz * cy * value.scale.x(),
+                                                 -sy * value.scale.x(),
+                                                 0,
+                                                 (cz * sy * sx - sz * cx) * value.scale.y(),
+                                                 (sz * sy * sx + cz * cx) * value.scale.y(),
+                                                 cy * sx * value.scale.y(),
+                                                 0,
+                                                 (cz * sy * cx + sz * sx) * value.scale.z(),
+                                                 (sz * sy * cx - cz * sx) * value.scale.z(),
+                                                 cy * cx * value.scale.z(),
+                                                 0,
+                                                 value.position.x(),
+                                                 value.position.y(),
+                                                 value.position.z(),
+                                                 1};
+                    const auto* drive = node.try_get<ecs_detail::TransformDrive>();
+                    if (drive && drive->active &&
+                        drive->owner_type == BoneAttachment::component_type)
+                    {
+                        const auto* attachment =
+                            node.try_get<ecs_detail::ComponentStorage<BoneAttachment::Data>>();
+                        const auto* follow = node.try_get<BoneAttachment::Runtime>();
+                        if (attachment && follow &&
+                            attachment->state.instance_id == drive->owner_instance_id &&
+                            attachment->state.flags.enabled && attachment->data.follow_enabled &&
+                            state->active && transform->state.flags.enabled && follow->source &&
+                            follow->source.enabled() && follow->source.node().enabled() &&
+                            follow->source.runtime()->pose_revision_ != 0)
+                        {
+                            bool source_active = true;
+                            for (auto ancestor = follow->source.node(); ancestor;
+                                 ancestor = ancestor.parent())
+                            {
+                                if (!ancestor.enabled() ||
+                                    !ancestor.get_component<Transform>().enabled())
+                                {
+                                    source_active = false;
+                                    break;
+                                }
+                            }
+                            if (source_active)
+                            {
+                                std::copy(drive->local.begin(), drive->local.end(), local.begin());
+                            }
+                        }
+                    }
                     std::array<double, 16> result = local;
                     if (parent)
                     {

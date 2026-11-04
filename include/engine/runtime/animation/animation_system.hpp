@@ -1,5 +1,7 @@
 #pragma once
 
+#include "runtime/animation/animation_events.hpp"
+#include "runtime/animation/animation_retargeter.hpp"
 #include "runtime/system/system.hpp"
 
 #include <cstddef>
@@ -22,9 +24,11 @@ class AnimationSystem final : public System
 public:
     // 可空 world/tasks 由调用方拥有，存活期须覆盖本系统；tasks 须先初始化。
     explicit AnimationSystem(WorldSystem* world = nullptr, TaskSystem* tasks = nullptr,
-                             const AnimationConfig& config = {}) noexcept;
+                             const AnimationConfig& config = {},
+                             std::unique_ptr<AnimationRetargeter> retargeter = nullptr) noexcept;
     ~AnimationSystem() noexcept override;
     void clear() noexcept;
+    void set_event_sink(AnimationEventSink sink);
 
 protected:
     [[nodiscard]] bool on_initialize(const EngineConfig& config) override;
@@ -37,6 +41,8 @@ private:
     TaskSystem* tasks_ = nullptr;
     AnimationConfig config_;
     std::unique_ptr<State> state_;
+    std::unique_ptr<AnimationRetargeter> retargeter_;
+    AnimationEventSink event_sink_;
 };
 
 } // namespace engine

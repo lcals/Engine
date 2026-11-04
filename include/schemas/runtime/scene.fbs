@@ -1,3 +1,4 @@
+include "animation_pose.fbs";
 include "common.fbs";
 namespace engine.schema;
 
@@ -94,11 +95,19 @@ table AudioListenerData {
     volume:float = 1;
 }
 
+table BoneAttachmentData {
+    source_node_id:ulong;
+    socket_name:string;
+    offset:JointLocalPose (required, native_inline, native_default: "JointLocalPose(Vec3(), Vec4(0, 0, 0, 1), Vec3(1, 1, 1))");
+    follow_enabled:bool = false;
+}
+
 table AnimatorData {
     animation_guid:string;
     speed:float = 1;
     loop:bool = true;
     play_on_awake:bool = true;
+    ik_enabled:bool = false;
 }
 
 table CharacterMotorData {
@@ -261,7 +270,7 @@ union ComponentPayload {
     ColliderData, RigidBodyData, AudioSourceData, AudioListenerData, AnimatorData, CharacterMotorData,
     CharacterControllerData, UiData, TextData, EnvironmentData, PostProcessData,
     CharacterCameraData, CharacterVisualData, EffectData, TerrainData, DestructionData,
-    NavigationAgentData, PlanarReflectionData, LightProbeVolumeData
+    NavigationAgentData, PlanarReflectionData, LightProbeVolumeData, BoneAttachmentData
 }
 
 table ComponentFlags {

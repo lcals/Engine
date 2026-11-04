@@ -64,6 +64,12 @@ void ResourceCodec::store(Resource& output, std::unique_ptr<schema::AnimationDat
     output.animation_ = std::move(data);
 }
 
+void ResourceCodec::store(Resource& output,
+                          std::unique_ptr<schema::AnimationRetargetProfileDataT> data) noexcept
+{
+    output.retarget_profile_ = std::move(data);
+}
+
 void ResourceCodec::store(Resource& output, std::unique_ptr<schema::FontDataT> data) noexcept
 {
     output.font_ = std::move(data);

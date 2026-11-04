@@ -36,6 +36,7 @@ function(engine_configure_script_plugin)
                 engine::log
                 engine::resource
                 engine::world
+                engine::animation
                 engine::physics
                 engine::navigation
                 engine::window

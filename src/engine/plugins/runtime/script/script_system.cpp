@@ -4,6 +4,8 @@
 #include "plugins/runtime/script/bindings/script_binding_registry.hpp"
 #include "plugins/runtime/script/vm/script_vm.hpp"
 
+#include "runtime/animation/animation_events.hpp"
+#include "runtime/animation/animation_system.hpp"
 #include "runtime/app/app.hpp"
 #include "runtime/log/log_system.hpp"
 #include "runtime/performance/profiling.hpp"
@@ -317,10 +319,10 @@ struct ScriptSystem::State
 };
 
 ScriptSystem::ScriptSystem(WorldSystem* world, RenderSystem* renderer, UiSystem* ui,
-                           PhysicsSystem* physics, NavigationSystem* navigation,
-                           InputSystem* input, WindowSystem* window) noexcept
+                           PhysicsSystem* physics, NavigationSystem* navigation, InputSystem* input,
+                           WindowSystem* window, AnimationSystem* animation) noexcept
     : world_(world), renderer_(renderer), ui_(ui), physics_(physics), navigation_(navigation),
-      input_(input), window_(window)
+      input_(input), window_(window), animation_(animation)
 {
 }
 
@@ -332,9 +334,8 @@ ScriptSystem::~ScriptSystem() noexcept
 bool ScriptSystem::on_initialize(const EngineConfig&)
 {
     status_.last_error.clear();
-    state_ =
-        std::make_unique<State>(status_, world_, renderer_, ui_, physics_, navigation_, input_,
-                                window_);
+    state_ = std::make_unique<State>(status_, world_, renderer_, ui_, physics_, navigation_, input_,
+                                     window_);
     if (!state_->binding_registry.initialize())
     {
         return state_->fail("Cannot register script binding modules");
@@ -344,6 +345,34 @@ bool ScriptSystem::on_initialize(const EngineConfig&)
     {
         return state_->fail(machine ? machine->last_error()
                                     : "Cannot create script virtual machine");
+    }
+    if (animation_ != nullptr)
+    {
+        animation_->set_event_sink(
+            [this](std::span<const AnimationEvent> events)
+            {
+                if (!state_ || !status_.running || !state_->active)
+                {
+                    return true;
+                }
+                if (state_->owner_thread != std::this_thread::get_id() || state_->calling)
+                {
+                    return state_->fail(
+                        "Animation events require a non-reentrant main-thread safe point");
+                }
+                if (!state_->active->bindings.push_animation_events(events))
+                {
+                    return state_->fail("Cannot queue the complete animation event batch");
+                }
+                if (!state_->call_binding(*state_->active, "__dispatchAnimationEvents"))
+                {
+                    const auto failure = status_.last_error;
+                    state_->stop();
+                    status_.last_error = failure;
+                    return false;
+                }
+                return true;
+            });
     }
     return true;
 }
@@ -407,8 +436,7 @@ bool ScriptSystem::execute_project_script(const ProjectScriptRequest& request,
     if (request.module_path.size() > 1024 || !relative_path(request.module_path, module_path) ||
         module_path != request.module_path || !module_path.ends_with(".js") ||
         request.javascript.empty() || request.javascript.size() > vm::maximum_project_script_size ||
-        request.javascript.find('\0') != std::string_view::npos ||
-        request.arguments_json.empty() ||
+        request.javascript.find('\0') != std::string_view::npos || request.arguments_json.empty() ||
         request.arguments_json.size() > vm::maximum_project_script_size ||
         nlohmann::json::parse(request.arguments_json, nullptr, false).is_discarded())
     {
@@ -445,7 +473,8 @@ bool ScriptSystem::on_tick(double delta_time)
     {
         state_->delta_time = delta_time;
         if (!state_->call_binding(*state_->active, "__dispatchBindingEvents") ||
-            !state_->call(*state_->active, "Update", false))
+            !state_->call(*state_->active, "Update", false) ||
+            !state_->call_binding(*state_->active, "__updateAnimationStateMachines"))
         {
             const auto failure = status_.last_error;
             state_->stop();
@@ -458,6 +487,10 @@ bool ScriptSystem::on_tick(double delta_time)
 
 void ScriptSystem::on_shutdown() noexcept
 {
+    if (animation_ != nullptr)
+    {
+        animation_->set_event_sink({});
+    }
     stop_gameplay();
     state_.reset();
 }

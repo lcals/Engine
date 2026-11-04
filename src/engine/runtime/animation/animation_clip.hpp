@@ -1,6 +1,8 @@
 #pragma once
 
 #include "runtime/animation/animation_binding.hpp"
+#include "runtime/animation/animation_math.hpp"
+#include "runtime/animation/animation_retargeter.hpp"
 
 #include <ozz/animation/offline/animation_builder.h>
 #include <ozz/animation/offline/raw_animation.h>
@@ -82,12 +84,14 @@ struct CompiledSkeleton
     ozz::unique_ptr<ozz::animation::Skeleton> skeleton;
     std::vector<std::size_t> order;
     std::vector<std::string> paths;
+    std::vector<std::string> readable_paths;
     std::vector<ozz::math::Float4x4> inverse_bind;
 
     bool prepare(ResourcePtr target)
     {
         const auto* data = target ? target->skeleton() : nullptr;
-        if (data == nullptr || !joint_paths(*data, paths))
+        if (data == nullptr || !joint_paths(*data, paths) ||
+            !readable_joint_paths(*data, readable_paths))
         {
             return false;
         }
@@ -135,11 +139,20 @@ struct CompiledAnimation
     ResourcePtr resource;
     ResourcePtr source;
     std::shared_ptr<const CompiledSkeleton> target;
+    std::shared_ptr<const CompiledSkeleton> sampling;
+    std::shared_ptr<const AnimationRetargetBinding> retarget;
     ozz::unique_ptr<ozz::animation::Animation> animation;
 
     bool prepare(ResourcePtr clip, ResourcePtr source_resource,
-                 std::shared_ptr<const CompiledSkeleton> skeleton)
+                 std::shared_ptr<const CompiledSkeleton> skeleton,
+                 std::shared_ptr<const CompiledSkeleton> sampling_skeleton = nullptr,
+                 std::shared_ptr<const AnimationRetargetBinding> binding = nullptr)
     {
+        const auto final_target = skeleton;
+        if (sampling_skeleton)
+        {
+            skeleton = sampling_skeleton;
+        }
         const auto* data = clip ? clip->animation() : nullptr;
         const auto* source_data = source_resource ? source_resource->skeleton() : nullptr;
         if (data == nullptr || source_data == nullptr || !skeleton)
@@ -223,13 +236,16 @@ struct CompiledAnimation
         }
         resource = std::move(clip);
         source = std::move(source_resource);
-        target = std::move(skeleton);
+        target = final_target;
+        sampling = std::move(skeleton);
+        retarget = std::move(binding);
         return true;
     }
 };
 
 using ResourceIdentity = std::pair<std::string, std::uint64_t>;
-using AnimationIdentity = std::tuple<ResourceIdentity, ResourceIdentity, ResourceIdentity>;
+using AnimationIdentity =
+    std::tuple<ResourceIdentity, ResourceIdentity, ResourceIdentity, ResourceIdentity>;
 
 inline ResourceIdentity identity(const Resource& resource)
 {

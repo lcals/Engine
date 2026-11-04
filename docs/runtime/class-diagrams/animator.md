@@ -63,7 +63,7 @@ classDiagram
 ```
 
 - 使用 `Node::add_component<Animator>()` 创建；公开接口无 ozz 类型。
-- 持久设置来自 `AnimatorDataT`：独立动画 GUID、速度、循环、自动播放。播放时间、状态和采样缓存不进入场景数据。
+- 持久设置来自 `AnimatorDataT`：独立动画 GUID、速度、循环、自动播放和默认关闭的 IK。播放时间、状态和采样缓存不进入场景数据。
 - `set_settings` / `set_animation` 资源切换或数值校验失败保持原设置与资源；空路径清空动画。这两项只检查设置与 Animation 资源，不同步检查 Mesh/骨架绑定，兼容性错误由动画系统准备阶段返回。
 - `cross_fade(path, seconds)` 先校验资源、目标骨架层级与蒙皮绑定，再切换目标动作；时长有限且非负，零秒直接切换。目标从零秒播放，来源保留切换时的速度和循环设置。新动作的速度和循环仍通过原有设置调整；相同 GUID 和代际且当前未停止时直接成功返回，不重新开始、不解除暂停，也不改变已有过渡。
 - 过渡使用两个局部姿态经 ozz BlendingJob 混合。过渡中再次切换时，以当前混合姿态快照作为新来源，不增长混合树。暂停冻结播放和过渡；停止、直接换动作或定位取消过渡。过渡秒数不受动作速度影响。
@@ -74,3 +74,5 @@ classDiagram
 - 可能失败的方法返回 `bool` 并标注 `[[nodiscard]]`；读取方法为 `const`，无外部分配或资源加载的控制方法为 `noexcept`。
 
 本页组件均为可复制值句柄，生成设置唯一存于 `ComponentStorage<Data>` 的 ECS 列；`settings()` 返回独立值，`get_settings(output)` 明确返回失败。Runtime 为 ECS 中的领域运行列，资源引用、请求和缓存归该列或所属 System；句柄不拥有这些数据。`runtime()` 指针仅在当前结构稳定阶段有效，不能跨 ECS 结构修改留存。类型注册、失效身份与查询规则见 [ECS 场景](ecs-scene.md)。
+
+原子播放、累计时间与自然完成、骨骼／挂点查询、IK 和事件方法由[动画 rigging](animation-rigging.md)与[动画事件](animation-events.md)定义。

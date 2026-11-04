@@ -12,7 +12,7 @@ classDiagram
     ScriptSystem ..> ProjectScriptRequest : 同步调用期间借用
     class ScriptSystem {
         <<final>>
-        +ScriptSystem(WorldSystem#42; world, RenderSystem#42; renderer, UiSystem#42; ui, PhysicsSystem#42; physics, NavigationSystem#42; navigation, InputSystem#42; input, WindowSystem#42; window)
+        +ScriptSystem(WorldSystem#42; world, RenderSystem#42; renderer, UiSystem#42; ui, PhysicsSystem#42; physics, NavigationSystem#42; navigation, InputSystem#42; input, WindowSystem#42; window, AnimationSystem#42; animation)
         +~ScriptSystem()
         +prepare_gameplay(const ResourceCatalog& catalog, const MountList& mounts, string_view entry, string_view revision) bool
         +start_prepared_gameplay() bool
@@ -31,6 +31,8 @@ classDiagram
     class NavigationSystem
     class InputSystem
     class WindowSystem
+    class AnimationSystem
+    class AnimationEvent
     class ResourceCatalog
     class ResourceMount
     class Resource
@@ -44,6 +46,8 @@ classDiagram
     ScriptSystem --> NavigationSystem : 可空借用，覆盖玩法及场景清理
     ScriptSystem --> InputSystem : 可空借用，覆盖Run句柄清理
     ScriptSystem --> WindowSystem : 可空借用，覆盖Run鼠标清理
+    ScriptSystem --> AnimationSystem : 可空借用，覆盖事件接收器解绑
+    ScriptSystem ..> AnimationEvent : 姿态提交后接收值批次
     ScriptSystem *-- ScriptStatus : 状态
     ScriptSystem ..> ResourceCatalog : 复制候选元数据
     ScriptSystem ..> ResourceMount : 候选存储输入
@@ -69,7 +73,9 @@ classDiagram
     ScriptSystem *-- ScriptVm : 每个候选及活动Run独占
 ```
 
-- `world`、`renderer`、`ui`、`physics`、`navigation` 和 `input` 默认空指针；非空世界必须比本系统存活更久。服务借用覆盖全部玩法回调，navigation 还须覆盖停止时的场景清理，input 须覆盖 Run 的通道与捕获清理；调用方先停止玩法再关闭这些系统。停止后上下文清理不访问渲染器。初始化准备绑定注册表，并创建临时 VM 验证所选后端能够初始化，随后释放；不启动项目，也不读取资源部署文件。
+- `world`、`renderer`、`ui`、`physics`、`navigation`、`input`、`window` 和 `animation` 默认空指针；非空世界必须比本系统存活更久。服务借用覆盖全部玩法回调，navigation 还须覆盖停止时的场景清理，input 须覆盖 Run 的通道与捕获清理；调用方先停止玩法再关闭这些系统。停止后上下文清理不访问渲染器。初始化准备绑定注册表，并创建临时 VM 验证所选后端能够初始化，随后释放；不启动项目，也不读取资源部署文件。
+
+`animation` 是独立可空借用，不改变 ScriptRuntime 核心接口。初始化时在既有 AnimationSystem 安装单一事件接收器；原生姿态及挂点提交后，仅在主线程非重入安全点将完整事件批次放入活动 Run 的 BindingContext，再由现有 `call_binding` 在 begin_call/end_call 范围调用 `__dispatchAnimationEvents`。队列失败或脚本回调失败返回 false，不截断后报告成功；没有活动 Run 时不存在本 Run 的订阅。关闭先解绑接收器再清理 Run/VM；借用对象须至少存活至解绑完成。状态机由业务 Update 后的内部绑定入口自动驱动，暂停菜单保留正常 Update。
 
 构造和宿主脚本工厂最后追加窗口借用。ScriptSystem 的 window 默认 nullptr，非空时
 必须覆盖全部 Run 与鼠标状态恢复；只传给既有 BindingContext/逐类绑定，不在 ScriptSystem

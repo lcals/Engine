@@ -1,3 +1,6 @@
+#if ENGINE_HAS_ANIMATION_RETARGET_PLUGIN
+#include "plugins/runtime/animation_retarget/animation_retarget.hpp"
+#endif
 #include "runtime/app/runtime_host.hpp"
 #include "runtime/app/runtime_settings.hpp"
 #include "runtime/engine.hpp"
@@ -169,23 +172,30 @@ int main(int argc, char* argv[])
     resources.set_loader(&resource_graph);
 #endif
     engine::RuntimeHost engine;
+    engine::AnimationRetargeterFactory retargeter_factory = nullptr;
+#if ENGINE_HAS_ANIMATION_RETARGET_PLUGIN
+    retargeter_factory = engine::plugins::animation_retarget::create_animation_retargeter;
+#endif
     engine::ScriptRuntimeFactory script_factory = nullptr;
 #if ENGINE_HAS_SCRIPT_PLUGIN
     script_factory = [](engine::WorldSystem& world, engine::RenderSystem& renderer,
                         engine::UiSystem& ui, engine::PhysicsSystem& physics,
                         engine::NavigationSystem& navigation, engine::InputSystem& input,
-                        engine::WindowSystem& window) -> std::unique_ptr<engine::ScriptRuntime>
+                        engine::WindowSystem& window,
+                        engine::AnimationSystem& animation) -> std::unique_ptr<engine::ScriptRuntime>
     {
         return std::make_unique<engine::plugins::script::ScriptSystem>(
-            &world, &renderer, &ui, &physics, &navigation, &input, &window);
+            &world, &renderer, &ui, &physics, &navigation, &input, &window, &animation);
     };
 #endif
 #if ENGINE_HAS_RESOURCE_GRAPH_PLUGIN
     const bool engine_ready = engine.initialize(config, &resources, script_factory,
-                                                configure_runtime_plugins, nullptr, parallel);
+                                                configure_runtime_plugins, nullptr, parallel,
+                                                retargeter_factory);
 #else
     const bool engine_ready = engine.initialize(config, nullptr, script_factory,
-                                                configure_runtime_plugins, nullptr, parallel);
+                                                configure_runtime_plugins, nullptr, parallel,
+                                                retargeter_factory);
 #endif
     if (!engine_ready)
     {

@@ -1,0 +1,9 @@
+include "common.fbs";
+namespace engine.schema;
+
+// Local TRS in the original SkeletonData joint order, quaternion (x,y,z,w).
+struct JointLocalPose {
+    translation:Vec3;
+    rotation:Vec4;
+    scale:Vec3;
+}

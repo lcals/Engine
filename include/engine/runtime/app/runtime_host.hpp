@@ -1,5 +1,6 @@
 #pragma once
 
+#include "runtime/animation/animation_retargeter.hpp"
 #include "runtime/app/runtime_parallel_config.hpp"
 #include "runtime/frame_status.hpp"
 #include "runtime/window/window_system.hpp"
@@ -32,7 +33,7 @@ class TaskSystem;
 using ScriptRuntimeFactory = std::unique_ptr<ScriptRuntime> (*)(WorldSystem&, RenderSystem&,
                                                                 UiSystem&, PhysicsSystem&,
                                                                 NavigationSystem&, InputSystem&,
-                                                                WindowSystem&);
+                                                                WindowSystem&, AnimationSystem&);
 
 // 只指定装配时的位置，逐帧调度继续使用 System 的子系统登记顺序。
 enum class RuntimeStage
@@ -62,7 +63,8 @@ public:
     [[nodiscard]] bool initialize(const EngineConfig& config, ResourceSystem* resources = nullptr,
                                   ScriptRuntimeFactory script_factory = nullptr,
                                   RuntimeSetup setup = nullptr, ThreadSystem* threads = nullptr,
-                                  const RuntimeParallelConfig& parallel = {});
+                                  const RuntimeParallelConfig& parallel = {},
+                                  AnimationRetargeterFactory retargeter_factory = nullptr);
     [[nodiscard]] FrameStatus tick(double delta_time);
     // 单独处理事件并发布输入，供不推进世界的宿主流程使用；每帧与 tick 二选一。
     [[nodiscard]] FrameStatus poll_events(double delta_time);

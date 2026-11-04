@@ -42,6 +42,10 @@
 #include "runtime/task/thread_system.hpp"
 #include "runtime/utils/path_utils.hpp"
 
+#if ENGINE_HAS_ANIMATION_TOOLS_MCP
+#include "plugins/editor/animation_tools/animation_authoring_mcp_tools.hpp"
+#endif
+
 #if ENGINE_HAS_ASSET_IMPORT_PLUGIN
 #include "plugins/editor/asset_import/font_importer.hpp"
 #include "plugins/editor/asset_import/ui_importer.hpp"
@@ -270,6 +274,10 @@ int main(int argc, char** argv)
 #endif
     if (!builder.initialize(config) || !sync.initialize(config) || !project_tools.initialize() ||
         !project_tools.register_tools(mcp) || !editor_tools.register_tools(mcp) ||
+#if ENGINE_HAS_ANIMATION_TOOLS_MCP
+        (!android && !engine::plugins::animation_tools::register_animation_authoring_mcp_tools(
+                         mcp, editor_tools)) ||
+#endif
         (!android && !engine::plugins::mcp::register_render_tools(mcp, editor_tools)) ||
         (!android && !engine::plugins::mcp::register_scene_preview_tools(mcp, editor_tools)) ||
 #if ENGINE_HAS_UI_EDITOR
