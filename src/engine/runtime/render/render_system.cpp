@@ -441,6 +441,10 @@ bool RenderSystem::render(Camera camera)
     if (surface_changed || width != width_ || height != height_ ||
         vsync_enabled_ != vsync_applied_ || config_.max_anisotropy != max_anisotropy_applied_)
     {
+        if (surface_changed || width != width_ || height != height_)
+        {
+            cancel_hdr_capture();
+        }
         bgfx::reset(width, height,
                     render_detail::reset_flags |
                         (vsync_enabled_ ? BGFX_RESET_VSYNC : BGFX_RESET_NONE) |
@@ -465,11 +469,17 @@ bool RenderSystem::render(Camera camera)
     const bool drawn = draw_scene(camera, current_settings) &&
                        draw_diffuse_capture(current_settings) &&
                        (ui_ == nullptr || ui_->render(width_, height_));
+    if (!drawn && hdr_capture_status_ == SceneCaptureStatus::pending &&
+        (!scene_resources_ || !scene_resources_->hdr_capture_pending))
+    {
+        hdr_capture_status_ = SceneCaptureStatus::failed;
+    }
     {
         ENGINE_PROFILE_ZONE("Render.frameSubmit");
         frame_number_ = bgfx::frame();
     }
     poll_diffuse_capture();
+    poll_hdr_capture();
     ENGINE_PROFILE_FRAME();
 #if defined(ENGINE_ENABLE_TRACY)
     profile_renderer_stats();

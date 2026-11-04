@@ -48,6 +48,37 @@ engine::schema::MeshDataT quad()
     return result;
 }
 
+bool check_tangent_aliasing()
+{
+    auto mesh = quad();
+    // Authored tangent intentionally differs from the frame generated from these UVs.
+    mesh.tangents.assign(mesh.vertices.size(), {0, 2, 0, -1});
+    std::vector<engine::schema::Vec4> separate;
+    if (!expect(engine::MeshUtils::build_tangents(mesh, separate) &&
+                    engine::MeshUtils::build_tangents(mesh, mesh.tangents),
+                "build authored tangents with separate and in-place output"))
+    {
+        return false;
+    }
+    for (std::size_t i = 0; i < mesh.tangents.size(); ++i)
+    {
+        const auto& actual = mesh.tangents[i];
+        const auto& expected = separate[i];
+        if (!expect(actual.x() == expected.x() && actual.y() == expected.y() &&
+                        actual.z() == expected.z() && actual.w() == expected.w() &&
+                        actual.x() == 0 && actual.y() == 1 && actual.z() == 0 && actual.w() == -1,
+                    "in-place tangent generation retains the authored direction and handedness"))
+        {
+            return false;
+        }
+    }
+    mesh.vertices.front().mutate_nx(0);
+    mesh.vertices.front().mutate_ny(0);
+    mesh.vertices.front().mutate_nz(0);
+    return expect(!engine::MeshUtils::build_tangents(mesh, mesh.tangents) && mesh.tangents.empty(),
+                  "failed in-place tangent generation clears output");
+}
+
 bool check_camera_and_light(engine::Scene& scene)
 {
     auto camera_node = scene.create_node("Camera");
@@ -817,7 +848,8 @@ int main()
         return 1;
     }
     auto* scene = world.create_scene("Render foundation");
-    if (!expect(scene != nullptr, "create scene") || !check_camera_and_light(*scene) ||
+    if (!expect(scene != nullptr, "create scene") || !check_tangent_aliasing() ||
+        !check_camera_and_light(*scene) ||
         !check_ecs_handle_lifetime(*scene) || !check_mesh(*scene) || !check_deformation(*scene) ||
         !check_skinning_palette(*scene) || !check_textures(resources, *scene, false))
     {

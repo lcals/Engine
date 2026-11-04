@@ -27,9 +27,11 @@ def load(path, noncolor=False):
 
 
 def decode_normal(pixel):
-    # The scene uses Reinhard then gamma 2.2; inverse is approximate due to
+    # Current diagnostics use Reinhard then IEC sRGB; inverse is approximate due to
     # 8-bit PNG quantization. Map the encoded normal from [0,1] to [-1,1].
-    transformed = np.power(np.clip(pixel[:3], 0, 1), 2.2)
+    encoded = np.clip(pixel[:3], 0, 1)
+    transformed = np.where(encoded <= 0.04045, encoded / 12.92,
+                           np.power((encoded + 0.055) / 1.055, 2.4))
     linear = transformed / np.maximum(1 - transformed, 1e-10)
     normal = linear * 2 - 1
     return normal / np.linalg.norm(normal)

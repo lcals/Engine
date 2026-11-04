@@ -413,6 +413,47 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
     add_test(NAME engine.render_foundation COMMAND engine_render_foundation_test)
     set_tests_properties(engine.render_foundation PROPERTIES TIMEOUT 30)
     add_executable(engine_window_render_test runtime/render/window_render_test.cpp)
+    add_executable(engine_scene_hdr_capture_test runtime/render/scene_hdr_capture_test.cpp)
+    target_link_libraries(engine_scene_hdr_capture_test PRIVATE engine::runtime engine::window
+                          engine::render engine::world engine::resource SDL3::SDL3 bgfx::bgfx
+                          bgfx::bimg)
+    engine_apply_options(engine_scene_hdr_capture_test)
+    add_executable(engine_pbr_hdr_test runtime/render/pbr_hdr_test.cpp)
+    # An isolated RGBA16F draw includes the production direct-light shader.
+    # Keep this test-only shader out of the runtime and its public interfaces.
+    engine_render_shader_profile(_test_shader_platform _test_shader_profile)
+    set(_pbr_test_shader_dir "${CMAKE_CURRENT_SOURCE_DIR}/runtime/render")
+    set(_pbr_shader_dir "${PROJECT_SOURCE_DIR}/src/engine/runtime/render/shaders")
+    set(_pbr_test_generated "${CMAKE_CURRENT_BINARY_DIR}/generated/pbr-test")
+    foreach(_stage IN ITEMS vert frag)
+        if(_stage STREQUAL "vert")
+            set(_shader_type vertex)
+        else()
+            set(_shader_type fragment)
+        endif()
+        set(_shader_header "${_pbr_test_generated}/pbr_hdr_test_${_stage}.bin.h")
+        add_custom_command(
+            OUTPUT "${_shader_header}"
+            COMMAND "${CMAKE_COMMAND}" -E make_directory "${_pbr_test_generated}"
+            COMMAND "${ENGINE_SHADERC_EXECUTABLE}"
+                    -f "${_pbr_test_shader_dir}/pbr_hdr_test.${_stage}.sc"
+                    -o "${_shader_header}" --type "${_shader_type}"
+                    --platform "${_test_shader_platform}" --profile "${_test_shader_profile}"
+                    --varyingdef "${_pbr_shader_dir}/varying.def.sc"
+                    -i "${ENGINE_BGFX_SHADER_INCLUDE_DIR}" -i "${_pbr_shader_dir}"
+                    --bin2c "pbr_hdr_test_${_stage}"
+            DEPENDS "${_pbr_test_shader_dir}/pbr_hdr_test.${_stage}.sc"
+                    "${_pbr_shader_dir}/varying.def.sc" "${_pbr_shader_dir}/pbr_helpers.sh"
+                    "${_pbr_shader_dir}/pbr_lighting.sh"
+                    "${ENGINE_BGFX_SHADER_INCLUDE_DIR}/bgfx_shader.sh" "${ENGINE_SHADERC_EXECUTABLE}"
+            VERBATIM)
+        target_sources(engine_pbr_hdr_test PRIVATE "${_shader_header}")
+    endforeach()
+    target_include_directories(engine_pbr_hdr_test PRIVATE "${_pbr_test_generated}")
+    target_link_libraries(engine_pbr_hdr_test PRIVATE engine::runtime engine::window engine::render
+                                                   engine::world SDL3::SDL3 bgfx::bgfx
+                                                   basisu::basisu_encoder)
+    engine_apply_options(engine_pbr_hdr_test)
     target_link_libraries(
         engine_window_render_test
         PRIVATE engine::runtime
@@ -430,12 +471,22 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
         target_compile_definitions(engine_window_render_test PRIVATE ENGINE_TEST_RESOURCE_GRAPH=1)
     endif()
     if(ENGINE_ENABLE_GPU_TESTS)
+        add_test(NAME engine.scene_hdr_capture COMMAND engine_scene_hdr_capture_test)
+        set_tests_properties(engine.scene_hdr_capture PROPERTIES TIMEOUT 60 RUN_SERIAL TRUE)
         add_test(NAME engine.window_render COMMAND engine_window_render_test)
         set_tests_properties(engine.window_render PROPERTIES TIMEOUT 120 RUN_SERIAL TRUE)
+        add_test(NAME engine.pbr_hdr_direct_light COMMAND engine_pbr_hdr_test)
+        set_tests_properties(engine.pbr_hdr_direct_light
+                             PROPERTIES TIMEOUT 60 RUN_SERIAL TRUE SKIP_RETURN_CODE 77)
     endif()
 endif()
 
 if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
+    add_executable(engine_mesh_pipeline_test editor/asset_pipeline/mesh_pipeline_test.cpp)
+    target_link_libraries(engine_mesh_pipeline_test PRIVATE engine::asset_pipeline engine::resource)
+    engine_apply_options(engine_mesh_pipeline_test)
+    add_test(NAME editor.mesh_pipeline COMMAND engine_mesh_pipeline_test)
+    set_tests_properties(editor.mesh_pipeline PROPERTIES TIMEOUT 120)
     add_executable(engine_audio_pipeline_test editor/asset_pipeline/audio_pipeline_test.cpp)
     target_link_libraries(engine_audio_pipeline_test PRIVATE engine::asset_pipeline
                                                              engine::resource)

@@ -54,6 +54,10 @@ def main():
     manifest = json.loads(source.read_text())
     if not manifest.get('complete'):
         raise SystemExit('capture run is incomplete')
+    transfer = manifest.get('display_transfer', 'gamma-2.2')
+    if transfer not in ('srgb-iec-61966-2-1', 'gamma-2.2'):
+        raise SystemExit(f'unsupported display transfer: {transfer}')
+    transfer_label = '精确 sRGB' if transfer == 'srgb-iec-61966-2-1' else 'gamma 2.2'
     comparisons = json.loads((source.parent / 'comparisons.json').read_text())
     parts = ['''<!doctype html><html lang="zh-CN"><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -66,13 +70,13 @@ details{margin:16px 0}summary{cursor:pointer}nav{display:flex;flex-wrap:wrap;gap
 @media(max-width:650px){.images{grid-template-columns:1fr}body{padding:0 10px}th,td{padding:5px;font-size:12px}}
 </style><h1>PBR 实测像素对照</h1>
 <p>2026-11-04 · macOS Metal Release · 引擎与 Blender 原生图像均为 1280×720。
-保留原材质、光照、相机和 Blender 默认凹凸校正；Blender 线性 EXR 使用与引擎一致的曝光 1、Reinhard、gamma 2.2 显示编码。</p>
+保留原材质、光照、相机和 Blender 默认凹凸校正；Blender 线性 EXR 使用与引擎一致的曝光 1、Reinhard、{transfer} 显示编码。</p>
 <p>本页嵌入原始截图及绝对差图，没有缩放重采样、自动对齐或色彩拟合。
 浏览器显示时可自适应大小，图片文件仍为原分辨率。每球测量中心半径 72 像素区域；MAE、RMSE 单位均为 8 位 RGB 的 0–255。
 这是显示编码对照，不是线性 HDR 缓冲读回，也不是“全部物理材质完全一致”的证明。</p>
 <p>SpecGloss 与 Blender Principled 只匹配灰度正入射 F0，其漫反射和掠射模型不完全等价。
 旧镜面 RGB 贴图组是线性数据夹具；标准 sRGB RGB／线性 alpha 已由独立 GPU 回归覆盖，不用此组代替。
-AO 没有 Principled 同义输入，另由引擎直接／间接光回归验证。</p>''']
+AO 没有 Principled 同义输入，另由引擎直接／间接光回归验证。</p>'''.replace('{transfer}', transfer_label)]
     parts.append('<nav>' + ''.join(f'<a href="#{html.escape(name)}">{html.escape(name)}</a>'
                                   for name in comparisons) + '</nav>')
     for name, data in comparisons.items():

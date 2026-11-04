@@ -49,7 +49,9 @@ bool RenderSystem::prepare_scene(Camera camera)
         return true;
     }
     const bool capture_active = capture_status_ == SceneCaptureStatus::pending ||
-                                capture_status_ == SceneCaptureStatus::complete;
+                                capture_status_ == SceneCaptureStatus::complete ||
+                                hdr_capture_status_ == SceneCaptureStatus::pending ||
+                                hdr_capture_status_ == SceneCaptureStatus::complete;
     if (scene_resources_ == nullptr && !capture_active &&
         !render_detail::drawable_scene(*world_, camera, !extensions_.empty()))
     {
@@ -406,6 +408,7 @@ bool RenderSystem::prepare_scene(Camera camera)
 
 void RenderSystem::release_scene() noexcept
 {
+    cancel_hdr_capture();
     if (capture_status_ == SceneCaptureStatus::pending ||
         capture_status_ == SceneCaptureStatus::complete)
     {
@@ -427,14 +430,25 @@ void RenderSystem::release_scene() noexcept
 
 void RenderSystem::release_draw_resources() noexcept
 {
+    if (scene_resources_)
+    {
+        cancel_hdr_capture();
+    }
     // Complete GPU readback while its destination and the renderer still exist.
     // Keep the public frame counter in sync with these teardown submissions.
-    while (scene_resources_ && scene_resources_->capture_pending)
+    while (scene_resources_ &&
+           (scene_resources_->capture_pending || scene_resources_->hdr_capture_pending))
     {
         frame_number_ = bgfx::frame();
         if (static_cast<std::int32_t>(frame_number_ - scene_resources_->capture_ready_frame) >= 0)
         {
             scene_resources_->capture_pending = false;
+        }
+        if (scene_resources_->hdr_capture_pending &&
+            static_cast<std::int32_t>(frame_number_ - scene_resources_->hdr_capture_ready_frame) >=
+                0)
+        {
+            scene_resources_->hdr_capture_pending = false;
         }
     }
     scene_resources_.reset();

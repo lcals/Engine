@@ -31,6 +31,13 @@ namespace engine
 bool RenderSystem::draw_scene(Camera view_camera, const RenderSettings& rendering)
 {
     ENGINE_PROFILE_ZONE("Render.drawScene");
+    if (hdr_capture_status_ == SceneCaptureStatus::pending &&
+        (!world_ || !world_->scene() || world_->scene()->id() != hdr_capture_scene_id_ ||
+         ((!scene_resources_ || !scene_resources_->hdr_capture_pending) &&
+          !render_detail::drawable_scene(*world_, view_camera, !extensions_.empty()))))
+    {
+        cancel_hdr_capture();
+    }
     if (capture_status_ == SceneCaptureStatus::pending && !capture_unchanged())
     {
         cancel_diffuse_capture();
@@ -295,6 +302,7 @@ bool RenderSystem::draw_scene(Camera view_camera, const RenderSettings& renderin
     {
         return false;
     }
+    submit_hdr_capture();
     return true;
 }
 } // namespace engine

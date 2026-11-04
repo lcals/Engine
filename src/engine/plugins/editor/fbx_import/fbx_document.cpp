@@ -2,14 +2,13 @@
 
 #include "editor/asset_pipeline/asset_io.hpp"
 #include "editor/asset_pipeline/importer_utils.hpp"
+#include "editor/mesh/mesh_tangents.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/utils/path_utils.hpp"
 
-#include <mikktspace.h>
 
 #include <algorithm>
 #include <array>
-#include <bit>
 #include <cmath>
 #include <cstdint>
 #include <limits>
@@ -26,129 +25,6 @@ using namespace editor::asset_pipeline;
 bool finite_float(double value)
 {
     return std::isfinite(value) && std::abs(value) <= std::numeric_limits<float>::max();
-}
-
-// MikkTSpace emits a tangent frame for each face corner. A vertex shared by
-// different frames must be split rather than overwriting one of those frames.
-bool generate_mikk_tangents(schema::MeshDataT& mesh, std::string& error)
-{
-    if (mesh.texcoords.empty() || !mesh.tangents.empty())
-    {
-        return true;
-    }
-    // Upstream MakeIndex packs face/corner as (face << 2) | corner in a signed int.
-    if (mesh.indices.size() / 3 >
-        static_cast<std::size_t>(std::numeric_limits<int>::max() / 4))
-    {
-        error = "FBX mesh has too many faces for MikkTSpace";
-        return false;
-    }
-    struct Context
-    {
-        const schema::MeshDataT* mesh;
-        std::vector<schema::Vec4> corners;
-    } data{&mesh, std::vector<schema::Vec4>(mesh.indices.size())};
-    SMikkTSpaceInterface api{};
-    api.m_getNumFaces = [](const SMikkTSpaceContext* context) -> int
-    {
-        const auto& d = *static_cast<Context*>(context->m_pUserData);
-        return static_cast<int>(d.mesh->indices.size() / 3);
-    };
-    api.m_getNumVerticesOfFace = [](const SMikkTSpaceContext*, int) -> int { return 3; };
-    api.m_getPosition = [](const SMikkTSpaceContext* context, float out[], int face, int corner)
-    {
-        const auto& d = *static_cast<Context*>(context->m_pUserData);
-        const auto& v = d.mesh->vertices[d.mesh->indices[static_cast<std::size_t>(face) * 3 + corner]];
-        out[0] = v.x();
-        out[1] = v.y();
-        out[2] = v.z();
-    };
-    api.m_getNormal = [](const SMikkTSpaceContext* context, float out[], int face, int corner)
-    {
-        const auto& d = *static_cast<Context*>(context->m_pUserData);
-        const auto& v = d.mesh->vertices[d.mesh->indices[static_cast<std::size_t>(face) * 3 + corner]];
-        out[0] = v.nx();
-        out[1] = v.ny();
-        out[2] = v.nz();
-    };
-    api.m_getTexCoord = [](const SMikkTSpaceContext* context, float out[], int face, int corner)
-    {
-        const auto& d = *static_cast<Context*>(context->m_pUserData);
-        const auto& uv = d.mesh->texcoords[d.mesh->indices[static_cast<std::size_t>(face) * 3 + corner]];
-        out[0] = uv.x();
-        out[1] = uv.y();
-    };
-    api.m_setTSpaceBasic = [](const SMikkTSpaceContext* context, const float tangent[], float sign,
-                              int face, int corner)
-    {
-        auto& d = *static_cast<Context*>(context->m_pUserData);
-        d.corners[static_cast<std::size_t>(face) * 3 + corner] =
-            schema::Vec4(tangent[0], tangent[1], tangent[2], sign);
-    };
-    const SMikkTSpaceContext context{&api, &data};
-    if (!genTangSpaceDefault(&context))
-    {
-        error = "MikkTSpace failed to generate FBX tangents";
-        return false;
-    }
-    using FrameKey = std::array<std::uint64_t, 5>;
-    std::map<FrameKey, std::uint32_t> frames;
-    std::vector<bool> assigned(mesh.vertices.size(), false);
-    mesh.tangents.assign(mesh.vertices.size(), schema::Vec4(1.0F, 0.0F, 0.0F, 1.0F));
-    for (std::size_t i = 0; i < mesh.indices.size(); ++i)
-    {
-        const auto source = mesh.indices[i];
-        const auto& tangent = data.corners[i];
-        if (!std::isfinite(tangent.x()) || !std::isfinite(tangent.y()) ||
-            !std::isfinite(tangent.z()) || std::hypot(tangent.x(), tangent.y(), tangent.z()) < 1e-12 ||
-            (tangent.w() != 1.0F && tangent.w() != -1.0F))
-        {
-            error = "MikkTSpace returned an invalid FBX tangent frame";
-            return false;
-        }
-        const FrameKey key{source, std::bit_cast<std::uint64_t>(tangent.x()),
-                           std::bit_cast<std::uint64_t>(tangent.y()),
-                           std::bit_cast<std::uint64_t>(tangent.z()),
-                           std::bit_cast<std::uint64_t>(tangent.w())};
-        auto found = frames.find(key);
-        if (found == frames.end())
-        {
-            std::uint32_t target = source;
-            if (assigned[source])
-            {
-                if (mesh.vertices.size() >=
-                    std::numeric_limits<std::uint32_t>::max() / (16 * sizeof(float)))
-                {
-                    error = "FBX tangent splitting exceeds mesh vertex limits";
-                    return false;
-                }
-                target = static_cast<std::uint32_t>(mesh.vertices.size());
-                mesh.vertices.push_back(mesh.vertices[source]);
-                mesh.texcoords.push_back(mesh.texcoords[source]);
-                if (!mesh.lightmap_texcoords.empty())
-                {
-                    mesh.lightmap_texcoords.push_back(mesh.lightmap_texcoords[source]);
-                }
-                if (!mesh.colors.empty())
-                {
-                    mesh.colors.push_back(mesh.colors[source]);
-                }
-                if (!mesh.skin.empty())
-                {
-                    mesh.skin.push_back(mesh.skin[source]);
-                }
-                mesh.tangents.push_back(tangent);
-            }
-            else
-            {
-                assigned[source] = true;
-                mesh.tangents[source] = tangent;
-            }
-            found = frames.emplace(key, target).first;
-        }
-        mesh.indices[i] = found->second;
-    }
-    return true;
 }
 
 bool read_motion_settings(const toml::table& settings, FbxDocument& document, std::string& error)
@@ -849,7 +725,7 @@ bool convert_mesh(const FbxDocument& document, const ufbx_node& node, schema::Me
         error = "FBX mesh triangulation produced no indices";
         return false;
     }
-    if (!generate_mikk_tangents(output, error))
+    if (!editor::generate_mesh_tangents(output, error))
     {
         return false;
     }

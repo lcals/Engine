@@ -30,8 +30,12 @@ def main(arguments=None):
     runtime.mkdir()
     project = ROOT / 'projects/showcase'
     release = ROOT / 'build/local-ninja-release'
-    report = {'complete': False, 'run_id': run_id, 'cases': {}, 'shader_sha256': {}}
+    report = {'complete': False, 'run_id': run_id, 'cases': {}, 'shader_sha256': {},
+              'display_transfer': 'srgb-iec-61966-2-1'}
     for path in sorted((ROOT / 'src/engine/runtime/render/shaders').glob('pbr_*.sh')):
+        report['shader_sha256'][path.name] = hashlib.sha256(path.read_bytes()).hexdigest()
+    for path in (ROOT / 'src/engine/runtime/render/shaders/color_space.sh',
+                 ROOT / 'src/engine/runtime/render/shaders/hdr/hdr_helpers.sh'):
         report['shader_sha256'][path.name] = hashlib.sha256(path.read_bytes()).hexdigest()
     log = (work / 'editor.log').open('wb')
     editor = subprocess.Popen([str(release / 'editor_app'), '--project', str(project),
@@ -62,7 +66,7 @@ def main(arguments=None):
                 report['cases'][case] = {
                     'scene': scene, 'opened': opened, 'capture': capture,
                     'reference': None if case == 'ao' else str(
-                        ROOT / f'build/material-comparison/display-matched/blender-{reference}.png'),
+                        ROOT / f'build/material-comparison/display-srgb/blender-{reference}.png'),
                     'labels': str(ROOT / 'build/material-comparison/expanded' /
                                   f'{"specular-ior" if case == "specular" else case}-labels.json'),
                 }

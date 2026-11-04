@@ -1,5 +1,6 @@
 #include "runtime/render/passes/planar_reflection_pass.hpp"
 #include "runtime/render/passes/planar_reflection_math.hpp"
+#include "runtime/render/render_color.hpp"
 #include "runtime/render/render_sampling.hpp"
 #include "runtime/scene/camera_math.hpp"
 #include <algorithm>
@@ -69,8 +70,8 @@ void PlanarReflectionPass::begin(bgfx::ViewId view_id, std::uint32_t clear_color
     std::array<float, 4> clear{};
     for (std::size_t index = 0; index < 3; ++index)
     {
-        clear[index] =
-            std::pow(static_cast<float>((clear_color >> ((3 - index) * 8)) & 255) / 255, 2.2F);
+        clear[index] = display_srgb_to_linear(
+            static_cast<float>((clear_color >> ((3 - index) * 8)) & 255) / 255);
     }
     clear[3] = 1;
     bgfx::setPaletteColor(palette, clear.data());

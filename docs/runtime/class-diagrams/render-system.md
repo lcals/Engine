@@ -233,6 +233,41 @@ void screenShot(const char* path, uint32_t width, uint32_t height,
 
 ## 公开接口
 
+### 场景线性 HDR 帧捕获
+
+现有 PNG 截图是经过色调映射的 SDR 图像；漫反射捕获使用独立烘焙视角与通道，不能代表实际画面。此通用场景帧捕获契约不改变现有截图或烘焙捕获。
+
+```mermaid
+classDiagram
+    class RenderSystem {
+        +request_hdr_capture() bool
+        +hdr_capture_status() SceneCaptureStatus
+        +take_hdr_capture(SceneCaptureImage& output) bool
+        +cancel_hdr_capture() void
+    }
+    class SceneCaptureImage {
+        +uint16_t width
+        +uint16_t height
+        +vector~float~ rgba
+    }
+    class SceneCaptureStatus {
+        <<enumeration>>
+        idle
+        pending
+        complete
+        cancelled
+        failed
+    }
+    RenderSystem ..> SceneCaptureImage : 完成时转移像素
+    RenderSystem ..> SceneCaptureStatus : 查询异步回执
+```
+
+- 主线程请求下一次成功提交的场景帧；读取正常场景透明合成及扩展之后、Bloom、曝光和色调映射之前的颜色。它包含直接光、IBL、透明及现有场景效果，不包含后续 UI、Bloom 或显示输出转换。调用方继续提交帧并轮询回执。
+- 捕获当前目标实际像素尺寸，返回自上而下、紧密排列的线性 RGBA 浮点数组，RGB 可大于 1；源目标精度为 RGBA16F，读取时转换为 float，不做归一化、曝光或显示色域转换。Alpha 保留源目标值，不宣称为最终透明度。
+- 一次只接受一个未取走的请求；无活动场景或设备、请求已占用时返回 false。相机可能由后续 `render(camera)` 指定，包括独立场景中的相机，因此接受请求时不依赖活动相机；实际提交帧若无有效相机或可绘制内容则取消请求。有效帧已提交后，后续帧临时失去相机或重建 MSAA 目标不会丢弃该帧的读回。设备不支持颜色目标解析/异步回读、目标分配或 GPU 提交失败时置 failed，禁止静默降级为 SDR；MSAA 必须读取正确 resolve 后结果。
+- `complete` 后 `take_hdr_capture` 将结果移动给调用方并回到 idle；其他状态取图返回 false 并清空输出。取消、场景释放、设备重置或关闭时安全退役 GPU 资源并报告 cancelled，失效异步结果不能覆盖后续请求；尚未完成时不得访问结果缓冲。捕获和既有漫反射捕获各自保持独立状态，不改变原接口。
+- 上述接口已获用户评审确认。它使用 bgfx 的 blit 和异步 readTexture，借用现有帧号确定回读完成；RGBA16F 转换使用 bx 半浮点转换，行方向按 bgfx `originBottomLeft` 归一化。
+
 ```mermaid
 classDiagram
     direction TB
@@ -264,6 +299,10 @@ classDiagram
         +stats_visible() bool
         +request_screenshot(string_view utf8_png_path) bool
         +screenshot_status() ScreenshotStatus
+        +request_hdr_capture() bool
+        +hdr_capture_status() SceneCaptureStatus
+        +take_hdr_capture(SceneCaptureImage& output) bool
+        +cancel_hdr_capture() void
         +render(Camera camera) bool
         #on_initialize(const EngineConfig& config) bool
         #on_shutdown() void
@@ -522,6 +561,13 @@ classDiagram
 采用固定 bgfx `7a70927d2af7ffcc5cef9c9e8f4c821e31fcb099` 的 `09-hdr` 通道组织、全屏三角形和归一化 blur9。适配为真正 RGBA16F 线性场景目标，替代上游 RGBE8 与提前 gamma；沿用显式曝光，不加入自动测光。View 113 为场景，134 为共用颜色及深度附件的插件透明绘制，135 为半尺寸亮部提取，136 为八分之一尺寸纵向 blur9，137 为横向 blur9、HDR 合成与一次色调映射/gamma；UI View 200 后绘制，不受 Bloom 影响。亮部阈值使用曝光前线性颜色，模糊结果与场景先相加，再一起曝光与映射。关闭 Bloom 只保留 HDR 合成并释放两个中间目标；关闭 HDR 仍保留线性场景及最终输出所需资源；明确停止和设备重建释放通道，尺寸变化只重建尺寸相关目标。
 
 场景 Shader 通过既有 `u_tonemap.z` 获知目标：为 1 时输出未曝光、未 tone map、未 gamma 的线性颜色；为 0 保持 SDR 输出。内置材质与项目天空共用这一契约，HDR 路径对无光照材质也统一执行最终画面映射。自定义 Shader 必须遵守该输出语义。3D 字体保留场景深度与预乘 alpha，调用方显式请求线性输出；UI 字体维持显示色输出。
+
+**精确 sRGB 显示编码**。沿用现有 Pass 和公开接口，使用固定 bgfx `7a70927d2af7ffcc5cef9c9e8f4c821e31fcb099` 的 `examples/common/shaderlib.sh` 中 `toGammaAccurate` / `toLinearAccurate` 对应的 IEC sRGB 分段转换；颜色贴图的 sRGB 采样由 GPU 解码：
+
+- 维持场景和 Bloom 的线性 RGBA16F、当前曝光及色调映射和 SDR backbuffer；最终 resolve 对线性 RGB 使用精确 sRGB 编码一次，alpha 不作颜色转换，不再额外启用 backbuffer 的硬件 sRGB 编码。
+- 主视图和平面反射清屏 RGB 按显示色先精确解码至线性；3D 字体的显示色先解预乘、精确解码，再按原 alpha 预乘，衔接[字体绘制契约](font-system.md)。覆盖率及 alpha 保持线性；无映射时清屏和完全不透明的字体保留输入显示色，半透明边缘以实际混合行为为准。
+- UI 仍在最终输出后使用显示色和既有预乘 alpha 混合，UI 纹理、顶点和字体不重复编码。该最小方案保留显示空间混合的现有限制；不把它称为线性空间 UI 合成，也不在此项中改变 UI 的混合契约。
+- Blender 比较夹具和窗口测试使用同一精确显示转换，保留并标注 gamma 2.2 历史数据，不能直接将不同显示转换的截图数值混为一谈。HDR 线性回读不依赖该输出编码。
 
 常驻节点接入：Mesh、文字和阴影投射物从 `WorldSystem::scenes()` 收集，节点 ID 在世界内唯一；相机、灯光/环境参数及后处理仍取当前活动场景。没有活动场景时不使用保留容器里的旧镜头，常驻 UI 继续同步并绘制，已有常驻 Mesh 的 GPU 几何可保留。普通切换不调用扩展、UI 或字体的 `release_scene()`；明确停止、全部场景消失或设备释放仍执行完整清理。
 

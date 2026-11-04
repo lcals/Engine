@@ -94,7 +94,8 @@
       "description": "Editor modeling plugin polygon and solid geometry dependencies",
       "dependencies": [
         "earcut-hpp",
-        "manifold"
+        "manifold",
+        "mikktspace"
       ]
     },
     "font-import": {

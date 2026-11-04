@@ -57,6 +57,16 @@ namespace
 constexpr double delta_time = 1.0 / 60.0;
 constexpr int max_frame_attempts = 200;
 
+double srgb_to_linear(double value)
+{
+    return value <= 0.04045 ? value / 12.92 : std::pow((value + 0.055) / 1.055, 2.4);
+}
+
+double linear_to_srgb(double value)
+{
+    return value <= 0.0031308 ? 12.92 * value : 1.055 * std::pow(value, 1.0 / 2.4) - 0.055;
+}
+
 bool expect(bool condition, const char* message)
 {
     if (!condition)
@@ -1043,12 +1053,18 @@ bool test_pbr_occlusion_lighting(const engine::EngineConfig& config)
     auto specgloss_srgb_rough = test_texture("textures/specgloss-srgb-rough", true, false);
     auto specgloss_linear = test_texture("textures/specgloss-linear", false, false);
     auto tilted_normal = test_texture("textures/tilted-normal", false, false);
+    auto frame_normal = test_texture("textures/frame-normal", false, false);
     for (std::size_t i = 0; i < tilted_normal.data.size(); i += 4)
     {
         tilted_normal.data[i] = 255;
         tilted_normal.data[i + 1] = 128;
         tilted_normal.data[i + 2] = 218;
         tilted_normal.data[i + 3] = 255;
+        // Both tangent and bitangent components matter for mirrored-frame checks.
+        frame_normal.data[i] = 180;
+        frame_normal.data[i + 1] = 196;
+        frame_normal.data[i + 2] = 224;
+        frame_normal.data[i + 3] = 255;
     }
     constexpr std::array<std::uint8_t, 4> specgloss_texel{128, 176, 224, 160};
     for (std::size_t i = 0; i < specgloss_srgb.data.size(); i += 4)
@@ -1073,6 +1089,7 @@ bool test_pbr_occlusion_lighting(const engine::EngineConfig& config)
         !renderer.initialize(config) || !fixture.add(occluded) || !fixture.add(unoccluded) ||
         !fixture.add(specgloss_srgb) || !fixture.add(specgloss_srgb_rough) ||
         !fixture.add(specgloss_linear) || !fixture.add(tilted_normal) ||
+        !fixture.add(frame_normal) ||
         !fixture.publish(resources) || !render_frames(windows, renderer, 4))
     {
         return false;
@@ -1142,11 +1159,11 @@ bool test_pbr_occlusion_lighting(const engine::EngineConfig& config)
         return false;
     }
 
-    // Estimate linear light from the quantized Reinhard/gamma 2.2 output.
+    // Estimate linear light from the quantized Reinhard/sRGB output.
     // This is a bounded SDR regression, not a floating-point HDR readback.
     const auto linear = [](std::uint8_t value)
     {
-        const double encoded = std::pow(static_cast<double>(value) / 255.0, 2.2);
+        const double encoded = srgb_to_linear(static_cast<double>(value) / 255.0);
         return encoded / (1.0 - encoded);
     };
     env_settings.ambient_intensity = 0;
@@ -1219,6 +1236,104 @@ bool test_pbr_occlusion_lighting(const engine::EngineConfig& config)
         return false;
     }
 
+    // Compare a static model transform with independently pretransformed geometry.
+    // The slanted vertex frame makes inverse-transpose normals observable under
+    // nonuniform scaling; nonzero tangent-space X and Y also test handedness.
+    auto source = textured_quad();
+    constexpr double nx = 0.6;
+    constexpr double nz = 0.8;
+    for (auto& vertex : source.vertices)
+    {
+        vertex.mutate_nx(nx);
+        vertex.mutate_nz(nz);
+    }
+    source.tangents.assign(source.vertices.size(), {nz, 0, -nx, 1});
+    hemisphere_light_pose.rotation = {-30, 0, 0};
+    if (!material.set_texture("normalTexture", frame_normal.path) ||
+        !light_node.get_component<engine::Transform>().set_settings(hemisphere_light_pose))
+    {
+        return false;
+    }
+    for (const double sx : {1.3, -1.3})
+    {
+        constexpr double sy = 0.8;
+        constexpr double sz = 1.7;
+        auto baked = source;
+        const double normal_length = std::hypot(nx / sx, nz / sz);
+        const double tangent_length = std::hypot(nz * sx, nx * sz);
+        for (auto& vertex : baked.vertices)
+        {
+            vertex.mutate_x(vertex.x() * sx);
+            vertex.mutate_y(vertex.y() * sy);
+            vertex.mutate_z(vertex.z() * sz);
+            vertex.mutate_nx((nx / sx) / normal_length);
+            vertex.mutate_nz((nz / sz) / normal_length);
+        }
+        baked.tangents.assign(baked.vertices.size(),
+                              {nz * sx / tangent_length, 0, -nx * sz / tangent_length,
+                               sx < 0 ? -1.0 : 1.0});
+        if (sx < 0)
+        {
+            for (std::size_t i = 0; i < baked.indices.size(); i += 3)
+            {
+                std::swap(baked.indices[i + 1], baked.indices[i + 2]);
+            }
+        }
+        engine::TransformSettings pose;
+        pose.scale = {sx, sy, sz};
+        Screenshot transformed, pretransformed;
+        if (!mesh.set_mesh_data(source) ||
+            !quad.get_component<engine::Transform>().set_settings(pose) ||
+            !screenshot(windows, renderer, fixture.root, "pbr-model-frame", transformed) ||
+            !mesh.set_mesh_data(baked) ||
+            !quad.get_component<engine::Transform>().set_settings(engine::TransformSettings{}) ||
+            !screenshot(windows, renderer, fixture.root, "pbr-baked-frame", pretransformed))
+        {
+            return false;
+        }
+        const auto actual = transformed.pixel(x, y);
+        const auto expected = pretransformed.pixel(x, y);
+        std::fprintf(stderr, "PBR static frame scale %.1f: transformed/baked %u/%u\n", sx,
+                     actual[0], expected[0]);
+        if (!expect(actual[0] > 20 && expected[0] > 20 &&
+                        std::abs(static_cast<int>(actual[0]) - expected[0]) <= 2 &&
+                        std::abs(static_cast<int>(actual[1]) - expected[1]) <= 2 &&
+                        std::abs(static_cast<int>(actual[2]) - expected[2]) <= 2,
+                    "nonuniform and mirrored static transforms match the baked tangent frame"))
+        {
+            return false;
+        }
+        if (sx < 0)
+        {
+            // Verify this setup can actually detect an inverted bitangent.
+            for (auto& tangent : baked.tangents)
+            {
+                tangent.mutate_w(1.0);
+            }
+            Screenshot wrong_handedness;
+            if (!mesh.set_mesh_data(baked) ||
+                !screenshot(windows, renderer, fixture.root, "pbr-wrong-handedness",
+                            wrong_handedness))
+            {
+                return false;
+            }
+            const auto wrong = wrong_handedness.pixel(x, y)[0];
+            std::fprintf(stderr, "PBR mirrored wrong handedness: %u versus %u\n", wrong,
+                         expected[0]);
+            if (!expect(std::abs(static_cast<int>(wrong) - expected[0]) > 5,
+                        "mirrored-frame comparison detects incorrect tangent handedness"))
+            {
+                return false;
+            }
+        }
+    }
+    hemisphere_light_pose.rotation = {0, 0, 0};
+    if (!mesh.set_mesh_data(textured_quad()) ||
+        !light_node.get_component<engine::Transform>().set_settings(hemisphere_light_pose))
+    {
+        return false;
+    }
+
     // Independently evaluate Ray Tracing Gems Ch. 12 in its original tan^2
     // form. The real GPU draw uses a different, stable algebraic expression.
     // Flat and perturbed normals share all material/light/display parameters.
@@ -1254,7 +1369,7 @@ bool test_pbr_occlusion_lighting(const engine::EngineConfig& config)
             const double shadowing = cos_light <= 0.0 ? 0.0 :
                 2.0 / (1.0 + std::sqrt(1.0 + alpha2 * std::pow(std::tan(theta), 2.0)));
             const double radiance = 3.0 * 0.6 * (1.0 - fresnel) * n_dot_l * shadowing / pi;
-            const double expected = 255.0 * std::pow(radiance / (1.0 + radiance), 1.0 / 2.2);
+            const double expected = 255.0 * linear_to_srgb(radiance / (1.0 + radiance));
             const auto actual = terminator.pixel(x, y)[0];
             std::fprintf(stderr, "PBR diffuse terminator scale %.0f angle %.0f: %u (reference %.2f)\n",
                          scale, angle, actual, expected);
@@ -1280,7 +1395,7 @@ bool test_pbr_occlusion_lighting(const engine::EngineConfig& config)
     const double mapped_nv = mapped_z / mapped_length;
     const double metal_f = 0.6 + 0.4 * std::pow(1.0 - std::cos(pi / 6.0), 5.0);
     const double metal_radiance = 3.0 * metal_f * mapped_nl / (2.0 * pi * (mapped_nl + mapped_nv));
-    const double expected_metal = 255.0 * std::pow(metal_radiance / (1.0 + metal_radiance), 1.0 / 2.2);
+    const double expected_metal = 255.0 * linear_to_srgb(metal_radiance / (1.0 + metal_radiance));
     std::fprintf(stderr, "PBR mapped metal terminator: %u (reference %.2f)\n",
                  normal_metal.pixel(x, y)[0], expected_metal);
     hemisphere_light_pose.rotation = {0, 0, 0};
@@ -1508,10 +1623,17 @@ bool test_ibl_white_furnace(const engine::EngineConfig& config)
     auto irradiance = ibl_test_texture("textures/test-white-irradiance", true);
     auto prefilter = ibl_test_texture("textures/test-white-prefilter", true);
     auto lut = ibl_test_texture("textures/test-synthetic-ibl-lut", false);
+    auto albedo = test_texture("textures/test-hdr-albedo", true, false);
+    constexpr std::array<std::uint8_t, 3> albedo_texel{128, 176, 224};
+    for (std::size_t i = 0; i < albedo.data.size(); i += 4)
+    {
+        std::copy(albedo_texel.begin(), albedo_texel.end(), albedo.data.begin() + i);
+    }
     if (!resources.initialize(config) || !world.initialize(config) || !windows.initialize(config) ||
         !renderer.initialize(config) || irradiance.data.empty() || prefilter.data.empty() ||
         lut.data.empty() || !fixture.add(irradiance) || !fixture.add(prefilter) ||
-        !fixture.add(lut) || !fixture.publish(resources) || !render_frames(windows, renderer, 4))
+        !fixture.add(lut) || !fixture.add(albedo) || !fixture.publish(resources) ||
+        !render_frames(windows, renderer, 4))
     {
         return false;
     }
@@ -1548,11 +1670,11 @@ bool test_ibl_white_furnace(const engine::EngineConfig& config)
     {
         return false;
     }
-    // Screenshot is SDR Reinhard + gamma 2.2; reverse both transforms. The
+    // Screenshot is SDR Reinhard + sRGB; reverse both transforms. The
     // tolerance covers 8-bit quantization, and this is not a float readback.
     const auto linear = [](std::uint8_t value)
     {
-        const double encoded = std::pow(static_cast<double>(value) / 255.0, 2.2);
+        const double encoded = srgb_to_linear(static_cast<double>(value) / 255.0);
         return encoded / (1.0 - encoded);
     };
     // Independent Smith-GGX numerical integration (16,384 samples, stratified
@@ -1713,6 +1835,77 @@ bool test_ibl_white_furnace(const engine::EngineConfig& config)
                      actual, expected);
         if (!expect(std::abs(actual - expected) < 0.04,
                     "SpecGloss IBL respects colored Fresnel and diffuse input"))
+        {
+            return false;
+        }
+    }
+    // Exercise the real material texture, direct light and IBL simultaneously.
+    // Decode the SDR screenshot only while all channels remain unclipped;
+    // this tests scene composition with quantization, not float HDR readback.
+    auto light_node = scene->create_node("HDR composition light");
+    auto light = light_node ? light_node.add_component<engine::Light>() : engine::Light{};
+    auto light_settings = light.settings();
+    light_settings.intensity = 3;
+    if (!light || !light.set_settings(light_settings) || !light.set_enabled(false) ||
+        !material.set_float("specularWorkflow", 0) ||
+        !material.set_v4("baseColor", {1, 1, 1, 1}) ||
+        !material.set_texture("baseColorTexture", albedo.path) ||
+        !material.set_float("metallic", 0.5F) || !material.set_float("roughness", 0.5F))
+    {
+        return false;
+    }
+    Screenshot ibl_only, direct_only, combined;
+    auto no_ibl = env;
+    no_ibl.ibl_enabled = false;
+    if (!screenshot(windows, renderer, fixture.root, "hdr-composition-ibl", ibl_only) ||
+        !environment.set_settings(no_ibl) || !light.set_enabled(true) ||
+        !screenshot(windows, renderer, fixture.root, "hdr-composition-direct", direct_only) ||
+        !environment.set_settings(env) ||
+        !screenshot(windows, renderer, fixture.root, "hdr-composition-combined", combined))
+    {
+        return false;
+    }
+    const auto ibl_pixel = ibl_only.pixel(ibl_only.width / 2, ibl_only.height / 2);
+    const auto direct_pixel = direct_only.pixel(direct_only.width / 2, direct_only.height / 2);
+    const auto combined_pixel = combined.pixel(combined.width / 2, combined.height / 2);
+    const auto srgb_decode = [](double value)
+    { return value <= 0.04045 ? value / 12.92 : std::pow((value + 0.055) / 1.055, 2.4); };
+    for (std::size_t channel = 0; channel < albedo_texel.size(); ++channel)
+    {
+        if (!expect(ibl_pixel[channel] < 254 && direct_pixel[channel] < 254 &&
+                        combined_pixel[channel] < 254,
+                    "HDR composition screenshot must not saturate"))
+        {
+            return false;
+        }
+        const double color = srgb_decode(static_cast<double>(albedo_texel[channel]) / 255.0);
+        const double dielectric = reflected(0.04);
+        const double expected_ibl = 0.5 * (color * (1.0 - dielectric) + dielectric) +
+                                    0.5 * reflected(color);
+        const double f0 = 0.5 * (0.04 + color);
+        const double expected_direct = 3.0 * (0.5 * 0.96 * color / pi +
+                                               f0 / (4.0 * pi * std::pow(0.5, 4)));
+        const double actual_ibl = linear(ibl_pixel[channel]);
+        const double actual_direct = linear(direct_pixel[channel]);
+        const double actual_combined = linear(combined_pixel[channel]);
+        // One full code step bounds 8-bit rounding and conversion; the fixed
+        // allowance covers half-float and actual pixel-center direction.
+        const double quantization = linear(combined_pixel[channel] + 1) - actual_combined;
+        const double tolerance = quantization + 0.025;
+        const double ibl_tolerance = linear(ibl_pixel[channel] + 1) - actual_ibl + 0.015;
+        const double direct_tolerance =
+            linear(direct_pixel[channel] + 1) - actual_direct + 0.025;
+        std::fprintf(stderr,
+                     "HDR composition channel %zu: IBL %.4f/%.4f direct %.4f/%.4f "
+                     "combined %.4f/%.4f tolerance %.4f\n",
+                     channel, actual_ibl, expected_ibl, actual_direct, expected_direct,
+                     actual_combined, expected_ibl + expected_direct, tolerance);
+        if (!expect(std::abs(actual_ibl - expected_ibl) < ibl_tolerance &&
+                        std::abs(actual_direct - expected_direct) < direct_tolerance &&
+                        std::abs(actual_combined - expected_ibl - expected_direct) < tolerance &&
+                        std::abs(actual_combined - actual_ibl - actual_direct) <
+                            tolerance + ibl_tolerance + direct_tolerance,
+                    "textured direct and IBL contributions add in the linear scene"))
         {
             return false;
         }
@@ -2008,6 +2201,45 @@ bool test_textured_renderer(const engine::EngineConfig& config, bool shared)
         !screenshot(windows, renderer, fixture.root, "gray-linear", image) ||
         !expect(near_color(image.pixel(cx, cy), 188, 188, 188),
                 "linear data receives display encoding exactly once"))
+    {
+        return false;
+    }
+
+    // Linear inputs straddle the IEC sRGB transfer break point. This catches
+    // the former gamma 2.2 approximation even when middle gray looks similar.
+    auto environment_node = scene->create_node("Clear color");
+    auto environment = environment_node.add_component<engine::EnvironmentComponent>();
+    auto background = environment.settings();
+    background.clear_color = 0x0a407fff;
+    Screenshot srgb_dark;
+    if (!expect(environment && environment.set_settings(background) &&
+                    mesh.material().set_texture("baseColorTexture", "builtin://textures/white-srgb") &&
+                    mesh.material().set_v4("baseColor", {0.001, 0.0031308, 0.01, 1}),
+                "configure dark linear colors and display-encoded background") ||
+        !screenshot(windows, renderer, fixture.root, "srgb-dark", srgb_dark))
+    {
+        return false;
+    }
+    const auto actual_dark = srgb_dark.pixel(cx, cy);
+    const auto actual_clear = srgb_dark.pixel(0, 0);
+    constexpr std::array<double, 3> dark_linear{0.001, 0.0031308, 0.01};
+    constexpr std::array<int, 3> clear_display{10, 64, 127};
+    for (std::size_t channel = 0; channel < 3; ++channel)
+    {
+        const double expected = 255.0 * linear_to_srgb(dark_linear[channel]);
+        std::fprintf(stderr, "sRGB dark channel %zu: %u (reference %.2f), clear %u\n", channel,
+                     actual_dark[channel], expected, actual_clear[channel]);
+        if (!expect(std::abs(actual_dark[channel] - expected) <= 2.0,
+                    "linear dark values use the exact sRGB display transfer") ||
+            !expect(std::abs(static_cast<int>(actual_clear[channel]) - clear_display[channel]) <= 2,
+                    "background display color survives the sRGB decode/encode round trip"))
+        {
+            return false;
+        }
+    }
+    if (!mesh.material().set_v4("baseColor", {1, 1, 1, 1}) ||
+        !mesh.material().set_texture("baseColorTexture", "textures/gray-linear") ||
+        !render_frames(windows, renderer, 8))
     {
         return false;
     }

@@ -1,4 +1,5 @@
 #include "plugins/editor/modeling/editable_mesh.hpp"
+#include "editor/mesh/mesh_tangents.hpp"
 
 #include "plugins/editor/modeling/modeling_math.hpp"
 #include "runtime/utils/mesh_utils.hpp"
@@ -473,9 +474,14 @@ bool EditableMesh::compile(const schema::EditableMeshDataT& data, std::string_vi
         result.submeshes.emplace_back(
             first_index, static_cast<std::uint32_t>(result.indices.size()) - first_index, material);
     }
-    if (!MeshUtils::validate(result) || !MeshUtils::build_tangents(result, result.tangents))
+    if (!MeshUtils::validate(result))
     {
-        return fail(error, "编译网格或切线无效");
+        return fail(error, "编译网格无效");
+    }
+    if (!editor::generate_mesh_tangents(result, error))
+    {
+        error = "生成网格切线失败: " + error;
+        return false;
     }
     output = std::move(result);
     return true;

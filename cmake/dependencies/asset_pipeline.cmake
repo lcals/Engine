@@ -7,10 +7,6 @@ find_package(flatbuffers CONFIG REQUIRED GLOBAL)
 find_package(tomlplusplus CONFIG REQUIRED GLOBAL)
 find_package(SDL3 CONFIG REQUIRED GLOBAL)
 
-if("editor/fbx_import" IN_LIST ENGINE_SELECTED_PLUGINS)
-    find_package(mikktspace CONFIG REQUIRED GLOBAL)
-endif()
-
 if("editor/font_import" IN_LIST ENGINE_SELECTED_PLUGINS)
     find_package(Freetype REQUIRED GLOBAL)
 endif()

@@ -1,6 +1,7 @@
 #include "runtime/render/passes/hdr_post_process_pass.hpp"
 
 #include "runtime/performance/profiling.hpp"
+#include "runtime/render/render_color.hpp"
 #include "runtime/render/render_constants.hpp"
 #include "runtime/render/render_sampling.hpp"
 #include "runtime/render/render_settings.hpp"
@@ -270,7 +271,7 @@ void HdrPostProcessPass::begin_scene(std::uint32_t clear_color)
         clear[index] = static_cast<float>((clear_color >> shift) & 0xffU) / 255.0F;
         if (index != 3)
         {
-            clear[index] = std::pow(clear[index], 2.2F);
+            clear[index] = display_srgb_to_linear(clear[index]);
         }
     }
     clear[3] = 0.0F;

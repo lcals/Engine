@@ -3,11 +3,13 @@
 
 #include "editor/asset_pipeline/asset_io.hpp"
 #include "editor/asset_pipeline/toml_helpers.hpp"
+#include "editor/mesh/mesh_tangents.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/schema/material_generated.h"
 #include "runtime/schema/mesh_generated.h"
 #include "runtime/schema/shader_generated.h"
 #include "runtime/utils/path_utils.hpp"
+#include "runtime/utils/mesh_utils.hpp"
 
 #include <flatbuffers/flatbuffers.h>
 #include <flatbuffers/verifier.h>
@@ -40,7 +42,12 @@ bool MeshImporter::matches(const std::filesystem::path& source) const
 }
 bool MeshImporter::inspect_batch(const ImportContext&, std::string& fingerprint, std::string& error)
 {
-    return schema_fingerprint({"mesh.fbs"}, fingerprint, error);
+    if (!schema_fingerprint({"mesh.fbs"}, fingerprint, error))
+    {
+        return false;
+    }
+    fingerprint += ":mikktspace-3e895b49-angle-precision-1:mesh-importer-2";
+    return true;
 }
 bool MeshImporter::convert(const ImportAsset& asset, const ImportContext& context,
                            std::string& error) const
@@ -203,6 +210,14 @@ bool MeshImporter::convert(const ImportAsset& asset, const ImportContext& contex
             error = "mesh submeshes must cover every triangle";
             return false;
         }
+    }
+    if (!MeshUtils::validate(mesh) || !generate_mesh_tangents(mesh, error))
+    {
+        if (error.empty())
+        {
+            error = "invalid mesh geometry: " + asset.path;
+        }
+        return false;
     }
     flatbuffers::FlatBufferBuilder builder;
     schema::FinishMeshDataBuffer(builder, schema::MeshData::Pack(builder, &mesh));

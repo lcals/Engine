@@ -73,6 +73,11 @@ public:
     [[nodiscard]] SceneCaptureStatus diffuse_capture_status() const noexcept;
     [[nodiscard]] bool take_diffuse_capture(SceneCaptureImage& output);
     void cancel_diffuse_capture() noexcept;
+    // 正常场景的线性 HDR 帧，透明合成后、Bloom 和显示映射前；主线程异步使用。
+    [[nodiscard]] bool request_hdr_capture();
+    [[nodiscard]] SceneCaptureStatus hdr_capture_status() const noexcept;
+    [[nodiscard]] bool take_hdr_capture(SceneCaptureImage& output);
+    void cancel_hdr_capture() noexcept;
     void release_scene() noexcept;
     [[nodiscard]] bool scene_prepared() const noexcept;
     [[nodiscard]] std::uint32_t gpu_resource_count() const noexcept;
@@ -117,6 +122,8 @@ private:
     [[nodiscard]] bool resolve_settings(RenderSettings& settings) const noexcept;
     void shutdown_renderer() noexcept;
     void poll_diffuse_capture();
+    void poll_hdr_capture();
+    void submit_hdr_capture();
     [[nodiscard]] bool capture_unchanged() const;
     [[nodiscard]] bool draw_diffuse_capture(const RenderSettings& settings);
     void release_draw_resources() noexcept;
@@ -139,6 +146,8 @@ private:
     std::uint32_t height_ = 0;
     std::uint32_t frame_number_ = 0;
     SceneCaptureStatus capture_status_ = SceneCaptureStatus::idle;
+    SceneCaptureStatus hdr_capture_status_ = SceneCaptureStatus::idle;
+    std::uint64_t hdr_capture_scene_id_ = 0;
     SceneCaptureRequest capture_request_;
     std::vector<std::uint8_t> capture_snapshot_;
     bool renderer_initialized_ = false;

@@ -1,4 +1,5 @@
 #include "runtime/render/passes/planar_reflection_math.hpp"
+#include "runtime/render/render_color.hpp"
 #include "runtime/render/render_math.hpp"
 
 #include <array>
@@ -163,6 +164,19 @@ bool verify_capture_projection(bool homogeneous, bool orthographic, bool off_cen
 
 int main()
 {
+    // The same decoder supplies main and mirrored clear colors. Test values
+    // from both sRGB branches against independent standard reference values.
+    for (const auto [encoded, expected] : std::array{
+             std::array{0.0F, 0.0F}, std::array{0.04045F, 0.003130805F},
+             std::array{0.5F, 0.21404114F}, std::array{1.0F, 1.0F}})
+    {
+        if (!expect(std::abs(engine::render_detail::display_srgb_to_linear(encoded) - expected) <
+                        0.000001F,
+                    "main and reflected clear colors use the IEC sRGB inverse transfer"))
+        {
+            return 1;
+        }
+    }
     for (bool homogeneous : {false, true})
     {
         for (bool orthographic : {false, true})

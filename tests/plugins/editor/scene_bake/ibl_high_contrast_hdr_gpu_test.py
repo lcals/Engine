@@ -196,6 +196,21 @@ def run(binary_dir, samples, full_mips, source_cube):
                     row['absolute_error'][c] > tolerances[c] for row in selected for c in range(3)
                 ):
                     raise RuntimeError('high-contrast source mip regression exceeded 2% of input contrast')
+                # An overly coarse source LOD can also blur the cap severely at
+                # lower roughness. Check two additional analytical samples;
+                # tolerance is relative to the input contrast, not a claim of
+                # 1.5% accuracy for arbitrary HDR environments.
+                low_roughness = [row for row in report['prefilter']['samples']
+                                 if row['face'] == 4 and row['mip'] in (1, 2)]
+                low_tolerances = [0.015 * (PEAK[c] - BASE[c]) for c in range(3)]
+                report['acceptance']['low_roughness'] = {
+                    'scope': '+Z mip 1/2, 256 samples, single-level source',
+                    'absolute_tolerances': low_tolerances, 'samples': low_roughness}
+                if len(low_roughness) != 2 or any(
+                    row['absolute_error'][c] > low_tolerances[c]
+                    for row in low_roughness for c in range(3)
+                ):
+                    raise RuntimeError('high-contrast low-roughness regression exceeded 1.5% of input contrast')
             scene = tomllib.loads((project / 'assets/scenes/white.scene').read_text())
             env = next(c for n in scene['nodes'] for c in n['components'] if c['type'] == 'environment')
             if not env['ibl_enabled'] or not all(env.get(k) for k in ('ibl_irradiance','ibl_prefilter','ibl_lut')):

@@ -27,6 +27,8 @@ CSM、AO、HDR、Bloom 和 IBL 在各平台使用同一套通道与 Shader 源�
 
 可见物体、相机和光源全部以 `Node + Component` 表达。渲染器不创建隐含的相机、灯光或物体，也不持有跨帧组件指针。一个场景选择一个活动相机，累加预算内的启用方向光、点光或聚光（默认 256，可配置至 4096）；超出数量返回失败。场景绘制要求有效的观察相机，可绘制来源包括启用的 MeshRenderer、3D 文字及渲染扩展；UI 独立绘制，不能以没有网格判断整个窗口为空白。没有 Light 时 PBR 不获得直接照明，无光照材质仍可显示。
 
+灯的颜色及 `intensity` 在线性空间参与计算，目前强度是引擎相对量，尚未标定为 lux 或 candela。方向光没有距离衰减；点光和聚光以 `max(d², 0.01)` 作距离平方分母，并乘范围淡出 `clamp(1 - d/range, 0, 1)²`；聚光另外在内外锥夹角余弦之间执行平滑过渡。该范围淡出是有界光源的实时近似；设置数值不能直接当作其他 DCC 中同名物理单位的等价数值。
+
 调用方可向 `prepare_scene(camera)` 和 `render(camera)` 显式提交借用镜头，替代本次绘制使用的活动相机。该镜头可以属于调用方独立场景，渲染器不持有它、不改写项目场景数据；未传入时继续使用项目活动镜头。编辑器预览使用独立的隐藏镜头，后处理仍读取项目场景活动相机的 `PostProcessComponent`，不将预览视角保存到场景。
 
 节点世界矩阵为列主序，局部 -Z 表示相机朝向和方向光传播方向。相机提供透视视场角或正交竖直半高及近远裁剪面，窗口像素尺寸决定宽高比；视图基忽略缩放大小，避免非均匀缩放扭曲镜头。模型法线使用世界矩阵逆转置；负缩放按行列式切换剔除方向。窗口缩放更新交换链和投影。
@@ -41,7 +43,7 @@ CSM、AO、HDR、Bloom 和 IBL 在各平台使用同一套通道与 Shader 源�
 
 调用方仍可通过 `MeshRenderer::set_deformation` 直接覆写位置、法线及切线，与 palette 路径互斥。此路径参考 bgfx `35-dynamic` 建立独立动态 VB，变形修订变化时只更新顶点，不重建静态索引缓冲；清除变形恢复源 VB 并释放实例输出。两条路径均保留源网格、材质槽、UV、颜色、索引及子网格范围，全部场景通道读取相同的实例顶点和更新后边界。
 
-材质实例以名字和数值类型匹配参数，支持 `SetFloat`、`SetV2`、`SetV3`、`SetV4` 与具名 `SetTexture`；未知路径、参数或类型及非法数值返回失败并保留原值。内置材质提供无光照、PBR 和 Blinn–Phong。PBR 采用 Cook–Torrance 模型中的 GGX 分布、相关 Smith 可见性和 Schlick Fresnel，支持基础色、切线空间法线及 ORM（AO、粗糙度、金属度）贴图，颜色纹理由 sRGB 解码至线性空间。受光照材质叠加直接光、环境光与启用的 IBL；无光照材质不计算这些照明。全部场景材质始终输出线性 RGBA16F，最后统一执行显示转换。HDR 关闭时按不透明颜色 alpha 的权重，只对受光照材质执行曝光、Reinhard 或可选 ACES 映射，保留原有 unlit 外观；开启时全场景统一映射，最终屏幕仍为 SDR。
+材质实例以名字和数值类型匹配参数，支持 `SetFloat`、`SetV2`、`SetV3`、`SetV4` 与具名 `SetTexture`；未知路径、参数或类型及非法数值返回失败并保留原值。内置材质提供无光照、PBR 和 Blinn–Phong。PBR 采用 Cook–Torrance 模型中的 GGX 分布、相关 Smith 可见性和 Schlick Fresnel，支持基础色、切线空间法线及 ORM（AO、粗糙度、金属度）贴图，颜色纹理由 sRGB 解码至线性空间。受光照材质叠加直接光、环境光与启用的 IBL；无光照材质不计算这些照明。全部场景材质始终输出线性 RGBA16F，最后统一执行显示转换。HDR 关闭时按不透明颜色 alpha 的权重，只对受光照材质执行曝光、Reinhard 或可选 ACES 映射，保留原有 unlit 外观；开启时全场景统一映射，最终屏幕仍为 SDR，使用标准 sRGB 分段编码。清屏及 3D 字体使用对应的 sRGB 反变换；UI 在最终输出后维持显示空间预乘混合。
 
 默认受光流程统一为 `builtin://materials/default-pbr` → `builtin://shaders/pbr`，采用 metallic/roughness：新 Mesh、新增材质槽、美术模型未显式映射的材质、地形和破坏碎块都使用此入口。Unlit/Blinn–Phong 仅由调用方明确选择，UI、字体及调试绘制按专用用途使用对应 Shader。发光实体使用 PBR 的 `emissionColor`/`emissionTexture`，不通过 Unlit 模拟普通受光表面。
 
@@ -92,6 +94,10 @@ Shader `.shader` 的 `[[samplers]]` 声明 `name/uniform/stage/default_texture/e
 Tracy、CPU/GPU 统计及采集工具统一见[性能采样](performance.md)；渲染统计面板与 Tracy 开关相互独立。
 
 截图由 bgfx 帧回调输出 PNG，场景必须继续提交帧。编辑器校验相对路径并创建父目录，渲染器仅接受宿主提供的明确路径；MCP 不自行绘制图片。命令回执完成只表示请求已接受，截图自身的 `pending` 还须通过 `get_frame_capture` 查询；命令通道的 `activation: pending` 则按原请求身份查询 `get_editor_receipt`，不重复提交。
+
+原生调用方可用 `RenderSystem::request_hdr_capture()` 排队捕获下一帧正式场景，并继续调用 `render()`，通过 `hdr_capture_status()` 查询；状态为 `complete` 后使用 `take_hdr_capture()` 接收 `SceneCaptureImage`。RGB 是线性浮点数，允许大于 1；返回尺寸是实际场景目标的物理像素，行从上至下、RGBA 紧密排列。源数据为 RGBA16F，扩展为 float 返回，Alpha 原样保留。结果包含材质、光照、反射、透明和场景扩展，位于 Bloom、曝光、色调映射及 UI 之前；它不是显示器 HDR 输出或 PNG 截图。
+
+同一时刻只接受一个未取走请求，未初始化、没有活动场景或上次读回仍在退役时请求失败。提交帧时才检查可绘制内容及实际相机，因此可以在请求后通过 `render(camera)` 指定独立场景中的相机；若提交帧没有有效相机或可绘制内容，请求会取消。`cancel_hdr_capture()`、场景释放、设备重建及目标尺寸改变会取消当前结果；即使已取消，bgfx 仍须完成在途读回后才能回收缓冲。平台不支持 blit、读回或所需格式时状态为 `failed`，不会退回 SDR。MSAA 读取透明合成目标 resolve 后的结果。原始浮点值的实际用途和图像文件编码由调用方决定。
 
 `request_screenshot()` 接收调用方提供的绝对 UTF-8 PNG 路径，仅负责排队。宿主继续提交帧，bgfx 回调通过已选 bimg 编码器和 SDL3 IO 写出原始渲染结果，`screenshot_status()` 报告 pending、complete 或 failed。回调正确处理 BGRA、行步长及原点翻转；写入失败不会报告完成。路径选择、目录创建和编辑器相对路径权限检查由调用方负责，核心无需桌面截图权限。
 

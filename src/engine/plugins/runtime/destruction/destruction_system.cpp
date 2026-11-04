@@ -11,6 +11,7 @@
 #include "runtime/scene/scene.hpp"
 #include "runtime/scene/transform.hpp"
 #include "runtime/task/task_system.hpp"
+#include "runtime/utils/mesh_utils.hpp"
 #include "runtime/world/world_system.hpp"
 
 #include <algorithm>
@@ -41,7 +42,7 @@ struct GeneratedGroup
     std::uint64_t collider_instance = 0;
 };
 
-void build_group_geometry(const schema::DestructionAssetDataT& asset,
+bool build_group_geometry(const schema::DestructionAssetDataT& asset,
                           const DestructionGroup& description,
                           const schema::DestructionDataT& settings, schema::MeshDataT& mesh,
                           schema::ColliderDataT& collision)
@@ -52,8 +53,31 @@ void build_group_geometry(const schema::DestructionAssetDataT& asset,
     for (auto chunk_index : description.chunks)
     {
         const auto& source = *asset.chunks[chunk_index]->mesh;
+        // Generate missing frames per chunk, after applying the same fallback UVs used
+        // by the rendered mesh. Never discard frames supplied by the source asset.
+        std::vector<schema::Vec4> tangents;
+        if (!source.tangents.empty())
+        {
+            tangents = source.tangents;
+        }
+        else
+        {
+            schema::MeshDataT tangent_source = source;
+            if (tangent_source.texcoords.empty())
+            {
+                for (const auto& vertex : source.vertices)
+                {
+                    tangent_source.texcoords.emplace_back(vertex.x() * 0.2, vertex.y() * 0.2);
+                }
+            }
+            if (!MeshUtils::build_tangents(tangent_source, tangents))
+            {
+                return false;
+            }
+        }
         const auto offset = static_cast<std::uint32_t>(mesh.vertices.size());
         mesh.vertices.insert(mesh.vertices.end(), source.vertices.begin(), source.vertices.end());
+        mesh.tangents.insert(mesh.tangents.end(), tangents.begin(), tangents.end());
         for (auto vertex_index : source.indices)
         {
             mesh.indices.push_back(offset + vertex_index);
@@ -74,6 +98,7 @@ void build_group_geometry(const schema::DestructionAssetDataT& asset,
         }
         collision.hulls.push_back(std::move(hull));
     }
+    return true;
 }
 
 bool finite(const Vec3& value)
@@ -385,8 +410,12 @@ struct DestructionSystem::State
             if (source->group.chunks != group.chunks || source->group.anchored != group.anchored)
             {
                 auto& geometry = prepared.groups[index];
-                build_group_geometry(prepared.graph.data(), group, settings, geometry.mesh,
-                                     geometry.collision);
+                if (!build_group_geometry(prepared.graph.data(), group, settings, geometry.mesh,
+                                          geometry.collision))
+                {
+                    prepared.error = "Cannot prepare destruction fragment tangent frames";
+                    return false;
+                }
             }
             if (group.anchored || impulse == 0)
             {
@@ -567,8 +596,11 @@ bool DestructionSystem::publish(DestructionComponent component, DestructionGraph
         PreparedGroup synchronous;
         if (prepared == nullptr)
         {
-            build_group_geometry(asset, description, component.settings(), synchronous.mesh,
-                                 synchronous.collision);
+            if (!build_group_geometry(asset, description, component.settings(), synchronous.mesh,
+                                      synchronous.collision))
+            {
+                return fail("Cannot prepare destruction fragment tangent frames");
+            }
         }
         const auto& geometry = prepared != nullptr ? (*prepared)[index] : synchronous;
         double volume = 0;

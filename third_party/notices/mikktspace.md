@@ -1,10 +1,12 @@
 # MikkTSpace
 
-FBX 导入器通过 vcpkg 使用 MikkTSpace，源码固定提交
+编辑器的 FBX、普通网格和建模导入通过 vcpkg 使用 MikkTSpace，源码固定提交
 `3e895b49d05ea07e4c2133156cfa94369e19e409`：
 <https://github.com/mmikk/MikkTSpace/tree/3e895b49d05ea07e4c2133156cfa94369e19e409>。
-本项目使用未修改的上游实现；适配代码位于 FBX 导入器。vcpkg port 为
-`2020-10-06#3`。上游许可证（来自 `mikktspace.h`）：
+本项目在 `third_party/overlay-ports/mikktspace/small-angle-precision.patch` 中修复极细长
+三角形的角度加权：当单精度点积舍入为 1 时，使用叉积长度和 `atan2` 保留非零夹角，其他情况保留
+上游 `acos` 路径。共用适配代码位于 `src/engine/editor/mesh/mesh_tangents.cpp`。本地 port 基于
+vcpkg `2020-10-06#3`，补丁后为 `2020-10-06#4`。上游许可证（来自 `mikktspace.h`）：
 
 ```text
 Copyright (C) 2011 by Morten S. Mikkelsen
