@@ -5,11 +5,15 @@
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/utils/path_utils.hpp"
 
+#include <mikktspace.h>
+
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cmath>
 #include <cstdint>
 #include <limits>
+#include <map>
 #include <set>
 #include <span>
 
@@ -18,6 +22,134 @@ namespace engine::plugins::fbx_import
 namespace
 {
 using namespace editor::asset_pipeline;
+
+bool finite_float(double value)
+{
+    return std::isfinite(value) && std::abs(value) <= std::numeric_limits<float>::max();
+}
+
+// MikkTSpace emits a tangent frame for each face corner. A vertex shared by
+// different frames must be split rather than overwriting one of those frames.
+bool generate_mikk_tangents(schema::MeshDataT& mesh, std::string& error)
+{
+    if (mesh.texcoords.empty() || !mesh.tangents.empty())
+    {
+        return true;
+    }
+    // Upstream MakeIndex packs face/corner as (face << 2) | corner in a signed int.
+    if (mesh.indices.size() / 3 >
+        static_cast<std::size_t>(std::numeric_limits<int>::max() / 4))
+    {
+        error = "FBX mesh has too many faces for MikkTSpace";
+        return false;
+    }
+    struct Context
+    {
+        const schema::MeshDataT* mesh;
+        std::vector<schema::Vec4> corners;
+    } data{&mesh, std::vector<schema::Vec4>(mesh.indices.size())};
+    SMikkTSpaceInterface api{};
+    api.m_getNumFaces = [](const SMikkTSpaceContext* context) -> int
+    {
+        const auto& d = *static_cast<Context*>(context->m_pUserData);
+        return static_cast<int>(d.mesh->indices.size() / 3);
+    };
+    api.m_getNumVerticesOfFace = [](const SMikkTSpaceContext*, int) -> int { return 3; };
+    api.m_getPosition = [](const SMikkTSpaceContext* context, float out[], int face, int corner)
+    {
+        const auto& d = *static_cast<Context*>(context->m_pUserData);
+        const auto& v = d.mesh->vertices[d.mesh->indices[static_cast<std::size_t>(face) * 3 + corner]];
+        out[0] = v.x();
+        out[1] = v.y();
+        out[2] = v.z();
+    };
+    api.m_getNormal = [](const SMikkTSpaceContext* context, float out[], int face, int corner)
+    {
+        const auto& d = *static_cast<Context*>(context->m_pUserData);
+        const auto& v = d.mesh->vertices[d.mesh->indices[static_cast<std::size_t>(face) * 3 + corner]];
+        out[0] = v.nx();
+        out[1] = v.ny();
+        out[2] = v.nz();
+    };
+    api.m_getTexCoord = [](const SMikkTSpaceContext* context, float out[], int face, int corner)
+    {
+        const auto& d = *static_cast<Context*>(context->m_pUserData);
+        const auto& uv = d.mesh->texcoords[d.mesh->indices[static_cast<std::size_t>(face) * 3 + corner]];
+        out[0] = uv.x();
+        out[1] = uv.y();
+    };
+    api.m_setTSpaceBasic = [](const SMikkTSpaceContext* context, const float tangent[], float sign,
+                              int face, int corner)
+    {
+        auto& d = *static_cast<Context*>(context->m_pUserData);
+        d.corners[static_cast<std::size_t>(face) * 3 + corner] =
+            schema::Vec4(tangent[0], tangent[1], tangent[2], sign);
+    };
+    const SMikkTSpaceContext context{&api, &data};
+    if (!genTangSpaceDefault(&context))
+    {
+        error = "MikkTSpace failed to generate FBX tangents";
+        return false;
+    }
+    using FrameKey = std::array<std::uint64_t, 5>;
+    std::map<FrameKey, std::uint32_t> frames;
+    std::vector<bool> assigned(mesh.vertices.size(), false);
+    mesh.tangents.assign(mesh.vertices.size(), schema::Vec4(1.0F, 0.0F, 0.0F, 1.0F));
+    for (std::size_t i = 0; i < mesh.indices.size(); ++i)
+    {
+        const auto source = mesh.indices[i];
+        const auto& tangent = data.corners[i];
+        if (!std::isfinite(tangent.x()) || !std::isfinite(tangent.y()) ||
+            !std::isfinite(tangent.z()) || std::hypot(tangent.x(), tangent.y(), tangent.z()) < 1e-12 ||
+            (tangent.w() != 1.0F && tangent.w() != -1.0F))
+        {
+            error = "MikkTSpace returned an invalid FBX tangent frame";
+            return false;
+        }
+        const FrameKey key{source, std::bit_cast<std::uint64_t>(tangent.x()),
+                           std::bit_cast<std::uint64_t>(tangent.y()),
+                           std::bit_cast<std::uint64_t>(tangent.z()),
+                           std::bit_cast<std::uint64_t>(tangent.w())};
+        auto found = frames.find(key);
+        if (found == frames.end())
+        {
+            std::uint32_t target = source;
+            if (assigned[source])
+            {
+                if (mesh.vertices.size() >=
+                    std::numeric_limits<std::uint32_t>::max() / (16 * sizeof(float)))
+                {
+                    error = "FBX tangent splitting exceeds mesh vertex limits";
+                    return false;
+                }
+                target = static_cast<std::uint32_t>(mesh.vertices.size());
+                mesh.vertices.push_back(mesh.vertices[source]);
+                mesh.texcoords.push_back(mesh.texcoords[source]);
+                if (!mesh.lightmap_texcoords.empty())
+                {
+                    mesh.lightmap_texcoords.push_back(mesh.lightmap_texcoords[source]);
+                }
+                if (!mesh.colors.empty())
+                {
+                    mesh.colors.push_back(mesh.colors[source]);
+                }
+                if (!mesh.skin.empty())
+                {
+                    mesh.skin.push_back(mesh.skin[source]);
+                }
+                mesh.tangents.push_back(tangent);
+            }
+            else
+            {
+                assigned[source] = true;
+                mesh.tangents[source] = tangent;
+            }
+            found = frames.emplace(key, target).first;
+        }
+        mesh.indices[i] = found->second;
+    }
+    return true;
+}
 
 bool read_motion_settings(const toml::table& settings, FbxDocument& document, std::string& error)
 {
@@ -532,9 +664,19 @@ bool convert_skeleton(const FbxDocument& document, schema::SkeletonDataT& output
     return !output.joints.empty();
 }
 
-bool convert_mesh(const FbxDocument& document, const ufbx_node& node, schema::MeshDataT& output,
+bool convert_mesh(const FbxDocument& document, const ufbx_node& node, schema::MeshDataT& result,
                   std::string& error)
 {
+    if (node.mesh == nullptr)
+    {
+        error = "FBX node has no mesh";
+        return false;
+    }
+    // Publish a complete result only after all corners and tangent splits are
+    // valid. Preserve caller-assigned resource identity, including skin linkage.
+    schema::MeshDataT output;
+    output.path = result.path;
+    output.skeleton_guid = result.skeleton_guid;
     const auto& mesh = *node.mesh;
     if (mesh.num_triangles == 0 ||
         mesh.num_triangles > std::numeric_limits<std::uint32_t>::max() / 3 ||
@@ -582,6 +724,11 @@ bool convert_mesh(const FbxDocument& document, const ufbx_node& node, schema::Me
     std::map<std::uint32_t, std::uint32_t> corners;
     std::map<std::uint32_t, std::vector<std::uint32_t>> parts;
     std::vector<std::uint32_t> triangles(mesh.max_face_triangles * 3);
+    // Tangent and bitangent are UV.x/UV.y directions in the same geometry space
+    // as the normal (ufbx_mesh). Derive the sign after ufbx applies geometry
+    // transforms instead of trusting an untransformed optional fourth channel.
+    bool retain_tangents = document.normals_mode == "import" && mesh.vertex_uv.exists &&
+                           mesh.vertex_tangent.exists && mesh.vertex_bitangent.exists;
     for (std::size_t face_index = 0; face_index < mesh.faces.count; ++face_index)
     {
         const auto face = mesh.faces.data[face_index];
@@ -611,6 +758,12 @@ bool convert_mesh(const FbxDocument& document, const ufbx_node& node, schema::Me
             if (inserted)
             {
                 const auto position = ufbx_get_vertex_vec3(&mesh.vertex_position, corner);
+                if (!finite_float(position.x) || !finite_float(position.y) ||
+                    !finite_float(position.z))
+                {
+                    error = "FBX mesh position exceeds finite float precision";
+                    return false;
+                }
                 auto normal = generated_normals.empty()
                                   ? ufbx_get_vertex_vec3(&mesh.vertex_normal, corner)
                                   : generated_normals[normal_indices[corner]];
@@ -629,7 +782,42 @@ bool convert_mesh(const FbxDocument& document, const ufbx_node& node, schema::Me
                 if (mesh.vertex_uv.exists)
                 {
                     const auto uv = ufbx_get_vertex_vec2(&mesh.vertex_uv, corner);
+                    if (!finite_float(uv.x) || !finite_float(uv.y))
+                    {
+                        error = "FBX mesh UV exceeds finite float precision";
+                        return false;
+                    }
                     output.texcoords.emplace_back(uv.x, uv.y);
+                }
+                if (retain_tangents)
+                {
+                    const auto tangent = ufbx_get_vertex_vec3(&mesh.vertex_tangent, corner);
+                    const auto bitangent = ufbx_get_vertex_vec3(&mesh.vertex_bitangent, corner);
+                    const double nx = normal.y * tangent.z - normal.z * tangent.y;
+                    const double ny = normal.z * tangent.x - normal.x * tangent.z;
+                    const double nz = normal.x * tangent.y - normal.y * tangent.x;
+                    const double cross_length = std::hypot(nx, ny, nz);
+                    const double bitangent_length =
+                        std::hypot(bitangent.x, bitangent.y, bitangent.z);
+                    const double orientation =
+                        nx * bitangent.x + ny * bitangent.y + nz * bitangent.z;
+                    if (!finite_float(tangent.x) || !finite_float(tangent.y) ||
+                        !finite_float(tangent.z) || !std::isfinite(cross_length) ||
+                        !std::isfinite(bitangent_length) ||
+                        !std::isfinite(orientation) || cross_length <= 1.0e-12 ||
+                        bitangent_length <= 1.0e-12 ||
+                        std::abs(orientation) <= 1.0e-6 * cross_length * bitangent_length)
+                    {
+                        // Tangents are an all-or-nothing vertex stream. If any
+                        // frame is unusable, regenerate the complete stream below.
+                        output.tangents.clear();
+                        retain_tangents = false;
+                    }
+                    else
+                    {
+                        output.tangents.emplace_back(tangent.x, tangent.y, tangent.z,
+                                                     orientation < 0.0 ? -1.0 : 1.0);
+                    }
                 }
                 if (mesh.vertex_color.exists)
                 {
@@ -656,7 +844,17 @@ bool convert_mesh(const FbxDocument& document, const ufbx_node& node, schema::Me
                                       static_cast<std::uint32_t>(indices.size()), material);
         output.indices.insert(output.indices.end(), indices.begin(), indices.end());
     }
-    return !output.indices.empty();
+    if (output.indices.empty())
+    {
+        error = "FBX mesh triangulation produced no indices";
+        return false;
+    }
+    if (!generate_mikk_tangents(output, error))
+    {
+        return false;
+    }
+    result = std::move(output);
+    return true;
 }
 
 bool convert_animation(const FbxDocument& source, const FbxDocument& skeleton,

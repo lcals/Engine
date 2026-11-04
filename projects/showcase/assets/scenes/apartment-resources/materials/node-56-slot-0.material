@@ -1,4 +1,5 @@
-shader = '00000000-0000-4000-8000-000000000002'
+# Opaque PBR glass approximation; transmission is not enabled in this scene.
+shader = '00000000-0000-4000-8000-000000000001'
 
 [[parameters]]
 name = 'baseColor'
@@ -16,3 +17,8 @@ texture = '00000000-0000-4000-8000-000000000007'
 [[textures]]
 name = 'ormTexture'
 texture = '00000000-0000-4000-8000-000000000008'
+
+[[parameters]]
+name = "roughness"
+type = "float"
+value = 0.25

@@ -1,0 +1,9 @@
+guid = "24f6980e-743d-5ef2-b719-9437c316df56"
+importer = "texture"
+meta_version = 1
+
+[texture]
+format = "rgba8"
+compression = "uastc"
+srgb = false
+mipmaps = false

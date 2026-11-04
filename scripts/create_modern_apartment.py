@@ -21,7 +21,7 @@ class Material:
     color: tuple
     roughness: float = 0.7
     metallic: float = 0.0
-    unlit: bool = False
+    emission: tuple = (0.0, 0.0, 0.0)
 
 
 MATERIALS = {
@@ -50,8 +50,10 @@ MATERIALS = {
     "soil": Material((0.065, 0.042, 0.025), 1.0),
     "paper": Material((0.78, 0.75, 0.64), 0.94),
     "book_blue": Material((0.13, 0.25, 0.31), 0.8),
-    "window": Material((0.57, 0.72, 0.77), 0.25, unlit=True),
-    "glow": Material((1.0, 0.77, 0.42), 0.7, unlit=True),
+    # Opaque PBR glass approximation; this sample does not implement transmission.
+    "window": Material((0.57, 0.72, 0.77), 0.25),
+    # Preserve the former light-source RGB as emission without a brightness multiplier.
+    "glow": Material((0.0, 0.0, 0.0), 0.7, emission=(1.0, 0.77, 0.42)),
 }
 
 
@@ -883,22 +885,16 @@ def apply_style(session, scene_id, pairs):
                 "arguments": identity
                 | {
                     "slot": 0,
-                    "path": (
-                        "builtin://materials/default-unlit"
-                        if material.unlit
-                        else "builtin://materials/default-pbr"
-                    ),
+                    "path": "builtin://materials/default-pbr",
                 },
             }
         )
-        parameters = [("baseColor", "v4", list(material.color) + [1])]
-        if not material.unlit:
-            parameters.extend(
-                [
-                    ("roughness", "float", material.roughness),
-                    ("metallic", "float", material.metallic),
-                ]
-            )
+        parameters = [
+            ("baseColor", "v4", list(material.color) + [1]),
+            ("roughness", "float", material.roughness),
+            ("metallic", "float", material.metallic),
+            ("emissionColor", "v3", list(material.emission)),
+        ]
         for name, kind, value in parameters:
             commands.append(
                 {

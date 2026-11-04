@@ -1,0 +1,93 @@
+root = "1"
+
+[[nodes]]
+id = "1"
+name = "Material comparison"
+parent = "0"
+
+[[nodes.components]]
+type = "transform"
+
+[[nodes]]
+id = "2"
+name = "Metal 0 Roughness 0.2"
+parent = "1"
+
+[[nodes.components]]
+type = "transform"
+position = [-2.2, 1.1, 0.0]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "a0e3606e-b1b6-440b-b79e-fa7ee383ab0e"
+material = "76148b71-241b-4340-9cde-7d504062379f"
+
+[[nodes]]
+id = "3"
+name = "Metal 0 Roughness 0.5"
+parent = "1"
+
+[[nodes.components]]
+type = "transform"
+position = [0, 1.1, 0.0]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "a0e3606e-b1b6-440b-b79e-fa7ee383ab0e"
+material = "d6caf94d-1796-4c70-bc7f-f3b5009b1ac9"
+
+[[nodes]]
+id = "4"
+name = "Metal 0 Roughness 0.8"
+parent = "1"
+
+[[nodes.components]]
+type = "transform"
+position = [2.2, 1.1, 0.0]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "a0e3606e-b1b6-440b-b79e-fa7ee383ab0e"
+material = "5363308c-178c-402b-85b2-6a30e3f5af66"
+
+[[nodes]]
+id = "5"
+name = "Metal 1 Roughness 0.2"
+parent = "1"
+
+[[nodes.components]]
+type = "transform"
+position = [-2.2, -1.1, 0.0]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "a0e3606e-b1b6-440b-b79e-fa7ee383ab0e"
+material = "75c4ee56-ecb9-4a6b-840c-9e74b6c9216d"
+
+[[nodes]]
+id = "6"
+name = "Metal 1 Roughness 0.5"
+parent = "1"
+
+[[nodes.components]]
+type = "transform"
+position = [0, -1.1, 0.0]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "a0e3606e-b1b6-440b-b79e-fa7ee383ab0e"
+material = "17d03473-8a65-4e00-a753-4731e64eed62"
+
+[[nodes]]
+id = "7"
+name = "Metal 1 Roughness 0.8"
+parent = "1"
+
+[[nodes.components]]
+type = "transform"
+position = [2.2, -1.1, 0.0]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "a0e3606e-b1b6-440b-b79e-fa7ee383ab0e"
+material = "d7086bae-e107-48a8-b111-a9e9e5da6c26"

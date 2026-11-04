@@ -3,7 +3,7 @@
 源自本地参考 Ant `pkg/ant.resources/shaders/pbr/ibl/` 与 `pkg/ant.sky/assets/cs_panorama2cubemap.sc`、`pkg/ant.resources/shaders/common/utils.sh`。
 上游：https://github.com/ejoy/ant 。原始数学实现与来源注释保留在 `ibl_common.sh`。
 
-适配：每面使用2D UAV；增加非8倍数边界检查；LUT采样纹素中心避免NdotV=0奇点；预过滤按累计NoL权重归一化（与The Forge PBR计算范例一致），保留常色环境亮度；宿主用bgfx compute与逐面blit/readback调度。
+适配：每面使用2D UAV；增加非8倍数边界检查；LUT采样纹素中心避免NdotV=0奇点；预过滤按累计NoL权重归一化（与The Forge PBR计算范例一致），保留常色环境亮度；宿主用bgfx compute与逐面blit/readback调度。对于全景及 mip 不完整的立方图输入，新增立方图源 mip 的逐层滤波，像素立体角使用本插件已有光照探针积分的面积公式。
 
 `ibl_common.sh` 上游还注明 Khronos glTF Sample Viewer IBL filtering、Holger Dammertz 的 Hammersley 采样（CC BY 3.0，http://holger.dammertz.org/stuff/notes_HammersleyOnHemisphere.html ；许可 https://creativecommons.org/licenses/by/3.0/）。这些算法来源及链接随源文件保留；适配不改变上游归属。
 

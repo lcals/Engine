@@ -26,7 +26,7 @@ function(engine_configure_scene_bake_plugin)
     endif()
     set(_source "${PROJECT_SOURCE_DIR}/src/engine/plugins/editor/scene_bake/shaders")
     set(_output "${CMAKE_CURRENT_BINARY_DIR}/generated/scene_bake")
-    foreach(_shader panorama irradiance prefilter lut)
+    foreach(_shader panorama cube_mip irradiance prefilter lut)
         set(_header "${_output}/cs_bake_${_shader}.bin.h")
         add_custom_command(OUTPUT "${_header}"
             COMMAND "${CMAKE_COMMAND}" -E make_directory "${_output}"

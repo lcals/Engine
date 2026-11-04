@@ -228,11 +228,16 @@ bool RenderSystem::draw_scene(Camera view_camera, const RenderSettings& renderin
     auto frozen_scene = resources.hdr_post_process.opaque_color();
     if (rendering.ssr_enabled)
     {
+        // Match the main PBR pass: disabling IBL selects the analytical DFG
+        // fallback even when an earlier bake has left its LUT loaded.
+        const bgfx::TextureHandle reflection_lut = rendering.ibl_enabled
+                                                      ? resources.ibl_textures[2].handle
+                                                      : bgfx::TextureHandle{bgfx::kInvalidHandle};
         if (!resources.reflections.prepare(draw.width, draw.height, rendering) ||
             !resources.reflections.render(
                 view, projection, frozen_scene, resources.hdr_post_process.opaque_specular(),
                 resources.surface_pass.depth(), resources.surface_pass.normal_roughness(),
-                resources.surface_pass.specular(), resources.ibl_textures[2].handle, rendering))
+                resources.surface_pass.specular(), reflection_lut, rendering))
         {
             return false;
         }

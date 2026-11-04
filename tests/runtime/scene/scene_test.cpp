@@ -929,6 +929,38 @@ bool component_contracts()
         return false;
     }
     engine::Material material = mesh.material();
+    float default_metallic = -1.0F;
+    float default_roughness = -1.0F;
+    float default_workflow = -1.0F;
+    if (!expect(material.type_path() == "builtin://materials/default-pbr" &&
+                    material.shader_path() == "builtin://shaders/pbr" &&
+                    material.get_float("metallic", default_metallic) &&
+                    default_metallic == 0.0F &&
+                    material.get_float("roughness", default_roughness) &&
+                    near(default_roughness, 0.4F) &&
+                    material.get_float("specularWorkflow", default_workflow) &&
+                    default_workflow == 0.0F,
+                "new mesh starts with the standard metallic-roughness PBR material and shader"))
+    {
+        return false;
+    }
+    if (!expect(mesh.set_material_count(2), "add an independent default material slot"))
+    {
+        return false;
+    }
+    const auto added_material = mesh.material(1);
+    if (!expect(added_material.type_path() == "builtin://materials/default-pbr" &&
+                    added_material.shader_path() == "builtin://shaders/pbr" &&
+                    added_material.get_float("metallic", default_metallic) &&
+                    default_metallic == 0.0F &&
+                    added_material.get_float("roughness", default_roughness) &&
+                    near(default_roughness, 0.4F) &&
+                    added_material.get_float("specularWorkflow", default_workflow) &&
+                    default_workflow == 0.0F && mesh.set_material_count(1),
+                "additional material slots also start with metallic-roughness PBR"))
+    {
+        return false;
+    }
     if (!expect(material.type_path() == "builtin://materials/default-pbr" &&
                     material.set_float("metallic", 0.6F) && material.set_float("roughness", 0.2F) &&
                     material.set_v4("baseColor", engine::Vec4(0.7, 0.3, 0.15, 1.0)) &&

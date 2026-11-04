@@ -182,9 +182,9 @@ vec4 importance_sample_Lambertian(int sampleidx, vec3 N)
 }
 // A separate 2D UAV is used per face, avoiding cube image-view differences on Metal.
 uniform vec4 u_bake_face;
-vec3 bake_direction(ivec2 id, ivec2 size)
+vec3 bake_direction_at(vec2 position, vec2 size)
 {
-    vec2 uv = (vec2(id) + 0.5) / vec2(size);
+    vec2 uv = position / size;
     uv.y = 1.0 - uv.y;
     uv = uv * 2.0 - 1.0;
     int face = int(u_bake_face.x);
@@ -196,5 +196,9 @@ vec3 bake_direction(ivec2 id, ivec2 size)
     else if (face == 4) direction = vec3(uv.x, uv.y, 1.0);
     else direction = vec3(-uv.x, uv.y, -1.0);
     return normalize(direction);
+}
+vec3 bake_direction(ivec2 id, ivec2 size)
+{
+    return bake_direction_at(vec2(id) + 0.5, vec2(size));
 }
 #endif

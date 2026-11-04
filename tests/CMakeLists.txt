@@ -422,6 +422,7 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
                 engine::resource
                 SDL3::SDL3
                 bgfx::bgfx
+                bgfx::bimg
                 basisu::basisu_encoder)
     engine_apply_options(engine_window_render_test)
     if(TARGET engine_resource_graph)
@@ -763,7 +764,8 @@ if(TARGET engine_fbx_import)
     target_include_directories(engine_fbx_bind_pose_test PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
     target_compile_definitions(
         engine_fbx_bind_pose_test
-        PRIVATE ENGINE_FBX_TEST_DATA_DIR="${PROJECT_SOURCE_DIR}/projects/showcase/assets/models")
+        PRIVATE ENGINE_FBX_TEST_DATA_DIR="${PROJECT_SOURCE_DIR}/projects/showcase/assets/models"
+                ENGINE_UFBX_TEST_DATA_DIR="${PROJECT_SOURCE_DIR}/third_party/ufbx/data")
     engine_apply_options(engine_fbx_bind_pose_test)
     add_test(NAME editor.fbx_bind_pose COMMAND engine_fbx_bind_pose_test)
 endif()

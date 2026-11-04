@@ -15,7 +15,7 @@ function(engine_configure_fbx_import_plugin)
     target_link_libraries(
         engine_fbx_import
         PUBLIC engine::asset_pipeline
-        PRIVATE engine::resource engine_ufbx ozz_animation_offline)
+        PRIVATE engine::resource engine_ufbx ozz_animation_offline mikktspace::mikktspace)
     target_compile_definitions(
         engine_fbx_import
         PRIVATE TOML_HEADER_ONLY=1 TOML_EXCEPTIONS=0

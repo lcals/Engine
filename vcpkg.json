@@ -84,6 +84,7 @@
         "efsw",
         "flatbuffers",
         "meshoptimizer",
+        "mikktspace",
         "sqlite3",
         "sdl3",
         "tomlplusplus"
