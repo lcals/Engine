@@ -16,7 +16,7 @@ classDiagram
     register_render_tools ..> RenderCommands : 转发命令和原回执
 ```
 
-工具为 get_render_settings、set_render_settings、set_render_stats、capture_frame、get_frame_capture。路径策略与撤销归编辑器，图形和截图处理归渲染器；MCP 不生成图片，也不把已接受请求报告为完成。
+基础工具为 get_render_settings、set_render_settings、set_render_stats、capture_frame、get_frame_capture；统一能力、组件运行属性、调试绘制与 LOD 导入工具见下方。路径策略与撤销归编辑器，图形和截图处理归渲染器；MCP 不生成图片，也不把已接受请求报告为完成。
 
 屏幕空间 AO 通过 `aoEnabled`、`aoRadius`、`aoStrength`、`aoPower`、`aoFadeStart`、`aoFadeEnd` 暴露，同曝光归相机后处理域。MCP Schema 使用协议支持的 minimum/maximum，半径严格大于零、淡出起止先后关系由编辑器及原生组件整体校验；协议声明不使用不支持的 exclusiveMinimum。
 
@@ -87,3 +87,41 @@ classDiagram
 查询 `get_light_probe_volume` 返回 `resource`、`resourceGuid` 和 `valid`；`get_mesh_lighting` 返回 `lightmap`、`lightmapGuid`、`lightmapValid`、`castShadows`、`bakeStatic`。配置 GUID 未变而烘焙变换失效时，路径／GUID 仍返回，只有有效性为 false。已经失效的 Lightmap 绑定不能通过当前 setter 恢复其旧烘焙身份，因此可撤销替换会明确失败并保留原绑定；先恢复烘焙时的网格／变换再替换，不悄悄按当前位置重绑旧贴图。单独修改阴影标记不受此限制。
 
 `register_render_tools` 是模块登记函数，没有适配器对象或独立状态；工具回调直接借用 EditorMcpTools，宿主保证通道存活到 McpSystem 关闭。
+
+## 上游渲染能力统一入口
+
+完整参数及保存归属见[渲染功能统一入口](../render-feature-mcp-plan.md)。本模块现在登记 19 个工具，统一 MCP 开关只负责路由，不保存另一份状态。
+
+| 工具 | 归属与行为 |
+| --- | --- |
+| `get_render_features` | 当前世界只读汇总（含常驻场景）、指定 Camera/MeshRenderer 组件属性、环境与材质状态；明确 requested / supported / effective 的区别 |
+| `set_render_feature` | Camera 剔除、MeshRenderer 实例化/LOD、环境天空和材质 Hex 进入各自可撤销命令；五项诊断仅写临时状态 |
+| `get/set_mesh_render_settings` | 以 sceneId/nodeId 查询或修改 MeshRenderer 的 `staticInstancingEnabled/staticLodEnabled`；只恢复实际编辑字段 |
+| `get_render_submission_stats` | 原生逐视图 scene mesh 提交快照，不是 GPU 计时或完成回执 |
+| `draw_debug_lines` | 有界临时线段，切场景清理；只由 MCP 诊断使用，不增加项目系统对象入口 |
+| `get/set_mesh_lod_import` | 源 meta 的离线生成参数与正式 LOD 资源，保留源 GUID 并通过正常导入管线发布 |
+
+```mermaid
+classDiagram
+    class register_render_tools
+    class RenderCommands
+    class SceneCommands
+    class EditorEdit
+    class MeshRenderEdit {
+        +apply(string& error) bool
+        +revert(string& error) bool
+    }
+    class WorldSystem
+    class MeshRenderer
+    class Camera
+    register_render_tools ..> RenderCommands : 统一发现和正式命令转发
+    register_render_tools ..> SceneCommands : 剔除转发set_camera
+    RenderCommands ..> MeshRenderEdit : 创建字段级撤销记录
+    RenderCommands ..> SceneCommands : 借用节点重做身份映射
+    EditorEdit <|-- MeshRenderEdit
+    MeshRenderEdit --> WorldSystem : 借用，校验当前场景及组件实例
+    MeshRenderEdit ..> MeshRenderer : 仅编辑选中字段，不重建网格
+    SceneCommands ..> Camera : 相机唯一生成数据
+```
+
+三个新增运行属性均默认 false；保存请求不要求 GPU 初始化，也不因设备暂不支持而拒绝。支持与实际使用独立查询。`wireframe/debug_draw/mesh_bounds/camera_frusta/stats` 五项诊断是临时状态，不进入保存、预制体或项目 TS。Frame/View uniforms 是只读实现能力，不提供假开关。

@@ -31,6 +31,9 @@
 #include "plugins/editor/character_controller/character_controller_commands.hpp"
 #endif
 #include "editor/commands/editor_commands.hpp"
+#if ENGINE_HAS_ASSET_PIPELINE
+#include "editor/asset_pipeline/mesh_lod_commands.hpp"
+#endif
 #include "editor/editor_environment.hpp"
 #include "editor/editor_system.hpp"
 #include "editor/project/project_system.hpp"
@@ -438,6 +441,12 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
 #if ENGINE_HAS_ASSET_PIPELINE
         if (editor->commands() != nullptr && runtime.world() != nullptr)
         {
+            if (!engine::editor::register_mesh_lod_commands(*editor->commands(), pipeline,
+                                                            project_root))
+            {
+                LogSystem::write(LogLevel::error, "Cannot register mesh LOD import commands");
+                return 1;
+            }
             engine::editor::ScenePersistence::MeshSourceWriter mesh_writer;
 #if ENGINE_HAS_MODELING_PLUGIN
             if (modeling != nullptr)

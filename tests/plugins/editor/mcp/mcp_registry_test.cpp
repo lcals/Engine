@@ -78,7 +78,7 @@ bool exercise_render_tools()
     engine::plugins::mcp::McpSystem mcp;
     if (!check(engine::plugins::mcp::register_render_tools(mcp, editor) && mcp.initialize({}),
                "render tools register schemas supported by the MCP protocol") ||
-        !check(mcp.list_tools()["tools"].size() == 11, "all render tools are discoverable"))
+        !check(mcp.list_tools()["tools"].size() == 19, "all render tools are discoverable"))
     {
         return false;
     }
@@ -107,14 +107,17 @@ bool exercise_render_tools()
     Json result;
     for (const auto count : {1, 2, 4})
     {
-        const Json input = {
-            {"shadowCascades", count},  {"shadowDistance", 150}, {"shadowSplitLambda", .6},
-            {"shadowCascadeBlend", .1}, {"aoEnabled", true},     {"aoRadius", 1.4},
-            {"aoStrength", .8},         {"aoPower", 2},          {"aoFadeStart", 40},
-            {"aoFadeEnd", 140},         {"hdrEnabled", true},    {"bloomEnabled", true},
-            {"bloomThreshold", 1.2},    {"bloomIntensity", .3},  {"bloomRadius", 2},
-            {"ssrEnabled", true}, {"ssrResolutionScale", .5}, {"ssrMaxSteps", 128},
-            {"ssrMaxDistance", 80}, {"ssrThickness", .1}, {"ssrRoughnessCutoff", .6}};
+        const Json input = {{"shadowCascades", count},  {"shadowDistance", 150},
+                            {"shadowSplitLambda", .6},  {"shadowCascadeBlend", .1},
+                            {"aoEnabled", true},        {"aoRadius", 1.4},
+                            {"aoStrength", .8},         {"aoPower", 2},
+                            {"aoFadeStart", 40},        {"aoFadeEnd", 140},
+                            {"hdrEnabled", true},       {"bloomEnabled", true},
+                            {"bloomThreshold", 1.2},    {"bloomIntensity", .3},
+                            {"bloomRadius", 2},         {"ssrEnabled", true},
+                            {"ssrResolutionScale", .5}, {"ssrMaxSteps", 128},
+                            {"ssrMaxDistance", 80},     {"ssrThickness", .1},
+                            {"ssrRoughnessCutoff", .6}};
         if (!check(probe.call_tool("render.settings.schema", input, result) ==
                            McpCallStatus::success &&
                        result == input,
@@ -123,21 +126,35 @@ bool exercise_render_tools()
             return false;
         }
     }
-    for (const Json& invalid : {Json{{"shadowCascades", 3}},      Json{{"shadowCascades", 2.0}},
-                                Json{{"shadowDistance", -1}},     Json{{"shadowDistance", 100001}},
-                                Json{{"shadowSplitLambda", 1.1}}, Json{{"shadowCascadeBlend", .31}},
-                                Json{{"aoEnabled", 1}},           Json{{"aoRadius", -1}},
-                                Json{{"aoRadius", 101}},          Json{{"aoStrength", 2.1}},
-                                Json{{"aoPower", .09}},           Json{{"aoPower", 8.1}},
-                                Json{{"aoFadeStart", -1}},        Json{{"aoFadeEnd", 100001}},
-                                Json{{"hdrEnabled", 1}},          Json{{"bloomEnabled", 1}},
-                                Json{{"bloomThreshold", -1}},     Json{{"bloomThreshold", 101}},
-                                Json{{"bloomIntensity", 10.1}},   Json{{"bloomRadius", .24}},
+    for (const Json& invalid : {Json{{"shadowCascades", 3}},
+                                Json{{"shadowCascades", 2.0}},
+                                Json{{"shadowDistance", -1}},
+                                Json{{"shadowDistance", 100001}},
+                                Json{{"shadowSplitLambda", 1.1}},
+                                Json{{"shadowCascadeBlend", .31}},
+                                Json{{"aoEnabled", 1}},
+                                Json{{"aoRadius", -1}},
+                                Json{{"aoRadius", 101}},
+                                Json{{"aoStrength", 2.1}},
+                                Json{{"aoPower", .09}},
+                                Json{{"aoPower", 8.1}},
+                                Json{{"aoFadeStart", -1}},
+                                Json{{"aoFadeEnd", 100001}},
+                                Json{{"hdrEnabled", 1}},
+                                Json{{"bloomEnabled", 1}},
+                                Json{{"bloomThreshold", -1}},
+                                Json{{"bloomThreshold", 101}},
+                                Json{{"bloomIntensity", 10.1}},
+                                Json{{"bloomRadius", .24}},
                                 Json{{"bloomRadius", 4.1}},
-                                Json{{"ssrEnabled", 1}}, Json{{"ssrResolutionScale", .24}},
-                                Json{{"ssrResolutionScale", 1.01}}, Json{{"ssrMaxSteps", 7}},
-                                Json{{"ssrMaxSteps", 257}}, Json{{"ssrMaxSteps", 16.0}},
-                                Json{{"ssrMaxDistance", -1}}, Json{{"ssrThickness", 11}},
+                                Json{{"ssrEnabled", 1}},
+                                Json{{"ssrResolutionScale", .24}},
+                                Json{{"ssrResolutionScale", 1.01}},
+                                Json{{"ssrMaxSteps", 7}},
+                                Json{{"ssrMaxSteps", 257}},
+                                Json{{"ssrMaxSteps", 16.0}},
+                                Json{{"ssrMaxDistance", -1}},
+                                Json{{"ssrThickness", 11}},
                                 Json{{"ssrRoughnessCutoff", 1.1}}})
     {
         if (!check(mcp.call_tool("set_render_settings", invalid, result) ==
@@ -148,22 +165,47 @@ bool exercise_render_tools()
             return false;
         }
     }
+    for (const auto& [name, invalid] :
+         {std::pair{"set_render_feature", Json{{"feature", "unknown"}, {"enabled", true}}},
+          std::pair{"set_render_feature",
+                    Json{{"feature", "frame_view_uniforms"}, {"enabled", true}}},
+          std::pair{"set_render_feature", Json{{"feature", "static_lod"}, {"enabled", 1}}},
+          std::pair{"get_render_features", Json{{"slot", -1}}},
+          std::pair{"get_render_submission_stats", Json{{"extra", true}}},
+          std::pair{"draw_debug_lines", Json{{"lines", Json::array()}}},
+          std::pair{"draw_debug_lines",
+                    Json{{"lines", Json::array({Json{{"start", {0, 1}}, {"end", {0, 0, 0}}}})}}},
+          std::pair{"get_mesh_lod_import", Json{{"path", ""}}},
+          std::pair{"set_mesh_lod_import", Json{{"path", "meshes/cube.mesh"}, {"enabled", 1}}}})
+    {
+        if (!check(mcp.call_tool(name, invalid, result) == McpCallStatus::invalid_arguments &&
+                       result.empty(),
+                   "invalid unified feature, debug and LOD inputs fail before transport"))
+        {
+            return false;
+        }
+    }
     const Json identity = {{"sceneId", "1"}, {"nodeId", "2"}};
-    for (const auto& [name, fields] : {
-        std::pair{"set_planar_reflection", Json{{"resolutionScale", .24}}},
-        std::pair{"set_planar_reflection", Json{{"clipBias", 1.1}}},
-        std::pair{"set_planar_reflection", Json{{"enabled", 1}}},
-        std::pair{"set_light_probe_volume", Json{{"resource", 2}}},
-        std::pair{"set_mesh_lighting", Json{{"castShadows", 1}}},
-        std::pair{"set_mesh_lighting", Json{{"bakeStatic", 1}}},
-        std::pair{"set_mesh_lighting", Json{{"lightmap", false}}},
-        std::pair{"get_mesh_lighting", Json{{"bakeStatic", true}}}})
+    for (const auto& [name, fields] :
+         {std::pair{"set_planar_reflection", Json{{"resolutionScale", .24}}},
+          std::pair{"set_planar_reflection", Json{{"clipBias", 1.1}}},
+          std::pair{"set_planar_reflection", Json{{"enabled", 1}}},
+          std::pair{"set_light_probe_volume", Json{{"resource", 2}}},
+          std::pair{"set_mesh_lighting", Json{{"castShadows", 1}}},
+          std::pair{"set_mesh_lighting", Json{{"bakeStatic", 1}}},
+          std::pair{"set_mesh_lighting", Json{{"lightmap", false}}},
+          std::pair{"set_mesh_render_settings", Json{{"staticInstancingEnabled", 1}}},
+          std::pair{"set_mesh_render_settings", Json{{"staticLodEnabled", "true"}}},
+          std::pair{"get_mesh_render_settings", Json{{"staticLodEnabled", true}}},
+          std::pair{"get_mesh_lighting", Json{{"bakeStatic", true}}}})
     {
         auto input = identity;
         input.update(fields);
         if (!check(mcp.call_tool(name, input, result) == McpCallStatus::invalid_arguments,
                    "component tool schemas reject wrong types and bounds before transport"))
+        {
             return false;
+        }
     }
 #endif
     return true;

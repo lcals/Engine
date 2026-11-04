@@ -32,6 +32,7 @@ table ShaderData {
     parameters:[ShaderParameter] (required);
     samplers:[ShaderSampler];
     surface_fragment_code:[ubyte];
+    instanced_vertex_code:[ubyte];
 }
 
 root_type ShaderData;

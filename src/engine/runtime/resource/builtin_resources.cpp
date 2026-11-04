@@ -11,6 +11,7 @@
 #include "fs_surface.bin.h"
 #include "fs_water.bin.h"
 #include "vs_cube.bin.h"
+#include "vs_cube_instanced.bin.h"
 #include "vs_font.bin.h"
 
 #include <flatbuffers/flatbuffers.h>
@@ -125,6 +126,7 @@ schema::ShaderDataT surface_shader(const char* shader_path, float lighting_mode)
     schema::ShaderDataT shader;
     shader.path = shader_path;
     shader.vertex_code.assign(std::begin(vs_cube), std::end(vs_cube));
+    shader.instanced_vertex_code.assign(std::begin(vs_cube_instanced), std::end(vs_cube_instanced));
     shader.fragment_code.assign(std::begin(fs_cube), std::end(fs_cube));
     shader.surface_fragment_code.assign(std::begin(fs_surface), std::end(fs_surface));
     auto color = std::make_unique<schema::ShaderParameterT>();
@@ -186,6 +188,16 @@ schema::ShaderDataT surface_shader(const char* shader_path, float lighting_mode)
     uv_value.value = schema::Vec4(1.0, 1.0, 0.0, 0.0);
     uv_transform->default_value.Set(std::move(uv_value));
     shader.parameters.push_back(std::move(uv_transform));
+    // Optional UV0 de-tiling is a named PBR capability, with no fixed material kind.
+    const bool hex_exposed = std::string_view(shader_path) == "builtin://shaders/pbr";
+    shader.parameters.push_back(scalar_parameter("hexTilingEnabled", "u_hex_tiling", 0, 0.0F,
+                                                 hex_exposed));
+    shader.parameters.push_back(scalar_parameter("hexTilingRotation", "u_hex_tiling", 1, 0.5F,
+                                                 hex_exposed));
+    auto hex_contrast = scalar_parameter("hexTilingContrast", "u_hex_tiling", 2, 0.7F, hex_exposed);
+    hex_contrast->minimum = static_cast<double>(0.0001F);
+    hex_contrast->maximum = static_cast<double>(0.9999F);
+    shader.parameters.push_back(std::move(hex_contrast));
     const auto add_sampler =
         [&shader](const char* name, const char* uniform, std::uint8_t stage, const char* texture)
     {

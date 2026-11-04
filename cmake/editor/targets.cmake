@@ -6,6 +6,17 @@ if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS OR "editor/modeling" IN_LIST ENGINE_SELECTE
     engine_apply_options(engine_editor_mesh_tangents)
 endif()
 
+if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
+    target_sources(engine_editor_mesh_tangents PRIVATE src/engine/editor/mesh/mesh_lods.cpp)
+    target_link_libraries(engine_editor_mesh_tangents
+                          PRIVATE meshoptimizer::meshoptimizer engine::resource)
+    get_target_property(_mesh_lod_toml_includes tomlplusplus::tomlplusplus
+                        INTERFACE_INCLUDE_DIRECTORIES)
+    target_include_directories(engine_editor_mesh_tangents SYSTEM PRIVATE ${_mesh_lod_toml_includes})
+    target_compile_definitions(engine_editor_mesh_tangents
+                               PRIVATE TOML_HEADER_ONLY=1 TOML_EXCEPTIONS=0)
+endif()
+
 if(ENGINE_ENABLE_EDITOR_DEPS)
     engine_add_system(editor project)
     # toml++ 的 formatter 在异常开关下具有不同布局；所有自有目标统一采用无异常头文件实现。
@@ -24,6 +35,7 @@ if(ENGINE_ENABLE_EDITOR_DEPS)
         PRIVATE src/engine/editor/project/runtime_settings_io.cpp
                 src/engine/editor/render/render_commands.cpp
                 src/engine/editor/render/render_component_commands.cpp
+                src/engine/editor/render/render_feature_commands.cpp
                 src/engine/editor/scene/scene_preview.cpp
                 src/engine/editor/editor_environment.cpp
                 src/engine/editor/commands/editor_commands.cpp
@@ -149,6 +161,7 @@ if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
 
     if(TARGET engine_editor)
         target_sources(engine_editor PRIVATE src/engine/editor/scene/scene_persistence.cpp
+                                             src/engine/editor/asset_pipeline/mesh_lod_commands.cpp
                                              src/engine/editor/commands/prefab_commands.cpp)
         target_link_libraries(engine_editor PRIVATE engine::asset_pipeline efsw::efsw)
     endif()

@@ -150,6 +150,7 @@ bool reserved_uniform(std::string_view name)
                                      "u_cluster_counts",
                                      "u_cluster_viewport",
                                      "u_frame_inputs",
+                                     "u_frame_time",
                                      "u_frame_valid",
                                      "u_planar_projection",
                                      "u_lighting_params",
@@ -340,9 +341,9 @@ bool ShaderImporter::convert(const ImportAsset& asset, const ImportContext& cont
         return false;
     }
     for (const auto stage : {std::string_view("vertex"), std::string_view("fragment"),
-                             std::string_view("surface_fragment")})
+                             std::string_view("surface_fragment"), std::string_view("instanced_vertex")})
     {
-        if (stage == "surface_fragment" && !table.contains(stage))
+        if ((stage == "surface_fragment" || stage == "instanced_vertex") && !table.contains(stage))
         {
             continue;
         }
@@ -360,7 +361,7 @@ bool ShaderImporter::convert(const ImportAsset& asset, const ImportContext& cont
                                                  "-o",
                                                  PathUtils::to_utf8(compiled),
                                                  "--type",
-                                                 stage == "vertex" ? "vertex" : "fragment",
+                                                 (stage == "vertex" || stage == "instanced_vertex") ? "vertex" : "fragment",
                                                  "--platform",
                                                  shader_platform,
                                                  "--profile",
@@ -382,6 +383,7 @@ bool ShaderImporter::convert(const ImportAsset& asset, const ImportContext& cont
         }
         auto& destination = stage == "vertex"     ? shader.vertex_code
                             : stage == "fragment" ? shader.fragment_code
+                            : stage == "instanced_vertex" ? shader.instanced_vertex_code
                                                   : shader.surface_fragment_code;
         destination.resize(bytes.size());
         std::transform(bytes.begin(), bytes.end(), destination.begin(),
@@ -462,9 +464,9 @@ bool ShaderImporter::scan_dependencies(ImportAsset& asset, const ImportContext& 
         }
     }
     asset.build_dependencies = asset.runtime_dependencies;
-    for (const auto field : {"vertex", "fragment", "varying", "surface_fragment"})
+    for (const auto field : {"vertex", "fragment", "varying", "surface_fragment", "instanced_vertex"})
     {
-        if (std::string_view(field) == "surface_fragment" && !table.contains(field))
+        if ((std::string_view(field) == "surface_fragment" || std::string_view(field) == "instanced_vertex") && !table.contains(field))
         {
             continue;
         }

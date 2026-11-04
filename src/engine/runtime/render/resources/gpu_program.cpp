@@ -32,6 +32,12 @@ GpuProgram::GpuProgram(GpuProgram&& other) noexcept
       surface_shader(std::exchange(other.surface_shader, bgfx::ShaderHandle{bgfx::kInvalidHandle})),
       surface_program(
           std::exchange(other.surface_program, bgfx::ProgramHandle{bgfx::kInvalidHandle})),
+      instanced_vertex_shader(
+          std::exchange(other.instanced_vertex_shader, bgfx::ShaderHandle{bgfx::kInvalidHandle})),
+      instanced_program(
+          std::exchange(other.instanced_program, bgfx::ProgramHandle{bgfx::kInvalidHandle})),
+      instanced_surface_program(std::exchange(other.instanced_surface_program,
+                                              bgfx::ProgramHandle{bgfx::kInvalidHandle})),
       uniforms(std::exchange(other.uniforms, {})), samplers(std::exchange(other.samplers, {}))
 {
 }
@@ -52,6 +58,12 @@ GpuProgram& GpuProgram::operator=(GpuProgram&& other) noexcept
             std::exchange(other.surface_shader, bgfx::ShaderHandle{bgfx::kInvalidHandle});
         surface_program =
             std::exchange(other.surface_program, bgfx::ProgramHandle{bgfx::kInvalidHandle});
+        instanced_vertex_shader =
+            std::exchange(other.instanced_vertex_shader, bgfx::ShaderHandle{bgfx::kInvalidHandle});
+        instanced_program =
+            std::exchange(other.instanced_program, bgfx::ProgramHandle{bgfx::kInvalidHandle});
+        instanced_surface_program = std::exchange(other.instanced_surface_program,
+                                                  bgfx::ProgramHandle{bgfx::kInvalidHandle});
         uniforms = std::exchange(other.uniforms, {});
         samplers = std::exchange(other.samplers, {});
     }
@@ -94,9 +106,33 @@ bool GpuProgram::create(const schema::ShaderDataT& shader)
             return false;
         }
     }
+    if (!shader.instanced_vertex_code.empty())
+    {
+        instanced_vertex_shader = bgfx::createShader(
+            bgfx::copy(shader.instanced_vertex_code.data(),
+                       static_cast<std::uint32_t>(shader.instanced_vertex_code.size())));
+        if (!bgfx::isValid(instanced_vertex_shader))
+        {
+            return false;
+        }
+        instanced_program = bgfx::createProgram(instanced_vertex_shader, fragment_shader);
+        if (!bgfx::isValid(instanced_program))
+        {
+            return false;
+        }
+        if (bgfx::isValid(surface_shader))
+        {
+            instanced_surface_program =
+                bgfx::createProgram(instanced_vertex_shader, surface_shader);
+            if (!bgfx::isValid(instanced_surface_program))
+            {
+                return false;
+            }
+        }
+    }
     // 反射与定义双向匹配，避免遗漏参数继承上一对象的 uniform 值。
     std::vector<bgfx::UniformInfo> reflected;
-    for (auto stage : {vertex_shader, fragment_shader, surface_shader})
+    for (auto stage : {vertex_shader, fragment_shader, surface_shader, instanced_vertex_shader})
     {
         if (!bgfx::isValid(stage))
         {
@@ -122,7 +158,7 @@ bool GpuProgram::create(const schema::ShaderDataT& shader)
                 name == "s_ambient_occlusion" || name == "u_ambient_occlusion" ||
                 name == "u_cluster_grid" || name == "u_cluster_camera" ||
                 name == "u_cluster_counts" || name == "u_cluster_viewport" ||
-                name == "u_frame_inputs" || name == "u_frame_valid" ||
+                name == "u_frame_inputs" || name == "u_frame_time" || name == "u_frame_valid" ||
                 name == "u_planar_projection" || name == "u_lighting_params" ||
                 name == "u_probe_sh" || name == "s_lightmap" || name == "u_capture_mode")
             {
@@ -226,6 +262,21 @@ bool GpuProgram::create(const schema::ShaderDataT& shader)
 
 void GpuProgram::release() noexcept
 {
+    for (auto handle : {instanced_program, instanced_surface_program})
+    {
+        if (bgfx::isValid(handle))
+        {
+            bgfx::destroy(handle);
+        }
+    }
+    if (bgfx::isValid(instanced_vertex_shader))
+    {
+        bgfx::destroy(instanced_vertex_shader);
+    }
+    instanced_vertex_shader = BGFX_INVALID_HANDLE;
+    instanced_program = BGFX_INVALID_HANDLE;
+    instanced_surface_program = BGFX_INVALID_HANDLE;
+
     if (bgfx::isValid(surface_program))
     {
         bgfx::destroy(surface_program);

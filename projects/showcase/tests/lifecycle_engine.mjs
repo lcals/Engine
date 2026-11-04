@@ -134,6 +134,7 @@ export class Animator {}
 export class MeshRenderer {}
 // 菜单会加载所有玩法模块；此处只提供未执行玩法所需的导出身份。
 export class Camera {}
+export class EnvironmentComponent {}
 export class CharacterMotor {}
 export class NavigationAgent {}
 export class CharacterController {

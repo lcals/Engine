@@ -12,6 +12,7 @@ import NavigationLab from "../modules/navigation.js";
 import PhysicsInteractions from "../modules/physics-interactions.js";
 import PersistentUi from "../modules/persistent-ui.js";
 import EcsManyObjects from "../modules/ecs-many-objects.js";
+import RenderFeatures from "../modules/render-features.js";
 
 export type ShowcaseGame = Gameplay & { scene: Scene | null };
 
@@ -90,5 +91,10 @@ export const showcase_cases: readonly ShowcaseCase[] = [
         id: "ecs-many-objects", button: "scene-ecs", title: "ECS many objects",
         goal: "Create 1,000 / 10,000 / 50,000 real entities; check hierarchy, visibility and stale handles.",
         scene: "scenes/ecs-many-objects.scene", game: EcsManyObjects,
+    },
+    {
+        id: "render-features", button: "scene-render", title: "Rendering features and submission",
+        goal: "Compare culling, instances, LOD, debug geometry, physical atmosphere and PBR Hex tiling.",
+        scene: "scenes/render-features.scene", game: RenderFeatures,
     },
 ];

@@ -62,4 +62,31 @@ bool EnvironmentComponent::restore_data(const schema::ComponentDataT& data)
     return true;
 }
 
+bool EnvironmentComponent::remap_node_references(
+    schema::ComponentDataT& data, std::span<const schema::NodeIdMappingT> mapping) const
+{
+    auto* settings = data.payload.AsEnvironmentData();
+    if (!settings)
+    {
+        return false;
+    }
+    if (settings->atmosphere_sun_node_id == 0)
+    {
+        return true;
+    }
+    for (const auto& item : mapping)
+    {
+        if (item.source_id == settings->atmosphere_sun_node_id)
+        {
+            if (item.target_id == 0 || item.retired)
+            {
+                return false;
+            }
+            settings->atmosphere_sun_node_id = item.target_id;
+            return true;
+        }
+    }
+    return false;
+}
+
 } // namespace engine

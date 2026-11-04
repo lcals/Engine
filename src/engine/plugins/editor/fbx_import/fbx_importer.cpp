@@ -2,6 +2,7 @@
 
 #include "editor/asset_pipeline/asset_io.hpp"
 #include "editor/asset_pipeline/importer_utils.hpp"
+#include "editor/mesh/mesh_lods.hpp"
 #include "plugins/editor/fbx_import/fbx_document.hpp"
 #include "runtime/resource/codecs/animation_resource_codec.hpp"
 #include "runtime/resource/codecs/mesh_resource_codec.hpp"
@@ -318,7 +319,8 @@ bool FbxImporter::inspect_batch(const ImportContext& context, std::string& finge
     {
         return false;
     }
-    fingerprint += ":ufbx-0.23.1:ozz-0.17.0:mikktspace-3e895b49-angle-precision-1:fbx-importer-12";
+    fingerprint += ":ufbx-0.23.1:ozz-0.17.0:mikktspace-3e895b49-angle-precision-1:fbx-importer-12" +
+                   editor::mesh_lod_fingerprint();
     return true;
 }
 bool FbxImporter::scan_dependencies(ImportAsset& asset, const ImportContext& context,
@@ -446,6 +448,7 @@ bool FbxImporter::convert(const ImportAsset& asset, const ImportContext& context
             result.skeleton_guid = skeleton_guid;
         }
         if (!convert_mesh(document, *mesh->second, result, error) ||
+            !editor::generate_mesh_lods(result, asset.source, error) ||
             !MeshResourceCodec::validate(result))
         {
             if (error.empty())

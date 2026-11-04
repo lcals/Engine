@@ -8,7 +8,7 @@
 | `create_node` | `sceneId`、`name`、`component`（`empty` / `camera` / `light`）；创建带 Transform 的唯一命名节点 |
 | `set_active_camera` | `sceneId`、`nodeId`；选择场景中的 Camera 节点 |
 | `set_transform` | `sceneId`、`nodeId`，以及至少一项 `position` / `rotation` / `scale` 三分量数组 |
-| `set_camera` | `sceneId`、`nodeId`；设置投影、视角、裁剪面或正交尺寸 |
+| `set_camera` | `sceneId`、`nodeId`；设置投影、视角、裁剪面、正交尺寸或 `frustumCullingEnabled` |
 | `set_light` | `sceneId`、`nodeId`；设置颜色、强度、类型、范围或聚光半角 |
 | `set_material_type` | `sceneId`、`nodeId`、`path`、可选 `slot`；按完整路径选择材质资源 |
 | `set_material_parameter` | `sceneId`、`nodeId`、`name`、`type`、`value`、可选 `slot`；类型为 `float` / `v2` / `v3` / `v4` |
@@ -52,6 +52,46 @@ python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --projec
 提交使用操作系统文件锁 `editor-command.lock`，进程退出自动释放；当前会话的待完成请求不会被覆盖。请求和回执均核对项目、会话及编号，单文件最多 1 MiB。等待 10 秒仍未确认时返回 `activation: pending` 及原请求身份，表示**结果未确认而非取消**。回执保存在 `editor-receipts/<session>/<requestId>.json`，最新快照为 `editor-receipt.json`；同一 ID 重放不重复执行。查询回执无需编辑器在线；查询成功不代表原修改成功，须检查其中的 `success` 和 `error`。`execute_batch` 的回执命令名为编辑器内部的 `batch`。
 
 编辑器命令模块通过 `EditorCommands::register_command` 登记处理函数，修改返回一个实现 `EditorEdit::apply/revert` 的记录。宿主可借用 `EditorSystem::commands()` 在初始化后、进入主循环前登记模块；全部访问限于编辑器线程。运行时组件保持普通 C++ 接口，不引用 MCP、撤销系统或编辑器。对应类图见[命令执行](../../editor/class-diagrams/editor-commands.md)及[编辑器 MCP 工具](class-diagrams/editor-mcp-tools.md)。
+
+## 渲染功能统一入口
+
+`get_render_features` 返回当前世界运行请求/最近提交效果的只读汇总（`renderer.scope: "world_summary"`）。指定 `sceneId/nodeId` 时，还返回该 Camera 或 MeshRenderer 的真实组件属性（`scope: "component"`）；附带 `slot` 时查询指定材质。它区分 requested / supported / effective / reason，不把全场景合批结果当作选中对象的效果。
+
+统一 `set_render_feature` 按所属组件路由；以下身份必须使用当前 `get_scene` 返回值：
+
+```json
+{"feature":"frustum_culling","enabled":true,"sceneId":"…","nodeId":"相机节点ID"}
+{"feature":"static_instancing","enabled":true,"sceneId":"…","nodeId":"网格节点ID"}
+{"feature":"static_lod","enabled":true,"sceneId":"…","nodeId":"网格节点ID"}
+{"feature":"atmosphere","enabled":true,"sceneId":"…","nodeId":"环境节点ID"}
+{"feature":"hex_tiling","enabled":true,"sceneId":"…","nodeId":"网格节点ID","slot":0}
+```
+
+前三项为可保存、可撤销的 Camera / MeshRenderer 属性，新增属性默认 false；允许在设备未初始化或当前设备不支持时保存 true，实际支持及生效另行查询。`get_mesh_render_settings` / `set_mesh_render_settings` 用 `sceneId/nodeId` 查询或编辑 `staticInstancingEnabled/staticLodEnabled`，每次只恢复实际编辑的字段，保留网格、材质及运行态变形。
+
+天空要求指定当前活动环境，太阳通过原 `set_render_settings` 配置。对外 `atmosphereSunNodeId` 使用与 `get_scene` 相同的全局十进制 NodeID，`"0"` 清空；只读 `atmosphereSunLocalId` 仅用于诊断场景保存引用，不可传给 setter。Hex 只接受声明 `hexTilingEnabled` 参数的 Shader。材质查询的 `ready` 表示材质参数已准备，`effective:null` 明确未单独测量该物体的绘制，不能用其他物体的批次推断。
+
+以下五项仅为临时 MCP 诊断状态，不传场景/节点/材质身份、不写场景或预制体，也不暴露给项目 TS：
+
+```json
+{"feature":"wireframe","enabled":true}
+{"feature":"mesh_bounds","enabled":true}
+{"feature":"camera_frusta","enabled":false}
+{"feature":"debug_draw","enabled":true}
+{"feature":"stats","enabled":true}
+```
+
+旧 `set_render_stats` 与统一 stats 共用唯一状态；当前设备不支持 wireframe 时开启会失败并保留旧值。
+
+`get_render_submission_stats {}` 返回 `frameNumber`、逐 view 的候选/剔除/可见 Mesh、实际 draw、实例批次/数量与三角形。计数只覆盖本渲染模块的 scene mesh，不包括 UI、外部扩展或 bgfx 全设备统计；`gpuCompletion: "not_measured"` 明确没有测量 GPU 完成。CPU/GPU 耗时沿用现有 Tracy/bgfx 数据来源，不能把帧间墙钟时间当渲染耗时。
+
+`draw_debug_lines` 使用实际主观察镜头，提交有限寿命的通用线段；每次最多 4096 条。返回 accepted 后仍需正常提交帧，截图继续通过 `capture_frame/get_frame_capture` 查询真正完成。
+
+```json
+{"lines":[{"start":[0,0,0],"end":[0,3,0],"color":1358926079,"depthTest":true}],"lifetimeFrames":120}
+```
+
+Frame/View uniform 作为 `implementation.frame_view_uniforms` 的只读实现能力查询，不是可切换画质效果。天空数值继续通过 `set_render_settings` 的 atmosphere 字段配置，Hex 尺度/混合通过正常具名材质参数配置。LOD 离线生成通过 `get_mesh_lod_import {"path":"meshes/source.mesh"}` 和 `set_mesh_lod_import` 修改源 meta、保留 GUID 并走正常导入；它与运行时 static_lod 开关分开保存。详见[统一功能归属与契约](render-feature-mcp-plan.md)和[静态模型 LOD](../../editor/static-model-lod-plan.md)。
 
 ## 当前项目的 TS 执行
 

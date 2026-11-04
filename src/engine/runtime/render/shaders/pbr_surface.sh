@@ -4,6 +4,7 @@
 #define ENGINE_PBR_SURFACE_SH
 #include <bgfx_shader.sh>
 #include "material_helpers.sh"
+#include "hex_tiling.sh"
 SAMPLER2D(s_base_color, 0);
 SAMPLER2D(s_normal, 1);
 SAMPLER2D(s_orm, 2);
@@ -23,6 +24,8 @@ uniform vec4 u_emission;
 uniform vec4 u_surface_parameters;
 // xy: scale, zw: offset, shared by every surface texture and shadow coverage.
 uniform vec4 u_uv_transform;
+// x: opt-in (0/1), y: random rotation strength, z: contrast.
+uniform vec4 u_hex_tiling;
 
 // Perspective rays converge at the eye; orthographic rays are parallel to the
 // camera's +Z axis in view space. Use the active view, including mirrored views.
@@ -57,19 +60,39 @@ PbrSurface sample_pbr_surface(vec2 texcoord, vec4 vertex_color, vec3 world_norma
 {
     // sRGB decode happens in the texture sampler; normal and ORM are linear data.
     vec2 uv = texcoord * u_uv_transform.xy + u_uv_transform.zw;
-    vec4 base_sample = texture2D(s_base_color, uv) * u_base_color;
+    vec4 base_texture;
+    vec3 sampled_normal;
+    vec3 orm;
+    vec4 specular_texture;
+    vec3 emission_texture;
+    if (u_hex_tiling.x > 0.5)
+    {
+        HexTilingContext tile = hextile_context(uv, u_hex_tiling.y, u_hex_tiling.z,
+                                                s_base_color, base_texture);
+        sampled_normal = hextile_normal(s_normal, tile);
+        orm = hextile_texture(s_orm, tile).rgb;
+        specular_texture = hextile_texture(s_specular, tile);
+        emission_texture = hextile_texture(s_emission, tile).rgb;
+    }
+    else
+    {
+        base_texture = texture2D(s_base_color, uv);
+        sampled_normal = texture2D(s_normal, uv).xyz * 2.0 - 1.0;
+        orm = texture2D(s_orm, uv).rgb;
+        specular_texture = texture2D(s_specular, uv);
+        emission_texture = texture2D(s_emission, uv).rgb;
+    }
+    vec4 base_sample = base_texture * u_base_color;
     vec4 base_color = base_sample * vertex_color;
     apply_alpha_cutoff(base_color.a, u_material.w);
     vec3 normal = normalize(world_normal);
     vec3 tangent = normalize(world_tangent.xyz - normal * dot(normal, world_tangent.xyz));
     vec3 bitangent = cross(normal, tangent) * world_tangent.w;
     // Tangent-space sampling follows bgfx 06-bump; use full XYZ normal maps.
-    vec3 sampled_normal = texture2D(s_normal, uv).xyz * 2.0 - 1.0;
     sampled_normal.xy *= u_surface_parameters.y;
     float normal_length = length(sampled_normal);
     sampled_normal = normal_length > 0.0001 ? sampled_normal / normal_length : vec3(0.0, 0.0, 1.0);
     normal = normalize(tangent * sampled_normal.x + bitangent * sampled_normal.y + normal * sampled_normal.z);
-    vec3 orm = texture2D(s_orm, uv).rgb;
     float metallic = saturate(u_material.x * orm.b);
     float roughness = max(u_material.y * orm.g, 0.045);
     vec3 specular_color = mix(vec3_splat(0.04), base_color.rgb, metallic);
@@ -77,7 +100,7 @@ PbrSurface sample_pbr_surface(vec2 texcoord, vec4 vertex_color, vec3 world_norma
     float smoothness = saturate(u_surface_parameters.x);
     if (u_specular.w > 0.5 || u_material.z > 1.5)
     {
-        vec4 specular_sample = texture2D(s_specular, uv);
+        vec4 specular_sample = specular_texture;
         specular_color = saturate(u_specular.rgb * specular_sample.rgb);
         smoothness = saturate(u_specular_options.x > 0.5 ? base_sample.a
                                                        : smoothness * specular_sample.a);
@@ -93,7 +116,7 @@ PbrSurface sample_pbr_surface(vec2 texcoord, vec4 vertex_color, vec3 world_norma
     result.base_color = base_color;
     result.normal = normal;
     result.specular_color = specular_color;
-    result.emission = texture2D(s_emission, uv).rgb * u_emission.rgb;
+    result.emission = emission_texture * u_emission.rgb;
     result.metallic = metallic;
     result.roughness = roughness;
     result.diffuse_weight = diffuse_weight;

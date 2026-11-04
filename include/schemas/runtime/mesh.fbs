@@ -27,6 +27,13 @@ struct SkinInfluence {
     w3:float;
 }
 
+// Additional static rendering topology; all indices address MeshData.vertices.
+table MeshLodData {
+    screen_height:float;
+    indices:[uint] (required);
+    submeshes:[MeshSubmesh];
+}
+
 table MeshData {
     schema_version:uint = 1;
     path:string (required);
@@ -41,6 +48,7 @@ table MeshData {
     // Column-major bind transform from mesh local space to skeleton/model space.
     mesh_to_skeleton:[float];
     lightmap_texcoords:[Vec2];
+    lods:[MeshLodData];
 }
 
 root_type MeshData;

@@ -1084,6 +1084,7 @@ public:
     bool near_clip = false;
     bool far_clip = false;
     bool size = false;
+    bool frustum_culling = false;
     bool apply(std::string& error) override
     {
         return change(before, after, error);
@@ -1109,7 +1110,9 @@ private:
             (fov && current.fov_degrees != expected.fov_degrees) ||
             (near_clip && current.near_clip != expected.near_clip) ||
             (far_clip && current.far_clip != expected.far_clip) ||
-            (size && current.orthographic_size != expected.orthographic_size))
+            (size && current.orthographic_size != expected.orthographic_size) ||
+            (frustum_culling &&
+             current.frustum_culling_enabled != expected.frustum_culling_enabled))
         {
             error = "Camera changed outside this edit; undo or redo is stale";
             return false;
@@ -1134,6 +1137,10 @@ private:
         {
             current.orthographic_size = replacement.orthographic_size;
         }
+        if (frustum_culling)
+        {
+            current.frustum_culling_enabled = replacement.frustum_culling_enabled;
+        }
         if (!camera.set_settings(current))
         {
             error = "Invalid camera settings";
@@ -1148,7 +1155,7 @@ bool prepare_camera(WorldSystem& world, NodeAliases& aliases, const Json& argume
 {
     Target target(world, &aliases);
     if (!fields(arguments, {"sceneId", "nodeId", "projection", "fovDegrees", "nearClip", "farClip",
-                            "orthographicSize"}) ||
+                            "orthographicSize", "frustumCullingEnabled"}) ||
         arguments.size() <= 2 || !target.read(arguments, error))
     {
         if (error.empty())
@@ -1182,6 +1189,16 @@ bool prepare_camera(WorldSystem& world, NodeAliases& aliases, const Json& argume
             return false;
         }
         edit->projection = true;
+    }
+    if (arguments.contains("frustumCullingEnabled"))
+    {
+        if (!arguments["frustumCullingEnabled"].is_boolean())
+        {
+            error = "frustumCullingEnabled must be boolean";
+            return false;
+        }
+        edit->frustum_culling = true;
+        edit->after.frustum_culling_enabled = arguments["frustumCullingEnabled"].get<bool>();
     }
     for (const char* name : {"fovDegrees", "nearClip", "farClip", "orthographicSize"})
     {
@@ -1729,7 +1746,8 @@ bool query_scene(WorldSystem& world, const Json& arguments, Json& result, std::s
                              {"nearClip", value.near_clip},
                              {"farClip", value.far_clip},
                              {"projection", schema::EnumNameProjection(value.projection)},
-                             {"orthographicSize", value.orthographic_size}});
+                             {"orthographicSize", value.orthographic_size},
+                             {"frustumCullingEnabled", value.frustum_culling_enabled}});
                 break;
             }
             case ComponentType::LightData:
@@ -1760,6 +1778,8 @@ bool query_scene(WorldSystem& world, const Json& arguments, Json& result, std::s
                 data.update(mesh_lighting_json(value));
                 data.update({{"type", "mesh_renderer"},
                              {"meshPath", value.mesh_path()},
+                             {"staticInstancingEnabled", value.static_instancing_enabled()},
+                             {"staticLodEnabled", value.static_lod_enabled()},
                              {"castShadows", value.cast_shadows()},
                              {"material", material_json(value.material())}});
                 break;

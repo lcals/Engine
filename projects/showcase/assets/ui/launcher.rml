@@ -53,6 +53,7 @@ scrollbarvertical sliderarrowdec, scrollbarvertical sliderarrowinc { display: no
         <div class="card"><div class="number">11 / PHYSICAL INTERACTIONS</div><h2 id="scene-interactions-title"></h2><div class="description" id="scene-interactions-goal"></div><button id="scene-interactions">Open test</button></div>
         <div class="card"><div class="number">12 / SCENE LIFETIME</div><h2 id="scene-persistent-ui-title"></h2><div class="description" id="scene-persistent-ui-goal"></div><button id="scene-persistent-ui">Open test</button></div>
         <div class="card"><div class="number">13 / ECS ENTITIES</div><h2 id="scene-ecs-title"></h2><div class="description" id="scene-ecs-goal"></div><button id="scene-ecs">Open test</button></div>
+        <div class="card"><div class="number">14 / RENDERING LAB</div><h2 id="scene-render-title"></h2><div class="description" id="scene-render-goal"></div><button id="scene-render">Open test</button></div>
     </div>
     <div id="launcher-status" class="footer">Open a scene. Mouse, touch and keyboard share the same controller.</div>
 </div>

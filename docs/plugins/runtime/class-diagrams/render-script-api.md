@@ -37,18 +37,22 @@ classDiagram
 - `SetMsaaSamples(samples)` / `GetMsaaSamples()` / `SupportsMsaaSamples(samples)` 使用 `1/2/4/8`，`1` 表示关闭。绑定严格校验整数档位，不转换字符串或截断小数；无效或当前设备不支持返回 false，保持旧设置。getter 返回最近接受的档位，无渲染器或未初始化返回 null。
 - `SetMaxAnisotropy(enabled)` / `GetMaxAnisotropy()` / `SupportsMaxAnisotropy()` 控制普通材质贴图的最大各向异性过滤；参数须为 boolean。setter/getter 生命周期和延迟应用语义与 MSAA 相同。两个 Supports 查询在设备未就绪时均返回 false。UI 可据此禁用不可用选项，不把 setter 失败显示为设置成功。
 - 六个接口直接映射 [RenderSystem 的最小设备画质契约](../../../runtime/class-diagrams/render-system.md)，默认 MSAA 关闭、各向异性关闭；项目负责用户偏好的保存与恢复，核心不读项目设置文件。
+- 项目通过 Camera、MeshRenderer、EnvironmentComponent 和 Material 的属性组合渲染能力；本轮新增能力不在 Render 静态门面提供状态、统计或调试方法。统一诊断查询、逐视图提交统计和有限寿命调试线仅由编辑器 MCP 提供，见[统一功能入口](../../editor/render-feature-mcp-plan.md)。
 - 场景初始外观保存在 EnvironmentComponent、相机节点上的 PostProcessComponent 与 Light 中。组件门面使用当前 Run 的节点及组件身份校验；失效句柄返回失败，不通过全局活动场景寻找替代对象。
 
 ```mermaid
 classDiagram
     direction TB
     class Camera {
+        +frustumCullingEnabled boolean
+        +SetFrustumCulling(boolean enabled) boolean
         +SetPerspective(number fovDegrees, number nearClip, number farClip) boolean
         +SetOrthographic(number size, number nearClip, number farClip) boolean
         +ScreenPointToRay(number x, number y, number width, number height) Ray_or_null
         +ViewportPointToRay(number u, number v, number aspect) Ray_or_null
     }
     class EnvironmentComponent {
+        +SetAtmosphere(boolean enabled, Node_or_null sun, AtmosphereParameters parameters) boolean
         +SetIbl(boolean enabled, number intensity) boolean
         +SetAmbient(number r, number g, number b, number intensity) boolean
         +SetAmbientTricolor(number[] sky, number[] equator, number[] ground, number intensity) boolean
@@ -94,6 +98,10 @@ classDiagram
         +SetMesh(string path) boolean
         +GetMaterial(number slot) Material_or_null
         +SetMaterialCount(number count) boolean
+        +staticInstancingEnabled boolean
+        +SetStaticInstancing(boolean enabled) boolean
+        +staticLodEnabled boolean
+        +SetStaticLod(boolean enabled) boolean
         +castShadows boolean
         +SetCastShadows(boolean enabled) boolean
         +bakeStatic boolean
@@ -122,6 +130,7 @@ classDiagram
     MeshRenderer --> Material : Run、节点、组件实例身份加材质槽借用
 ```
 
+- Camera 的 `frustumCullingEnabled` 与 MeshRenderer 的 `staticInstancingEnabled/staticLodEnabled` 默认 false；setter 只修改各自组件的唯一 ECS 字段，支持场景/预制体保存。设备未初始化或当前资源不具备适用路径仍可保存 true，运行支持和实际生效由 MCP 查询。组件句柄失效时 setter 返回 false。
 - `SetOrthographic` 的 size 为竖直半高；角度使用度。Spot 的 innerAngle、outerAngle 均为锥体半角。
 - `ScreenPointToRay` 接收视口局部坐标及同单位尺寸，`ViewportPointToRay` 接收归一化坐标及宽高比；均以左上为原点、X 向右、Y 向下，有限视口外坐标允许外推。返回普通 `{origin:{x,y,z}, direction:{x,y,z}}` 值，原点位于近裁剪面，方向为归一化世界方向；透视发散、正交平行。非有限参数、非正尺寸/宽高比、退化变换或失效句柄返回 null。查询不要求该 Camera 启用或成为活动镜头，不依赖窗口或 GPU。像素坐标使用 `Render.GetViewportSize()` 的尺寸；逻辑坐标须搭配同单位的逻辑尺寸，不能混用。
 - `PostProcessComponent.SetHdr(enabled)` 只改变 HDR 开关；`SetBloom(enabled, threshold=1, intensity=0.15, radius=1)` 只改变 Bloom 开关与参数。阈值 `[0,100]`、强度 `[0,10]`、半径 `[0.25,4]`，数值有限。先开启 HDR 才能开启 Bloom，先关闭 Bloom 才能关闭 HDR，顺序错误返回 false 并保留全部状态；方法不会自动改写另一开关。旧曝光、AO 方法保留 HDR/Bloom 配置。

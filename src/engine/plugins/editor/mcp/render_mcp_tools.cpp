@@ -49,12 +49,154 @@ bool register_render_tools(McpSystem& system, EditorMcpTools& editor)
     mesh["castShadows"] = {{"type", "boolean"}};
     mesh["bakeStatic"] = {{"type", "boolean"}};
     mesh["lightmap"] = {{"type", "string"}, {"maxLength", 1024}};
-    return add("get_render_settings", "读取当前环境光、雾、曝光、阴影与背景设置。",
+    auto selected = identity;
+    selected["slot"] = {{"type", "integer"}, {"minimum", 0}, {"maximum", 65535}};
+    auto feature = selected;
+    feature["feature"] = {
+        {"type", "string"},
+        {"enum",
+         {"frustum_culling", "static_instancing", "static_lod", "wireframe", "debug_draw",
+          "mesh_bounds", "camera_frusta", "stats", "atmosphere", "hex_tiling"}}};
+    feature["enabled"] = {{"type", "boolean"}};
+    const auto vector =
+        Json{{"type", "array"}, {"items", {{"type", "number"}}}, {"minItems", 3}, {"maxItems", 3}};
+    const auto line =
+        object({{"start", vector},
+                {"end", vector},
+                {"color", {{"type", "integer"}, {"minimum", 0}, {"maximum", 4294967295ULL}}},
+                {"depthTest", {{"type", "boolean"}}}},
+               {"start", "end"});
+    const bool feature_set = system.register_tool(
+        {"set_render_feature",
+         "统一编辑对应组件运行属性或MCP临时诊断；组件配置可独立于当前设备支持保存，不代表GPU已生效"
+         "。",
+         object(std::move(feature), {"feature", "enabled"}),
+         [&editor](const Json& arguments, Json& reply)
+         {
+             const auto& name = arguments["feature"].get_ref<const std::string&>();
+             const bool enabled = arguments["enabled"].get<bool>();
+             Json forwarded;
+             std::string command;
+             if (name == "frustum_culling" || name == "static_instancing" || name == "static_lod")
+             {
+                 if (!arguments.contains("sceneId") || !arguments.contains("nodeId") ||
+                     arguments.contains("slot"))
+                 {
+                     reply = {
+                         {"error", "Runtime features require sceneId/nodeId component identity"}};
+                     return false;
+                 }
+                 forwarded = {{"sceneId", arguments["sceneId"]}, {"nodeId", arguments["nodeId"]}};
+                 if (name == "frustum_culling")
+                 {
+                     command = "set_camera";
+                     forwarded["frustumCullingEnabled"] = enabled;
+                 }
+                 else
+                 {
+                     command = "set_mesh_render_settings";
+                     forwarded[name == "static_instancing" ? "staticInstancingEnabled"
+                                                           : "staticLodEnabled"] = enabled;
+                 }
+             }
+             else if (name == "hex_tiling")
+             {
+                 if (!arguments.contains("sceneId") || !arguments.contains("nodeId") ||
+                     !arguments.contains("slot"))
+                 {
+                     reply = {{"error", "hex_tiling requires sceneId, nodeId and slot"}};
+                     return false;
+                 }
+                 command = "set_material_parameter";
+                 forwarded = {{"sceneId", arguments["sceneId"]},
+                              {"nodeId", arguments["nodeId"]},
+                              {"slot", arguments["slot"]},
+                              {"name", "hexTilingEnabled"},
+                              {"type", "float"},
+                              {"value", enabled ? 1 : 0}};
+             }
+             else if (name == "atmosphere")
+             {
+                 if (!arguments.contains("sceneId") || !arguments.contains("nodeId") ||
+                     arguments.contains("slot"))
+                 {
+                     reply = {{"error", "atmosphere requires sceneId/nodeId environment identity"}};
+                     return false;
+                 }
+                 command = "set_render_settings";
+                 forwarded = {{"sceneId", arguments["sceneId"]},
+                              {"nodeId", arguments["nodeId"]},
+                              {"atmosphereEnabled", enabled}};
+             }
+             else
+             {
+                 if (arguments.size() != 2)
+                 {
+                     reply = {{"error", "Renderer features do not accept scene/material identity"}};
+                     return false;
+                 }
+                 command = "set_render_debug_feature";
+                 forwarded = {{"feature", name}, {"enabled", enabled}};
+             }
+             return editor.call_command(command, forwarded, reply);
+         }});
+    auto lod = Json{{"path", {{"type", "string"}, {"minLength", 1}, {"maxLength", 4096}}}};
+    auto lod_set = lod;
+    lod_set["enabled"] = {{"type", "boolean"}};
+    lod_set["triangleRatios"] = {{"type", "array"},
+                                 {"minItems", 1},
+                                 {"items", {{"type", "number"}, {"minimum", 0}, {"maximum", 1}}}};
+    lod_set["screenHeights"] = lod_set["triangleRatios"];
+    lod_set["maxRelativeError"] = {{"type", "number"}, {"minimum", 0}, {"maximum", 1}};
+    return feature_set &&
+           add("get_render_features", "统一查询设备、当前场景和指定材质的实际功能状态与支持原因。",
+               object(std::move(selected))) &&
+           add("get_mesh_render_settings", "读取指定MeshRenderer的实例化和LOD组件属性。",
+               object(identity, required_node)) &&
+           add("set_mesh_render_settings",
+               "编辑指定MeshRenderer的实例化和LOD属性，支持撤销和场景保存。",
+               object({{"sceneId", identity["sceneId"]},
+                       {"nodeId", identity["nodeId"]},
+                       {"staticInstancingEnabled", {{"type", "boolean"}}},
+                       {"staticLodEnabled", {{"type", "boolean"}}}},
+                      required_node)) &&
+           add("get_render_submission_stats", "按实际view返回本模块mesh提交计数，不代表GPU完成。",
+               object(Json::object())) &&
+           add("draw_debug_lines", "提交临时3D调试线，使用真实观察镜头；必须先开启debug_draw。",
+               object({{"lines",
+                        {{"type", "array"}, {"items", line}, {"minItems", 1}, {"maxItems", 4096}}},
+                       {"lifetimeFrames", {{"type", "integer"}, {"minimum", 1}, {"maximum", 600}}}},
+                      {"lines"})) &&
+           add("get_mesh_lod_import", "读取源资源LOD导入参数，不修改资源。",
+               object(std::move(lod), {"path"})) &&
+           add("set_mesh_lod_import", "原子保存源资源LOD参数并通过正式管线重新导入，保留GUID。",
+               object(std::move(lod_set), {"path"})) &&
+           add("get_render_settings", "读取当前环境光、雾、曝光、阴影与背景设置。",
                object(Json::object())) &&
            add("set_render_settings",
                "编辑场景环境、相机后处理和方向光阴影，支持保存及撤销；无场景时只接受 clearColor。",
                object(
-                   {{"ambientColor", color(3)},
+                   {{"sceneId", identity["sceneId"]},
+                    {"nodeId", identity["nodeId"]},
+                    {"atmosphereEnabled", {{"type", "boolean"}}},
+                    {"atmosphereSunNodeId",
+                     {{"type", "string"}, {"minLength", 1}, {"maxLength", 20}}},
+                    {"atmosphereGroundHeight", {{"type", "number"}}},
+                    {"atmosphereRayleighScattering", color(3)},
+                    {"atmosphereRayleighScaleHeight", {{"type", "number"}, {"minimum", 0}}},
+                    {"atmosphereMieScattering", {{"type", "number"}, {"minimum", 0}}},
+                    {"atmosphereMieAbsorption", {{"type", "number"}, {"minimum", 0}}},
+                    {"atmosphereMieScaleHeight", {{"type", "number"}, {"minimum", 0}}},
+                    {"atmosphereMieAnisotropy",
+                     {{"type", "number"}, {"minimum", -0.999}, {"maximum", 0.999}}},
+                    {"atmosphereOzoneAbsorption", color(3)},
+                    {"atmosphereOzoneCenterHeight", {{"type", "number"}, {"minimum", 0}}},
+                    {"atmosphereOzoneHalfWidth", {{"type", "number"}, {"minimum", 0}}},
+                    {"atmospherePlanetRadius", {{"type", "number"}, {"minimum", 0}}},
+                    {"atmosphereHeight", {{"type", "number"}, {"minimum", 0}}},
+                    {"atmosphereGroundAlbedo", color(3)},
+                    {"atmosphereMultiscatterStrength", {{"type", "number"}, {"minimum", 0}}},
+                    {"ambientColor", color(3)},
                     {"ambientIntensity", {{"type", "number"}, {"minimum", 0}}},
                     {"iblEnabled", {{"type", "boolean"}}},
                     {"iblIntensity", {{"type", "number"}, {"minimum", 0}, {"maximum", 1000}}},

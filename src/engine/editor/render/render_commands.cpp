@@ -1,5 +1,8 @@
 #include "editor/render/render_commands.hpp"
+#include "editor/render/atmosphere_edit_helpers.hpp"
 #include "editor/render/render_component_commands.hpp"
+#include "editor/render/render_feature_commands.hpp"
+#include "runtime/render/scene_render_settings.hpp"
 
 #include "editor/commands/editor_commands.hpp"
 #include "editor/commands/editor_edit.hpp"
@@ -17,6 +20,7 @@
 #include <nlohmann/json.hpp>
 
 #include <array>
+#include <charconv>
 #include <cmath>
 #include <cstdint>
 #include <limits>
@@ -55,47 +59,110 @@ Json settings_json(const RenderSettings& value)
     {
         clear[index] = static_cast<double>((value.clear_color >> (24 - index * 8)) & 255) / 255.0;
     }
-    return {{"ambientColor", value.ambient_color},
-            {"ambientIntensity", value.ambient_intensity},
-            {"iblEnabled", value.ibl_enabled},
-            {"iblIntensity", value.ibl_intensity},
-            {"ambientTricolor", value.ambient_tricolor},
-            {"ambientSkyColor", value.ambient_sky_color},
-            {"ambientEquatorColor", value.ambient_equator_color},
-            {"ambientGroundColor", value.ambient_ground_color},
-            {"linearFog", value.fog_mode == FogMode::linear},
-            {"fogMode", fog_mode_name(value.fog_mode)},
-            {"fogColor", value.fog_color},
-            {"fogStart", value.fog_start},
-            {"fogEnd", value.fog_end},
-            {"fogDensity", value.fog_density},
-            {"exposure", value.exposure},
-            {"filmicTonemap", value.filmic_tonemap},
-            {"aoEnabled", value.ao_enabled},
-            {"aoRadius", value.ao_radius},
-            {"aoStrength", value.ao_strength},
-            {"aoPower", value.ao_power},
-            {"aoFadeStart", value.ao_fade_start},
-            {"aoFadeEnd", value.ao_fade_end},
-            {"hdrEnabled", value.hdr_enabled},
-            {"bloomEnabled", value.bloom_enabled},
-            {"bloomThreshold", value.bloom_threshold},
-            {"bloomIntensity", value.bloom_intensity},
-            {"bloomRadius", value.bloom_radius},
-            {"ssrEnabled", value.ssr_enabled},
-            {"ssrResolutionScale", value.ssr_resolution_scale},
-            {"ssrMaxSteps", value.ssr_max_steps},
-            {"ssrMaxDistance", value.ssr_max_distance},
-            {"ssrThickness", value.ssr_thickness},
-            {"ssrRoughnessCutoff", value.ssr_roughness_cutoff},
-            {"directionalShadows", value.directional_shadows},
-            {"shadowResolution", value.shadow_resolution},
-            {"shadowBias", value.shadow_bias},
-            {"shadowCascades", value.shadow_cascades},
-            {"shadowDistance", value.shadow_distance},
-            {"shadowSplitLambda", value.shadow_split_lambda},
-            {"shadowCascadeBlend", value.shadow_cascade_blend},
-            {"clearColor", clear}};
+    Json result = {{"ambientColor", value.ambient_color},
+                   {"ambientIntensity", value.ambient_intensity},
+                   {"iblEnabled", value.ibl_enabled},
+                   {"iblIntensity", value.ibl_intensity},
+                   {"ambientTricolor", value.ambient_tricolor},
+                   {"ambientSkyColor", value.ambient_sky_color},
+                   {"ambientEquatorColor", value.ambient_equator_color},
+                   {"ambientGroundColor", value.ambient_ground_color},
+                   {"linearFog", value.fog_mode == FogMode::linear},
+                   {"fogMode", fog_mode_name(value.fog_mode)},
+                   {"fogColor", value.fog_color},
+                   {"fogStart", value.fog_start},
+                   {"fogEnd", value.fog_end},
+                   {"fogDensity", value.fog_density},
+                   {"exposure", value.exposure},
+                   {"filmicTonemap", value.filmic_tonemap},
+                   {"aoEnabled", value.ao_enabled},
+                   {"aoRadius", value.ao_radius},
+                   {"aoStrength", value.ao_strength},
+                   {"aoPower", value.ao_power},
+                   {"aoFadeStart", value.ao_fade_start},
+                   {"aoFadeEnd", value.ao_fade_end},
+                   {"hdrEnabled", value.hdr_enabled},
+                   {"bloomEnabled", value.bloom_enabled},
+                   {"bloomThreshold", value.bloom_threshold},
+                   {"bloomIntensity", value.bloom_intensity},
+                   {"bloomRadius", value.bloom_radius},
+                   {"ssrEnabled", value.ssr_enabled},
+                   {"ssrResolutionScale", value.ssr_resolution_scale},
+                   {"ssrMaxSteps", value.ssr_max_steps},
+                   {"ssrMaxDistance", value.ssr_max_distance},
+                   {"ssrThickness", value.ssr_thickness},
+                   {"ssrRoughnessCutoff", value.ssr_roughness_cutoff},
+                   {"directionalShadows", value.directional_shadows},
+                   {"shadowResolution", value.shadow_resolution},
+                   {"shadowBias", value.shadow_bias},
+                   {"shadowCascades", value.shadow_cascades},
+                   {"shadowDistance", value.shadow_distance},
+                   {"shadowSplitLambda", value.shadow_split_lambda},
+                   {"shadowCascadeBlend", value.shadow_cascade_blend},
+                   {"clearColor", clear}};
+    render_edit_detail::append_atmosphere(value.atmosphere, result);
+    return result;
+}
+
+Json settings_reply(const RenderSettings& settings, const WorldSystem& world)
+{
+    auto result = settings_json(settings);
+    const auto local = settings.atmosphere.atmosphere_sun_node_id;
+    result["atmosphereSunLocalId"] = std::to_string(local);
+    result["atmosphereSunNodeId"] = local == 0 ? Json("0") : Json(nullptr);
+    const auto* scene = world.scene();
+    std::vector<Node> nodes;
+    if (local != 0 && scene && scene->collect_nodes(nodes))
+    {
+        for (const auto& node : nodes)
+        {
+            const auto info = node.info();
+            if (info.properties && info.properties->id == local)
+            {
+                result["atmosphereSunNodeId"] = std::to_string(node.id());
+                break;
+            }
+        }
+    }
+    return result;
+}
+
+bool resolve_sun_identity(Json& values, const WorldSystem& world, std::string& error)
+{
+    const auto value = values.find("atmosphereSunNodeId");
+    if (value == values.end())
+    {
+        return true;
+    }
+    if (!value->is_string())
+    {
+        error = "atmosphereSunNodeId must be a scene Node identity string";
+        return false;
+    }
+    const auto& text = value->get_ref<const std::string&>();
+    std::uint64_t id = 0;
+    const auto parsed = std::from_chars(text.data(), text.data() + text.size(), id);
+    if (parsed.ec != std::errc{} || parsed.ptr != text.data() + text.size() ||
+        text != std::to_string(id))
+    {
+        error = "Invalid atmosphere sun Node identity";
+        return false;
+    }
+    if (id == 0)
+    {
+        return true;
+    }
+    const auto* scene = world.scene();
+    const auto node = scene ? scene->find_node(id) : Node{};
+    const auto light = node ? node.get_component<Light>() : Light{};
+    const auto info = node ? node.info() : schema::NodeInfoT{};
+    if (!light || light.settings().kind != schema::LightKind::directional || !info.properties)
+    {
+        error = "Atmosphere sun must identify a directional Light in the current scene";
+        return false;
+    }
+    *value = std::to_string(info.properties->id);
+    return true;
 }
 
 bool read_settings(const Json& arguments, RenderSettings& settings, std::string& error)
@@ -113,9 +180,17 @@ bool read_settings(const Json& arguments, RenderSettings& settings, std::string&
             error = "Unknown render setting: " + item.key();
             return false;
         }
-        if (item.key() == "ambientColor" || item.key() == "clearColor" ||
-            item.key() == "ambientSkyColor" || item.key() == "ambientEquatorColor" ||
-            item.key() == "ambientGroundColor" || item.key() == "fogColor")
+        if (item.key().starts_with("atmosphere"))
+        {
+            if (!render_edit_detail::read_atmosphere(item.key(), *item, settings.atmosphere))
+            {
+                error = "Invalid atmosphere parameter: " + item.key();
+                return false;
+            }
+        }
+        else if (item.key() == "ambientColor" || item.key() == "clearColor" ||
+                 item.key() == "ambientSkyColor" || item.key() == "ambientEquatorColor" ||
+                 item.key() == "ambientGroundColor" || item.key() == "fogColor")
         {
             const auto count = item.key() == "clearColor" ? 4U : 3U;
             if (!item->is_array() || item->size() != count)
@@ -520,7 +595,7 @@ private:
             {
                 return false;
             }
-            auto settings = environment.settings();
+            auto settings = after_.atmosphere;
             const auto color = [](const std::array<float, 3>& value, const Color& previous)
             { return Color{value[0], value[1], value[2], previous.a()}; };
             settings.ambient_color = color(after_.ambient_color, settings.ambient_color);
@@ -720,7 +795,8 @@ RenderCommands::RenderCommands(RenderSystem& renderer, WorldSystem& world, fs::p
 
 bool RenderCommands::register_commands(EditorCommands& commands, SceneCommands& scenes)
 {
-    return register_render_component_commands(world_, scenes, commands) &&
+    return register_render_feature_commands(renderer_, world_, commands, scenes) &&
+           register_render_component_commands(world_, scenes, commands) &&
            commands.register_command("get_render_settings", false,
                                      [this](const Json& arguments, Json& result,
                                             std::unique_ptr<EditorEdit>&, std::string& error)
@@ -730,7 +806,7 @@ bool RenderCommands::register_commands(EditorCommands& commands, SceneCommands& 
                                              error = "get_render_settings has no arguments";
                                              return false;
                                          }
-                                         result = settings_json(renderer_.settings());
+                                         result = settings_reply(renderer_.settings(), world_);
                                          return true;
                                      }) &&
            commands.register_command(
@@ -745,9 +821,28 @@ bool RenderCommands::register_commands(EditorCommands& commands, SceneCommands& 
                        error = "Without an active scene only clearColor can be changed";
                        return false;
                    }
+                   auto values = arguments;
+                   if (values.contains("sceneId") || values.contains("nodeId"))
+                   {
+                       const auto node = components::target(world_, values, error);
+                       render_detail::SceneRenderComponents components;
+                       if (!node || !world_.scene() ||
+                           !render_detail::scene_render_components(*world_.scene(), components) ||
+                           !components.environment || components.environment.node() != node)
+                       {
+                           error = "Selected environment identity is missing, inactive or stale";
+                           return false;
+                       }
+                       values.erase("sceneId");
+                       values.erase("nodeId");
+                   }
+                   if (!resolve_sun_identity(values, world_, error))
+                   {
+                       return false;
+                   }
                    const auto before = renderer_.settings();
                    auto after = before;
-                   if (arguments.empty() || !read_settings(arguments, after, error))
+                   if (values.empty() || !read_settings(values, after, error))
                    {
                        if (error.empty())
                        {
@@ -756,7 +851,7 @@ bool RenderCommands::register_commands(EditorCommands& commands, SceneCommands& 
                        return false;
                    }
                    edit = std::make_unique<SettingsEdit>(renderer_, world_, scenes, before, after,
-                                                         arguments);
+                                                         values);
                    auto resolved_after = after;
                    // 关闭非首方向灯的阴影后，查询会采用首方向灯的非活动阴影参数。
                    if (world_.scene() != nullptr && before.directional_shadows &&
@@ -791,7 +886,7 @@ bool RenderCommands::register_commands(EditorCommands& commands, SceneCommands& 
                            break;
                        }
                    }
-                   result = settings_json(resolved_after);
+                   result = settings_reply(resolved_after, world_);
                    return true;
                }) &&
            commands.register_command(

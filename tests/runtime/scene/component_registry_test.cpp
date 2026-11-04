@@ -1,5 +1,6 @@
 #include "runtime/engine_config.hpp"
 #include "runtime/resource/resource_system.hpp"
+#include "runtime/scene/camera.hpp"
 #include "runtime/scene/component_registry.hpp"
 #include "runtime/scene/ecs_storage.hpp"
 #include "runtime/scene/light.hpp"
@@ -162,6 +163,53 @@ bool check()
     {
         return false;
     }
+    if (!expect(!mesh.static_instancing_enabled() && !mesh.static_lod_enabled() &&
+                    mesh.set_static_instancing_enabled(true) && mesh.set_static_lod_enabled(true) &&
+                    component.build_data(snapshot) &&
+                    snapshot.payload.AsMeshRendererData()->static_instancing_enabled &&
+                    snapshot.payload.AsMeshRendererData()->static_lod_enabled,
+                "optional mesh choices default off and opt-in is stored in generated ECS data") ||
+        !expect(mesh.set_mesh("builtin://meshes/cube") && mesh.static_instancing_enabled() &&
+                    mesh.static_lod_enabled(),
+                "changing the mesh resource preserves this instance's submission choices") ||
+        !expect(mesh.set_static_instancing_enabled(false) && mesh.set_static_lod_enabled(false) &&
+                    component.restore_data(snapshot) && mesh.static_instancing_enabled() &&
+                    mesh.static_lod_enabled(),
+                "component restore retains both explicitly enabled choices"))
+    {
+        return false;
+    }
+    auto camera = node.add_component<engine::Camera>();
+    auto lens = camera.settings();
+    if (!expect(camera && !lens.frustum_culling_enabled,
+                "optional camera frustum culling defaults off"))
+    {
+        return false;
+    }
+    lens.frustum_culling_enabled = true;
+    engine::schema::ComponentDataT camera_snapshot;
+    if (!expect(camera.set_settings(lens) && camera.build_data(camera_snapshot) &&
+                    camera_snapshot.payload.AsCameraData()->frustum_culling_enabled,
+                "camera stores its visibility policy through the normal settings contract"))
+    {
+        return false;
+    }
+    lens.frustum_culling_enabled = false;
+    if (!expect(camera.set_settings(lens) && camera.restore_data(camera_snapshot) &&
+                    camera.settings().frustum_culling_enabled,
+                "camera restore preserves explicit opt-in without separate renderer state"))
+    {
+        return false;
+    }
+    ecs_readonly_begin(world.native_world(), false);
+    const bool rejected =
+        !mesh.set_static_instancing_enabled(false) && !mesh.set_static_lod_enabled(false);
+    ecs_readonly_end(world.native_world());
+    if (!expect(rejected && mesh.static_instancing_enabled() && mesh.static_lod_enabled(),
+                "readonly phases cannot partially change either mesh submission attribute"))
+    {
+        return false;
+    }
     const auto* geometry = mesh.mesh_data();
     const auto revision = mesh.mesh_revision();
     auto invalid = snapshot;
@@ -179,9 +227,24 @@ bool check()
     mismatch.flags = std::make_unique<engine::schema::ComponentFlagsT>();
     mismatch.payload.Set(engine::schema::CameraDataT{});
     engine::schema::SceneDataT scene_data;
-    return expect(!component.restore_data(mismatch), "reject incompatible payload") &&
-           expect(scene->build_data(scene_data),
-                  "scene snapshots registered components without type dispatch");
+    if (!expect(!component.restore_data(mismatch), "reject incompatible payload") ||
+        !expect(scene->build_data(scene_data),
+                "scene snapshots registered components without type dispatch"))
+    {
+        return false;
+    }
+    const auto old = mesh;
+    if (!node.remove_component(engine::MeshRenderer::component_type))
+    {
+        return false;
+    }
+    auto replacement = node.add_component<engine::MeshRenderer>();
+    auto stale = old;
+    return expect(replacement && !replacement.static_instancing_enabled() &&
+                      !replacement.static_lod_enabled() && !stale.static_instancing_enabled() &&
+                      !stale.static_lod_enabled() && !stale.set_static_instancing_enabled(true) &&
+                      !stale.set_static_lod_enabled(true),
+                  "component recreation uses defaults without reviving stale attribute handles");
 }
 
 } // namespace

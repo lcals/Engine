@@ -468,3 +468,96 @@ macOS Metal Release 的 `engine.window_render` 使用正式资源目录加载白
 扩展测试在实际 `RenderExtension` 上绘制线性 RGB `2 / 0.75 / 0.125` 色块，逐像素核对扩展区域和 sRGB 解码后的背景；关闭扩展、开启扩展及开启后处理三种情况下，整张图的最大 RGB 绝对误差均为 `0.000027`。以上测试覆盖指定场景，不单独覆盖透明边缘、MSAA 下的透明合成、扩展与透明网格的混合或深度关系；扩展测试只核对 RGB，不核对其目标 alpha。
 
 `engine.destruction_runtime` 验证碎块组装保留已有切线及手性，缺失切线按实际 UV 分块生成；同步及异步破碎后均检查数据。macOS Release 测试通过，相关 Debug 和 Release 目标均已编译。
+
+
+## 大气天空与 Hex-Tiling 标准 PBR 接入（2026-11-04）
+
+本轮专项验收使用 **macOS ARM64 / Metal / Release**，真实绘制分辨率为 `384×216`，通过正式
+场景、材质、平面反射、线性 HDR 回读和离线烘焙所用的 diffuse capture 接口运行。
+`engine.atmosphere_hex` 为 `1/1` 通过（该次 2.04 秒是测试运行时间，不是渲染性能结论）。
+专项回归可用根 Preset 重跑：
+
+```sh
+cmake --build --preset ninja-engine-release --target engine_atmosphere_hex_test
+ctest --preset ninja-engine-release -R '^engine\.atmosphere_hex$' --output-on-failure -V
+```
+
+| 范围 | 实际结果与参考 | 验证边界 |
+| --- | --- | --- |
+| 纯大气背景 | 只有相机、环境和太阳，没有占位 Mesh；线性 HDR 图像均值 `0.05902850`，太阳强度翻倍的均值误差为 `0` | 证明背景可独立绘制和辐照度线性关系，不代表对摄影天空或 Blender 的逐像素拟合 |
+| 显示转换 | 修改曝光及 tone mapping 后，显示转换前的 HDR 捕获保持相同 | 天空输出线性值，经现有唯一显示 resolve；没有引入示例内置曝光／tone map 的第二次处理 |
+| 烘焙捕获 | 独立 40 m 高度的捕获随太阳强度翻倍；完成后主相机图像不变；未列入捕获灯光清单的太阳 Transform 变化仍取消旧捕获 | 复用离线烘焙的捕获接口，未宣称已实现随时间自动更新的 IBL |
+| 水面平面反射 | 开启真实水面 Planar 后天空的平均贡献为 `0.00938355`；该反射贡献随太阳翻倍的均值误差为 `0.00001642` | 比较分别扣除两档太阳下无 Planar 时的水体结果，以隔离吸收、折射和固有颜色；没有把独立水体项视为太阳反射或放宽阈值 |
+| Hex 开关 | 重复有色纹理开启后的均值差异为 `0.13712553`；关闭后的像素复原误差为 `0`；平法线和白 ORM 保持原 PBR 响应 | 只验证所列纹理、视角和参数，不代表全部材质的采样成本或视觉质量 |
+| Hex 方向法线 | 已知 tile 的四分之一旋转与独立编写的参考法线贴图相比，HDR 均值误差为 `0`；关闭随机旋转时负 UV 尺度的方向法线一致 | 正确应用 UV 与梯度互为转置的变换；按 bgfx 实际矩阵约定，Metal 该样点的 +T 对应 +B，未以未旋转 RGB 法线混合代替 |
+| 生命周期 | 上述测试包含开关反复切换、删除水面、场景销毁和请求清理 | 源参数唯一存组件／材质，LUT 与提交状态仅为场景派生 GPU 缓存；更多跨模块往返由集中回归记录 |
+
+三个大气 Compute、天空 VS/FS，以及包含 Hex 的 PBR、Surface 和 Water 片元共 **8 个 Metal
+Shader stage 编译通过**。场景数据测试另增加完整参数往返、非法相函数、空太阳和预制体引用
+重映射／退休引用用例；材质测试增加默认关闭、精确布尔值、contrast 端点以及透明／cutout／
+SpecGloss 组合拒绝用例。这些 CPU 用例与 Debug 编译的集中结果应按各自回执记录，不能从
+本项 GPU 测试的 `1/1` 推断全仓已通过。
+
+大气参考固定 bgfx `53-sky2`，Hex 网格／采样参考 `49-hextile`，法线梯度参考固定 MIT 原版
+mmikk；版本、版权和适配范围见[来源与许可](../third_party/notices/bgfx-atmosphere-hex.md)。
+参数和所有权见[类图](runtime/class-diagrams/atmosphere-hex-material.md)。专项日志位于
+`build/upstream-atmosphere-hex-ctest-release.log`，定向构建日志位于
+`build/upstream-atmosphere-hex-build-release.log`，均为忽略目录中的本地证据，不提交产物。
+
+首期限制：大气使用 Y-up、米制场景到千米 LUT 的近地模型，没有空气透视、逐表面太阳透过率、
+自动动态 IBL 或轨道级相机支持。Hex 初版限定 UV0、不透明、无 alpha cutoff 的标准
+Metallic/Roughness PBR；SpecGloss、透明水、三平面和直方图预处理不在本次范围。BaseColor、
+Normal、ORM 及其余已绑定表面纹理共用随机 UV、显式梯度和权重，Lightmap UV2 保持独立。
+本轮没有摄影天空对照、广泛粗糙度／法线素材矩阵、其他后端运行或采样成本测量；不据此宣称
+Windows、Android、iOS、Linux 或移动设备已验收。共享依赖的 macOS 部署目标警告仍遵守本文
+既有发行边界，不能以本机运行替代较旧 macOS 系统验收。
+
+
+## 上游渲染能力与统一 MCP 功能验收（2026-11-04）
+
+本轮使用 **macOS ARM64 / Metal / Release / QuickJS**。Debug 与 Release 最终完整构建均成功（退出码 0）；Debug 未运行测试。Release 全量首轮为 **127/131 通过**，四项失败分别涉及测试夹具缺少文件、烘焙暂存资源缺少邻接 meta、新菜单项改变首个 Tab 焦点、测试扩展硬编码旧 view。修复后定向复验 `engine.window_render` 为 **1/1 通过**，`editor.texture_pipeline`、`engine.font_ui_render`、`editor.scene_lighting_files` 为 **3/3 通过**；没有再次执行单次全量，不能将这些结果写成单次 131/131。最终增量组件、绑定及 MCP CPU 回归另为 **9/9 通过**，日志 `build/upstream-rendering-components-final-tests.log`。
+
+`engine.render_submission` 在首轮全量中通过（1.41 秒是测试运行时间）。它通过真实 GPU 读回验证逐物体/实例化图像一致、材质变化分批及提交计数；剔除、LOD 选择、导入、组件数据和脚本/MCP 边界由相应模块测试覆盖。本机实际采用忽略的 `local-ninja-debug/release` 配置覆写依赖位置；复跑使用仓库共享预设，不要求存在本机的 `CMakeUserPresets.json`：
+
+```sh
+cmake --preset ninja-engine-release -DENGINE_ENABLE_GPU_TESTS=ON
+cmake --build --preset ninja-engine-release
+ctest --preset ninja-engine-release --output-on-failure
+```
+
+新增公开用例 `Rendering features and submission`，由菜单进入 `scenes/render-features.scene`。固定 384 个共享球体与 1 个贴图地面；Camera 剔除、每个 MeshRenderer 的实例化/LOD 在该用例显式开启，核心三个新属性的默认值仍为 false。项目 TS 只组合组件和材质，实际提交与诊断通过正式 MCP 查询和控制。复跑真实 UI/MCP 验收时先在第一终端启动编辑器、等待资源导入完成，再在第二终端执行脚本：
+
+```sh
+build/ninja-engine-release/editor_app \
+  --project projects/showcase --runtime-dir build/upstream-rendering-runtime \
+  --width 1280 --height 720
+```
+
+```sh
+python3 projects/showcase/tests/render_features_test.py \
+  --server build/ninja-engine-release/mcp_app \
+  --runtime-dir build/upstream-rendering-runtime --timeout 180
+```
+
+本次脚本真实退出码 0，输出：
+
+```text
+PASS 384 个固定对象：真实 UI/MCP 功能开关、导入 LOD、逐视图提交、调试、天空/Hex 与返回清理
+```
+
+窗口逻辑尺寸为 1280×720，Retina 实际捕获为 **2560×1440**。同一固定相机、同一 385 个对象得到以下功能对照；这不是性能分数，也未收集 CPU/GPU 耗时：
+
+| 功能 | 开启 | 关闭 | 实际检验 |
+| --- | --- | --- | --- |
+| 视锥剔除 | 剔除 14，可见 371 | 剔除 0，可见 385 | 改相机属性后实际候选与提交集合变化 |
+| 静态实例化 | 3 draw、2 实例批次 | 371 draw、0 实例批次 | 同一对象/材质恢复逐 draw 路径 |
+| 静态 LOD | 440332 三角形 | 1515532 三角形 | 保持同一相机和可见对象，使用正式导入 LOD |
+| 远镜头 LOD | 196620 三角形 | 1572876 三角形 | 同一远镜头分别开关 LOD；源拓扑为 4096/2048/1024/512 三角形 |
+
+原生统计标注 `source: scene_mesh_submission`、`gpuCompletion: not_measured`；renderer 只读汇总明确为 `scope: world_summary`，包含常驻场景，指定组件为 `scope: component`。材质 Hex 的 `effective: null` 明确没有逐物体测量，不能从别的物体批次推断其效果。
+
+该次脚本还验证了：正常 RmlUi 点击进入、切换与返回；Camera/MeshRenderer 单对象编辑、撤销/重做不修改其他对象；太阳 NodeID 的读写往返及错误角色拒绝；天空和 Hex 的 UI/MCP 开关；五项临时诊断与实际调试线；错误身份/缺少目标/只读能力拒绝；两次进入和返回后对象、UI 及请求清理。脚本不启动或关闭编辑器，成功后停留菜单；此次验收随后经正式 `close_editor`（delayMs=500）正常关闭，同一项目、运行目录和会话的回执成功，编辑器退出码 0，回执为 `build/upstream-rendering-editor-close.json`。
+
+截图人工核对可见球体当前 LOD 线框、大气关闭后的背景变化、Hex 地面混合；调试线在原图有 205 个黄色像素（x=1279，y=607..811），没有以设置接受代替实际绘制。截图只用于该次功能检查，不宣称全部材质/模型或其他后端通过。首期实例化仅覆盖资格兼容的静态不透明网格，其他对象走正常逐 draw；LOD 仅消费离线生成的静态级别，无平滑过渡；大气与 Hex 的进一步限制见上一节。
+
+证据均在忽略目录，本次真实 MCP 回执、结果和五张截图位于 `projects/showcase/cache/render-features/20261104T104733Z-b5d87fc1/`；构建日志为 `build/upstream-rendering-build-debug-final.log`、`build/upstream-rendering-build-release-final.log`；全量及复验日志为 `build/upstream-rendering-ctest-release.log`、`build/upstream-window-recheck-ctest.log`、`build/upstream-rendering-ctest-recheck.log`。其他检出通过上述命令重新生成证据，不提交缓存或截图。

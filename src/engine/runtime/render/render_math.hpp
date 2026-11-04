@@ -9,6 +9,13 @@
 namespace engine::render_detail
 {
 
+using FrustumPlanes = std::array<std::array<float, 4>, 6>;
+[[nodiscard]] bool build_frustum_planes(const float* view, const float* projection,
+                                        bool homogeneous, FrustumPlanes& output) noexcept;
+[[nodiscard]] bool aabb_visible(const FrustumPlanes& planes, const float* model,
+                                const std::array<float, 3>& minimum,
+                                const std::array<float, 3>& maximum) noexcept;
+
 // 矩阵均为列主序，输入/输出指向16个有效float；返回false时输出不可用于提交。
 [[nodiscard]] bool finite_matrix(const float* matrix);
 [[nodiscard]] double linear_determinant(const float* matrix);

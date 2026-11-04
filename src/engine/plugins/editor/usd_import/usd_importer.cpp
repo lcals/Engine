@@ -2,6 +2,7 @@
 
 #include "editor/asset_pipeline/asset_io.hpp"
 #include "editor/asset_pipeline/importer_utils.hpp"
+#include "editor/mesh/mesh_lods.hpp"
 #include "runtime/resource/codecs/mesh_resource_codec.hpp"
 #include "runtime/resource/codecs/model_resource_codec.hpp"
 #include "runtime/utils/path_utils.hpp"
@@ -211,7 +212,7 @@ bool UsdImporter::inspect_batch(const editor::asset_pipeline::ImportContext& con
     {
         return false;
     }
-    fingerprint += ":usd-static-3:" + std::to_string(PXR_VERSION);
+    fingerprint += ":usd-static-3:" + std::to_string(PXR_VERSION) + editor::mesh_lod_fingerprint();
     return true;
 }
 bool UsdImporter::discover(const editor::asset_pipeline::ImportAsset& source,
@@ -413,7 +414,12 @@ bool UsdImporter::convert(const editor::asset_pipeline::ImportAsset& asset,
             error = "USD mesh child key is missing";
             return false;
         }
-        schema::FinishMeshDataBuffer(builder, schema::MeshData::Pack(builder, &mesh->second));
+        auto result = mesh->second;
+        if (!editor::generate_mesh_lods(result, asset.source, error))
+        {
+            return false;
+        }
+        schema::FinishMeshDataBuffer(builder, schema::MeshData::Pack(builder, &result));
     }
     return editor::asset_pipeline::write_bytes(
         context.output / asset.guid,

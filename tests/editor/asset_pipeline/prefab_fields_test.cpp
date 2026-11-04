@@ -1,4 +1,5 @@
 #include "editor/asset_pipeline/prefab_importer.hpp"
+#include "editor/asset_pipeline/scene_importer.hpp"
 
 #include <cstdio>
 #include <memory>
@@ -118,9 +119,96 @@ bool collider_optional_fields()
                   "explicit empty hulls are valid when restoring a primitive shape");
 }
 
+bool render_policy_fields()
+{
+    schema::MeshRendererDataT settings;
+    settings.mesh_guid = "50000000-0000-4000-8000-000000000001";
+    settings.material_guid = "50000000-0000-4000-8000-000000000002";
+    if (!expect(!settings.static_instancing_enabled && !settings.static_lod_enabled &&
+                    !schema::CameraDataT{}.frustum_culling_enabled,
+                "generated optional runtime attributes default off"))
+    {
+        return false;
+    }
+    std::string error;
+    toml::table missing_mesh{{"type", "mesh_renderer"},
+                             {"mesh", settings.mesh_guid},
+                             {"material", settings.material_guid}};
+    schema::ComponentDataT default_mesh;
+    schema::ComponentDataT default_camera;
+    if (!expect(editor::SceneImporter::read_component(missing_mesh, default_mesh, error) &&
+                    !default_mesh.payload.AsMeshRendererData()->static_instancing_enabled &&
+                    !default_mesh.payload.AsMeshRendererData()->static_lod_enabled &&
+                    editor::SceneImporter::read_component(toml::table{{"type", "camera"}},
+                                                          default_camera, error) &&
+                    !default_camera.payload.AsCameraData()->frustum_culling_enabled,
+                "sources without optional attributes preserve the explicit default-off rule"))
+    {
+        return false;
+    }
+    settings.static_instancing_enabled = true;
+    settings.static_lod_enabled = true;
+    auto original = component(settings);
+    settings.static_instancing_enabled = false;
+    settings.static_lod_enabled = false;
+    const auto changed = component(settings);
+    if (!expect(apply(original, changed, {"static_instancing_enabled", "static_lod_enabled"}) &&
+                    original == changed,
+                "prefab instances can explicitly override mesh submission choices without touching "
+                "templates"))
+    {
+        return false;
+    }
+    schema::CameraDataT camera;
+    camera.frustum_culling_enabled = true;
+    auto camera_original = component(camera);
+    camera.frustum_culling_enabled = false;
+    const auto camera_changed = component(camera);
+    if (!expect(apply(camera_original, camera_changed, {"frustum_culling_enabled"}) &&
+                    camera_original == camera_changed,
+                "camera frustum policy is a normal prefab component override"))
+    {
+        return false;
+    }
+    for (const auto* value : {&changed, &camera_changed})
+    {
+        toml::table table;
+        schema::ComponentDataT decoded;
+        if (!expect(editor::SceneImporter::write_component(*value, table, error) &&
+                        editor::SceneImporter::read_component(table, decoded, error) &&
+                        decoded == *value,
+                    "ordinary scene TOML round trips explicit false component choices"))
+        {
+            return false;
+        }
+        const auto* camera_data = value->payload.AsCameraData();
+        for (const auto* field : camera_data ? std::vector<const char*>{"frustum_culling_enabled"}
+                                             : std::vector<const char*>{"static_instancing_enabled",
+                                                                        "static_lod_enabled"})
+        {
+            for (const auto* invalid : {"0", "\"false\"", "[]"})
+            {
+                auto malformed = table;
+                auto parsed = toml::parse(std::string("value=") + invalid);
+                malformed.insert_or_assign(field, *parsed["value"].node());
+                schema::ComponentDataT rejected;
+                error.clear();
+                if (!expect(
+                        !editor::SceneImporter::read_component(malformed, rejected, error) &&
+                            !error.empty(),
+                        "scene codecs reject numeric, text and array values for boolean choices"))
+                {
+                    return false;
+                }
+            }
+        }
+    }
+    return true;
+}
+
 } // namespace
 
 int main()
 {
-    return mesh_optional_fields() && collider_optional_fields() ? 0 : 1;
+    return mesh_optional_fields() && collider_optional_fields() && render_policy_fields() ? 0 : 1;
 }

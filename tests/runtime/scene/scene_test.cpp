@@ -934,8 +934,7 @@ bool component_contracts()
     float default_workflow = -1.0F;
     if (!expect(material.type_path() == "builtin://materials/default-pbr" &&
                     material.shader_path() == "builtin://shaders/pbr" &&
-                    material.get_float("metallic", default_metallic) &&
-                    default_metallic == 0.0F &&
+                    material.get_float("metallic", default_metallic) && default_metallic == 0.0F &&
                     material.get_float("roughness", default_roughness) &&
                     near(default_roughness, 0.4F) &&
                     material.get_float("specularWorkflow", default_workflow) &&
@@ -973,6 +972,24 @@ bool component_contracts()
     if (!expect(!material.set_float("roughness", -1.0F) &&
                     material.get_float("roughness", roughness) && roughness == 0.2F,
                 "invalid material value leaves old parameter"))
+    {
+        return false;
+    }
+    float hex_enabled = -1;
+    if (!expect(
+            material.get_float("hexTilingEnabled", hex_enabled) && hex_enabled == 0 &&
+                !material.set_float("hexTilingEnabled", 0.5F) &&
+                !material.set_float("hexTilingContrast", 0) &&
+                !material.set_float("hexTilingContrast", 1) &&
+                material.set_float("hexTilingEnabled", 1) &&
+                material.set_float("hexTilingRotation", 0.75F) &&
+                !material.set_float("alphaCutoff", 0.5F) &&
+                !material.set_float("specularWorkflow", 1) &&
+                !material.set_blend_mode(engine::schema::BlendMode::alpha_blend) &&
+                material.blend_mode() == engine::schema::BlendMode::opaque &&
+                material.get_float("hexTilingEnabled", hex_enabled) && hex_enabled == 1 &&
+                material.set_float("hexTilingEnabled", 0),
+            "Hex is opt-in, rejects unsupported PBR combinations atomically and can be disabled"))
     {
         return false;
     }

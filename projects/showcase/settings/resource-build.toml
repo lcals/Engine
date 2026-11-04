@@ -2,6 +2,14 @@
 name = "game"
 storage = "package"
 roots = [
+    "scripts/modules/render-features.ts",
+    "scenes/render-features.scene",
+    "ui/render-features.rml",
+    "meshes/render-lod-sphere.mesh",
+    "materials/render-features.material",
+    "textures/paving-albedo.jpg",
+    "textures/paving-normal.png",
+    "textures/paving-orm.png",
     "scripts/game.ts",
     "scripts/modules/menu.ts",
     "scripts/modules/font-gallery.ts",

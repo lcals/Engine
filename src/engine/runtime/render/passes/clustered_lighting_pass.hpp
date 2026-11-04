@@ -32,6 +32,7 @@ public:
                             const float* view_matrix, const float* projection,
                             std::span<const ClusterLight> lights,
                             std::span<const ShadowRecord> shadows);
+    void bind_view(bgfx::ViewId view) const;
     void bind() const;
     void release() noexcept;
     [[nodiscard]] std::uint32_t resource_count() const noexcept;

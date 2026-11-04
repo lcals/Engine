@@ -1,5 +1,7 @@
 #pragma once
 
+#include "runtime/scene/scene_types.hpp"
+
 #include <array>
 #include <cstdint>
 
@@ -17,6 +19,13 @@ enum class FogMode : std::uint8_t
 // 组件组成的只读帧快照，不是场景写入接口或另一份持久状态。
 struct RenderSettings
 {
+    // Generated scene data copied for this frame; not another persistent model.
+    EnvironmentSettings atmosphere;
+    std::uint64_t atmosphere_scene_id = 0;
+    bool atmosphere_sun_valid = false;
+    bool atmosphere_submitted = false;
+    std::array<float, 3> atmosphere_sun_direction{0, -1, 0};
+    std::array<float, 3> atmosphere_sun_radiance{};
     std::array<float, 3> ambient_color{1.0F, 1.0F, 1.0F};
     float ambient_intensity = 0.0F;
     bool ambient_tricolor = false;

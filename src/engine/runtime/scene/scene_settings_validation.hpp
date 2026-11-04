@@ -17,6 +17,35 @@ namespace engine::scene_detail
 
 [[nodiscard]] inline bool valid_environment(const EnvironmentSettings& settings) noexcept
 {
+    const auto bounded = [](double value, double low, double high)
+    { return std::isfinite(value) && value >= low && value <= high; };
+    const auto vector = [&](const Vec3& value, double high)
+    {
+        return bounded(value.x(), 0, high) && bounded(value.y(), 0, high) &&
+               bounded(value.z(), 0, high);
+    };
+    // Units follow bgfx 53-sky2: all atmospheric distances are km, coefficients km^-1.
+    // Finite Earth-like bounds protect the LUT mapping from degenerate media/radii.
+    if ((settings.atmosphere_enabled && settings.atmosphere_sun_node_id == 0) ||
+        !bounded(settings.atmosphere_ground_height, -10000000, 10000000) ||
+        !vector(settings.atmosphere_rayleigh_scattering, 1) ||
+        !bounded(settings.atmosphere_rayleigh_scale_height, 0.001, 1000) ||
+        !bounded(settings.atmosphere_mie_scattering, 0, 1) ||
+        !bounded(settings.atmosphere_mie_absorption, 0, 1) ||
+        !bounded(settings.atmosphere_mie_scale_height, 0.001, 1000) ||
+        !bounded(settings.atmosphere_mie_anisotropy, 0, 0.99F) ||
+        !vector(settings.atmosphere_ozone_absorption, 1) ||
+        !bounded(settings.atmosphere_ozone_center_height, 0, 1000) ||
+        !bounded(settings.atmosphere_ozone_half_width, 0.001, 1000) ||
+        !bounded(settings.atmosphere_planet_radius, 100, 100000) ||
+        !bounded(settings.atmosphere_height, 1, 1000) ||
+        settings.atmosphere_ozone_center_height - settings.atmosphere_ozone_half_width >=
+            settings.atmosphere_height ||
+        !vector(settings.atmosphere_ground_albedo, 1) ||
+        !bounded(settings.atmosphere_multiscatter_strength, 0, 5))
+    {
+        return false;
+    }
     const bool no_ibl_resources = settings.ibl_irradiance_guid.empty() &&
                                   settings.ibl_prefilter_guid.empty() &&
                                   settings.ibl_lut_guid.empty();

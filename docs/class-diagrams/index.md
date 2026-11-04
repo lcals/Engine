@@ -78,6 +78,7 @@
 - [场景数据模型](../runtime/class-diagrams/scene-data.md)：FlatBuffers 定义、C++/TS 生成及组件数据所有权。
 - [编辑器环境](../editor/class-diagrams/editor-environment.md)：平台路径映射和编辑器目录提交。
 - [渲染](../runtime/class-diagrams/render-system.md)：同一窗口的空白/PBR 场景呈现和每次运行 GPU 资源。
+- [上游渲染能力接入（待评审）](../runtime/upstream-rendering-features.md)：自动视锥剔除、Frame/View uniform、静态实例化、LOD、线框/调试、大气天空、Hex-Tiling 与统一 MCP；[控制接口](../runtime/class-diagrams/render-feature-controls.md)、[视图提交](../runtime/class-diagrams/render-submission.md)、[LOD](../editor/class-diagrams/static-model-lod.md)、[大气与材质](../runtime/class-diagrams/atmosphere-hex-material.md)。
 - [分簇前向、反射与间接光](../runtime/class-diagrams/forward-lighting-reflections.md)：已评审的公开契约、GPU 所有权与材质绑定，包含局部阴影、SSR、平面反射、透明折射及 GI 消费。
 - [场景间接光烘焙](../plugins/editor/class-diagrams/scene-lighting-bake.md)：已评审的 xatlas、lightmapper 适配、多轮反弹、探针与原子资源发布；[固定上游来源](../runtime/rendering-upstream-plan.md)。
 - [渲染扩展](../runtime/class-diagrams/render-extension.md)：插件场景透明绘制位置、借用登记与 GPU 生命周期。

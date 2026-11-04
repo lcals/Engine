@@ -16,6 +16,9 @@ public:
                                 std::string& error) const override;
     [[nodiscard]] std::span<const std::string_view> resource_fields() const noexcept override;
     void write(const schema::ComponentDataT& component, toml::table& table) const override;
+    [[nodiscard]] bool remap_node_references(schema::ComponentDataT& component,
+                                             std::span<const schema::NodeIdMappingT> mapping,
+                                             std::string& error) const override;
 };
 
 } // namespace engine::editor::asset_pipeline

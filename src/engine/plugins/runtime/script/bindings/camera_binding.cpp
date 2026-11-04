@@ -11,6 +11,12 @@ namespace
 constexpr std::string_view javascript = R"js(
 export class Camera extends Component {
     constructor(token, scene, node) { super(token, scene, node, native.CameraKind); }
+    get frustumCullingEnabled() {
+        const h = handles.get(this); return native.CameraGetFrustumCulling(h.scene, h.node);
+    }
+    SetFrustumCulling(enabled) {
+        const h = handles.get(this); return native.CameraSetFrustumCulling(h.scene, h.node, enabled);
+    }
     SetOrthographic(size, near, far) {
         const h = handles.get(this); return native.CameraOrthographic(h.scene, h.node, size, near, far);
     }
@@ -43,7 +49,8 @@ void settings(const Arguments& arguments)
     arguments.set_return(false);
     auto node = BindingContext::node(arguments);
     auto camera = !node ? Camera{} : node.get_component<Camera>();
-    CameraSettings value;
+    auto value = camera ? camera.settings() : CameraSettings{};
+    value.projection = schema::Projection::perspective;
     if (camera.valid() && arguments.count() == 5 &&
         BindingContext::scalar(arguments, 2, value.fov_degrees) &&
         BindingContext::scalar(arguments, 3, value.near_clip) &&
@@ -57,7 +64,7 @@ void orthographic(const Arguments& arguments)
     arguments.set_return(false);
     auto node = BindingContext::node(arguments);
     auto camera = !node ? Camera{} : node.get_component<Camera>();
-    CameraSettings value;
+    auto value = camera ? camera.settings() : CameraSettings{};
     value.projection = schema::Projection::orthographic;
     if (camera.valid() && arguments.count() == 5 &&
         BindingContext::scalar(arguments, 2, value.orthographic_size) &&
@@ -66,6 +73,28 @@ void orthographic(const Arguments& arguments)
     {
         arguments.set_return(camera.set_settings(value));
     }
+}
+
+void get_frustum_culling(const Arguments& arguments)
+{
+    const auto node = BindingContext::node(arguments);
+    const auto camera = node ? node.get_component<Camera>() : Camera{};
+    arguments.set_return(camera && arguments.count() == 2 &&
+                         camera.settings().frustum_culling_enabled);
+}
+
+void set_frustum_culling(const Arguments& arguments)
+{
+    arguments.set_return(false);
+    const auto node = BindingContext::node(arguments);
+    auto camera = node ? node.get_component<Camera>() : Camera{};
+    if (!camera || arguments.count() != 3 || !arguments.is_boolean(2))
+    {
+        return;
+    }
+    auto settings = camera.settings();
+    settings.frustum_culling_enabled = arguments.boolean(2);
+    arguments.set_return(camera.set_settings(settings));
 }
 
 void point_to_ray(const Arguments& arguments)
@@ -117,6 +146,8 @@ bool CameraBinding::register_functions(vm::ScriptVm& vm) const
     return vm.integer("CameraKind", static_cast<int>(Camera::component_type)) &&
            vm.function("CameraAdd", add) && vm.function("CameraSettings", settings) &&
            vm.function("CameraOrthographic", orthographic) &&
+           vm.function("CameraGetFrustumCulling", get_frustum_culling) &&
+           vm.function("CameraSetFrustumCulling", set_frustum_culling) &&
            vm.function("CameraScreenPointToRay", point_to_ray, 0) &&
            vm.function("CameraViewportPointToRay", point_to_ray, 1);
 }

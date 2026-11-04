@@ -46,6 +46,9 @@
 - CMake 按 `cmake/install/`、`cmake/dependencies/`、`cmake/plugins/`、`cmake/core/`、`cmake/editor/`、`cmake/platforms/` 分职责。根 CMakeLists 只组织入口，插件注册不替代依赖查找，不把安装、平台打包或业务插件混入核心配置。启用/禁用必须验证配置、目标存在性、链接及宿主条件装配。
 
 - 场景节点命名 `Node`，脚本直接使用 `Component`，不引入 `GameObject`、`Behaviour` 或 `MonoBehaviour` 层次。项目 `Gameplay` 连接引擎与场景，可承载业务，不限制成纯启动脚本。
+- 核心约束：项目层只能通过场景组件操作引擎功能属性。项目通过 `AddComponent` / `GetComponent` 获取组件并读写属性，不直接访问、持有或控制各引擎系统对象；时间等基础值访问除外。
+- 引擎运行属性按职责收敛到少数明确的组件，通过节点组合向场景暴露；优先扩展已有组件，职责确需拆分时才添加组件，不为每个效果创建一个组件或另一套全局配置。组件上的可选功能开关默认关闭，由项目显式开启；未添加、禁用组件或未开启对应属性时不得隐式开启功能。
+- 编辑、诊断等非运行功能通过 MCP 直接开启/关闭，临时状态不保存到场景或预制体。
 - 场景运行数据唯一存于 `WorldSystem` 拥有的 Flecs world。`Node` 是世界借用、世界代次及实体 ID 的可复制值句柄，`Component` 另含类型及附加实例身份；不拥有逐实例行为对象、组件列表或虚函数表。通过 `add_component<T>() / get_component<T>()` 返回具名值句柄，TS 对应 `AddComponent(Type) / GetComponent(Type)`；Node 不保存具体类型指针、不提供专用添加方法。真实持久参数使用 schema 生成 Data 的 ECS 列，领域运行字段放相应 Runtime 列；动态 union 仅用于边界快照。
 - GUID 与逻辑路径的双向映射位于核心模块，编辑器、桌面及真机共用，不依赖 SQLite 或平台路径。每个 assets 源资源必须有唯一 GUID 的邻接 meta；移动保留身份，复制生成新身份，冲突不静默重写。
 - 渲染效果优先适配已选上游的范例和 Shader 工具，保留来源、许可及必要的兼容调整，不重复建立同类算法框架。

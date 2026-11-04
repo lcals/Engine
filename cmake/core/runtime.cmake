@@ -40,6 +40,8 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
         PRIVATE engine::window SDL3::SDL3)
 
     engine_add_system(runtime render)
+    target_sources(engine_render PRIVATE src/engine/runtime/render/render_features.cpp src/engine/runtime/render/mesh_lod_selection.cpp src/engine/runtime/render/passes/atmosphere_pass.cpp src/engine/runtime/render/passes/debug_draw_pass.cpp)
+    target_link_libraries(engine_render PRIVATE engine_bgfx_debugdraw)
     engine_enable_profiling(engine_render)
     target_sources(
         engine_render
@@ -85,6 +87,7 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
                 basisu::basisu_encoder)
     include(${PROJECT_SOURCE_DIR}/cmake/core/render_shaders.cmake)
     engine_embed_render_shaders(engine_render shadow)
+    engine_embed_upstream_feature_shaders(engine_render)
     engine_embed_assao_shaders(engine_render)
     engine_embed_skinning_shader(engine_render)
     engine_embed_hdr_shaders(engine_render)
@@ -119,7 +122,7 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
                 src/engine/runtime/resource/resource_catalog.cpp
                 src/engine/runtime/resource/virtual_file_system.cpp)
     target_include_directories(engine_resource PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
-    engine_embed_render_shaders(engine_resource cube font surface water)
+    engine_embed_render_shaders(engine_resource cube cube_instanced font surface water)
     target_link_libraries(
         engine_resource
         PUBLIC engine::scene_data

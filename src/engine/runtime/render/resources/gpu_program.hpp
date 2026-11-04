@@ -36,6 +36,10 @@ struct GpuProgram
                                      const std::vector<GpuTexture>& textures,
                                      std::span<const bgfx::TextureHandle> frame_textures = {},
                                      bool max_anisotropy = false);
+    [[nodiscard]] bool supports_instancing() const noexcept
+    {
+        return bgfx::isValid(instanced_program);
+    }
     void release() noexcept;
 
     std::string path;
@@ -45,6 +49,9 @@ struct GpuProgram
     bgfx::ProgramHandle program = BGFX_INVALID_HANDLE;
     bgfx::ShaderHandle surface_shader = BGFX_INVALID_HANDLE;
     bgfx::ProgramHandle surface_program = BGFX_INVALID_HANDLE;
+    bgfx::ShaderHandle instanced_vertex_shader = BGFX_INVALID_HANDLE;
+    bgfx::ProgramHandle instanced_program = BGFX_INVALID_HANDLE;
+    bgfx::ProgramHandle instanced_surface_program = BGFX_INVALID_HANDLE;
     std::vector<GpuUniform> uniforms;
     std::vector<GpuSampler> samplers;
 };

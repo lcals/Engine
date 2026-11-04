@@ -8,7 +8,7 @@
 
 ## 实现职责
 
-公开参数位于 `include/engine/runtime/render/render_settings.hpp`，只依赖标准库。除平台表面实现外，下表中的私有代码均位于 `src/engine/runtime/render/`：
+公开参数位于 `include/engine/runtime/render/render_settings.hpp`，场景持久参数复用 schema 生成数据。除平台表面实现外，下表中的私有代码均位于 `src/engine/runtime/render/`：
 
 | 文件或目录 | 职责 |
 | --- | --- |
@@ -18,6 +18,31 @@
 | `passes/`、`shaders/` | 共用的阴影、AO、HDR/Bloom 通道与 Shader；IBL 采样沿用共用材质 Shader |
 | `render_surface.*`、`platforms/<platform>/render/` | 表面状态契约、固定后端选择、原生句柄与暂停恢复 |
 | `renderer_callbacks.*` | bgfx 日志回调、截图写入及线程间回执 |
+
+## 上游渲染能力与统一控制
+
+视锥剔除保存为 Camera 的 `frustum_culling_enabled`，静态实例化与静态 LOD 保存为各
+MeshRenderer 的 `static_instancing_enabled` / `static_lod_enabled`，三者默认关闭，项目显式开启。运行时直接读取
+对应组件的生成 ECS 数据；场景、预制体和实例覆盖沿用已有持久化链路，没有另一份全局运行开关。
+TS 通过对应 Camera / MeshRenderer 接口编辑属性，编辑器通过普通组件命令和
+[MCP 渲染功能入口](../plugins/editor/mcp.md#渲染功能统一入口) 操作。
+
+线框、调试线、包围盒、相机视锥及统计显示默认关闭，仅由 MCP 临时开启/关闭，不写组件或场景。
+`RenderSystem::feature_state()` 只读汇总当前组件请求、设备支持和最近成功提交的生效状态；
+选中组件属性与全场景提交统计分开报告，不把别的对象成功合批说成选中对象生效。
+showcase 的 **Rendering features and submission** 页面通过组件属性提供运行对照及逐视图提交计数。
+
+剔除依据各实际视图和动态更新的保守包围盒；实例化只合并具备正式实例顶点变体、材质和光照绑定兼容的
+不透明静态网格，缓冲不足保留逐对象路径。静态 LOD 在源 `.meta` 中配置，经 meshoptimizer 离线生成，
+运行时按屏幕占比与滞回选层；透明、变形、蒙皮、绑定 Lightmap 的对象及捕获保持 LOD0。
+Frame/View uniform 使用 bgfx API 167 正式频率接口，不提供假效果开关。
+
+大气天空由场景 `EnvironmentComponent` 的 `atmosphere_enabled` 和显式方向太阳控制，复用 bgfx 53-sky2
+的 LUT 与散射积分，输出线性 HDR 后由引擎统一曝光和显示映射。它不会自动生成动态 IBL。
+Hex-Tiling 通过内置不透明 PBR 的 `hexTilingEnabled`、`hexTilingRotation`、`hexTilingContrast` 具名参数开启；
+共用颜色、法线、ORM 的坐标、梯度和混合权重，默认关闭。完整契约、来源和限制见
+[上游能力接入](upstream-rendering-features.md)、[静态 LOD](../editor/static-model-lod-plan.md)及
+[大气与 Hex](atmosphere-hex-plan.md)。实际平台和图像验收见[测试文档](../testing.md)。
 
 CSM、AO、HDR、Bloom 和 IBL 在各平台使用同一套通道与 Shader 源码，经 `shaderc` 编译到对应后端。平台实现负责后端与表面适配，效果中的必要能力检查依据实际访问契约处理，例如 AO 在 Metal 上的纹理访问判据。能力不足时明确返回失败，不静默丢弃已开启的效果。共用实现不代表已经完成全平台实测；具体执行范围见[验证记录](../testing.md)。
 

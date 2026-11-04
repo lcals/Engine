@@ -78,6 +78,10 @@ classDiagram
         +mesh_revision() uint64_t
         +cast_shadows() bool
         +set_cast_shadows(bool value) void
+        +static_instancing_enabled() bool
+        +set_static_instancing_enabled(bool enabled) bool
+        +static_lod_enabled() bool
+        +set_static_lod_enabled(bool enabled) bool
         +set_deformation(span~const MeshVertex~ vertices, span~const Vec4~ tangents) bool
         +set_skinning_palette(span~const array_float_16~ transforms, span~const array_float_16~ normal_transforms) bool
         +skinning_palette() span~const array_float_16~
@@ -127,6 +131,7 @@ classDiagram
         +float far_clip
         +Projection projection
         +float orthographic_size
+        +bool frustum_culling_enabled
     }
     class LightDataT {
         <<FlatBuffers生成>>
@@ -150,6 +155,8 @@ classDiagram
         +string material_guid
         +vector~string~ additional_material_guids
         +bool cast_shadows
+        +bool static_instancing_enabled
+        +bool static_lod_enabled
     }
     class MeshDataT
     class MeshUtils
@@ -205,6 +212,7 @@ classDiagram
 - 真实运行参数存入 `ComponentStorage<GeneratedData>`，包含 ComponentState 与 schema 生成 Data；ComponentFlagsT 保存 enabled/visible。ComponentDataT 的动态 union 只在加载、保存和撤销时组装，不作为每实例 payload 对象容器。具体组件提供静态类型登记，Node 不分派组件字段。
 - 具名组件的 `settings()` 返回独立值，`get_settings(output)` 显式报告失败并将输出置为安全默认值；写入先完整校验再提交。Component、具名组件和 Material 均为可复制身份句柄，没有实例虚函数表。所有跨帧访问重新解析身份；原生列、runtime 指针、span 和 string_view 只可在结构稳定阶段借用，不能跨结构修改保存。
 - MeshRenderer 的 `cast_shadows` 默认 true，直接存储于生成的组件载荷并随场景保存；false 时仍参与主绘制，但不参与阴影边界拟合和阴影绘制，供天空等表面使用。`visible` 为单独保存的通用标志，两者不互相替代。
+- 视锥策略属于观察镜头：`CameraDataT.frustum_culling_enabled` 默认 false，通过现有 `settings()` / `set_settings()` 读取和保存。静态实例化和 LOD 是各网格实例的属性：`MeshRendererDataT.static_instancing_enabled` 与 `static_lod_enabled` 默认 false，由对应 getter 与返回 bool 的 `noexcept` setter 读写。设置仅更新生成 ECS 列，句柄失效或世界不可写时返回 false 并保持原值；换网格、保存、恢复和预制体覆盖都保留本实例选择。关闭其中一项不改变另一个字段，也不更改资源本体。RenderSystem 读取这些组件，不维护平行的持久策略开关。
 - Transform 是普通组件。Scene 创建 Node 后添加 Transform，变换逻辑全部位于 Transform。位置和欧拉角用 double，角度单位为度，矩阵为 `T * Rz * Ry * Rx * S`，Y 向上、局部前向 -Z。
 - 变换必须全部有限，缩放非零，可为负数；失败保持原值。`world_matrix()` 写 16 个列主序 float，父链缺失变换或溢出时返回 false，非空输出保持单位矩阵。
 - Camera 从同节点 Transform 获得位置和朝向；视场角在 (0,180)，近裁面大于 0，远裁面大于近裁面。Camera 支持透视与正交投影；orthographic_size 为竖直半高且大于零。Light 支持方向光、点光与聚光；方向使用世界 -Z，强度非负且有限，range 大于零，聚光半角满足 0 <= inner_angle < outer_angle < 90。

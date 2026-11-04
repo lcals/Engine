@@ -700,7 +700,9 @@ export default class Game extends Gameplay {
         this.scene = Scene.Create('bound-scene');
         if (!this.scene || discarded.IsValid() || oldNode.IsValid() || oldComponent.IsValid() ||
             oldTransform.SetPosition(1, 2, 3) || oldNode.GetComponent(Transform) !== null || oldNode.AddComponent(Camera) !== null || discarded.Destroy() ||
-            oldComponent.SetEnabled(false)) return false;
+            oldComponent.SetEnabled(false) || oldComponent.staticInstancingEnabled ||
+            oldComponent.staticLodEnabled || oldComponent.SetStaticInstancing(true) ||
+            oldComponent.SetStaticLod(true)) return false;
         const cube = this.scene.CreateNode('cube');
         const cameraNode = this.scene.CreateNode('camera');
         const lightNode = this.scene.CreateNode('light');
@@ -710,6 +712,13 @@ export default class Game extends Gameplay {
         const light = lightNode.AddComponent(Light);
         if (!mesh || !camera || !light || !(mesh instanceof Component) || !mesh.node.IsValid())
             return false;
+        if (camera.frustumCullingEnabled || mesh.staticInstancingEnabled || mesh.staticLodEnabled ||
+            !camera.SetFrustumCulling(true) || !camera.frustumCullingEnabled ||
+            !mesh.SetStaticInstancing(true) || !mesh.staticInstancingEnabled ||
+            !mesh.SetStaticLod(true) || !mesh.staticLodEnabled ||
+            camera.SetFrustumCulling(1) || mesh.SetStaticInstancing('true') ||
+            mesh.SetStaticLod(null) || !camera.frustumCullingEnabled ||
+            !mesh.staticInstancingEnabled || !mesh.staticLodEnabled) return false;
         if (!(cube.GetComponent(Transform) instanceof Transform) ||
             !(cube.GetComponent(MeshRenderer) instanceof MeshRenderer) ||
             cube.GetComponent(Camera) !== null || cube.GetComponent(Light) !== null ||
@@ -721,6 +730,7 @@ export default class Game extends Gameplay {
             cube.GetComponent(Transform).SetScale(0, 1, 1) || camera.SetPerspective(0, 1, 2) ||
             light.SetIntensity(-1) || light.SetColor(Infinity, 1, 1)) return false;
         if (camera.SetOrthographic(0, .1, 100) || !camera.SetOrthographic(3, .2, 100) ||
+            !camera.frustumCullingEnabled ||
             light.SetPoint(-1) || !light.SetPoint(12) || light.SetSpot(10, 40, 20) ||
             !light.SetSpot(12, 15, 35) || !light.SetDirectional() ||
             mesh.materialCount !== 1 || mesh.GetMaterial(1) !== null ||
@@ -753,6 +763,7 @@ export default class Game extends Gameplay {
             mesh.material.SetFloat('roughness', Infinity) ||
             !mesh.SetEnabled(false) || !mesh.SetEnabled(true) ||
             !cameraNode.GetComponent(Transform).SetPosition(0, 0, 8) || !camera.SetPerspective(45, .1, 200) ||
+            !camera.frustumCullingEnabled || !mesh.staticInstancingEnabled || !mesh.staticLodEnabled ||
             !this.scene.SetActiveCamera(camera) || !light.SetColor(1, .9, .8) ||
             !light.SetIntensity(5) || !lightNode.GetComponent(Transform).SetRotation(-30, 20, 0)) return false;
         const parent = this.scene.CreateNode('temporary-parent');
@@ -2772,7 +2783,9 @@ const blocked = !Render.SetVSync(false) && Render.GetVSync() === null &&
     Render.GetViewportSize() === null && !Render.SetMsaaSamples(4) &&
     Render.GetMsaaSamples() === null && !Render.SupportsMsaaSamples(4) &&
     !Render.SetMaxAnisotropy(true) && Render.GetMaxAnisotropy() === null &&
-    !Render.SupportsMaxAnisotropy();
+    !Render.SupportsMaxAnisotropy() && typeof Render.SetFeature === 'undefined' &&
+    typeof Render.GetFeatureState === 'undefined' &&
+    typeof Render.GetSubmissionStats === 'undefined' && typeof Render.DrawDebugLines === 'undefined';
 export default class extends Gameplay {
     OnInitialize() {
         return blocked && Object.isFrozen(Render) &&
@@ -2784,6 +2797,10 @@ export default class extends Gameplay {
             !Render.SetMsaaSamples(0) && !Render.SetMsaaSamples(16) &&
             !Render.SetMaxAnisotropy(true) && !Render.SetMaxAnisotropy(1) &&
             Render.GetMaxAnisotropy() === null && !Render.SupportsMaxAnisotropy() &&
+            typeof Render.SetFeature === 'undefined' &&
+            typeof Render.GetFeatureState === 'undefined' &&
+            typeof Render.GetSubmissionStats === 'undefined' &&
+            typeof Render.DrawDebugLines === 'undefined' &&
             typeof Render.SetAmbient === 'undefined' &&
             typeof Render.SetExposure === 'undefined' &&
             typeof Render.SetDirectionalShadows === 'undefined';

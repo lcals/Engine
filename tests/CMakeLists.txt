@@ -397,6 +397,19 @@ if(TARGET editor_app)
 endif()
 
 if(ENGINE_ENABLE_RUNTIME_DEPS)
+    add_executable(engine_mesh_lod_selection_test runtime/render/mesh_lod_selection_test.cpp)
+    target_include_directories(engine_mesh_lod_selection_test
+                               PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+    target_link_libraries(engine_mesh_lod_selection_test PRIVATE engine::render)
+    engine_apply_options(engine_mesh_lod_selection_test)
+    add_test(NAME runtime.mesh_lod_selection COMMAND engine_mesh_lod_selection_test)
+
+    add_executable(engine_frustum_culling_test runtime/render/frustum_culling_test.cpp)
+    target_include_directories(engine_frustum_culling_test PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+    target_link_libraries(engine_frustum_culling_test PRIVATE engine::render bgfx::bx)
+    engine_apply_options(engine_frustum_culling_test)
+    add_test(NAME runtime.frustum_culling COMMAND engine_frustum_culling_test)
+
     add_executable(engine_planar_reflection_test runtime/render/planar_reflection_test.cpp)
     target_include_directories(engine_planar_reflection_test PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
     target_link_libraries(engine_planar_reflection_test PRIVATE engine::render bgfx::bx)
@@ -521,6 +534,24 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
 endif()
 
 if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
+    add_executable(engine_mesh_lod_test editor/mesh/mesh_lod_test.cpp)
+    target_include_directories(engine_mesh_lod_test PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+    get_target_property(_mesh_lod_test_toml_includes tomlplusplus::tomlplusplus
+                        INTERFACE_INCLUDE_DIRECTORIES)
+    target_include_directories(engine_mesh_lod_test SYSTEM PRIVATE ${_mesh_lod_test_toml_includes})
+    target_compile_definitions(engine_mesh_lod_test PRIVATE TOML_HEADER_ONLY=1 TOML_EXCEPTIONS=0)
+    target_link_libraries(engine_mesh_lod_test PRIVATE engine_editor_mesh_tangents engine::resource)
+    engine_apply_options(engine_mesh_lod_test)
+    add_test(NAME editor.mesh_lod COMMAND engine_mesh_lod_test)
+    if(TARGET engine_editor)
+        add_executable(engine_mesh_lod_pipeline_test editor/asset_pipeline/mesh_lod_pipeline_test.cpp)
+        target_link_libraries(engine_mesh_lod_pipeline_test
+                              PRIVATE engine::editor engine::asset_pipeline engine::resource)
+        engine_apply_options(engine_mesh_lod_pipeline_test)
+        add_test(NAME editor.mesh_lod_pipeline COMMAND engine_mesh_lod_pipeline_test)
+        set_tests_properties(editor.mesh_lod_pipeline PROPERTIES TIMEOUT 120)
+    endif()
+
     add_executable(engine_mesh_pipeline_test editor/asset_pipeline/mesh_pipeline_test.cpp)
     target_link_libraries(engine_mesh_pipeline_test PRIVATE engine::asset_pipeline engine::resource)
     engine_apply_options(engine_mesh_pipeline_test)
@@ -1268,4 +1299,32 @@ if(TARGET engine_editor AND TARGET engine_asset_pipeline)
                                                              engine::world engine::resource)
     engine_apply_options(engine_prefab_commands_test)
     add_test(NAME editor.prefab_commands COMMAND engine_prefab_commands_test)
+endif()
+
+if(TARGET engine_runtime AND TARGET engine_render)
+    add_executable(engine_atmosphere_hex_test runtime/render/atmosphere_hex_test.cpp)
+    target_include_directories(engine_atmosphere_hex_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/support")
+    target_link_libraries(engine_atmosphere_hex_test PRIVATE engine::runtime engine::window
+        engine::render engine::world engine::resource SDL3::SDL3 bgfx::bimg)
+    engine_apply_options(engine_atmosphere_hex_test)
+    if(NOT CMAKE_CROSSCOMPILING)
+        add_test(NAME engine.atmosphere_hex COMMAND engine_atmosphere_hex_test)
+        set_tests_properties(engine.atmosphere_hex PROPERTIES TIMEOUT 90 RUN_SERIAL TRUE)
+    endif()
+endif()
+
+if(TARGET engine_runtime AND TARGET engine_render AND TARGET engine_resource_graph)
+    add_executable(engine_render_submission_test runtime/render/render_submission_test.cpp)
+    target_include_directories(engine_render_submission_test
+                               PRIVATE "${PROJECT_SOURCE_DIR}/src/engine"
+                                       "${CMAKE_CURRENT_SOURCE_DIR}/support")
+    target_link_libraries(engine_render_submission_test
+                          PRIVATE engine::runtime engine::window engine::render engine::world
+                                  engine::resource engine::resource_graph SDL3::SDL3)
+    engine_apply_options(engine_render_submission_test)
+    if(ENGINE_ENABLE_GPU_TESTS)
+        add_test(NAME engine.render_submission COMMAND engine_render_submission_test)
+        set_tests_properties(engine.render_submission
+                             PROPERTIES TIMEOUT 120 RUN_SERIAL TRUE SKIP_RETURN_CODE 77)
+    endif()
 endif()

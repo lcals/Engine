@@ -22,7 +22,9 @@ python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app \
 | 预制体 | `create_prefab`、`create_prefab_from_model`、`instantiate_prefab`、`link_prefab`、`unlink_prefab`、`get_prefab_instance`、`set_prefab_override`、`revert_prefab_override` | 支持子树模板与模型关联模板、独立实例及字段覆盖；嵌套、变体与应用实例覆盖到模板尚未开放，操作见[制作流程](../../editor/prefabs.md) |
 | 编辑事务 | `execute_batch`、`undo`、`redo`、`get_editor_receipt` | 只针对已登记的可撤销编辑；运行脚本、模拟输入、播放和冲量不属于可回滚事务 |
 | 预览与截图 | `open_scene_preview`、`close_scene_preview`、`get_scene_preview`、`set_preview_camera`、`refresh_scene_preview`、`capture_frame`、`get_frame_capture` | 截图须查询实际完成；预览不启动项目玩法 |
-| 环境与后处理 | `get_render_settings`、`set_render_settings`、`set_render_stats` | 已有环境光、IBL 强度、雾、曝光、AO、HDR/Bloom、方向光 CSM；已补 SSR 参数 |
+| 环境与后处理 | `get_render_settings`、`set_render_settings`、`set_render_stats` | 已有环境光、IBL 强度、雾、曝光、AO、HDR/Bloom、方向光 CSM 和 SSR；大气天空参数归环境组件，太阳引用使用真实 NodeID |
+| 运行渲染能力与诊断 | `get_render_features`、`set_render_feature`、`get/set_mesh_render_settings`、`get_render_submission_stats`、`draw_debug_lines` | 统一入口路由到 Camera 剔除、MeshRenderer 实例化/LOD、环境天空和材质 Hex；组件新能力默认关闭，五项诊断与统计仅通过 MCP；真实逐视图提交计数不等于 GPU 完成 |
+| 静态模型 LOD 导入 | `get_mesh_lod_import`、`set_mesh_lod_import` | 源 meta 原子更新，正式管线生成减面级别；与每个 MeshRenderer 的运行选择分离 |
 | 灯光与材质 | `set_light`、`set_camera`、`set_material_type`、`set_material_parameter`、`set_material_texture` | 局部灯阴影与 `set_material_blend_mode` 已补齐；水面数值和贴图继续使用具名材质参数，不新增水体专用参数框架 |
 | 反射与间接光 | `bake_scene`、`get_scene_bake`、`cancel_scene_bake` | 已增加 `get/set_planar_reflection`、`get/set_light_probe_volume`、`get/set_mesh_lighting`；资源版本与烘焙身份参与撤销校验 |
 | 建模 | `modeling_help/create/get/select/edit/delete/duplicate/combine/separate/save/load` | 通过 `modeling_help` 查询具体操作；不是每个几何运算都新增顶层工具 |
@@ -63,3 +65,7 @@ python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app \
 - V8 本轮只完成修改文件的语法编译，实际执行回归使用默认 QuickJS；其他平台未复验。真实 showcase 交互结果另见[范例覆盖记录](../../editor/showcase-coverage.md)。
 
 真实 showcase 端到端也已通过：MCP 在当前 Run 读写同一实例、正常鼠标点击进入/返回场景、Unicode 输入触发 Model 事件、常驻控件保留及延迟关闭；使用 macOS Metal Release 编辑器，退出码 0。此结果不扩大为全部范例或所有 UI 控件均已验收。
+
+## 2026-11-04 上游渲染能力增量
+
+本轮在已有渲染工具登记中增加统一功能查询/开关、MeshRenderer 运行属性读写、逐视图提交查询、临时调试线和源资源 LOD 配置，共 8 项工具；该登记函数当前为 19 项。完整桌面工具总数以当前二进制为准，不把旧版 125 项核对当作新增能力验收。macOS Metal Release 的真实固定 384 对象用例已通过 UI/MCP 开关、组件撤销/重做、诊断、正式 LOD、天空/Hex 及两次返回重进，结果和限制见[集中记录](../../testing.md#上游渲染能力与统一-mcp-功能验收2026-11-04)。组件和诊断的归属见[统一入口契约](render-feature-mcp-plan.md)。

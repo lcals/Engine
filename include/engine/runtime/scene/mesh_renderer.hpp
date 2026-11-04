@@ -60,6 +60,10 @@ public:
     // 瞬态绘制开关，不进入持久数据，不停用组件行为或动画。
     [[nodiscard]] bool cast_shadows() const noexcept;
     void set_cast_shadows(bool enabled) noexcept;
+    [[nodiscard]] bool static_instancing_enabled() const noexcept;
+    [[nodiscard]] bool set_static_instancing_enabled(bool enabled) noexcept;
+    [[nodiscard]] bool static_lod_enabled() const noexcept;
+    [[nodiscard]] bool set_static_lod_enabled(bool enabled) noexcept;
     [[nodiscard]] bool bake_static() const noexcept;
     [[nodiscard]] bool set_bake_static(bool enabled) noexcept;
     [[nodiscard]] std::string_view lightmap_path() const noexcept;

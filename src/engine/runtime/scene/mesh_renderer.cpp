@@ -82,6 +82,46 @@ void MeshRenderer::set_cast_shadows(bool enabled) noexcept
     modified();
 }
 
+bool MeshRenderer::static_instancing_enabled() const noexcept
+{
+    const auto* data = read_data<Data>();
+    return data && data->static_instancing_enabled;
+}
+
+bool MeshRenderer::set_static_instancing_enabled(bool enabled) noexcept
+{
+    if (!writable())
+    {
+        return false;
+    }
+    if (write_data<Data>()->static_instancing_enabled != enabled)
+    {
+        write_data<Data>()->static_instancing_enabled = enabled;
+        modified();
+    }
+    return true;
+}
+
+bool MeshRenderer::static_lod_enabled() const noexcept
+{
+    const auto* data = read_data<Data>();
+    return data && data->static_lod_enabled;
+}
+
+bool MeshRenderer::set_static_lod_enabled(bool enabled) noexcept
+{
+    if (!writable())
+    {
+        return false;
+    }
+    if (write_data<Data>()->static_lod_enabled != enabled)
+    {
+        write_data<Data>()->static_lod_enabled = enabled;
+        modified();
+    }
+    return true;
+}
+
 bool MeshRenderer::bake_static() const noexcept
 {
     if (!valid())

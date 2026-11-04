@@ -1,7 +1,9 @@
 #pragma once
 
 #include "runtime/render/passes/ambient_occlusion_pass.hpp"
+#include "runtime/render/passes/atmosphere_pass.hpp"
 #include "runtime/render/passes/clustered_lighting_pass.hpp"
+#include "runtime/render/passes/debug_draw_pass.hpp"
 #include "runtime/render/passes/hdr_post_process_pass.hpp"
 #include "runtime/render/passes/planar_reflection_pass.hpp"
 #include "runtime/render/passes/screen_space_reflection_pass.hpp"
@@ -28,6 +30,16 @@ class Resource;
 // 独占当前场景GPU资源；由RenderSystem在bgfx关闭前释放，组件借用不跨帧保存。
 struct RenderSystem::SceneGpuResources
 {
+    std::vector<RenderViewStats> view_stats;
+    bool culling_applied = false;
+    bool lod_applied = false;
+    render_detail::AtmospherePass atmosphere;
+    render_detail::DebugDrawPass debug_draw;
+    std::map<std::pair<std::uint64_t, std::uint16_t>, std::size_t> selected_lods;
+    std::map<std::pair<std::uint64_t, std::uint16_t>, std::uint64_t> selected_lod_revisions;
+    std::uint32_t frame_time_stamp = UINT32_MAX;
+    std::array<float, 4> frame_time{};
+    bgfx::UniformHandle frame_time_uniform = BGFX_INVALID_HANDLE;
     std::vector<render_detail::GpuMesh> meshes;
     std::map<const Resource*, std::weak_ptr<render_detail::GpuGeometry>> geometries;
     render_detail::SkinningPass skinning;

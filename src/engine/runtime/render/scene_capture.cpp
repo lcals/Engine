@@ -13,7 +13,6 @@
 #include "runtime/world/world_system.hpp"
 #include <algorithm>
 #include <bx/math.h>
-#include <bx/math.h>
 #include <cmath>
 #include <set>
 #include <utility>
@@ -294,6 +293,7 @@ bool capture_snapshot(const WorldSystem& world, const SceneCaptureRequest& reque
         }
         append_component(output, light);
     }
+    std::uint64_t atmosphere_sun_id = 0;
     auto environments =
         flecs::world(world.native_world())
             .query_builder<const ecs_detail::ComponentStorage<EnvironmentComponent::Data>,
@@ -308,8 +308,44 @@ bool capture_snapshot(const WorldSystem& world, const SceneCaptureRequest& reque
             {
                 append_component(
                     output, world.find_node(entity.id()).get_component<EnvironmentComponent>());
+                if (stored.data.atmosphere_enabled)
+                {
+                    atmosphere_sun_id = stored.data.atmosphere_sun_node_id;
+                }
             }
         });
+    if (atmosphere_sun_id != 0)
+    {
+        bool found_sun = false;
+        auto suns =
+            flecs::world(world.native_world())
+                .query_builder<const ecs_detail::ComponentStorage<Light::Data>,
+                               const schema::NodePropertiesT, const ecs_detail::NodeRuntime>()
+                .with<ecs_detail::Published>()
+                .build();
+        suns.each(
+            [&](flecs::entity entity, const auto& stored, const auto& properties,
+                const ecs_detail::NodeRuntime& state)
+            {
+                if (state.scene != world.scene() || properties.id != atmosphere_sun_id)
+                {
+                    return;
+                }
+                const auto light = world.find_node(entity.id()).get_component<Light>();
+                found_sun = state.active && state.visible_in_hierarchy &&
+                            stored.state.flags.enabled && stored.state.flags.visible &&
+                            stored.data.kind == schema::LightKind::directional &&
+                            append_node(entity.id());
+                if (found_sun)
+                {
+                    append_component(output, light);
+                }
+            });
+        if (!found_sun)
+        {
+            return false;
+        }
+    }
     return true;
 }
 } // namespace
@@ -348,6 +384,7 @@ bool RenderSystem::draw_diffuse_capture(const RenderSettings& rendering)
         float capture_world[16];
         bx::mtxInverse(capture_world, request.view.data());
         render_detail::SceneDrawView draw;
+        draw.renderer = this;
         draw.id = render_detail::capture_view;
         draw.width = request.width;
         draw.height = request.height;
@@ -660,6 +697,25 @@ bool RenderSystem::SceneGpuResources::prepare_capture(const SceneCaptureRequest&
 bool RenderSystem::SceneGpuResources::draw_capture_sky(const SceneCaptureRequest& request,
                                                        const RenderSettings& settings)
 {
+    if (settings.atmosphere.atmosphere_enabled)
+    {
+        // An explicit capture must not publish a bake with silently missing sky.
+        if (!settings.atmosphere_sun_valid || !render_detail::AtmospherePass::supported())
+        {
+            return false;
+        }
+        float camera_world[16]{};
+        bx::mtxInverse(camera_world, request.view.data());
+        render_detail::SceneDrawView draw;
+        draw.id = render_detail::capture_view;
+        draw.width = request.width;
+        draw.height = request.height;
+        draw.world = camera_world;
+        draw.view = request.view.data();
+        draw.projection = request.projection.data();
+        return atmosphere.draw(settings.atmosphere_scene_id, settings, draw, 3,
+                               render_detail::atmosphere_capture_skyview);
+    }
     if (!bgfx::isValid(capture_sky_program))
     {
         const auto vertex = bgfx::createShader(bgfx::copy(vs_hdr, sizeof(vs_hdr)));
@@ -726,12 +782,12 @@ bool RenderSystem::SceneGpuResources::draw_capture_sky(const SceneCaptureRequest
     const float ground[]{settings.ambient_ground_color[0], settings.ambient_ground_color[1],
                          settings.ambient_ground_color[2], 0};
     bgfx::setUniform(capture_inverse, inverse);
-    bgfx::setUniform(capture_mode, mode);
-    bgfx::setUniform(ibl_params, ibl);
-    bgfx::setUniform(ambient, ambient_value);
-    bgfx::setUniform(ambient_sky, sky);
-    bgfx::setUniform(ambient_equator, equator);
-    bgfx::setUniform(ambient_ground, ground);
+    bgfx::setViewUniform(render_detail::capture_view, capture_mode, mode);
+    bgfx::setViewUniform(render_detail::capture_view, ibl_params, ibl);
+    bgfx::setViewUniform(render_detail::capture_view, ambient, ambient_value);
+    bgfx::setViewUniform(render_detail::capture_view, ambient_sky, sky);
+    bgfx::setViewUniform(render_detail::capture_view, ambient_equator, equator);
+    bgfx::setViewUniform(render_detail::capture_view, ambient_ground, ground);
     bgfx::setTexture(13, ibl_prefilter_sampler,
                      ibl_ready ? ibl_textures[1].handle : ibl_cube_fallback);
     bgfx::setVertexBuffer(0, capture_fullscreen);

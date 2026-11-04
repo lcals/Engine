@@ -65,6 +65,12 @@ bool CameraCodec::read(const toml::table& table, schema::ComponentDataT& compone
         value.projection = projection == "perspective" ? schema::Projection::perspective
                                                        : schema::Projection::orthographic;
     }
+    if (table.contains("frustum_culling_enabled") && !table["frustum_culling_enabled"].is_boolean())
+    {
+        error = "camera frustum_culling_enabled must be boolean";
+        return false;
+    }
+    value.frustum_culling_enabled = table["frustum_culling_enabled"].value_or(false);
     component.payload.Set(std::move(value));
 
     return true;
@@ -80,6 +86,7 @@ void CameraCodec::write(const schema::ComponentDataT& component, toml::table& va
     value.insert("far_clip", camera->far_clip);
     value.insert("projection", schema::EnumNameProjection(camera->projection));
     value.insert("orthographic_size", camera->orthographic_size);
+    value.insert("frustum_culling_enabled", camera->frustum_culling_enabled);
 }
 
 } // namespace engine::editor::asset_pipeline

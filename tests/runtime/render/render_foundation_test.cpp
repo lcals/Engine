@@ -166,6 +166,37 @@ bool check_scene_render_settings(const engine::EngineConfig& config)
     engine::WorldSystem world;
     engine::WindowSystem windows;
     engine::RenderSystem renderer(windows, &world);
+    const auto initial = renderer.feature_state(engine::RenderFeature::frustum_culling);
+    if (!expect(!initial.requested && !initial.supported && !initial.effective &&
+                    initial.reason == engine::RenderFeatureReason::device_unavailable &&
+                    renderer.submission_stats().empty(),
+                "uninitialized feature queries report unavailable device") ||
+        !expect(!renderer.set_debug_feature(engine::RenderFeature::wireframe, true) &&
+                    !renderer.feature_state(engine::RenderFeature::wireframe).requested &&
+                    !renderer.set_debug_feature(static_cast<engine::RenderFeature>(255), true),
+                "unsupported or unknown requests preserve existing feature state") ||
+        !expect(!renderer.set_debug_feature(engine::RenderFeature::frustum_culling, false) &&
+                    !renderer.set_debug_feature(engine::RenderFeature::static_instancing, true) &&
+                    !renderer.set_debug_feature(engine::RenderFeature::static_lod, true),
+                "runtime component properties cannot be written through temporary debug controls"))
+    {
+        return false;
+    }
+    renderer.set_stats_visible(true);
+    if (!expect(renderer.stats_visible() &&
+                    renderer.feature_state(engine::RenderFeature::stats).requested &&
+                    renderer.set_debug_feature(engine::RenderFeature::stats, false) &&
+                    !renderer.stats_visible(),
+                "legacy stats and unified feature entry share one state"))
+    {
+        return false;
+    }
+    const engine::DebugLine line{{0, 0, 0}, {1, 1, 1}, 0xffffffff, true};
+    if (!expect(!renderer.draw_debug_lines(std::span(&line, 1)),
+                "debug lines reject an unavailable renderer without retaining work"))
+    {
+        return false;
+    }
     if (!world.initialize(config))
     {
         return false;
@@ -849,9 +880,9 @@ int main()
     }
     auto* scene = world.create_scene("Render foundation");
     if (!expect(scene != nullptr, "create scene") || !check_tangent_aliasing() ||
-        !check_camera_and_light(*scene) ||
-        !check_ecs_handle_lifetime(*scene) || !check_mesh(*scene) || !check_deformation(*scene) ||
-        !check_skinning_palette(*scene) || !check_textures(resources, *scene, false))
+        !check_camera_and_light(*scene) || !check_ecs_handle_lifetime(*scene) ||
+        !check_mesh(*scene) || !check_deformation(*scene) || !check_skinning_palette(*scene) ||
+        !check_textures(resources, *scene, false))
     {
         return 1;
     }

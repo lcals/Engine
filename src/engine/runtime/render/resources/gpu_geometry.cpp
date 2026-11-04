@@ -185,14 +185,30 @@ bool GpuGeometry::create(const MeshRenderer& renderer)
         ENGINE_PROFILE_ZONE("Render.geometryBuffersSubmit");
         vertices = bgfx::createVertexBuffer(
             bgfx::copy(packed.data(), static_cast<std::uint32_t>(vertex_bytes)), vertex_layout(),
-            data->skin.empty() ? BGFX_BUFFER_NONE : BGFX_BUFFER_COMPUTE_READ);
+            BGFX_BUFFER_COMPUTE_READ);
         indices = bgfx::createIndexBuffer(
             bgfx::copy(data->indices.data(), static_cast<std::uint32_t>(index_bytes)),
-            BGFX_BUFFER_INDEX32);
+            BGFX_BUFFER_INDEX32 | BGFX_BUFFER_COMPUTE_READ);
     }
     if (!bgfx::isValid(vertices) || !bgfx::isValid(indices))
     {
         return false;
+    }
+    index_count_ = static_cast<std::uint32_t>(data->indices.size());
+    submeshes_ = data->submeshes;
+    for (const auto& level : data->lods)
+    {
+        Lod lod;
+        lod.index_count = static_cast<std::uint32_t>(level->indices.size());
+        lod.submeshes = level->submeshes;
+        lod.indices = bgfx::createIndexBuffer(
+            bgfx::copy(level->indices.data(), lod.index_count * sizeof(std::uint32_t)),
+            BGFX_BUFFER_INDEX32 | BGFX_BUFFER_COMPUTE_READ);
+        if (!bgfx::isValid(lod.indices))
+        {
+            return false;
+        }
+        lods_.push_back(std::move(lod));
     }
     resource = renderer.mesh_resource();
     vertex_count = static_cast<std::uint32_t>(packed.size());
@@ -258,11 +274,49 @@ std::uint32_t GpuGeometry::resource_count() const noexcept
 {
     return static_cast<std::uint32_t>(bgfx::isValid(vertices)) +
            static_cast<std::uint32_t>(bgfx::isValid(indices)) +
-           static_cast<std::uint32_t>(bgfx::isValid(influences));
+           static_cast<std::uint32_t>(bgfx::isValid(influences)) +
+           static_cast<std::uint32_t>(lods_.size());
+}
+
+bgfx::IndexBufferHandle GpuGeometry::index_buffer(std::size_t level) const noexcept
+{
+    return level == 0              ? indices
+           : level <= lods_.size() ? lods_[level - 1].indices
+                                   : bgfx::IndexBufferHandle{bgfx::kInvalidHandle};
+}
+
+std::uint32_t GpuGeometry::index_count(std::size_t level) const noexcept
+{
+    return level == 0 ? index_count_ : level <= lods_.size() ? lods_[level - 1].index_count : 0;
+}
+
+std::span<const schema::MeshSubmesh> GpuGeometry::submeshes(std::size_t level) const noexcept
+{
+    if (level == 0)
+    {
+        return submeshes_;
+    }
+    return level <= lods_.size() ? std::span<const schema::MeshSubmesh>(lods_[level - 1].submeshes)
+                                 : std::span<const schema::MeshSubmesh>{};
+}
+
+std::size_t GpuGeometry::lod_count() const noexcept
+{
+    return lods_.size() + 1;
 }
 
 void GpuGeometry::release() noexcept
 {
+    for (auto& lod : lods_)
+    {
+        if (bgfx::isValid(lod.indices))
+        {
+            bgfx::destroy(lod.indices);
+        }
+    }
+    lods_.clear();
+    submeshes_.clear();
+    index_count_ = 0;
     for (auto* handle : {&vertices, &influences})
     {
         if (bgfx::isValid(*handle))
