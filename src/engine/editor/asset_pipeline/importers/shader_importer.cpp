@@ -402,6 +402,7 @@ bool ShaderImporter::inspect_batch(const ImportContext& context, std::string& fi
     std::string platform;
     std::string profile;
     std::string version;
+    std::string compiler_hash;
     std::string include_hash;
     std::filesystem::path compiler;
     std::filesystem::path includes;
@@ -410,6 +411,7 @@ bool ShaderImporter::inspect_batch(const ImportContext& context, std::string& fi
         !shader_target(context.target_platform, platform, profile) ||
         !schema_fingerprint({"shader.fbs"}, fingerprint, error) ||
         !run_process({PathUtils::to_utf8(compiler), "--version"}, error, &version) ||
+        !file_hash(compiler, compiler_hash, error) ||
         !file_hash(includes / "bgfx_shader.sh", include_hash, error))
     {
         if (error.empty())
@@ -418,7 +420,9 @@ bool ShaderImporter::inspect_batch(const ImportContext& context, std::string& fi
         }
         return false;
     }
-    fingerprint += ":" + platform + ":" + profile + ":" + version + ":" + include_hash;
+    // Upstream compiler dependencies can change while shaderc reports the same bgfx API version.
+    fingerprint +=
+        ":" + platform + ":" + profile + ":" + version + ":" + compiler_hash + ":" + include_hash;
     return true;
 }
 

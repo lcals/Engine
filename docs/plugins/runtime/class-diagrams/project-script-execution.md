@@ -124,18 +124,19 @@ ScriptVm 只增加一个内部方法，失败原因沿用既有 `last_error()`�
 本次脚本失败不自动停止 Run，不覆盖 Gameplay 生命周期的失败策略。
 不向核心公开 VM 类型、函数对象或模块 namespace。
 
-当前 QuickJS 后端使用 quickjs-ng 0.10.1。上游
-[`JSModuleDef` 生命周期](https://github.com/quickjs-ng/quickjs/blob/v0.10.1/quickjs.c)
+当前 QuickJS 后端使用 quickjs-ng 0.18.0。上游
+[`JSModuleDef` 生命周期](https://github.com/quickjs-ng/quickjs/blob/v0.18.0/quickjs.c)
 会把已解析模块保存在 context 的 `loaded_modules` 中，直到 context 销毁；
 仅释放外部 JSValue 不会卸载该模块。因此临时请求不逐次增加新的 ES module，
 也不修改上游增加卸载接口。
 
 实施方式复用官方编译器与两个 VM 的普通函数能力：
 
-1. TypeScript 官方编译器把本次 TS 输出为 ES2022 目标的 CommonJS 代码。
-   该模式显式选择与 CommonJS 兼容的模块解析选项，并关闭 esModuleInterop 和
-   synthetic default import；默认导入直接读取缓存 namespace 的真实 default 导出，
-   不能把整个 ESM namespace 包装成 default。保留项目 paths、严格类型选项及引擎声明，
+1. TypeScript 7 官方原生编译器把本次 TS 输出为 ES2022 目标的 CommonJS 代码。
+   沿用项目 paths、严格类型选项与引擎声明，通过官方 Bundler 解析模式确认导入。
+   该版本的 CommonJS 输出固定使用 ESM interop；给缓存的真实 ESM namespace
+   添加本次请求局部的 Proxy 视图，仅向官方 helper 暴露 `__esModule` 标记，
+   保留 namespace 身份、default 导出和活绑定，不修改原 namespace 或再包装 default。
    不自行改写 import/export，不打包或重新编译运行中的项目模块。
 2. 在活动 VM 内编译一段具有 `exports`、`module`、`require` 局部参数的临时函数。
    这三个名字只在本次函数作用域存在，不写全局、不注册新引擎绑定。

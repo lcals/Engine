@@ -1,8 +1,6 @@
-diff --git a/pxr/usd/pcp/primIndex.h b/pxr/usd/pcp/primIndex.h
-index 6b31c7da4..285d13fa7 100644
 --- a/pxr/usd/pcp/primIndex.h
 +++ b/pxr/usd/pcp/primIndex.h
-@@ -69,7 +69,7 @@ public:
+@@ -70,7 +70,7 @@
      PcpPrimIndex(const PcpPrimIndex& rhs);
  
      /// Move-construction
@@ -11,7 +9,7 @@ index 6b31c7da4..285d13fa7 100644
  
      /// Assignment.
      PcpPrimIndex &operator=(const PcpPrimIndex &rhs) {
-@@ -78,7 +78,7 @@ public:
+@@ -79,7 +79,7 @@
      }
  
      // Move-assignment.

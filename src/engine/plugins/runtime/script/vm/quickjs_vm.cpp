@@ -198,7 +198,7 @@ public:
     [[nodiscard]] bool identifier(int index, std::uint64_t& output) const override
     {
         output = 0;
-        if (!in_range(index) || !JS_IsBigInt(context_, values_[index]))
+        if (!in_range(index) || !JS_IsBigInt(values_[index]))
         {
             return false;
         }
@@ -320,7 +320,7 @@ public:
             return fail("Cannot create QuickJS runtime");
         }
         JS_SetMaxStackSize(runtime_, 1024 * 1024);
-        JS_SetModuleLoaderFunc(runtime_, normalize, load, this);
+        JS_SetModuleLoaderFunc2(runtime_, normalize, load, check_import_attributes, this);
         JS_SetHostPromiseRejectionTracker(runtime_, rejection, this);
         context_ = JS_NewContext(runtime_);
         if (context_ == nullptr)
@@ -496,17 +496,17 @@ public:
         const auto source = project_script_wrapper(request.javascript);
         const std::string name(request.module_path);
         Value function(context_, JS_Eval(context_, source.c_str(), source.size(), name.c_str(),
-                                          JS_EVAL_TYPE_GLOBAL | JS_EVAL_FLAG_STRICT));
+                                         JS_EVAL_TYPE_GLOBAL | JS_EVAL_FLAG_STRICT));
         if (JS_IsException(function.get()) || !JS_IsFunction(context_, function.get()))
         {
             return exception("Cannot compile temporary project script");
         }
         Value serial(context_, JS_NewBigUint64(context_, ++script_serial_));
         auto serial_value = serial.get();
-        Value require(context_, JS_NewCFunctionData(context_, require_cached_module, 1, 0, 1,
-                                                     &serial_value));
+        Value require(context_,
+                      JS_NewCFunctionData(context_, require_cached_module, 1, 0, 1, &serial_value));
         Value arguments(context_, JS_NewStringLen(context_, request.arguments_json.data(),
-                                                   request.arguments_json.size()));
+                                                  request.arguments_json.size()));
         if (JS_IsException(require.get()) || JS_IsException(arguments.get()))
         {
             return exception("Cannot prepare temporary project script arguments");
@@ -540,7 +540,7 @@ public:
 
 private:
     static JSValue require_cached_module(JSContext* context, JSValueConst, int count,
-                                          JSValueConst* values, int, JSValue* data)
+                                         JSValueConst* values, int, JSValueConst* data)
     {
         auto* machine = static_cast<QuickJsVm*>(JS_GetContextOpaque(context));
         std::uint64_t serial = 0;
@@ -555,13 +555,13 @@ private:
         if (!resolve_module_path(machine->script_path_, request, path))
         {
             return JS_ThrowTypeError(context, "Unsupported project script import: %s",
-                                      request.c_str());
+                                     request.c_str());
         }
         const auto found = machine->modules_.find(path);
         if (found == machine->modules_.end())
         {
             return JS_ThrowReferenceError(context, "Module is not loaded in the active Run: %s",
-                                           path.c_str());
+                                          path.c_str());
         }
         return machine->module_namespace(found->second);
     }
@@ -693,7 +693,7 @@ private:
         return true;
     }
     static JSValue invoke(JSContext* context, JSValueConst, int count, JSValueConst* values, int,
-                          JSValue* data)
+                          JSValueConst* data)
     {
         auto* machine = static_cast<QuickJsVm*>(JS_GetContextOpaque(context));
         std::int32_t index = -1;
@@ -727,7 +727,16 @@ private:
         }
         return js_strndup(context, path.data(), path.size());
     }
-    static JSModuleDef* load(JSContext*, const char* name, void* opaque)
+    static int check_import_attributes(JSContext* context, void*, JSValueConst attributes)
+    {
+        if (JS_IsUndefined(attributes))
+        {
+            return 0;
+        }
+        (void)JS_ThrowSyntaxError(context, "Import attributes are not supported");
+        return -1;
+    }
+    static JSModuleDef* load(JSContext*, const char* name, void* opaque, JSValueConst)
     {
         auto& machine = *static_cast<QuickJsVm*>(opaque);
         const JSValueConst module = machine.compile(name);

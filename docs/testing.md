@@ -250,6 +250,36 @@ python3 tests/plugins/editor/scene_bake/scene_lighting_gpu_test.py --run \
 
 ## 有日期的验证记录
 
+### 2026-11-04：V8 15.7 与升级后完整依赖，macOS ARM64 / Metal
+
+固定 V8 15.7.112.23 的正式工具链完成 macOS 13.3 部署目标下的实际重编：Debug 库 1,670 项、Release 库 1,655 项均成功；只执行 Release 上游 `Hello, World!`。保留 sandbox，使用已验证的厂商 libc++ EXTENSIVE 硬化，不以关闭安全检查或可用性诊断通过编译。准备探针验证合法访问和 vector / span / string 越界 trap，所有 V8 C++ 编译均强制版本 / 硬化模式守卫。随后根 Presets `local-ninja-v8-release` / `local-ninja-v8-debug` 全目标构建成功，包含本轮 Quill / SDL 日志桥；Debug 只编译。
+
+V8 后端完整 Release CTest **126/126 通过**，包括真实 JavaScript 执行、默认关闭能力检查、项目脚本、热重载与回滚、TS7 编译、UI MVC、导航 / 破坏绑定、GameplaySession、MCP、资源管线和真实 Metal 渲染回归。输出为 `build/dependencies-upgrade/ctest-v8-release-final.log`，引擎构建为同目录 `build-v8-integration-release-final.log` / `build-v8-integration-debug-final.log`；库构建为 `v8-build-release-macos-13.3.log` / `v8-build-debug-macos-13.3.log`。最后的原生后端编译回执为 `build-native-release-final.log` / `build-native-debug-final.log`，格式收尾后日志及 FBX / 动画六项 Release 回归也全部通过，见 `ctest-native-final-check.log`。
+
+新版 V8 的 Windows MSVC STL 与 Linux libstdc++ 尚未完成满足 sandbox 前提的嵌入适配，准备阶段明确拒绝，默认 QuickJS 不受该限制；macOS 宿主上的 Android 目前只验证独立标准库硬化探针，没有完成新版 V8 完整引擎 APK / 真机验收。既有 vcpkg 静态库的 macOS 27.0 部署目标警告仍存在，见下一节；本机结果不代表完整包兼容 macOS 13.3。接口与移植边界见[脚本文档](plugins/runtime/scripting.md)。
+
+### 2026-11-04：Quill 日志统一接入，macOS ARM64 / Metal / QuickJS
+
+Quill 13.1.0 通过正式 vcpkg port 接入现有 `LogSystem`，异步队列、后台格式化和刷新使用上游实现。私有官方 Sink 扩展点保留无异常文件 I/O、4 MiB 三代轮换和 SDL 平台输出；现有窗口、渲染、UI 及第三方的 `SDL_Log*` 经 SDL 官方输出回调进入同一日志文件，保留平台 category、priority 和筛选，不重复平台输出，也不占用 MCP 标准输出。公开接口和日志路径不变，详见[日志类图](runtime/class-diagrams/log-system.md)。
+
+`local-ninja-debug` / `local-ninja-release` 完整构建与日志桥增量构建成功，Debug 未运行测试。Release `engine.app_log` 通过，覆盖真实 SDL 日志与原生日志混合并发、错误返回前文件可读、显式刷新、中文路径、轮换、打开失败、轮换失败后持续返回失败、重开恢复及 SDL callback / userdata 恢复。随后完整 Release CTest **125/125 通过**；输出为 `build/dependencies-upgrade/ctest-quill-release-final.log`，日志定向回归为同目录 `ctest-quill-log.log`，日志桥构建为 `build-quill-bridge-release.log` 和 `build-quill-bridge-debug.log`。
+
+本次运行使用当前 macOS 宿主。链接器仍报告共享依赖缓存中部分静态对象按 macOS 27.0 构建，高于引擎 / V8 的 13.3 部署目标；未屏蔽该警告，未将本机验收表述为完整发行包通过 macOS 13.3。较旧系统发行前须统一依赖部署目标并在相应系统验收。本节不代表其他平台的 Quill 或完整引擎已实测。
+
+### 2026-11-04：全量依赖升级，macOS ARM64 / Metal / QuickJS
+
+依赖固定版本、稳定渠道和保留版本的原因见[依赖版本表](development.md#当前固定版本)。本轮更新 vcpkg baseline、补齐正式发布较新的 overlays，升级 ozz-animation、TypeScript 及 Android 构建工具；未选择的脚本后端仍不进入当前配置。官方归档保留原始 SHA512，下载与二进制缓存继续复用。以下为 Quill 接入前的阶段记录，接入后的完整回归见上一节。
+
+`local-ninja-debug`、`local-ninja-release` 完整构建及最终增量构建成功，Debug 未运行测试。Release 完整 CTest **125/125 通过**，覆盖真实 Metal 窗口、HDR/PBR、透明、反射、字体/UI、ECS、物理与角色、导航、地形/破坏、动画、FBX/USD、资源管线、TS 编译、MCP、预制体和架构规则。完整输出为 `build/dependencies-upgrade/ctest-release-final.log`，最终构建回执为同目录的 `build-release-final-check.log` 和 `build-debug-final-check.log`。
+
+兼容迁移包括 Flecs 4.2 的真实 world / stage / readonly 契约、Jolt 5.6 的角色接触结构及法向冲量数组、efsw 1.7.3 的回调签名、QuickJS 0.18 的函数捕获参数和显式 import-attribute 检查。新增角色与刚体、角色与角色接触法线回归，分别检查 begin / stay 的 A-to-B 方向；原有场景所有权、候选恢复与阶段隔离断言保留。首次测试发现的 PBR 共用夹具漏文件和 MCP 测试替身竞态已修复；没有放宽生产超时、跳过断言或降低正式 Shader。
+
+TS7 使用官方原生编译器及同版 sync / AST API。公开范例成功输出 39 个模块，输入快照与批编译的 215 项指纹、依赖图一致；跨语言测试通过真实 FlatBuffers C++ / TS / C++ 往返。独立临时脚本回归保留 default / namespace 导出、静态 require、共享状态与非法导入拒绝检查。资源指纹同步覆盖本次 TinyEXR / stb 解码更新；真实临时 shaderc 内容变化、版本号及修改时间不变时，只重建 Shader，GUID、源数据与输出内容保持，下一轮全部命中缓存，正式工具文件未改变。
+
+升级后的 Release 编辑器通过正常管线重新导入公开范例，并在原参数、原机位、原生 1280×720 下完成 12 组 PBR 复拍；编辑器退出码为 0。12 张 PNG 与本轮升级前 `1793773436458021000` 的原图逐字节一致，画面没有因依赖升级发生变化。回执、原图、清单及校验结果见 `build/material-comparison/current/1793778263179463000/`。
+
+Android 工具链单独以 Gradle 9.8.2、AGP 9.5.0、NDK r30、Build Tools 37.0.0 完成最小 Release APK 构建、16 KiB 对齐和 v2 签名检查，28 项资源打包 Python 测试通过。该证据为工具链与打包检查，不能代替完整引擎 Android APK 或真机验收；本轮未验证 Windows、Linux 或 iOS 引擎构建。
+
 ### 2026-11-04：bgfx API 167，macOS ARM64 / Metal
 
 当前功能分支把 bgfx overlay 固定到 bgfx.cmake `1.167.9605-606`，运行库 API 为 `167`，宿主 `shaderc --version` 为 `1.19.167`。bgfx、bx、bimg 及工具随同一发布归档安装；SPIRV-Cross 保持 baseline 的 `1.4.309.0`，以 `#1` overlay 回补新 Shader 工具要求的上游 PointSize 查询。固定提交、补丁去留和工具范围见 [overlay 说明](../third_party/overlay-ports/README.md)。

@@ -31,7 +31,7 @@ class SetupTests(unittest.TestCase):
         self.executable("id", 'printf "0\\n"')
         self.executable("cat", '/bin/cat "$@"')
         for name, version in (
-            ("cmake", "cmake version 3.25.0"),
+            ("cmake", "cmake version 3.30.0"),
             ("git", "git version 2.40"),
             ("ninja", "1.11.0"),
             ("ccache", "ccache version 4.10"),
@@ -126,7 +126,7 @@ done""",
         self.assertEqual(self.run_setup("--install").returncode, 1)
 
     def test_old_cmake_is_rejected_even_after_package_installation(self):
-        (self.root / "version-cmake").write_text("cmake version 3.24.4")
+        (self.root / "version-cmake").write_text("cmake version 3.29.9")
         self.manager("apt-get")
         self.assertEqual(self.run_setup("--install").returncode, 1)
 

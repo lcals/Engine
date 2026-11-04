@@ -6,7 +6,7 @@ usage()
 {
     cat <<'EOF'
 用法：bash scripts/setup.sh [--check | --install] [--cache ccache|sccache|none]
-检查 CMake >= 3.25、Git、Ninja 和所选编译缓存；macOS/Linux 默认 ccache。
+检查 CMake >= 3.30、Git、Ninja 和所选编译缓存；macOS/Linux 默认 ccache。
 安装源：macOS Homebrew；Linux 当前系统的 apt-get、dnf 或 pacman 仓库。
 编译器、平台 SDK 和 vcpkg 仍按 README 准备。
 退出码：0 工具可用；1 缺失、安装或版本检查失败；2 参数或宿主环境不支持。
@@ -68,8 +68,8 @@ inspect_tools()
             if [[ "$output" =~ ^cmake[[:space:]]version[[:space:]]([0-9]+)\.([0-9]+) ]]; then
                 major=${BASH_REMATCH[1]}
                 minor=${BASH_REMATCH[2]}
-                if ((major < 3 || (major == 3 && minor < 25))); then
-                    printf '版本过低：%s；要求 CMake >= 3.25。\n' "${output%%$'\n'*}" >&2
+                if ((major < 3 || (major == 3 && minor < 30))); then
+                    printf '版本过低：%s；要求 CMake >= 3.30。\n' "${output%%$'\n'*}" >&2
                     missing+=("$tool")
                     continue
                 fi
@@ -173,7 +173,7 @@ else
     exit "$status"
 fi
 if ! inspect_tools; then
-    printf '%s\n' '安装后检查仍失败；请检查 PATH 和发行版仓库版本，准备 CMake >= 3.25 后重试。' >&2
+    printf '%s\n' '安装后检查仍失败；请检查 PATH 和发行版仓库版本，准备 CMake >= 3.30 后重试。' >&2
     exit 1
 fi
 printf '%s\n' '宿主构建工具安装与检查完成。'

@@ -12,7 +12,8 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
 
     find_package(Threads REQUIRED)
     engine_add_system(runtime log)
-    target_link_libraries(engine_log PRIVATE engine::app Threads::Threads SDL3::SDL3)
+    target_link_libraries(engine_log PRIVATE engine::app Threads::Threads SDL3::SDL3 quill::quill)
+    target_compile_definitions(engine_log PRIVATE QUILL_NO_EXCEPTIONS QUILL_DISABLE_NON_PREFIXED_MACROS)
 endif()
 
 if(ENGINE_ENABLE_RUNTIME_DEPS)

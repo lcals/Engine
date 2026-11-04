@@ -6,7 +6,11 @@
 
 ## 宿主环境
 
-需要支持 C++20 的编译器：Windows 安装 Visual Studio 2022+ 的 C++ 桌面开发工作负载，Linux 使用 GCC 或 Clang，macOS 安装 Xcode Command Line Tools。环境脚本负责检查、安装 CMake 3.25+、Git、Ninja 和编译缓存工具；Windows 默认使用 sccache，Linux / macOS 默认使用 ccache。默认只检查，显式传入安装参数才补齐工具，安装后重新运行版本检查，失败返回非零状态。
+需要支持 C++20 的编译器：Windows 安装 Visual Studio 2022+ 的 C++ 桌面开发工作负载，Linux 使用 GCC 或 Clang，macOS 安装 Xcode Command Line Tools。环境脚本负责检查、安装 CMake 3.30+、Git、Ninja 和编译缓存工具；Windows 默认使用 sccache，Linux / macOS 默认使用 ccache。Ozz Animation 0.17 起要求 CMake 3.30，因此根预设与环境检查同步提高最低版本。默认只检查，显式传入安装参数才补齐工具，安装后重新运行版本检查，失败返回非零状态。
+
+macOS 默认及最低部署目标为 **13.3**，与新版 V8 使用的系统 libc++ 格式化接口一致。`CMAKE_OSX_DEPLOYMENT_TARGET` 可显式提高；低于 13.3 时配置明确失败。引擎目标和 V8 GN 构建使用同一值，iOS 等其他平台保留各自工具链要求。
+
+发行到较旧 macOS 时，第三方静态库也必须按相同部署目标构建；修改主工程的值不会改变已经安装的依赖。仅在当前宿主构建、运行成功，不能据此认定完整程序已在 macOS 13.3 验收。
 
 Windows 从 Visual Studio 的 Developer PowerShell 执行以下命令（Ninja 需要已加载 MSVC / SDK 环境）：
 

@@ -32,8 +32,8 @@ layout.buildDirectory.set(file("../../../build/android-gradle/${nativeConfigurat
 android {
     namespace = 'org.engine.minimal'
     compileSdk = 35
-    buildToolsVersion = '36.1.0'
-    ndkVersion = '27.2.12479018'
+    buildToolsVersion = '37.0.0'
+    ndkVersion = '30.0.16248370'
     ndkPath = System.getenv('ANDROID_NDK_HOME')
     defaultConfig {
         applicationId = 'org.engine.minimal'

@@ -32,7 +32,7 @@ Jolt QuadTree 是三维 AABB 的四路树。当前实现复用上游树，未引
 `PhysicsSystem::set_mesh_parts` 按以下流程同步执行：
 
 1. 验证静态用途、组件配置与世界变换，复制列表并共享不可变网格。
-2. 按网格身份和实际烘入缩放复用叶子；变化叶使用 Jolt 5.4.0 `MeshShapeSettings::FavorBuildSpeed`，保留 active-edge 检测。该选项只改变 BVH 构建策略，不简化几何。
+2. 按网格身份和实际烘入缩放复用叶子；变化叶使用 Jolt 5.6.0 `MeshShapeSettings::FavorBuildSpeed`，保留 active-edge 检测。该选项只改变 BVH 构建策略，不简化几何。
 3. 复用未变组并构建必要的候选组/根；只有一个有效子形状时直接使用它。
 4. 全部成功后通过官方 `SetShape` 发布。局部变更以变化叶的旧、新世界 AABB 唤醒附近动态体；配置或姿态变化采用完整范围。
 5. 全空列表移除碰撞。失败保留旧组件与物理形状；地形事务也保留旧密度和 revision，不发布半完成候选。
@@ -60,7 +60,7 @@ Jolt QuadTree 是三维 AABB 的四路树。当前实现复用上游树，未引
 
 ## 开源来源
 
-实现复用 Jolt **5.4.0**（MIT）的公开接口和算法，未修改上游依赖。地形表面提取复用固定版本 Transvoxel（MIT），版本与来源见[总体方案](terrain-destruction-plan.md)。商业/私有参考源码、实现和资源不得进入仓库。
+当前实现复用 Jolt **5.6.0**（MIT）的公开接口和算法，未修改上游依赖。下列链接保留最初方案采用的 5.4.0 源码位置；依赖升级不改写设计来源。地形表面提取复用固定版本 Transvoxel（MIT），版本与来源见[总体方案](terrain-destruction-plan.md)。商业/私有参考源码、实现和资源不得进入仓库。
 
 - [MeshShapeSettings 与构建质量](https://github.com/jrouwe/JoltPhysics/blob/v5.4.0/Jolt/Physics/Collision/Shape/MeshShape.h)
 - [MeshShape BVH 实现](https://github.com/jrouwe/JoltPhysics/blob/v5.4.0/Jolt/Physics/Collision/Shape/MeshShape.cpp)

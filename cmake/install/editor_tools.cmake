@@ -58,6 +58,17 @@ function(engine_editor_export_arguments output)
         --support-directory
         "${ENGINE_TYPESCRIPT_PACKAGE_DIR}"
         "${_data}/node_modules/typescript")
+    # TypeScript 7 由同版本的官方平台包提供原生编译器。源目录由同一 Node 的平台
+    # 决定，不能按 configure 时已安装的包 glob，否则后续 npm ci 的包会漏出交付。
+    cmake_path(GET ENGINE_TYPESCRIPT_PACKAGE_DIR PARENT_PATH _typescript_node_modules)
+    execute_process(
+        COMMAND "${ENGINE_NODE_EXECUTABLE}" --print "process.platform + '-' + process.arch"
+        OUTPUT_VARIABLE _typescript_platform
+        OUTPUT_STRIP_TRAILING_WHITESPACE COMMAND_ERROR_IS_FATAL ANY)
+    set(_typescript_platform_name "typescript-${_typescript_platform}")
+    list(APPEND _arguments --support-directory
+         "${_typescript_node_modules}/@typescript/${_typescript_platform_name}"
+         "${_data}/node_modules/@typescript/${_typescript_platform_name}")
     if(APPLE)
         # Homebrew Node 可能使用 @rpath/libnode；给 BundleUtilities 原安装的库目录。
         cmake_path(GET _node_real PARENT_PATH _node_bin)

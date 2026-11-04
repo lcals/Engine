@@ -23,8 +23,8 @@ template <class T, class Data, class Runtime = void>
 bool register_component_storage(ComponentRegistry& registry)
 {
     using Storage = ecs_detail::ComponentStorage<Data>;
-    if (registry.native_world() == nullptr || ecs_stage_is_readonly(registry.native_world()) ||
-        ecs_is_deferred(registry.native_world()) || registry.contains(T::component_type) ||
+    if (registry.native_world() == nullptr || ecs_is_stage(registry.native_world()) ||
+        ecs_stage_is_readonly(registry.native_world()) || registry.contains(T::component_type) ||
         T::component_type == ComponentType::NONE)
     {
         return false;

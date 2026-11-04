@@ -1,6 +1,6 @@
 --- a/config/BUILDCONFIG.gn
 +++ b/config/BUILDCONFIG.gn
-@@ -243,7 +243,8 @@
+@@ -262,7 +262,8 @@
  
  if (target_os == "android") {
    # Targeting android on Mac is best-effort and not guaranteed to work.
@@ -12,15 +12,14 @@
    # See comments in build/toolchain/cros/BUILD.gn about board compiles.
 --- a/toolchain/mac/BUILD.gn
 +++ b/toolchain/mac/BUILD.gn
-@@ -21,6 +21,11 @@
+@@ -21,6 +21,10 @@
      toolchain_args = {
        forward_variables_from(invoker.toolchain_args, "*")
        current_os = "mac"
-+
 +      if (target_os == "android") {
 +        # Native snapshot tools use the installed Xcode linker. Android keeps LLD.
 +        use_lld = false
 +      }
- 
        if (target_os == "ios") {
          # Use LLD for the host part of a chrome/ios build.
+         use_lld = true

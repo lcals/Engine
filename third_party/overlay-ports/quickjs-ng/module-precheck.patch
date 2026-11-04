@@ -1,6 +1,6 @@
 --- a/quickjs.c
 +++ b/quickjs.c
-@@ -28045,6 +28045,27 @@
+@@ -30828,6 +30828,27 @@
      return m;
  }
  
@@ -26,9 +26,9 @@
 +}
 +
  static JSModuleDef *js_host_resolve_imported_module_atom(JSContext *ctx,
-                                                     JSAtom base_module_name,
-                                                     JSAtom module_name1)
-@@ -28052,10 +28073,10 @@
+                                                          JSAtom base_module_name,
+                                                          JSAtom module_name1,
+@@ -30836,10 +30857,10 @@
      const char *base_cname, *cname;
      JSModuleDef *m;
  
@@ -41,7 +41,7 @@
      if (!cname) {
          JS_FreeCString(ctx, base_cname);
          return NULL;
-@@ -35105,6 +35126,72 @@
+@@ -38431,6 +38452,72 @@
      return 0;
  }
  
@@ -116,7 +116,7 @@
  
 --- a/quickjs.h
 +++ b/quickjs.h
-@@ -1093,6 +1093,12 @@
+@@ -1329,6 +1329,12 @@
  /* load the dependencies of the module 'obj'. Useful when JS_ReadObject()
     returns a module. */
  JS_EXTERN int JS_ResolveModule(JSContext *ctx, JSValueConst obj);

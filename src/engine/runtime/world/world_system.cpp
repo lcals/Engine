@@ -289,7 +289,7 @@ std::uint64_t WorldSystem::epoch() const noexcept
 }
 bool WorldSystem::can_modify() const noexcept
 {
-    return world_ && !ecs_stage_is_readonly(world_) && !ecs_is_deferred(world_);
+    return world_ && !ecs_is_stage(world_) && !ecs_stage_is_readonly(world_);
 }
 void WorldSystem::invalidate_scene_state() noexcept
 {

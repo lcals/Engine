@@ -10,23 +10,12 @@ if(VCPKG_LIBRARY_LINKAGE STREQUAL "dynamic")
     set(VCPKG_POLICY_DLLS_WITHOUT_LIBS enabled)
 endif()
 
-# zero-pad version components to two digits
-string(REPLACE "." ";" version_components ${VERSION})
-foreach(component IN LISTS version_components)
-    string(LENGTH ${component} component_length)
-    if(component_length LESS 2)
-        list(APPEND USD_VERSION "0${component}")
-    else()
-        list(APPEND USD_VERSION "${component}")
-    endif()
-endforeach()
-string(JOIN "." USD_VERSION ${USD_VERSION})
-
+# Keep the published release spelling, including the unpadded patch component.
 vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO PixarAnimationStudios/OpenUSD
-    REF "v${USD_VERSION}"
-    SHA512 fbe1e632473883e47f4bfeb16cab314bbbe8a7b404a5c071ca613bbf288526e505edd7a5edfdd9f85dd16da6d0d91fa0d4f8c783882094d3691f77685817fea6
+    REF "v${VERSION}"
+    SHA512 515911bb5dcd18511115855ba10dc0578cfd2104e124bd838c9cb5727901d1188ed5ee215ac9e5a47cfef62a178aeb6972e6a7e3d15bb9d166454830e8ddcca0
     HEAD_REF release
     PATCHES
         003-fix-dep.patch
@@ -35,7 +24,6 @@ vcpkg_from_github(
         008-fix_clang8_compiler_error.patch
         009-vcpkg_install_folder_conventions.patch
         010-cmake_export_plugin_as_modules.patch
-        013-openimageio-3.patch
         014-static-plugins.patch
 )
 

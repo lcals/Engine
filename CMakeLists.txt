@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.25)
+cmake_minimum_required(VERSION 3.30)
 
 # 插件清单在工具链初始化前确定所需 vcpkg features。
 include(cmake/plugins/selection.cmake)
@@ -10,6 +10,7 @@ project(
     DESCRIPTION "Engine C++20 project"
     LANGUAGES C CXX)
 
+include(cmake/platforms/macos_deployment.cmake)
 include(cmake/core/options.cmake)
 include(cmake/install/compiler_cache.cmake)
 include(cmake/core/target_options.cmake)

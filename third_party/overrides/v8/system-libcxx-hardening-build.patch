@@ -1,0 +1,78 @@
+--- a/config/c++/c++.gni
++++ b/config/c++/c++.gni
+@@ -8,6 +8,10 @@
+ import("//build_overrides/build.gni")
+ 
+ declare_args() {
++  # Opt in only after the embedder has checked the system libc++ headers,
++  # ABI and EXTENSIVE bounds traps. This does not change use_safe_libcxx.
++  engine_verified_system_libcxx = false
++
+   # Use in-tree libc++ (buildtools/third_party/libc++ and
+   # buildtools/third_party/libc++abi) instead of the system C++ library for C++
+   # standard library support.
+@@ -190,3 +194,10 @@
+   print("  M138.")
+   print("*********************************************************************")
+ }
++
++if (engine_verified_system_libcxx) {
++  assert(!use_custom_libcxx,
++         "The checked system libc++ path cannot select a private C++ runtime")
++  assert(is_mac || is_android,
++         "Checked system libc++ is validated only on macOS and Android")
++}
+--- a/config/compiler/BUILD.gn
++++ b/config/compiler/BUILD.gn
+@@ -1787,10 +1787,19 @@
+     defines += [ "COMPONENT_BUILD" ]
+   }
+ 
+-  if (use_safe_libcxx) {
++  if (use_safe_libcxx || engine_verified_system_libcxx) {
+     defines += [ "_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_EXTENSIVE" ]
+   } else {
+     defines += [ "_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_NONE" ]
++  }
++
++  if (engine_verified_system_libcxx) {
++    # Fail closed in every C++ translation unit if the SDK/NDK changes.
++    cflags_cc = [
++      "-include",
++      rebase_path("//build/config/c++/engine_system_libcxx_guard.h", root_build_dir),
++    ]
++    cflags_objcc = cflags_cc
+   }
+ 
+   # Enable libstdc++ hardening lightweight assertions. Those have a low
+--- /dev/null
++++ b/config/c++/engine_system_libcxx_guard.h
+@@ -0,0 +1,28 @@
++// System libc++ compatibility for the checked engine embedding configuration.
++#ifndef ENGINE_V8_SYSTEM_LIBCXX_GUARD_H_
++#define ENGINE_V8_SYSTEM_LIBCXX_GUARD_H_
++
++#include <__config>
++
++#ifndef _LIBCPP_VERSION
++#error "The checked V8 system library must be libc++"
++#endif
++#ifndef _LIBCPP_HARDENING_MODE_EXTENSIVE
++#error "V8 requires the vendor libc++ EXTENSIVE hardening implementation"
++#endif
++#if _LIBCPP_HARDENING_MODE != _LIBCPP_HARDENING_MODE_EXTENSIVE
++#error "V8 system libc++ bounds checks must remain enabled"
++#endif
++#if defined(__ANDROID__)
++#if _LIBCPP_VERSION != 210000
++#error "Revalidate the Android libc++ version before enabling V8 sandbox"
++#endif
++#elif defined(__APPLE__)
++#if _LIBCPP_VERSION != 220106
++#error "Revalidate the macOS libc++ version before enabling V8 sandbox"
++#endif
++#else
++#error "Checked V8 system libc++ is validated only on macOS and Android"
++#endif
++
++#endif  // ENGINE_V8_SYSTEM_LIBCXX_GUARD_H_

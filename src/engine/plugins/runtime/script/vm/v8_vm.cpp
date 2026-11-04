@@ -790,9 +790,10 @@ private:
     {
         auto* isolate = arguments.GetIsolate();
         auto* machine = static_cast<V8Vm*>(isolate->GetData(0));
+        const auto data = arguments.DataV2();
         bool lossless = false;
-        const auto serial = arguments.Data()->IsBigInt()
-                                ? arguments.Data().As<v8::BigInt>()->Uint64Value(&lossless)
+        const auto serial = data->IsValue() && data.As<v8::Value>()->IsBigInt()
+                                ? data.As<v8::Value>().As<v8::BigInt>()->Uint64Value(&lossless)
                                 : 0;
         const auto reject = [isolate](const std::string& error)
         {
@@ -842,15 +843,16 @@ private:
     {
         auto* isolate = arguments.GetIsolate();
         auto* vm = static_cast<V8Vm*>(isolate->GetData(0));
+        const auto data = arguments.DataV2();
         if (vm == nullptr || vm->context_.IsEmpty() ||
-            vm->context_.Get(isolate) != isolate->GetCurrentContext() ||
-            !arguments.Data()->IsExternal())
+            vm->context_.Get(isolate) != isolate->GetCurrentContext() || !data->IsValue() ||
+            !data.As<v8::Value>()->IsExternal())
         {
             arguments.GetReturnValue().SetNull();
             return;
         }
         const auto* function = static_cast<NativeFunction*>(
-            arguments.Data().As<v8::External>()->Value(v8::kExternalPointerTypeTagDefault));
+            data.As<v8::Value>().As<v8::External>()->Value(v8::kExternalPointerTypeTagDefault));
         const V8Arguments values(arguments, vm->owner_, function->data);
         function->callback(values);
     }

@@ -78,12 +78,19 @@ bool registration_phase_guard()
     {
         return false;
     }
-    ecs_defer_begin(native);
-    const bool deferred_rejected = !registry.add<RegistrationProbe>();
-    ecs_defer_end(native);
-    if (!expect(deferred_rejected && !registry.contains(RegistrationProbe::component_type) &&
+    const auto marker = ecs_new(native);
+    auto* stage = ecs_get_stage(native, 0);
+    ecs_readonly_begin(native, false);
+    ecs_add_id(stage, marker, EcsDisabled);
+    const bool staged_rejected =
+        !registry.add<RegistrationProbe>() && !ecs_has_id(native, marker, EcsDisabled);
+    ecs_readonly_end(native);
+    const bool merged = ecs_has_id(native, marker, EcsDisabled);
+    ecs_delete(native, marker);
+    if (!expect(staged_rejected && merged &&
+                    !registry.contains(RegistrationProbe::component_type) &&
                     ecs_count_id(native, ecs_id(EcsComponent)) == type_count,
-                "deferred registration creates no hidden work to publish at defer_end") ||
+                "single-thread readonly registration cannot hide new types in a native stage") ||
         !expect(registry.add<RegistrationProbe>(),
                 "the same plugin can register when the structural phase is stable"))
     {

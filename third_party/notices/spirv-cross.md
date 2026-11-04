@@ -1,7 +1,8 @@
-# SPIRV-Cross PointSize 查询兼容补丁
+# SPIRV-Cross 来源与 PointSize 兼容迁移
 
-`third_party/overlay-ports/spirv-cross/bgfx-point-size-query.patch` 用于让 baseline 的
-SPIRV-Cross `vulkan-sdk-1.4.309.0` 与 bgfx API 167 的 shaderc 协同工作。
+当前使用 vcpkg baseline 提供的正式版 [`vulkan-sdk-1.4.363.0`](https://github.com/KhronosGroup/SPIRV-Cross/tree/vulkan-sdk-1.4.363.0)，固定提交 `f11ba9f0b21ba8fc15153d50a2a1ae31ab1cf8f7`。上游已经包含下述 PointSize 查询和写入跟踪；2026-11-04 删除旧 `spirv-cross` overlay，保留本说明记录其来源和许可。
+
+此前本地补丁用于让 SDK `1.4.309.0` 与 bgfx API 167 的 shaderc 协同工作：
 
 - `CompilerMSL::get_writes_to_point_size()` 来自 KhronosGroup/SPIRV-Cross 的
   [`f170de532cc4d2583e6b26dbff5d0c81106c6f78`](https://github.com/KhronosGroup/SPIRV-Cross/commit/f170de532cc4d2583e6b26dbff5d0c81106c6f78)。

@@ -8,12 +8,10 @@ set(VCPKG_POLICY_MISMATCHED_NUMBER_OF_BINARIES enabled)
 
 vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
-    REPO oneapi-src/oneTBB
+    REPO uxlfoundation/oneTBB
     REF "v${VERSION}"
-    SHA512 d87c67514ca17c9769910194a8fac912e183952ad5c408dbceb48edc8aef13375df3d4c9120a7366206c8ab72699ed953df65c11c261e19d8e9d273c73d073f3
+    SHA512 4a960b9a8011e30887c71ce6bc7be429d57bc0de22435b5d6c3247e6b3d783c0a053adc6fa189a41076c6e913733bab417456a21d98633cc2f33283e1be58c87
     HEAD_REF master
-    PATCHES
-        task-handle-finalize-size.patch
 )
 
 vcpkg_check_features(

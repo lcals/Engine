@@ -16,17 +16,17 @@
 例如选择 V8 完整桌面构建：
 
 ```sh
-cmake --preset ninja-engine-v8-debug
-cmake --build --preset ninja-engine-v8-debug-prepare
-cmake --build --preset ninja-engine-v8-debug
-ctest --preset ninja-engine-v8-debug
+cmake --preset ninja-engine-v8-release
+cmake --build --preset ninja-engine-v8-release-prepare
+cmake --build --preset ninja-engine-v8-release
+ctest --preset ninja-engine-v8-release
 ```
 
-QuickJS 使用固定的 quickjs-ng 0.10.1 vcpkg port；其编译期模块图检查扩展由 `third_party/overlay-ports/quickjs-ng/` 的补丁维护，不修改上游安装目录。首次安装按 vcpkg 二进制缓存复用，日常代码修改不重新下载或准备依赖。两个后端均只运行项目 JavaScript，不加载 Node.js；模块预检不执行顶层代码，活动与候选 Run 的 VM、模块和 Promise 队列独立。顶层 await 与动态 import 不在当前同步契约内。
+QuickJS 使用固定的 quickjs-ng 0.18.0 vcpkg port；其编译期模块图检查扩展由 `third_party/overlay-ports/quickjs-ng/` 的补丁维护，不修改上游安装目录。首次安装按 vcpkg 二进制缓存复用，日常代码修改不重新下载或准备依赖。两个后端均只运行项目 JavaScript，不加载 Node.js；模块预检不执行顶层代码，活动与候选 Run 的 VM、模块和 Promise 队列独立。顶层 await 与动态 import 不在当前同步契约内。
 
 ## V8 依赖
 
-只有显式选择 V8 后端或启用独立 V8 验证才准备 V8。`v8-debug/release` 用于单独验证上游嵌入库，不装配脚本插件，因此其 `v8-prepare-debug/release` 保留专用 `engine_v8_prepare` 目标。初始化子模块、设置 `VCPKG_ROOT` 后，在原生 x64 或 macOS ARM64 平台显式执行：
+当前固定 V8 15.7.112.23（Chrome Stable 157.0.8103.38 的 `DEPS`），来源及工具链精确提交见 [V8 覆盖说明](../../../third_party/overrides/v8/README.md)。只有显式选择 V8 后端或启用独立 V8 验证才准备 V8。`v8-debug/release` 用于单独验证上游嵌入库，不装配脚本插件，因此其 `v8-prepare-debug/release` 保留专用 `engine_v8_prepare` 目标。初始化子模块、设置 `VCPKG_ROOT` 后，在原生 x64 或 macOS ARM64 平台显式执行：
 
 ```sh
 cmake --preset v8-release
@@ -36,20 +36,21 @@ ctest --preset v8-release
 cmake --preset v8-debug
 cmake --build --preset v8-prepare-debug
 cmake --build --preset v8-debug
-ctest --preset v8-debug
 ```
 
-也可以使用 `cmake --workflow --preset v8-release` 或 `v8-debug` 串联上述准备、构建与测试。首次准备会联网获取 V8 `DEPS` 固定的 depot_tools、GN、Ninja、Clang 及其他构建依赖；编译需要较多磁盘、内存和时间。默认并行度为 4，可在配置时用 `-DENGINE_V8_JOBS=2` 调低。网络环境需要代理时，在运行前设置 `HTTP_PROXY` / `HTTPS_PROXY`。
+也可以使用 `cmake --workflow --preset v8-release` 串联准备、构建与测试；`v8-debug` workflow 仅准备和编译。首次准备会联网获取 V8 `DEPS` 固定的 depot_tools、GN、Ninja、Clang 及其他构建依赖；编译需要较多磁盘、内存和时间。默认并行度为 4，可在配置时用 `-DENGINE_V8_JOBS=2` 调低。网络环境需要代理时，在运行前设置 `HTTP_PROXY` / `HTTPS_PROXY`。
 
-Windows 使用本机 VS 2022 C++ 工具链和 Windows SDK 10.0.26100.0，SDK 需包含 Debugging Tools for Windows。准备过程不升级系统工具链；按需通过已有 SDK 安装器添加缺少的组件。
+当前 V8 15.7 的系统标准库嵌入适配仅验证了 macOS 与 macOS 宿主上的 Android ARM64。Windows 的 MSVC STL、Linux 的 libstdc++ 尚未建立与新版 sandbox 所需硬化相符的受检契约，准备阶段会明确失败；不会为通过构建自动关闭 sandbox。默认 QuickJS 后端不受此限制。Windows 原有 VS / SDK / CRT 兼容源码保留，尚不能据此宣称新版 V8 已通过 Windows 验收。
 
-macOS 使用本机 Xcode SDK 与链接器，Clang、Rust 仍由固定 V8 `DEPS` 提供。与 Windows 相同，嵌入库保留宿主的 `malloc/new`，关闭全局 allocator shim。为兼容系统 SDK，GN 关闭显式 Clang 模块并使用 Xcode 链接器；当下载的 Clang 包缺少 `libLTO.dylib` 时，构建副本中的兼容补丁通过 `xcrun` 选择现有 Xcode 库，并让 Rust 编译期宏使用同一链接包装器。另为 SDK 27 的 C++20 数学头补充缺失的 `INFINITY` / `NAN` 宏，并在编译器不支持 `stack_protector_ignore` 时，仅在 V8 的 signpost 调用处忽略该属性诊断。
+macOS 使用本机 Xcode SDK 与链接器，Clang、Rust 仍由固定 V8 `DEPS` 提供。V8 的官方 GN 部署目标与引擎保持一致，最低 macOS 13.3；新版 Debug 诊断使用的标准格式 API 从该版本可用，不取消厂商 SDK 的可用性检查。与 Windows 相同，嵌入库保留宿主的 `malloc/new`，关闭全局 allocator shim。为兼容系统 SDK，GN 关闭显式 Clang 模块并使用 Xcode 链接器；当下载的 Clang 包缺少 `libLTO.dylib` 时，构建副本中的兼容补丁通过 `xcrun` 选择现有 Xcode 库，并让 Rust 编译期宏使用同一链接包装器。固定的新版 Clang 24 已支持 SDK 27 的数学头和 signpost 属性，旧的数学宏和属性诊断补丁经独立无补丁编译核对后移除。
 
-下载、源码副本、Git 配置和编译产物均位于忽略的 `build/v8/`，不会修改 `third_party/v8/` 或用户全局 Git 配置。Windows 源码副本应用仓库保存的兼容补丁，按 `CMAKE_MSVC_RUNTIME_LIBRARY` 匹配 `/MDd` / `/MD` 或 `/MTd` / `/MT`；静态 CRT 使用独立的 `out/engine.mt-debug`、`out/engine.mt-release` 和头文件缓存，不覆盖动态 CRT 产物。两种配置均关闭全局 allocator shim，保留宿主 CRT 分配器。桌面构建同时运行上游嵌入样例；`engine.v8` CTest 通过 CMake 的 `engine::v8` 目标执行 JavaScript，验证共享内存、按配置启用的 Intl/Temporal/WebAssembly，或确认关闭的能力确实不存在。Android 交叉编译只构建上游样例，执行验证放到目标设备上的 APK 测试中，不在宿主运行 Android 程序。启用国际化时，将 `ENGINE_V8_ICU_DATA` 指向的 `icudtl.dat` 复制到程序旁，测试目标已自动部署；关闭时不需要 ICU 数据。使用 `symbol_level=0` 控制产物体积，Debug 保留 V8 断言但不生成完整调试符号。
+下载、源码副本、Git 配置和编译产物均位于忽略的 `build/v8/`，不会修改 `third_party/v8/` 或用户全局 Git 配置。Windows 源码副本应用仓库保存的兼容补丁，按 `CMAKE_MSVC_RUNTIME_LIBRARY` 匹配 `/MDd` / `/MD` 或 `/MTd` / `/MT`；静态 CRT 使用独立的 `out/engine.mt-debug`、`out/engine.mt-release` 和头文件缓存，不覆盖动态 CRT 产物。两种配置均关闭全局 allocator shim，保留宿主 CRT 分配器。桌面 Release 构建运行上游嵌入样例，Debug 仅编译样例而不执行；Release 的 `engine.v8` CTest 通过 CMake 的 `engine::v8` 目标执行 JavaScript，验证共享内存、按配置启用的 Intl/Temporal/WebAssembly，或确认关闭的能力确实不存在。Android 交叉编译只构建上游样例，执行验证放到目标设备上的 APK 测试中，不在宿主运行 Android 程序。启用国际化时，将 `ENGINE_V8_ICU_DATA` 指向的 `icudtl.dat` 复制到程序旁，测试目标已自动部署；关闭时不需要 ICU 数据。使用 `symbol_level=0` 控制产物体积，Debug 保留 V8 断言但不生成完整调试符号。
+
+V8 15.7 新增 sandbox 对标准库硬化的强制要求。引擎保持系统 / NDK libc++ ABI，在准备阶段证明官方 EXTENSIVE 硬化可用后，使用单独的 `engine_verified_system_libcxx` GN 契约；不修改 `use_safe_libcxx` 的原有语义。所有 V8 C++ 编译强制包含版本与模式守卫，当前只接受 macOS libc++ 220106 和 NDK r30 libc++ 210000，保持 `_LIBCPP_HARDENING_MODE_EXTENSIVE` 与 sandbox 开启。SDK / NDK 版本或模式不符会编译失败，需重新验证后调整守卫。准备探针检查合法访问及 vector / span / string 越界 trap，探针、兼容源码及厂商关键头文件均参与缓存身份；Debug 复用同一环境证明，只编译而不运行其 `v8_hello_world`。来源与实测限制见 [V8 覆盖说明](../../../third_party/overrides/v8/README.md)。
 
 GN 的 monolith 未收集隐式 Rust 归档。`cmake/dependencies/package_v8.cmake` 按 GN 实际依赖清单额外合并 Rust 与 Clang 运行库，生成 `engine_v8.lib`（Windows）或 `libengine_v8.a`；macOS 先从 Clang 通用运行库提取本机架构的副本，再合并归档。`engine::v8` 自动使用这个完整嵌入库，并在 macOS 传递 Foundation、CoreFoundation 和 Security 框架依赖。关闭 Temporal 时允许 GN 不生成 Rust 归档；启用时仍校验完整依赖。原 GN 库和上游样例保留。
 
-macOS 的 `macos-system-lto-library.patch` 与 `macos-system-math.patch` 适用于固定 Chromium build 提交 `81330a6e45719ab8c0d22e5548afbedb5482b068`，`macos-signpost-attribute.patch` 适用于固定 V8 源码。同步依赖前撤回已知补丁，同步后重新应用；缓存命中时不改写源码。升级工具链后，分别验证 LTO 库选择、SDK 数学宏和 signpost 属性，再移除对应补丁，不能只因版本变化而删除兼容处理。
+macOS 的 `macos-system-lto-library.patch` 适用于固定 Chromium build 提交 `aa268127b8cc571ebc60f200d052a09d27231843`。同步依赖前撤回已知补丁，同步后重新应用；缓存命中时不改写源码。2026-11-04 对 Clang 24 和 SDK 27 的独立验证表明，数学头与 signpost 属性已由上游覆盖；裸 Clang 的系统链接仍因包中缺少 `libLTO.dylib` 在 `-fatal_warnings` 下失败，因此只保留链接兼容处理。
 
 V8 各平台的验证范围与限制见[测试与范例](../../testing.md)。
 
@@ -58,6 +59,14 @@ V8 各平台的验证范围与限制见[测试与范例](../../testing.md)。
 仅选择 V8 时使用独立 GN 工具链及成功构建缓存，不经过 CMake 的编译启动器：校验固定源码、补丁、平台 / SDK / 工具链和 GN 参数后，Debug / Release 分别复用已验证的库和头文件；命中时跳过同步、GN、Ninja 与归档合并。缺失产物或输入变化会使缓存失效，失败的构建不会留下成功标记。V8 自带的固定版本 Ninja 保持独立，不替换为环境安装的版本。
 
 V8 在 Windows、macOS、Linux、Android 等平台统一默认关闭 WebAssembly、Intl/ICU、Temporal 和系统 instrumentation（包括 Windows ETW），保留 Sparkplug、Maglev、TurboFan 等 JIT、指针压缩、sandbox 与既有编译优化等级。对应 CMake 开关为 `ENGINE_V8_ENABLE_WEBASSEMBLY`、`ENGINE_V8_ENABLE_I18N`、`ENGINE_V8_ENABLE_TEMPORAL`、`ENGINE_V8_ENABLE_SYSTEM_INSTRUMENTATION`，全部默认 OFF。项目脚本不能使用已关闭的全局 API；默认没有 ICU 资源部署。裁剪参数参与缓存身份，精简归档与头文件存放在带 `-f0000` 的独立目录；此前完整配置的缓存保留。
+
+## TypeScript 构建工具
+
+公开项目锁定 TypeScript 7.0.2。项目级编译复用该版本的官方原生 `tsc`，官方 `typescript/unstable/sync` 和 `unstable/ast` API 负责配置解析、AST 及导入信息；它们与编译器保持同一 package-lock，不调用旧 JS 编译器的 `Program.emit` / `transpileModule`，也不维护自有 TS 解析器。编译器原生程序、API、标准库、配置与源码都参与输入指纹，继续每批执行一次项目级编译。
+
+临时 MCP TypeScript 同样通过官方编译器输出 ES2022 CommonJS，在严格类型检查后交给当前 VM 的临时函数执行；模块 namespace 与 default 导出按[项目脚本执行契约](class-diagrams/project-script-execution.md)处理。`node <settings>/node_modules/typescript/bin/tsc --project <settings>/tsconfig.json --noEmit` 仍是官方 CLI 类型检查入口。
+
+npm flatbuffers 当前稳定发布为 25.9.23，与原生 FlatBuffers/flatc 25.12.19 的发布渠道独立。schema 生成和运行时对象继续使用既定跨语言契约，不能只因版本号不同就混入未发布的 JS 包。
 
 ## 玩法入口
 

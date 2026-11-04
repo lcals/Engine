@@ -45,20 +45,23 @@ def main():
         output = workspace / "javascript"
         shutil.copytree(generated / "engine", source / "engine")
         shutil.copyfile(Path(__file__).with_name("scene_schema_bridge.ts"), source / "bridge.ts")
+        # 按 Node16 的真实包解析规则查找该工作目录独占的固定运行库，避免已移除的
+        # baseUrl/node10，也不依赖 NODE_PATH 或项目树以外的其他 npm 安装。
+        shutil.copytree(modules / "flatbuffers", workspace / "node_modules" / "flatbuffers")
+        (workspace / "package.json").write_text('{"type":"commonjs"}\n', encoding="utf-8")
         run(
             [
                 args.node,
                 str(compiler),
+                "--ignoreConfig",
                 "--target",
                 "ES2020",
                 "--module",
-                "commonjs",
+                "Node16",
                 "--moduleResolution",
-                "node",
+                "Node16",
                 "--strict",
                 "--skipLibCheck",
-                "--baseUrl",
-                str(modules),
                 "--rootDir",
                 str(source),
                 "--outDir",
@@ -69,8 +72,7 @@ def main():
         original = workspace / "cpp.scene"
         changed = workspace / "typescript.scene"
         run([str(args.binary.resolve()), "--write-buffer", str(original)])
-        # 本次测试独占固定版本运行库，避免 NODE_PATH 或其他项目依赖改变解析结果。
-        shutil.copytree(modules / "flatbuffers", output / "node_modules" / "flatbuffers")
+        # 输出与源文件继续读取工作目录内同一份固定版本运行库。
         (output / "package.json").write_text('{"type":"commonjs"}\n', encoding="utf-8")
         run([args.node, str(output / "bridge.js"), str(original), str(changed)])
         run([str(args.binary.resolve()), "--read-buffer", str(changed), str(original)])

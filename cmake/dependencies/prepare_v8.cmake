@@ -54,12 +54,12 @@ if(ENGINE_V8_TARGET_OS STREQUAL "android")
     set(_android TRUE)
     if(NOT EXISTS "${ENGINE_V8_ANDROID_NDK}/source.properties")
         message(
-            FATAL_ERROR "Android V8 requires ENGINE_V8_ANDROID_NDK pointing to NDK 27.2.12479018")
+            FATAL_ERROR "Android V8 requires ENGINE_V8_ANDROID_NDK pointing to NDK 30.0.16248370")
     endif()
     file(READ "${ENGINE_V8_ANDROID_NDK}/source.properties" _ndk_properties)
-    if(NOT _ndk_properties MATCHES "Pkg.Revision[ \t]*=[ \t]*27\\.2\\.12479018")
+    if(NOT _ndk_properties MATCHES "Pkg.Revision[ \t]*=[ \t]*30\\.0\\.16248370([ \t\r\n]|$)")
         message(
-            FATAL_ERROR "Android V8 currently uses NDK 27.2.12479018, matching the APK toolchain")
+            FATAL_ERROR "Android V8 currently uses NDK 30.0.16248370, matching the APK toolchain")
     endif()
     if(NOT ENGINE_V8_ANDROID_API MATCHES "^[0-9]+$" OR ENGINE_V8_ANDROID_API LESS 28)
         message(FATAL_ERROR "Android V8 requires ENGINE_V8_ANDROID_API >= 28")
@@ -72,11 +72,34 @@ if(ENGINE_V8_TARGET_OS STREQUAL "android")
     else()
         message(FATAL_ERROR "Android V8 preparation currently requires a Linux or macOS host")
     endif()
-    set(_ndk_resource_dir
-        "${ENGINE_V8_ANDROID_NDK}/toolchains/llvm/prebuilt/${_ndk_host}/lib/clang/18")
+    set(_ndk_clang "${ENGINE_V8_ANDROID_NDK}/toolchains/llvm/prebuilt/${_ndk_host}/bin/clang")
+    if(NOT EXISTS "${_ndk_clang}")
+        message(FATAL_ERROR "Android V8 is missing the NDK Clang compiler")
+    endif()
+    execute_process(COMMAND "${_ndk_clang}" -print-resource-dir
+                    RESULT_VARIABLE _ndk_clang_result
+                    OUTPUT_VARIABLE _ndk_resource_dir
+                    OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_VARIABLE _ndk_clang_error)
+    if(NOT _ndk_clang_result EQUAL 0 OR NOT IS_DIRECTORY "${_ndk_resource_dir}")
+        message(FATAL_ERROR "Cannot query the NDK Clang resource directory: ${_ndk_clang_error}")
+    endif()
     if(NOT EXISTS "${_ndk_resource_dir}/lib/linux/libclang_rt.builtins-aarch64-android.a")
         message(FATAL_ERROR "Android V8 is missing the NDK ARM64 compiler runtime")
     endif()
+endif()
+# The sandbox must retain upstream EXTENSIVE hardening with the host STL ABI.
+# Other hosts need their own verified contract rather than silently disabling it.
+if(NOT CMAKE_HOST_APPLE)
+    message(FATAL_ERROR
+        "V8 checked system-libc++ sandbox integration is currently validated only for macOS and Android ARM64 with a macOS host; Windows/Linux STL hardening is not validated")
+endif()
+if(NOT DEFINED ENGINE_V8_MACOS_DEPLOYMENT_TARGET
+   OR ENGINE_V8_MACOS_DEPLOYMENT_TARGET STREQUAL "")
+    set(ENGINE_V8_MACOS_DEPLOYMENT_TARGET 13.3)
+endif()
+if(NOT ENGINE_V8_MACOS_DEPLOYMENT_TARGET MATCHES "^[0-9]+\\.[0-9]+(\\.[0-9]+)?$"
+   OR ENGINE_V8_MACOS_DEPLOYMENT_TARGET VERSION_LESS 13.3)
+    message(FATAL_ERROR "V8 system libc++ requires macOS deployment target >= 13.3")
 endif()
 # 脚本模式不会初始化 CMAKE_HOST_SYSTEM_PROCESSOR。
 cmake_host_system_information(RESULT _host_processor QUERY OS_PLATFORM)
@@ -127,15 +150,19 @@ if(CMAKE_HOST_WIN32)
         "${_engine_root}/third_party/overrides/v8/windows-shared-ptr-atomic-warning.patch"
         "${_engine_root}/third_party/overrides/v8/windows-debug-quarantine.patch")
 elseif(CMAKE_HOST_APPLE)
-    set(_patch_roots "${_source}/build" "${_source}/build" "${_source}")
+    set(_patch_roots "${_source}/build")
     set(_patch_files
-        "${_engine_root}/third_party/overrides/v8/macos-system-lto-library.patch"
-        "${_engine_root}/third_party/overrides/v8/macos-system-math.patch"
-        "${_engine_root}/third_party/overrides/v8/macos-signpost-attribute.patch")
+        "${_engine_root}/third_party/overrides/v8/macos-system-lto-library.patch")
 endif()
 set(_sample_patch "${_engine_root}/third_party/overrides/v8/hello-world-optional-webassembly.patch")
 list(APPEND _patch_roots "${_source}")
 list(APPEND _patch_files "${_sample_patch}")
+list(APPEND _patch_roots "${_source}/build" "${_source}")
+list(APPEND _patch_files
+    "${_engine_root}/third_party/overrides/v8/system-libcxx-hardening-build.patch"
+    "${_engine_root}/third_party/overrides/v8/system-libcxx-hardening-v8.patch")
+list(APPEND _patch_roots "${_source}")
+list(APPEND _patch_files "${_engine_root}/third_party/overrides/v8/cppgc-configuration-order.patch")
 if(_android)
     set(_android_deps_patch
         "${_engine_root}/third_party/overrides/v8/android-external-toolchain.patch")
@@ -144,17 +171,13 @@ if(_android)
         _patch_roots
         "${_source}/build"
         "${_source}/build"
-        "${_source}"
-        "${_source}"
-        "${_source}/third_party/simdutf")
+        "${_source}")
     list(
         APPEND
         _patch_files
         "${_engine_root}/third_party/overrides/v8/android-macos-host.patch"
         "${_engine_root}/third_party/overrides/v8/android-ndk-runtime.patch"
-        "${_android_deps_patch}"
-        "${_engine_root}/third_party/overrides/v8/android-atomic-ref.patch"
-        "${_engine_root}/third_party/overrides/v8/android-simdutf-atomic-ref.patch")
+        "${_android_deps_patch}")
 endif()
 string(TOLOWER "${ENGINE_V8_CONFIG}" _config_lower)
 if(CMAKE_HOST_WIN32 AND ENGINE_V8_WINDOWS_CRT STREQUAL "static")
@@ -165,8 +188,10 @@ if(NOT _feature_bits STREQUAL "1111")
 endif()
 set(_out "${_source}/out/engine.${_config_lower}")
 find_package(Git REQUIRED)
+# 使用索引中固定的 gitlink；允许先暂存依赖版本升级再构建验证，仍拒绝
+# 子模块 HEAD 与选定版本不一致，不能用任意工作区检出绕过版本锁。
 execute_process(
-    COMMAND "${GIT_EXECUTABLE}" -C "${_engine_root}" rev-parse "HEAD:third_party/v8"
+    COMMAND "${GIT_EXECUTABLE}" -C "${_engine_root}" rev-parse ":third_party/v8"
     OUTPUT_VARIABLE _revision
     OUTPUT_STRIP_TRAILING_WHITESPACE
     RESULT_VARIABLE _revision_result)
@@ -250,6 +275,11 @@ endif()
 set(_args
     "target_cpu = \"${ENGINE_V8_TARGET_CPU}\"\nis_component_build = false\nv8_monolithic = true\nv8_use_external_startup_data = false\nuse_custom_libcxx = false\nuse_custom_libcxx_for_host = false\nv8_generate_external_defines_header = true\nuse_remoteexec = false\nuse_siso = false\nsymbol_level = 0\n"
 )
+string(APPEND _args "engine_verified_system_libcxx = true\nv8_enable_sandbox = true\n")
+# 新版 Debug 诊断使用 std::format；厂商 libc++ 的浮点格式转换从 13.3 可用。
+# 同时设置实际编译目标与上游应用最低版本，包含 Android 的 macOS 宿主工具。
+string(APPEND _args
+       "mac_deployment_target = \"${ENGINE_V8_MACOS_DEPLOYMENT_TARGET}\"\nmac_min_system_version = \"${ENGINE_V8_MACOS_DEPLOYMENT_TARGET}\"\n")
 if(CMAKE_HOST_WIN32 AND ENGINE_V8_WINDOWS_CRT STREQUAL "static")
     string(APPEND _args "engine_use_static_crt = true\n")
 endif()
@@ -274,7 +304,7 @@ if(_android)
     # GN 仍使用固定的宿主 Clang/Rust；Android ABI、sysroot 和运行库与 APK NDK 一致。
     string(APPEND _args "target_os = \"android\"\nv8_target_cpu = \"arm64\"\n")
     string(APPEND _args
-           "android_ndk_root = \"${ENGINE_V8_ANDROID_NDK}\"\nandroid_ndk_version = \"r27c\"\n")
+           "android_ndk_root = \"${ENGINE_V8_ANDROID_NDK}\"\nandroid_ndk_version = \"r30\"\n")
     string(
         APPEND
         _args
@@ -369,17 +399,25 @@ if(EXISTS "${ENGINE_V8_BUILD_ROOT}/.gitconfig")
 endif()
 include("${CMAKE_CURRENT_LIST_DIR}/v8_cache.cmake")
 _engine_v8_cache_keys(_prepare_key _build_key _cache_ready)
+_engine_v8_stamp_matches("${ENGINE_V8_BUILD_ROOT}/.engine-v8-system-libcxx.identity"
+                         "${_prepare_key}" _libcxx_verified)
 if(NOT ENGINE_V8_ACTION STREQUAL "CHECK"
    AND NOT _cache_ready
    AND EXISTS "${_source}/.git")
     # 已准备的固定工作副本只补充已知补丁，不重新同步未变的 DEPS。
     _engine_v8_assert_revision("${_source}" "${_revision}")
-    _engine_v8_patch("${_source}" "${_sample_patch}" APPLY)
-    if(CMAKE_HOST_WIN32 AND EXISTS "${_source}/build/.git")
+    if(EXISTS "${_source}/build/.git")
         _engine_v8_assert_revision("${_source}/build" "${_build_revision}")
-        _engine_v8_patch("${_source}/build"
-                         "${_engine_root}/third_party/overrides/v8/windows-static-crt.patch" APPLY)
     endif()
+    if(EXISTS "${_source}/third_party/partition_alloc/.git")
+        _engine_v8_assert_revision("${_source}/third_party/partition_alloc"
+                                   "${_partition_revision}")
+    endif()
+    foreach(_patch_root _patch_file IN ZIP_LISTS _patch_roots _patch_files)
+        if(EXISTS "${_patch_root}/.git")
+            _engine_v8_patch("${_patch_root}" "${_patch_file}" APPLY)
+        endif()
+    endforeach()
     _engine_v8_cache_keys(_prepare_key _build_key _cache_ready)
 endif()
 _engine_v8_artifacts(_artifacts_present)
@@ -400,7 +438,8 @@ if(_cache_ready)
     _engine_v8_stamp_matches("${_build_stamp}" "${_build_key}" _built)
     if(ENGINE_V8_ACTION STREQUAL "BUILD"
        AND _built
-       AND _artifacts_present)
+       AND _artifacts_present
+       AND _libcxx_verified)
         _engine_v8_headers_current(_headers_current)
         if(_headers_current)
             message(STATUS "V8 ${ENGINE_V8_CONFIG} cache hit; reusing verified library and headers")
@@ -414,6 +453,7 @@ if(_cache_ready)
         set(_reuse_prepared TRUE)
         if(_prepared
            AND _configured
+           AND _libcxx_verified
            AND EXISTS "${_out}/build.ninja"
            AND EXISTS "${_out}/args.gn")
             file(READ "${_out}/args.gn" _saved_args)
@@ -679,6 +719,7 @@ if(NOT _cache_ready)
         FATAL_ERROR
             "V8 workspace or toolchain validation failed; run engine_v8_prepare before building")
 endif()
+include("${CMAKE_CURRENT_LIST_DIR}/v8_system_libcxx.cmake")
 _engine_v8_stamp_matches("${_configure_stamp}" "${_build_key}" _configured)
 if(NOT _configured OR NOT EXISTS "${_out}/build.ninja")
     _engine_v8_run("${_source}" "${_gn}" gen "${_out}")
@@ -711,7 +752,7 @@ if(ENGINE_V8_ACTION STREQUAL "BUILD")
     file(MAKE_DIRECTORY "${ENGINE_V8_BUILD_ROOT}/include/${_config_lower}")
     file(COPY_FILE "${_out}/gen/include/v8-gn.h"
          "${ENGINE_V8_BUILD_ROOT}/include/${_config_lower}/v8-gn.h" ONLY_IF_DIFFERENT)
-    if(NOT _android)
+    if(NOT _android AND ENGINE_V8_CONFIG STREQUAL "Release")
         _engine_v8_run("${_out}" "${_sample}")
     endif()
     _engine_v8_artifacts(_artifacts_present)

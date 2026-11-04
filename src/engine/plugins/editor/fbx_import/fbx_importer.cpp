@@ -318,8 +318,7 @@ bool FbxImporter::inspect_batch(const ImportContext& context, std::string& finge
     {
         return false;
     }
-    fingerprint +=
-        ":ufbx-0.23.1:ozz-0.16.0:mikktspace-3e895b49-angle-precision-1:fbx-importer-12";
+    fingerprint += ":ufbx-0.23.1:ozz-0.17.0:mikktspace-3e895b49-angle-precision-1:fbx-importer-12";
     return true;
 }
 bool FbxImporter::scan_dependencies(ImportAsset& asset, const ImportContext& context,

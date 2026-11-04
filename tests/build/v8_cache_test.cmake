@@ -28,6 +28,101 @@ _engine_v8_arguments_compatible("${_legacy_args}" "${_full_args}" _compatible)
 if(_compatible)
     message(FATAL_ERROR "ICU migration must not change the requested Intl configuration")
 endif()
+set(_hardened_args
+    "${_current_args}engine_verified_system_libcxx = true\nv8_enable_sandbox = true\n")
+# 两组已知参数可以分别或同时补齐，但不能接受部分参数或手工变更。
+set(_legacy_hardened_args
+    "${_legacy_args}engine_verified_system_libcxx = true\nv8_enable_sandbox = true\n")
+foreach(_existing IN ITEMS "${_legacy_args}" "${_current_args}"
+                           "${_legacy_hardened_args}" "${_hardened_args}")
+    _engine_v8_arguments_compatible("${_existing}" "${_hardened_args}" _compatible)
+    if(NOT _compatible)
+        message(FATAL_ERROR "Complete known ICU/hardening migrations must preserve the cache")
+    endif()
+endforeach()
+foreach(_base IN ITEMS "${_legacy_args}" "${_current_args}")
+    foreach(_manual IN ITEMS "v8_enable_sandbox = false\n"
+                             "engine_verified_system_libcxx = false\n"
+                             "v8_enable_sandbox = true\n"
+                             "engine_verified_system_libcxx = true\n"
+                             "use_lld = true\n")
+        _engine_v8_arguments_compatible("${_base}${_manual}" "${_hardened_args}" _compatible)
+        if(_compatible)
+            message(FATAL_ERROR
+                "Manual or partial hardening arguments must be rejected: ${_manual}")
+        endif()
+    endforeach()
+endforeach()
+foreach(_argument IN ITEMS "v8_enable_sandbox" "engine_verified_system_libcxx")
+    foreach(_base IN ITEMS "${_legacy_hardened_args}" "${_hardened_args}")
+        string(REPLACE "${_argument} = true\n" "${_argument} = false\n" _changed "${_base}")
+        _engine_v8_arguments_compatible("${_changed}" "${_hardened_args}" _compatible)
+        if(_compatible)
+            message(FATAL_ERROR "Manual hardening changes must be rejected: ${_argument}")
+        endif()
+    endforeach()
+endforeach()
+foreach(_argument IN ITEMS "v8_enable_i18n_support" "v8_depend_on_icu_data_file"
+                           "icu_copy_icudata_to_root_build_dir")
+    foreach(_base IN ITEMS "${_current_args}" "${_hardened_args}")
+        string(REPLACE "${_argument} = false\n" "${_argument} = true\n" _changed "${_base}")
+        _engine_v8_arguments_compatible("${_changed}" "${_hardened_args}" _compatible)
+        if(_compatible)
+            message(FATAL_ERROR "Manual Intl/ICU changes must be rejected: ${_argument}")
+        endif()
+        if(NOT _argument STREQUAL "v8_enable_i18n_support")
+            string(REPLACE "${_argument} = false\n" "" _partial "${_base}")
+            _engine_v8_arguments_compatible("${_partial}" "${_hardened_args}" _compatible)
+            if(_compatible)
+                message(FATAL_ERROR
+                    "Partial ICU migration arguments must be rejected: ${_argument}")
+            endif()
+        endif()
+    endforeach()
+endforeach()
+_engine_v8_arguments_compatible("${_hardened_args}use_lld = true\n" "${_hardened_args}" _compatible)
+if(_compatible)
+    message(FATAL_ERROR "Unknown GN arguments must be rejected with both known groups present")
+endif()
+
+set(_macos_args "mac_deployment_target = \"13.3\"\nmac_min_system_version = \"13.3\"\n")
+set(_macos_expected "${_hardened_args}${_macos_args}")
+foreach(_base IN ITEMS "${_legacy_args}" "${_current_args}"
+                       "${_legacy_hardened_args}" "${_hardened_args}")
+    foreach(_existing IN ITEMS "${_base}" "${_base}${_macos_args}")
+        _engine_v8_arguments_compatible("${_existing}" "${_macos_expected}" _compatible)
+        if(NOT _compatible)
+            message(FATAL_ERROR "Known macOS/ICU/hardening groups must migrate in combination")
+        endif()
+    endforeach()
+    foreach(_manual IN ITEMS "mac_deployment_target = \"13.0\"\nmac_min_system_version = \"13.0\"\n"
+                             "mac_deployment_target = \"14.0\"\nmac_min_system_version = \"14.0\"\n"
+                             "mac_deployment_target = \"13.3\"\nmac_min_system_version = \"14.0\"\n"
+                             "mac_deployment_target = \"13.3\"\n"
+                             "mac_min_system_version = \"13.3\"\n"
+                             "${_macos_args}use_lld = true\n")
+        _engine_v8_arguments_compatible("${_base}${_manual}" "${_macos_expected}" _compatible)
+        if(_compatible)
+            message(FATAL_ERROR "Manual or partial macOS deployment arguments must be rejected")
+        endif()
+    endforeach()
+endforeach()
+foreach(_target IN ITEMS 13.3.1 14.0)
+    set(_higher_args
+        "${_hardened_args}mac_deployment_target = \"${_target}\"\nmac_min_system_version = \"${_target}\"\n")
+    _engine_v8_arguments_compatible("${_hardened_args}" "${_higher_args}" _compatible)
+    if(NOT _compatible)
+        message(FATAL_ERROR "A higher explicit macOS deployment target must accept known migration")
+    endif()
+endforeach()
+foreach(_target_args IN ITEMS
+    "mac_deployment_target = \"13.0\"\nmac_min_system_version = \"13.0\"\n"
+    "mac_deployment_target = \"13.3\"\nmac_min_system_version = \"14.0\"\n")
+    _engine_v8_arguments_compatible("${_hardened_args}" "${_hardened_args}${_target_args}" _compatible)
+    if(_compatible)
+        message(FATAL_ERROR "Unsupported macOS targets must not be accepted as a known migration")
+    endif()
+endforeach()
 
 # 仅使用独立小型假产物；此测试不运行 V8、GN、Ninja 或归档器。
 set(_engine_root "${ENGINE_OUTPUT_DIR}/fixture")
@@ -70,6 +165,7 @@ endforeach()
 set(_files
     "${_engine_root}/cmake/dependencies/v8.cmake"
     "${_source}/DEPS"
+    "${_source}/build/config/c++/engine_system_libcxx_guard.h"
     "${_workspace}/.gclient"
     "${_workspace}/.gclient_entries"
     "${_source}/third_party/llvm-build/Release+Asserts/cr_build_revision"
@@ -242,6 +338,11 @@ else()
 endif()
 set(_ndk_files "${ENGINE_V8_ANDROID_NDK}/source.properties"
                "${ENGINE_V8_ANDROID_NDK}/meta/platforms.json")
+foreach(_header IN ITEMS __config __config_site __assert __assertion_handler
+                         __vector/vector.h vector span string)
+    list(APPEND _ndk_files
+        "${ENGINE_V8_ANDROID_NDK}/toolchains/llvm/prebuilt/${_ndk_host}/sysroot/usr/include/c++/v1/${_header}")
+endforeach()
 foreach(_tool IN ITEMS clang llvm-ar ld.lld)
     list(
         APPEND

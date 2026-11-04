@@ -4,7 +4,7 @@
 
 本地 port 文件和补丁纳入版本管理。修改后重新配置；vcpkg 会按 port 内容重新计算包 ABI 并安装更新后的包。CMake 构建也会监视此目录，变动时先重新配置。不要直接修改 vcpkg 安装目录或上游源码。
 
-BasisU 新版 port、SPIRV-Cross 同版 port 与补丁的来源和 MIT 许可全文见 [vcpkg 许可](../notices/vcpkg.md)。
+port 的基线来源、版本迁移和 MIT 许可全文见 [vcpkg 许可](../notices/vcpkg.md)。
 
 Android 使用仓库锁定的库版本；单项版本升级由对应 overlay 明确固定，相关修复为：
 
@@ -39,8 +39,27 @@ Android 使用仓库锁定的库版本；单项版本升级由对应 overlay 明
 
 当前引擎选择 Metal、DirectX 12 和 Vulkan；Shader 工具保留相应 GLSL/SPIR-V/MSL/DXIL/HLSL 支持，显式禁用未使用的 WGSL/Tint，避免依赖 SPIRV-Tools 未导出的私有头或编译另一份同名库。升级不接入 WebGPU、硬件视频解码、HDR10 或新天空效果。
 
-`spirv-cross/` 保持 baseline 的 `vulkan-sdk-1.4.309.0`（本地修订 `#1`），仅回移新版 shaderc 所需的 `CompilerMSL::get_writes_to_point_size()` 和实际 PointSize store 跟踪，保留生成 MSL 点精灵输出时的判断。接口来自正式上游提交 `f170de532cc4d2583e6b26dbff5d0c81106c6f78`，跟踪实现来自正式上游 `8b91a447a78f51f841119573f6f99a2d8c955c22`，均与本次已选 bgfx `b2513038f4b753ebeced40821c193978daa0492f` 的固定副本核对；不升级整套 vcpkg baseline。来源、适配内容和完整许可见 [SPIRV-Cross 说明](../notices/spirv-cross.md)。
+SPIRV-Cross 使用新 baseline 提供的 `vulkan-sdk-1.4.363.0`。该正式版已包含 bgfx shaderc 需要的 `CompilerMSL::get_writes_to_point_size()` 及实际 PointSize store 跟踪，因此删除旧 `spirv-cross/` overlay 和兼容补丁，直接复用 registry port。来源和许可见 [SPIRV-Cross 说明](../notices/spirv-cross.md)。
 
 新运行时需要同步使用本 overlay 安装的 shaderc。旧 Shader 二进制必须通过正常导入指纹和内置 Shader 构建重新生成；不能混用旧工具生成物。所有补丁只由 portfile 在解包后应用，不直接修改安装库或上游检出目录。实际平台构建与回归结果见[测试文档](../../docs/testing.md)。
 
-`third_party/triplets/arm64-android-engine.cmake` 固定 arm64/API 28，默认使用静态 PIC 库和共享 C++ 运行库；SDL3 单独使用共享库以供 `SDLActivity` 加载。首次支持范围和实际验证以[测试文档](../../docs/testing.md)为准。
+## 2026-11-04 稳定版本检查
+
+整体 baseline 升至 `8450b1326545e5e933c36d698c74df072ffca6d0`；以下 overlay 用固定正式版补齐 baseline 尚未包含的稳定更新，不跟踪浮动分支：
+
+| port | 固定版本 | 保留或迁移的本地处理 |
+| --- | --- | --- |
+| `sdl3` | `release-3.4.20` | 采用新版官方 port 的平台选项及完整许可清单；保留 Windows 读文件共享删除、原子替换补丁和 Android 同版 Java glue 部署。 |
+| `tbb` | `v2023.2.0` | 正式源码已包含具体 task 类型销毁修复，移除 `task-handle-finalize-size.patch`；macOS 继续让 USD 多个动态库共享同一个 TBB 调度器。 |
+| `quickjs-ng` | `v0.18.0` | 保留且迁移无副作用模块预检及 NUL 路径校验；采用新版 `lib/cmake/qjs` 导出目录，安装 Unicode 许可。 |
+| `usd` | `v26.11.1` | 迁移包依赖、安装目录与 Windows 静态插件处理；OpenImageIO 3 依赖及 `ImageBuf` 接口已由上游适配，删除 `013-openimageio-3.patch` 和重复 CMake 处理。 |
+| `flecs` | `v4.2.0` | 使用官方 port 构建方式并固定正式版归档。 |
+| `efsw` | `1.7.3` | 使用官方 port 构建方式并固定正式版归档。 |
+| `flatbuffers` | `v25.12.19-2026-02-06-03fffb2` | 使用正式发布页标为 latest 的维护快照；库与 host `flatc` 同版生成和安装。 |
+| `tinyexr` | `v3.3.0` | 使用官方 port 构建方式并固定正式版归档。 |
+
+`basisu v2_50`、bgfx.cmake `v1.167.9605-606` 和 MikkTSpace `3e895b49d05ea07e4c2133156cfa94369e19e409` 经上游 release/tag/HEAD 检查仍为当前稳定版本；保留既有必要补丁。MikkTSpace 无新 tag 或提交，不以其他 fork 替换原算法。
+
+归档 SHA512 在各 portfile 中固定。升级验证不以包登记代替实际链接：受影响 Debug/Release 构建以及 Release 测试结果记录在[测试文档](../../docs/testing.md)，未实测平台不标记通过。
+
+`third_party/triplets/arm64-android-engine.cmake` 固定 arm64/API 28，使用静态 PIC 库和静态 C++ 运行库；SDL3 与所选 VM 静态合入唯一 `libmain.so`，`SDLActivity` Java glue 由 Gradle 编译，Java 只加载 `main`。首次支持范围和实际验证以[测试文档](../../docs/testing.md)为准。

@@ -35,7 +35,8 @@ endif()
 
 if(TARGET engine_platform)
     add_executable(engine_app_log_test runtime/app/app_log_test.cpp)
-    target_link_libraries(engine_app_log_test PRIVATE engine::app engine::log Threads::Threads)
+    target_link_libraries(engine_app_log_test PRIVATE engine::app engine::log Threads::Threads
+                                                    SDL3::SDL3)
     engine_apply_options(engine_app_log_test)
     add_test(NAME engine.app_log COMMAND engine_app_log_test
                                          "${CMAKE_CURRENT_BINARY_DIR}/app-log-test-output")
@@ -615,7 +616,8 @@ if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
             COMMAND
                 "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/editor/asset_pipeline/asset_pipeline_script_test.py"
                 --builder "$<TARGET_FILE:asset_build_app>" --project
-                "${PROJECT_SOURCE_DIR}/projects/showcase")
+                "${PROJECT_SOURCE_DIR}/projects/showcase" --shaderc "${ENGINE_SHADERC_EXECUTABLE}"
+                --shader-includes "${ENGINE_BGFX_SHADER_INCLUDE_DIR}")
         set_tests_properties(editor.asset_pipeline_scripts PROPERTIES TIMEOUT 180)
         add_test(NAME editor.portable_tools
                  COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/editor/asset_pipeline/editor_tools_test.py"
