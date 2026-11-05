@@ -166,7 +166,7 @@ def parse_catalog(snapshot, target_platform="android"):
             or guid == "00000000-0000-0000-0000-000000000000"
             or guid in identities
             or logical in paths
-            or kind > 18  # AssetKind in asset_catalog.fbs ends with light_probe=17, prefab=18.
+            or kind > 19  # AssetKind in asset_catalog.fbs ends with animation_retarget_profile=19.
             or version != 1
             or not re.fullmatch(r"[0-9a-f]{16}", checksum)
             or mount != "content"

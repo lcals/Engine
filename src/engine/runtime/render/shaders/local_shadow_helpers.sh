@@ -85,7 +85,7 @@ float local_shadow_visibility(uint light_index, vec3 world_position)
             vec2 half_texel = vec2_splat(parameters.y * 0.5);
             uv = clamp(uv, sample_rectangle.xy + half_texel,
                         sample_rectangle.xy + sample_rectangle.zw - half_texel);
-            float sample_depth = unpack_shadow_depth(texture2D(s_shadow_map, uv));
+            float sample_depth = unpack_shadow_depth(texture2DLod(s_shadow_map, uv, 0.0));
             visible += step(receiver_depth - parameters.x, sample_depth);
         }
     }

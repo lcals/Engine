@@ -2,9 +2,9 @@
 // bgfx and The Forge attribution is retained in fs_cube.sc and pbr_helpers.sh.
 #ifndef ENGINE_PBR_LIGHTING_SH
 #define ENGINE_PBR_LIGHTING_SH
-vec3 direct_light(uint index, vec3 world_position, vec3 normal, vec3 base_normal,
-                  vec3 view_dir, vec3 base_color, float metallic, float roughness,
-                  vec3 specular_color, float smoothness)
+vec3 direct_light(uint index, vec3 world_position, vec3 world_dx, vec3 world_dy,
+                  vec3 normal, vec3 base_normal, vec3 view_dir, vec3 base_color,
+                  float metallic, float roughness, vec3 specular_color, float smoothness)
 {
     ClusterLightData light = load_cluster_light(index);
     vec3 light_dir = -light.direction_outer.xyz;
@@ -81,7 +81,7 @@ vec3 direct_light(uint index, vec3 world_position, vec3 normal, vec3 base_normal
     float visibility = 1.0;
     if (u_shadow_settings.w > 0.5 && abs(float(index) - u_shadow_settings.z) < 0.5)
     {
-        visibility = shadow_visibility(world_position);
+        visibility = shadow_visibility(world_position, world_dx, world_dy);
     }
     if (kind > 0.5)
     {

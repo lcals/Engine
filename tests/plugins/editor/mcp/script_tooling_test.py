@@ -264,6 +264,8 @@ def test(
         "stop_animation",
         "seek_animation",
         "get_animation_state",
+        "get_animation_authoring",
+        "set_animation_authoring",
         "instantiate_model",
         "instantiate_prefab",
         "create_prefab",

@@ -1307,7 +1307,10 @@ endif()
 # Shared fixtures are private to test targets.
 get_property(_engine_test_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
 foreach(_target IN LISTS _engine_test_targets)
-    target_include_directories(${_target} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/support")
+    get_target_property(_target_type ${_target} TYPE)
+    if(NOT _target_type STREQUAL "UTILITY" AND NOT _target_type STREQUAL "INTERFACE_LIBRARY")
+        target_include_directories(${_target} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/support")
+    endif()
 endforeach()
 
 if(TARGET engine_editor AND TARGET engine_asset_pipeline)

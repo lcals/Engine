@@ -370,7 +370,7 @@ class PrepareAndroidAssetsTest(unittest.TestCase):
     def test_unknown_resource_kind_preserves_previous_output(self):
         self.prepare()
         previous = self.snapshot()
-        for kind in (19, 255):
+        for kind in (20, 255):
             with self.subTest(kind=kind):
                 self.entries = [
                     self.entries[0],

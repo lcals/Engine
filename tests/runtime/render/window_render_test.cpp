@@ -665,6 +665,12 @@ bool screenshot(engine::WindowSystem& windows, engine::RenderSystem& renderer,
                 const std::filesystem::path& root, const char* name, Screenshot& output,
                 engine::Camera camera = {})
 {
+    // DX12 reads the previously presented swapchain buffer. Submit the current
+    // scene before queuing a capture so mutations are visible in that buffer.
+    if (!render_frames(windows, renderer, 8, camera))
+    {
+        return false;
+    }
     const auto path = root / name;
     const auto native_path = engine::PathUtils::to_utf8(path);
     bgfx::requestScreenShot(BGFX_INVALID_HANDLE, native_path.c_str());
@@ -4216,7 +4222,8 @@ bool test_script_runtime_factory(const engine::EngineConfig& config)
     const auto failed_factory =
         [](engine::WorldSystem&, engine::RenderSystem&, engine::UiSystem&, engine::PhysicsSystem&,
            engine::NavigationSystem&, engine::InputSystem&,
-           engine::WindowSystem&) -> std::unique_ptr<engine::ScriptRuntime> { return {}; };
+           engine::WindowSystem&,
+           engine::AnimationSystem&) -> std::unique_ptr<engine::ScriptRuntime> { return {}; };
     if (!expect(!host.initialize(config, nullptr, failed_factory) &&
                     engine::Engine::instance().system_count() == 0 && host.world() == nullptr,
                 "failed script factory unwinds the partial host without a fallback"))
@@ -4227,7 +4234,8 @@ bool test_script_runtime_factory(const engine::EngineConfig& config)
     const auto factory = [](engine::WorldSystem& world, engine::RenderSystem& renderer,
                             engine::UiSystem&, engine::PhysicsSystem&, engine::NavigationSystem&,
                             engine::InputSystem&,
-                            engine::WindowSystem&) -> std::unique_ptr<engine::ScriptRuntime>
+                            engine::WindowSystem&,
+                            engine::AnimationSystem&) -> std::unique_ptr<engine::ScriptRuntime>
     {
         script_lifecycle.renderer = &renderer;
         return std::make_unique<ObservedScriptRuntime>(world);

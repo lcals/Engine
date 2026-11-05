@@ -202,7 +202,8 @@ function animationValidateDefinition(definition, aliases) {
     return definition.transitions.every(transition => definition.indices.has(transition.to) &&
         (transition.from === null || definition.indices.has(transition.from)));
 }
-function animationView(record, phase, snapshot, values, versions, state, stateTime, delta, reads) {
+)js"
+R"js(function animationView(record, phase, snapshot, values, versions, state, stateTime, delta, reads) {
     const view = animationContexts.get(record.context);
     Object.assign(view, {open: true, phase, snapshot, values, versions, state, stateTime,
         delta, readTriggers: reads});
