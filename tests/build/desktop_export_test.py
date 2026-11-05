@@ -96,7 +96,8 @@ class DesktopExportTest(unittest.TestCase):
                     (base / "assets" / self.entry["path"]).read_bytes(), self.entry["entity"]
                 )
                 self.assertFalse((base / "catalog.bin").exists())
-                self.assertEqual(json.loads((base / "settings/runtime.json").read_text()), {"version": 1})
+                self.assertEqual(json.loads((base / "settings/runtime.json").read_text()),
+                                 {"version": 1, "game_language": "en"})
                 self.assertFalse((base / "assets/settings").exists())
                 self.assertEqual((base / "icudtl.dat").read_bytes(), b"fixture ICU")
 
@@ -105,7 +106,7 @@ class DesktopExportTest(unittest.TestCase):
         settings = args.project / "settings"
         settings.mkdir()
         (settings / "runtime.toml").write_text(
-            'version=1\n[defaults.engine]\nwidth=1600\ntarget_frame_rate=45\n', encoding="utf-8"
+            'version=1\ngame_language="zh-CN"\n[defaults.engine]\nwidth=1600\ntarget_frame_rate=45\n', encoding="utf-8"
         )
         (settings / "parallel.toml").write_text(
             'version=1\n[profiles.mobile.threads]\nworker_limit=2\n', encoding="utf-8"
@@ -119,6 +120,7 @@ class DesktopExportTest(unittest.TestCase):
         ):
             desktop.export(args)
         result = json.loads((self.destination / "settings/runtime.json").read_text())
+        self.assertEqual(result["game_language"], "zh-CN")
         self.assertEqual(result["defaults"]["engine"], {"width": 1600, "target_frame_rate": 45})
         self.assertEqual(result["profiles"]["mobile"]["parallel"]["threads"]["worker_limit"], 2)
         self.assertEqual({p.name for p in (self.destination / "settings").iterdir()}, {"runtime.json"})

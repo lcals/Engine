@@ -16,7 +16,10 @@ def read_source(project, name):
     document = tomllib.loads(source.read_text(encoding="utf-8"))
     if type(document.get("version")) is not int or document["version"] != 1:
         raise ValueError(f"{name} 必须使用 version 1")
-    if set(document) - {"version", "defaults", "profiles", "overrides"}:
+    allowed = {"version", "defaults", "profiles", "overrides"}
+    if name == "runtime.toml":
+        allowed.add("game_language")
+    if set(document) - allowed:
         raise ValueError(f"{name} 包含未知顶层字段")
     return document
 
@@ -29,6 +32,7 @@ def attach_parallel(layer, parallel):
 
 def export_runtime_settings(project, destination):
     document = read_source(project, "runtime.toml")
+    document.setdefault("game_language", "en")
     parallel = read_source(project, "parallel.toml")
     for name in ("defaults", "overrides"):
         if name in parallel:

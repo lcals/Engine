@@ -229,7 +229,7 @@ class PrepareAndroidAssetsTest(unittest.TestCase):
         (self.project / "settings/private.json").write_text("must not ship", encoding="utf-8")
         receipt = self.prepare()
         self.assertEqual(json.loads((self.output / "settings/runtime.json").read_text()),
-                         {"version": 1, "profiles": {"mobile": {"parallel": {"threads": {"worker_limit": 2}}}}})
+                         {"version": 1, "game_language": "en", "profiles": {"mobile": {"parallel": {"threads": {"worker_limit": 2}}}}})
         self.assertFalse((self.output / "settings/parallel.toml").exists())
         self.assertFalse((self.output / "settings/runtime.toml").exists())
         self.assertFalse((self.output / "settings/private.json").exists())

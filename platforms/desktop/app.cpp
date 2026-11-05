@@ -30,6 +30,7 @@ struct AppState
     std::filesystem::path assets_path;
     std::filesystem::path persistent_data_path;
     std::filesystem::path cache_path;
+    std::string game_language = "en";
     bool initialized = false;
 };
 
@@ -195,6 +196,7 @@ void App::shutdown() noexcept
     value.assets_path.clear();
     value.persistent_data_path.clear();
     value.cache_path.clear();
+    value.game_language.clear();
 }
 
 bool App::is_initialized() noexcept
@@ -215,6 +217,16 @@ const std::filesystem::path& App::persistent_data_path() noexcept
 const std::filesystem::path& App::cache_path() noexcept
 {
     return state().cache_path;
+}
+
+void App::set_game_language(std::string_view language)
+{
+    state().game_language = language;
+}
+
+const std::string& App::game_language() noexcept
+{
+    return state().game_language;
 }
 
 } // namespace engine

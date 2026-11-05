@@ -14,6 +14,7 @@ struct RuntimeSettings
 {
     EngineConfig engine;
     RuntimeParallelConfig parallel;
+    std::string game_language = "en";
 };
 
 // 按调用方默认值、defaults、指定 profile、overrides 覆盖；失败保持 output 不变。

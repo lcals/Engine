@@ -21,6 +21,7 @@ declare module "engine" {
         static readonly assetsPath: string;
         static readonly persistentDataPath: string;
         static readonly cachePath: string;
+        static readonly gameLanguage: string;
         /** Requests normal host shutdown at a frame boundary. Active callbacks only. */
         static RequestQuit(): boolean;
     }

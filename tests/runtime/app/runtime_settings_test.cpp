@@ -26,6 +26,7 @@ int main(int argc, char* argv[])
     const auto path = directory.root / "runtime.json";
     const std::string text = R"json({
         "version": 1,
+        "game_language": "zh-CN",
         "defaults": {
             "engine": {"width":1440,"target_frame_rate":45},
             "parallel": {"threads":{"worker_limit":6},"resources":{"max_in_flight":4}}
@@ -46,7 +47,9 @@ int main(int argc, char* argv[])
     engine::RuntimeSettings settings;
     settings.engine.window_title = "Engine Editor";
     std::string error;
-    if (!expect(engine::load_runtime_settings(path, "desktop", settings, error) && error.empty() &&
+    if (!expect(settings.game_language == "en" &&
+                    engine::load_runtime_settings(path, "desktop", settings, error) && error.empty() &&
+                    settings.game_language == "zh-CN" &&
                     settings.engine.window_title == "Engine Editor" &&
                     settings.engine.width == 1440 && settings.engine.target_frame_rate == 45 &&
                     settings.parallel.threads.worker_limit == 6 &&
@@ -70,6 +73,7 @@ int main(int argc, char* argv[])
         "version = 1",
         R"({"version":2})",
         R"({"version":true})",
+        R"({"version":1,"game_language":42})",
         R"({"version":1,"defaults":{"thread":{}}})",
         R"({"version":1,"defaults":{"parallel":{"threads":{"worker_limit":65}}}})",
         R"({"version":1,"defaults":{"parallel":{"threads":{"worker_limit":-1}}}})",
@@ -101,7 +105,7 @@ int main(int argc, char* argv[])
     {
         if (!expect(!engine::decode_runtime_settings(value, "desktop", settings, error) &&
                         !error.empty() && settings.parallel.threads.worker_limit == 2 &&
-                        settings.engine.target_frame_rate == 30,
+                        settings.engine.target_frame_rate == 30 && settings.game_language == "zh-CN",
                     "invalid source, unselected profile and ranges reject without partial output"))
         {
             return 1;

@@ -99,7 +99,8 @@ bool read_source(const std::filesystem::path& path, Json& output, std::string& e
     }
     for (const auto& [name, value] : output.items())
     {
-        if (name != "version" && name != "defaults" && name != "profiles" && name != "overrides")
+        if (name != "version" && name != "defaults" && name != "profiles" && name != "overrides" &&
+            (name != "game_language" || path.filename() != "runtime.toml"))
         {
             error = "Unknown project runtime settings field: " + name;
             return false;

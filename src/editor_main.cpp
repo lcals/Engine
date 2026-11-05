@@ -904,6 +904,7 @@ int main(int argc, char* argv[])
         project.shutdown();
         return 1;
     }
+    engine::App::set_game_language(settings.game_language);
     if (width_override)
     {
         config.width = *width_override;

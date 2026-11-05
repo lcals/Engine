@@ -135,6 +135,7 @@ int main(int argc, char* argv[])
         engine::App::shutdown();
         return 1;
     }
+    engine::App::set_game_language(settings.game_language);
     auto& log = engine::LogSystem::instance();
     if (!log.initialize(config))
     {

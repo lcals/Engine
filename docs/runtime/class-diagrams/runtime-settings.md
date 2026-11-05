@@ -8,6 +8,7 @@ classDiagram
         <<struct>>
         +EngineConfig engine
         +RuntimeParallelConfig parallel
+        +string game_language = "en"
     }
     class EngineConfig
     class RuntimeParallelConfig
@@ -32,6 +33,7 @@ classDiagram
 编辑器普通函数 `engine::editor::load_project_runtime_settings(project_root, profile, output, error)` 定义于 `editor/project/runtime_settings_io.hpp`，读取可选 `settings/runtime.toml` 与 `settings/parallel.toml`，汇总为同一 JSON 模型后复用运行时字段验证；不新增配置 System。两个文件均缺少时保留传入默认值，存在但无效时失败。
 
 - `runtime.toml` 使用统一 version/defaults/profiles/overrides，每层目前支持 engine。
+- 顶层 `game_language` 是游戏默认语言字符串，缺省为 `en`；打包写入 `runtime.json`，宿主读取后传给 App，TS 通过只读 `App.gameLanguage` 获取。
 - `parallel.toml` 保留并行配置的 version/defaults/profiles/overrides；转换时将各层放入统一模型的 parallel 字段。重复定义同一层 parallel 拒绝，避免两个源文件互相遮盖。
 - `scripts/runtime_settings.py` 在打包阶段读取相同 TOML 并汇总，只输出 `settings/runtime.json`。运行包不包含 TOML、编辑器设置或购买清单。
 - 编辑器源配置和打包 JSON 均在 CLI 覆盖前应用。未配置标题时，编辑器保留自己的 Engine Editor 默认标题；显式宽高与 worker 命令行参数最后覆盖。

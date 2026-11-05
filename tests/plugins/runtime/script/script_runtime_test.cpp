@@ -679,6 +679,7 @@ export default class extends Gameplay {
 const std::string scene_source = R"js(
 import { App, Gameplay, Scene, Time, Debug, Component, Camera, Light, MeshRenderer, Transform } from 'engine';
 const topLevelBlocked = Scene.Create('top-level') === null && Time.deltaTime === 0;
+const gameLanguage = App.gameLanguage;
 export default class Game extends Gameplay {
     cube = null;
     scene = null;
@@ -690,7 +691,8 @@ export default class Game extends Gameplay {
     OnInitialize() {
         if (typeof App.assetsPath !== 'string' || App.assetsPath.length === 0 ||
             'builtinAssetsPath' in App || typeof App.persistentDataPath !== 'string' ||
-            typeof App.cachePath !== 'string') return false;
+            typeof App.cachePath !== 'string' || gameLanguage !== 'zh-CN' ||
+            App.gameLanguage !== 'zh-CN' || Reflect.set(App, 'gameLanguage', 'fr')) return false;
         if (!topLevelBlocked || !this.constructorBlocked || Time.deltaTime !== 0) return false;
         const discarded = Scene.Create('discarded');
         const oldNode = discarded?.CreateNode('old');
@@ -3079,10 +3081,11 @@ int main(int argc, char** argv)
     app.assets_path = workspace / fs::path(u8"builtin-资源");
     app.persistent_data_path = workspace / fs::path(u8"data-持久");
     app.cache_path = workspace / fs::path(u8"cache-缓存");
-    if (!engine::App::initialize(app))
+    if (!engine::App::initialize(app) || engine::App::game_language() != "en")
     {
         return 1;
     }
+    engine::App::set_game_language("zh-CN");
     const engine::EngineConfig config;
     if (!engine::LogSystem::instance().initialize(config))
     {

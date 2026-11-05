@@ -301,7 +301,7 @@ bool decode_runtime_settings(std::string_view text, std::string_view profile,
         return false;
     }
     const auto document = Json::parse(text, nullptr, false);
-    if (!keys(document, {"version", "defaults", "profiles", "overrides"}, error))
+    if (!keys(document, {"version", "defaults", "profiles", "overrides", "game_language"}, error))
     {
         return false;
     }
@@ -312,6 +312,15 @@ bool decode_runtime_settings(std::string_view text, std::string_view profile,
         return false;
     }
     auto candidate = output;
+    if (const auto language = document.find("game_language"); language != document.end())
+    {
+        if (!language->is_string())
+        {
+            error = "Runtime game_language must be a string";
+            return false;
+        }
+        candidate.game_language = language->get_ref<const std::string&>();
+    }
     if (const auto defaults = document.find("defaults");
         defaults != document.end() && !apply(*defaults, candidate, error))
     {
