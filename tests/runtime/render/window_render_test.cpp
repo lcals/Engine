@@ -4233,7 +4233,7 @@ bool test_script_runtime_factory(const engine::EngineConfig& config,
     const auto failed_factory =
         [](engine::WorldSystem&, engine::RenderSystem&, engine::UiSystem&, engine::PhysicsSystem&,
            engine::NavigationSystem&, engine::InputSystem&, engine::WindowSystem&,
-           engine::AnimationSystem&) -> std::unique_ptr<engine::ScriptRuntime> { return {}; };
+           engine::AnimationSystem&, engine::MoviePlayer*) -> std::unique_ptr<engine::ScriptRuntime> { return {}; };
     if (!expect(!host.initialize(config, nullptr, failed_factory, nullptr, nullptr, parallel) &&
                     engine::Engine::instance().system_count() == 0 && host.world() == nullptr,
                 "failed script factory unwinds the partial host without a fallback"))
@@ -4244,7 +4244,7 @@ bool test_script_runtime_factory(const engine::EngineConfig& config,
     const auto factory = [](engine::WorldSystem& world, engine::RenderSystem& renderer,
                             engine::UiSystem&, engine::PhysicsSystem&, engine::NavigationSystem&,
                             engine::InputSystem&, engine::WindowSystem&,
-                            engine::AnimationSystem&) -> std::unique_ptr<engine::ScriptRuntime>
+                            engine::AnimationSystem&, engine::MoviePlayer*) -> std::unique_ptr<engine::ScriptRuntime>
     {
         script_lifecycle.renderer = &renderer;
         return std::make_unique<ObservedScriptRuntime>(world);

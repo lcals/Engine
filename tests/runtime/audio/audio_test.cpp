@@ -446,6 +446,35 @@ bool persistent_audio()
                   "full world cleanup closes the output device");
 }
 
+bool independent_voice()
+{
+    test_support::ResourceFixture fixture;
+    engine::ResourceSystem resources;
+    engine::AudioSystem audio;
+    engine::ResourcePtr clip;
+    engine::AudioVoiceHandle handle;
+    engine::AudioPlaybackStatus status;
+    if (!expect(prepare(fixture, resources) && audio.initialize({}) &&
+                    resources.load("20000000-0000-4000-8000-000000000001", clip),
+                "prepare independent audio") ||
+        !expect(audio.play(clip, handle) && audio.set_paused(handle, true) &&
+                    audio.playback(handle, status) && status.state == engine::AudioVoiceState::paused,
+                "pause independent voice without a world") ||
+        !expect(audio.tick(0) && audio.set_paused(handle, false), "resume without a world"))
+    {
+        return false;
+    }
+    for (int index = 0; index < 100; ++index)
+    {
+        SDL_Delay(10);
+        if (!audio.playback(handle, status)) return false;
+        if (status.state == engine::AudioVoiceState::completed) break;
+    }
+    return expect(status.state == engine::AudioVoiceState::completed &&
+                      audio.release(handle) && !audio.playback(handle, status),
+                  "independent voice drains and invalidates its handle");
+}
+
 bool unavailable_device()
 {
     if (!SDL_SetHintWithPriority(SDL_HINT_AUDIO_DRIVER, "engine-missing-audio-driver",
@@ -488,6 +517,7 @@ bool unavailable_device()
 int main()
 {
     return settings_and_resources() && playback_and_lifecycle() && persistent_audio() &&
+                   independent_voice() &&
                    unavailable_device()
                ? 0
                : 1;

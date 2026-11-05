@@ -17,7 +17,7 @@ classDiagram
         +create_scene(string_view name) Scene#42;
         +load_scene(string_view path) Scene#42;
         +begin_restore_scene(shared_ptr~const Resource~ resource) uint64_t
-        +step_restore_scene(uint64_t request, size_t node_budget) SceneRestoreStatus
+        +step_restore_scene(uint64_t request, size_t node_budget, double max_seconds) SceneRestoreStatus
         +commit_restore_scene(uint64_t request) Scene#42;
         +cancel_restore_scene(uint64_t request) void
         +unload_scene() void
@@ -109,7 +109,7 @@ C++ 限定符：构造、析构及 `on_shutdown()` 为 `noexcept`；析构和受
 
 `load_scene(string_view path)` 从当前 ResourceCatalog 读取场景，建立候选 Scene 并校验全部节点/组件/父子和资源引用；成功替换活动场景并保留旧场景常驻子树，失败保留当前场景。
 
-`begin_restore_scene` 只接受已加载的场景资源并返回非零请求身份；每个世界最多一个候选。`step_restore_scene` 在主线程按节点数和时间预算创建节点/组件、恢复父子，预算默认每步最多 64 项、1 ms；单个组件恢复不可抢占。资源读取和解码已在前一阶段完成，候选不作为活动场景更新。ready 后由调用方显式 commit；失败/取消保持旧场景。代际、请求身份和世界生命周期均在提交时重新校验。新场景创建/切换及世界关闭取消候选，过期请求不能取消新请求。同步 load_scene 保留原语义。脚本既有 BeginLoadScene/StepSceneLoad/CommitSceneLoad 共用此链路，玩法无需管理线程。
+`begin_restore_scene` 只接受已加载的场景资源并返回非零请求身份；每个世界最多一个候选。`step_restore_scene` 在主线程按节点数和时间预算创建节点/组件、恢复父子，预算默认每步最多 64 项、1 ms；第三参数默认 0 表示使用系统配置上限；显式正数与系统时间预算取较小值，负数和非有限值拒绝。单个组件恢复不可抢占。资源读取和解码已在前一阶段完成，候选不作为活动场景更新。ready 后由调用方显式 commit；失败/取消保持旧场景。代际、请求身份和世界生命周期均在提交时重新校验。新场景创建/切换及世界关闭取消候选，过期请求不能取消新请求。同步 load_scene 保留原语义。脚本既有 BeginLoadScene/StepSceneLoad/CommitSceneLoad 共用此链路，玩法无需管理线程。
 
 宿主在加载场景前通过 `component_registry()` 登记插件组件；WorldSystem 拥有登记表，Scene 在恢复时借用，不引用具体插件。登记函数地址须保持有效直到世界关闭。
 

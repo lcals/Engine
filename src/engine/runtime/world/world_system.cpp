@@ -122,11 +122,13 @@ std::uint64_t WorldSystem::begin_restore_scene(std::shared_ptr<const Resource> r
     return restoring_->id();
 }
 
-SceneRestoreStatus WorldSystem::step_restore_scene(std::uint64_t request, std::size_t node_budget)
+SceneRestoreStatus WorldSystem::step_restore_scene(std::uint64_t request, std::size_t node_budget,
+                                                   double max_seconds)
 {
     ENGINE_PROFILE_ZONE("World.restoreStep");
     auto* resources = ResourceSystem::instance();
-    if (!can_modify() || !restoring_ || restoring_->id() != request)
+    if (!std::isfinite(max_seconds) || max_seconds < 0 || !can_modify() || !restoring_ ||
+        restoring_->id() != request)
     {
         return SceneRestoreStatus::failed;
     }
@@ -143,10 +145,12 @@ SceneRestoreStatus WorldSystem::step_restore_scene(std::uint64_t request, std::s
     const auto& data = *restoring_->resource_->scene();
     const auto started = std::chrono::steady_clock::now();
     const auto count = std::min(node_budget, restore_config_.nodes_per_step);
+    const double time_budget = max_seconds > 0 ? std::min(max_seconds, restore_config_.max_seconds)
+                                                : restore_config_.max_seconds;
     for (std::size_t index = 0; index < count; ++index)
     {
         if (std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count() >=
-            restore_config_.max_seconds)
+            time_budget)
         {
             break;
         }

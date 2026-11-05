@@ -1,8 +1,14 @@
-# 影片原始资源导入（规划／待实现）
+# 影片原始资源导入（分阶段实现）
 
-本页是待评审的设计，尚未新增导入器、影片资源类型或编码工具依赖。运行数据以[影片资源](../../../runtime/class-diagrams/movie-data.md)为准；编码方案尚未选择。运行包最终只装配选定的一套实现，不在逐资源 meta 中选择后端，也不提前建立多后端框架。FFmpeg 仅是编辑器离线探测、拆轨和转码工具的候选。
+本页保留已评审的完整设计及当前实现范围。运行数据以[影片资源](../../../runtime/class-diagrams/movie-data.md)为准；首版选择 FFmpeg 离线探测、拆轨并转码为 VP9 Profile 0 IVF，运行时使用 libvpx 解码；不在逐资源 meta 中选择后端，也不提前建立多后端框架。
 
 [统一导入插件](asset-import.md) · [导入基础契约](../../../editor/class-diagrams/asset-importers.md) · [异步导入增量](../../../editor/class-diagrams/asset-import-jobs.md) · [影片编辑命令](movie-mcp-tools.md)
+
+## 当前实现范围
+
+`MovieImporter` 已登记到编辑器、构建和 MCP 宿主，支持 MP4/MOV 第一个视频及可选第一个音频流。视频离线转为 30 fps、VP9 Profile 0、8 位 YUV420P 的 IVF；音频转为独立 AudioClip 并按视频帧数补齐或裁剪。当前接受 120 秒以内、偶数尺寸且不超过 1920×1080 的 SDR 影片，有明确色彩标记时要求 BT.709，拒绝其他色域或传递函数；缺少色彩标记时按 BT.709 解释；`[movie].audio` 可控制音轨导入，`[audio]` 使用现有采样率、声道和增益语义。原始文件及相邻 meta 保留，音轨子 GUID 在禁用后保留以备恢复。
+
+FFmpeg 与 ffprobe 从编辑器工具目录或明确配置的开发工具路径定位，工具版本与文件内容参与增量指纹；输出和工具执行时间有界。公开工具函数已支持合作取消并回收子进程，`ImportContext` 可传入取消检查；当前 `build_assets()` 仍是同步入口，尚未实现批次取消与异步发现，下文相关状态和 MCP 作业接口仍是目标而非现状。更多源参数、音轨选择、任意剪裁和细粒度进度也尚未实现。
 
 ## 类、签名与关系
 

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "editor/asset_pipeline/import_asset.hpp"
+#include "editor/asset_pipeline/import_tool.hpp"
 
 #include <map>
 #include <span>
@@ -18,5 +19,6 @@ struct ImportContext
     std::string target_platform;
     const schema::AssetCatalogDataT* previous_catalog = nullptr;
     std::span<const ImportAsset* const> sources;
+    CancellationCheck cancel_requested = {};
 };
 } // namespace engine::editor::asset_pipeline

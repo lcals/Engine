@@ -1,6 +1,6 @@
 # 渲染系统
 
-无场景 YUV 影片呈现及世界借用绑定的规划增量见[影片播放器](movie-player.md#帧视图与呈现)。它们尚未实现，本页继续维护当前渲染接口。
+无场景 YUV 影片呈现及世界借用绑定见[影片播放器](movie-player.md#帧视图与呈现)。现已支持帧呈现与绑定；完整启动交接仍在实现。
 
 [类图索引](../../class-diagrams/index.md) · [引擎与系统](engine-system.md) · [完整引用关系](../../class-diagrams/references.md)
 

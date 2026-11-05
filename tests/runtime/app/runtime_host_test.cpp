@@ -5,6 +5,8 @@
 #include "runtime/app/runtime_host.hpp"
 #include "runtime/gameplay/gameplay_session.hpp"
 #include "runtime/gameplay/script_runtime.hpp"
+#include "runtime/movie/movie_frame.hpp"
+#include "runtime/render/render_system.hpp"
 #include "runtime/task/task_system.hpp"
 
 #include <SDL3/SDL_main.h>
@@ -95,7 +97,7 @@ private:
 
 std::unique_ptr<ScriptRuntime> create_script(WorldSystem&, RenderSystem&, UiSystem&, PhysicsSystem&,
                                              NavigationSystem&, InputSystem&, WindowSystem&,
-                                             AnimationSystem&)
+                                             AnimationSystem&, MoviePlayer*)
 {
     return std::make_unique<TestScript>();
 }
@@ -229,6 +231,36 @@ bool test_completion_fairness(const EngineConfig& config, RuntimeParallelConfig 
                   "a one-completion frame budget services background work before runtime drains");
 }
 
+bool test_movie_presentation(const EngineConfig& config, const RuntimeParallelConfig& parallel)
+{
+    RuntimeHost host;
+    if (!host.initialize_presentation(config, nullptr, nullptr, parallel) ||
+        !expect(host.world() == nullptr && host.ui() == nullptr && host.movie_player() != nullptr,
+                "presentation is ready before world and script initialization") ||
+        !expect(host.tick(0.0) == FrameStatus::running, "presentation ticks without a world"))
+    {
+        return false;
+    }
+    std::array<std::uint8_t, 16> luma{};
+    std::array<std::uint8_t, 4> u{};
+    std::array<std::uint8_t, 4> v{};
+    luma.fill(128);
+    u.fill(128);
+    v.fill(128);
+    MovieFrame frame;
+    frame.width = frame.height = 4;
+    frame.planes = {{{luma, 4, 4, 4}, {u, 2, 2, 2}, {v, 2, 2, 2}}};
+    auto* renderer = host.renderer();
+    const auto before = renderer->frame_number();
+    if (!expect(renderer->present_movie_frame(frame) && renderer->frame_number() != before,
+                "movie frame submits through the initialized GPU"))
+    {
+        return false;
+    }
+    frame.planes[0].bytes = {};
+    return expect(!renderer->present_movie_frame(frame), "truncated movie plane is rejected");
+}
+
 bool test_deployment_selection(const EngineConfig& config, const RuntimeParallelConfig& parallel)
 {
     RuntimeHost host;
@@ -349,7 +381,8 @@ int main(int, char**)
     settings.engine.width = 320;
     settings.engine.height = 240;
     settings.engine.window_title = "Runtime host contract test";
-    const bool success = test_completion_fairness(settings.engine, settings.parallel) &&
+    const bool success = test_movie_presentation(settings.engine, settings.parallel) &&
+                         test_completion_fairness(settings.engine, settings.parallel) &&
                          test_deployment_selection(settings.engine, settings.parallel);
     App::shutdown();
     return success ? 0 : 1;

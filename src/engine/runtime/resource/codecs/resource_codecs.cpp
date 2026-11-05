@@ -4,6 +4,7 @@
 #include "runtime/resource/resource_codec.hpp"
 
 #include "runtime/resource/codecs/audio_resource_codec.hpp"
+#include "runtime/resource/codecs/movie_resource_codec.hpp"
 #include "runtime/resource/codecs/binary_resource_codec.hpp"
 #include "runtime/resource/codecs/material_resource_codec.hpp"
 #include "runtime/resource/codecs/mesh_resource_codec.hpp"
@@ -33,6 +34,7 @@ const AnimationResourceCodec animation;
 const AnimationRetargetResourceCodec animation_retarget;
 const BinaryResourceCodec binary;
 const AudioResourceCodec audio;
+const MovieResourceCodec movie;
 const MaterialResourceCodec material;
 const MeshResourceCodec mesh;
 const SceneResourceCodec scene;
@@ -63,6 +65,7 @@ const std::array registrations = {
     CodecEntry{schema::AssetKind::animation, &animation},
     CodecEntry{schema::AssetKind::animation_retarget_profile, &animation_retarget},
     CodecEntry{schema::AssetKind::audio, &audio},
+    CodecEntry{schema::AssetKind::movie, &movie},
     CodecEntry{schema::AssetKind::font, &font},
     CodecEntry{schema::AssetKind::ui, &ui},
     CodecEntry{schema::AssetKind::effect, &binary},

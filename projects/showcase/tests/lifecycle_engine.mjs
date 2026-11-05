@@ -4,12 +4,13 @@ export const fixture = {
     scene: null,
     failDocument: false, failRefreshOnce: false, views: [], nodes: [], loads: [],
     pendingLoad: null, loadStatus: "ready", failCommit: false, cancellations: 0,
-    ids: [],
+    ids: [], movie: null, movieReleased: 0,
     reset() {
         for (const node of this.nodes) node.live = false;
         this.scene = null; this.failDocument = false; this.failRefreshOnce = false;
         this.views = []; this.nodes = []; this.loads = []; this.pendingLoad = null;
         this.loadStatus = "ready"; this.failCommit = false; this.cancellations = 0;
+        this.movie = null; this.movieReleased = 0;
     },
     element(id) {
         const views = [this.scene?.view, ...this.views].filter(Boolean);
@@ -128,6 +129,15 @@ export class UiController {
     OnRefresh() { return true; }
     OnUnbind() {}
 }
+export const MovieState = { preparing: 0, playing: 1, paused: 2, completed: 3, cancelled: 4, failed: 5 };
+export const MovieStopReason = { none: 0, stopped: 1, skipped: 2 };
+export const Movie = {
+    lastError: "fixture rejection",
+    Play(path) { if (fixture.movie) return null; fixture.movie = { id: 1n, generation: 1n, path, state: MovieState.preparing }; return fixture.movie; },
+    Status(handle) { return fixture.movie === handle ? { state: handle.state, error: "" } : null; },
+    Stop(handle) { if (fixture.movie !== handle) return false; handle.state = MovieState.cancelled; return true; },
+    Release(handle) { if (fixture.movie !== handle) return false; fixture.movie = null; ++fixture.movieReleased; return true; },
+};
 export class Gameplay { OnInitialize() { return true; } Update() {} OnShutdown() {} }
 export class Transform { SetRotation() { return true; } }
 export class Animator {}

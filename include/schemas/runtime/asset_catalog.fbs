@@ -1,6 +1,6 @@
 namespace engine.schema;
 
-enum AssetKind:ubyte { source, script, scene, mesh, shader, material, texture, audio, model, skeleton, animation, font, ui, effect, terrain, destruction, json, light_probe, prefab, animation_retarget_profile }
+enum AssetKind:ubyte { source, script, scene, mesh, shader, material, texture, audio, model, skeleton, animation, font, ui, effect, terrain, destruction, json, light_probe, prefab, animation_retarget_profile, movie }
 
 table FileLocation {
     mount:string (required);

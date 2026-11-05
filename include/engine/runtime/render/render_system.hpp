@@ -25,11 +25,13 @@ class FontSystem;
 class UiSystem;
 class RenderExtension;
 class TaskSystem;
+struct MovieFrame;
 
 namespace render_detail
 {
 class RenderSurface;
-}
+class MoviePass;
+} // namespace render_detail
 
 enum class ScreenshotStatus
 {
@@ -64,6 +66,9 @@ public:
                           FontSystem* fonts = nullptr, UiSystem* ui = nullptr,
                           TaskSystem* tasks = nullptr, const RenderConfig& config = {}) noexcept;
     ~RenderSystem() noexcept override;
+
+    // 主线程借用就绪世界及其字体、UI；传入全空解绑，借用须覆盖绑定期间。
+    [[nodiscard]] bool bind_world(WorldSystem* world, FontSystem* fonts, UiSystem* ui);
 
     // 不转移所有权；同一扩展只能属于一个渲染器。回调期间拒绝更改登记。
     [[nodiscard]] bool add_extension(RenderExtension& extension);
@@ -118,12 +123,14 @@ public:
     [[nodiscard]] bool request_screenshot(std::string_view utf8_png_path);
     [[nodiscard]] ScreenshotStatus screenshot_status() const noexcept;
     [[nodiscard]] bool render(Camera camera = {});
+    [[nodiscard]] bool present_movie_frame(const MovieFrame& frame);
 
 protected:
     [[nodiscard]] bool on_initialize(const EngineConfig& config) override;
     void on_shutdown() noexcept override;
 
 private:
+    [[nodiscard]] bool prepare_frame();
     friend class RenderExtension;
     void detach_extension(RenderExtension& extension) noexcept;
     void release_extensions_scene() noexcept;
@@ -148,6 +155,7 @@ private:
 
     WindowSystem& windows_;
     WorldSystem* world_ = nullptr;
+    std::unique_ptr<render_detail::MoviePass> movie_pass_;
     FontSystem* fonts_ = nullptr;
     UiSystem* ui_ = nullptr;
     TaskSystem* tasks_ = nullptr;

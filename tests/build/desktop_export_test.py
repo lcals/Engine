@@ -112,7 +112,8 @@ class DesktopExportTest(unittest.TestCase):
         settings = args.project / "settings"
         settings.mkdir(exist_ok=True)
         (settings / "runtime-game.toml").write_text(
-            '[common]\ngame_language="zh-CN"\n', encoding="utf-8"
+            '[common]\ngame_language="zh-CN"\nstartup_movie="movies/intro.movie"\n'
+            '[platform.macos]\nstartup_movie="movies/mac.movie"\n', encoding="utf-8"
         )
         (settings / "runtime-engine.toml").write_text(
             '[common]\nwindow_title="Game"\nwidth=1600\nheight=900\ntarget_frame_rate=45\n', encoding="utf-8"
@@ -130,7 +131,7 @@ class DesktopExportTest(unittest.TestCase):
             desktop.export(args)
         result = json.loads((self.destination / "settings/runtime.json").read_text())
         self.assertEqual(set(result), {"game", "engine", "parallel"})
-        self.assertEqual(result["game"], {"game_language": "zh-CN"})
+        self.assertEqual(result["game"], {"game_language": "zh-CN", "startup_movie": "movies/mac.movie"})
         self.assertEqual(result["engine"], {"window_title": "Game", "width": 1600, "height": 900, "target_frame_rate": 45})
         self.assertEqual(result["parallel"]["threads"], {"worker_limit": 5, "worker_priority": "low"})
         self.assertNotIn("platform", result["parallel"])

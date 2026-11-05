@@ -57,14 +57,16 @@ int main(int argc, char* argv[])
                         "target_frame_rate=45\n[platform.android]\ntarget_frame_rate=30\n") ||
         !copy_parallel() ||
         !write(directory.root / "settings/runtime-game.toml",
-               "[common]\ngame_language=\"zh-CN\"\n") ||
+               "[common]\ngame_language=\"zh-CN\"\nstartup_movie=\"movies/intro.movie\"\n"
+               "[platform.android]\nstartup_movie=\"movies/mobile.movie\"\n") ||
         !expect(engine::editor::load_project_runtime_settings(directory.root, "android", settings,
                                                               error) &&
                     settings.engine.window_title == "Configured game" &&
                     settings.engine.width == 1600 && settings.engine.target_frame_rate == 30 &&
                     settings.parallel.threads.worker_limit == 3 &&
                     settings.parallel.render.texture_batch_size == 2 &&
-                    settings.game_language == "zh-CN",
+                    settings.game_language == "zh-CN" &&
+                    settings.startup_movie == "movies/mobile.movie",
                 "editor aggregates complete TOML modules and validates the runtime contract"))
     {
         return 1;
@@ -94,7 +96,8 @@ int main(int argc, char* argv[])
         !copy_parallel() ||
         !expect(engine::editor::load_project_runtime_settings(directory.root, "windows", settings,
                                                               error) &&
-                    settings.engine.width == 1600 && settings.parallel.threads.worker_limit == 0,
+                    settings.engine.width == 1600 && settings.parallel.threads.worker_limit == 0 &&
+                    settings.startup_movie == "movies/intro.movie",
                 "unselected platforms do not contribute runtime fields") ||
         !expect(!engine::editor::load_project_runtime_settings(directory.root, "desktop", settings,
                                                                error),

@@ -265,17 +265,33 @@ bool apply(const Json& value, RuntimeSettings& output, std::string& error)
         return false;
     }
     const auto& game = value["game"];
-    if (!keys(game, {"game_language"}, error))
+    if (!game.is_object())
     {
+        error = "Runtime game must be an object";
         return false;
     }
-    const auto& language = game["game_language"];
-    if (!language.is_string())
+    for (const auto& [name, item] : game.items())
+    {
+        if (name != "game_language" && name != "startup_movie")
+        {
+            error = "Unknown runtime configuration field: " + name;
+            return false;
+        }
+    }
+    const auto language = game.find("game_language");
+    if (language == game.end() || !language->is_string())
     {
         error = "Runtime game_language must be a string";
         return false;
     }
-    output.game_language = language.get_ref<const std::string&>();
+    output.game_language = language->get_ref<const std::string&>();
+    const auto movie = game.find("startup_movie");
+    if (movie != game.end() && !movie->is_string())
+    {
+        error = "Runtime startup_movie must be a string";
+        return false;
+    }
+    output.startup_movie = movie == game.end() ? std::string{} : movie->get<std::string>();
     return apply_engine(value["engine"], output.engine, error) &&
            apply_parallel(value["parallel"], output.parallel, error);
 }

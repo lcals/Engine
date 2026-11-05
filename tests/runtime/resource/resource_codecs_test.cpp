@@ -8,6 +8,7 @@
 #include "runtime/resource/codecs/texture_resource_codec.hpp"
 #include "runtime/resource/resource_codec.hpp"
 #include "runtime/resource/resource_system.hpp"
+#include "runtime/schema/movie_generated.h"
 
 #include <array>
 #include <cstddef>
@@ -341,9 +342,59 @@ bool codec_tests()
                   "builtin registration reuses type validation and publishes nothing on failure");
 }
 
+bool movie_codec_tests()
+{
+    ResourceSystem resources;
+    if (!resources.initialize({}))
+    {
+        return false;
+    }
+    test_support::ResourceFixture fixture;
+    schema::MovieDataT movie;
+    movie.video = std::make_unique<schema::MovieVideoDataT>();
+    auto& video = *movie.video;
+    video.width = 2;
+    video.height = 2;
+    video.frame_rate_num = 30;
+    video.frame_rate_den = 1;
+    video.time_base_num = 1;
+    video.time_base_den = 30;
+    video.duration_ticks = 1;
+    video.frame_count = 1;
+    video.color = std::make_unique<schema::MovieColorInfo>();
+    // A bounded IVF envelope; VP9 bitstream validity is checked by the decoder, not this codec.
+    video.payload = {'D', 'K', 'I', 'F', 0, 0, 32, 0, 'V', 'P', '9', '0',
+                     2, 0, 2, 0, 30, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0,
+                     0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 42};
+    if (!add_payload(fixture, "valid.mov", schema::AssetKind::movie, pack(movie, "EMOV")))
+    {
+        return false;
+    }
+    video.payload[32] = 2; // Claims two bytes for a one-byte frame.
+    if (!add_payload(fixture, "truncated.mov", schema::AssetKind::movie, pack(movie, "EMOV")))
+    {
+        return false;
+    }
+    video.payload[32] = 1;
+    video.payload[36] = 1; // The first timestamp must be zero.
+    if (!add_payload(fixture, "bad-time.mov", schema::AssetKind::movie, pack(movie, "EMOV")) ||
+        !fixture.publish(resources))
+    {
+        return false;
+    }
+    ResourcePtr value;
+    return expect(fixture.load("valid.mov", value) && value && !value->bytes().empty(),
+                  "valid movie envelope loads") &&
+           expect(resources.validate_dependencies(*value, {}), "silent movie has no dependencies") &&
+           expect(!fixture.load("truncated.mov", value) && !value,
+                  "truncated IVF frame is rejected") &&
+           expect(!fixture.load("bad-time.mov", value) && !value,
+                  "invalid IVF timestamp is rejected");
+}
+
 } // namespace
 
 int main()
 {
-    return codec_tests() ? 0 : 1;
+    return codec_tests() && movie_codec_tests() ? 0 : 1;
 }

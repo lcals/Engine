@@ -1,6 +1,8 @@
 #include "runtime/render/render_system.hpp"
 
+#include "runtime/font/font_system.hpp"
 #include "runtime/performance/profiling.hpp"
+#include "runtime/render/movie_pass.hpp"
 #include "runtime/render/render_constants.hpp"
 #include "runtime/render/render_extension.hpp"
 #include "runtime/render/render_sampling.hpp"
@@ -10,6 +12,7 @@
 #include "runtime/task/task_system.hpp"
 #include "runtime/ui/ui_system.hpp"
 #include "runtime/window/window_system.hpp"
+#include "runtime/world/world_system.hpp"
 
 #include <SDL3/SDL.h>
 
@@ -119,6 +122,26 @@ RenderSystem::~RenderSystem() noexcept
         extension->renderer_ = nullptr;
     }
     extensions_.clear();
+}
+
+bool RenderSystem::bind_world(WorldSystem* world, FontSystem* fonts, UiSystem* ui)
+{
+    if (!is_initialized() || invoking_extensions_ ||
+        ((world == nullptr || fonts == nullptr || ui == nullptr) &&
+         (world != nullptr || fonts != nullptr || ui != nullptr)) ||
+        (world != nullptr &&
+         (!world->is_initialized() || !fonts->is_initialized() || !ui->is_initialized())))
+    {
+        return false;
+    }
+    if (world_ != world || fonts_ != fonts || ui_ != ui)
+    {
+        release_scene();
+        world_ = world;
+        fonts_ = fonts;
+        ui_ = ui;
+    }
+    return true;
 }
 
 bool RenderSystem::add_extension(RenderExtension& extension)
@@ -386,13 +409,8 @@ bool RenderSystem::stats_visible() const noexcept
     return debug_requests_[static_cast<std::size_t>(RenderFeature::stats)];
 }
 
-bool RenderSystem::render(Camera camera)
+bool RenderSystem::prepare_frame()
 {
-    ENGINE_PROFILE_ZONE("Render.frame");
-    if (camera.instance_id() != 0 && !camera)
-    {
-        return false;
-    }
     if (callbacks_ != nullptr)
     {
         callbacks_->process(tasks_);
@@ -448,6 +466,21 @@ bool RenderSystem::render(Camera camera)
         height_ = height;
     }
 
+    return true;
+}
+
+bool RenderSystem::render(Camera camera)
+{
+    ENGINE_PROFILE_ZONE("Render.frame");
+    if (camera.instance_id() != 0 && !camera)
+    {
+        return false;
+    }
+    if (!prepare_frame())
+    {
+        return false;
+    }
+
     RenderSettings current_settings;
     if (!resolve_settings(current_settings))
     {
@@ -491,6 +524,26 @@ bool RenderSystem::render(Camera camera)
     return drawn;
 }
 
+bool RenderSystem::present_movie_frame(const MovieFrame& frame)
+{
+    if (!prepare_frame())
+    {
+        return false;
+    }
+    if (!movie_pass_)
+    {
+        movie_pass_ = std::make_unique<render_detail::MoviePass>();
+    }
+    if (!movie_pass_->draw(frame, static_cast<std::uint16_t>(width_),
+                           static_cast<std::uint16_t>(height_)))
+    {
+        return false;
+    }
+    frame_number_ = bgfx::frame();
+    ENGINE_PROFILE_FRAME();
+    return true;
+}
+
 void RenderSystem::on_shutdown() noexcept
 {
     shutdown_renderer();
@@ -512,6 +565,7 @@ void RenderSystem::shutdown_renderer() noexcept
     invoking_extensions_ = false;
     if (renderer_initialized_)
     {
+        movie_pass_.reset();
         bgfx::shutdown();
         renderer_initialized_ = false;
         active_renderer = nullptr;

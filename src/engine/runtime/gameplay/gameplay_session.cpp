@@ -1,5 +1,6 @@
 #include "runtime/gameplay/gameplay_session.hpp"
 #include "runtime/font/font_system.hpp"
+#include "runtime/gameplay/deployment_internal.hpp"
 #include "runtime/ui/ui_system.hpp"
 
 #include "runtime/animation/animation_system.hpp"
@@ -22,9 +23,12 @@
 
 #include <array>
 #include <atomic>
+#include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <memory>
 #include <set>
 #include <system_error>
@@ -33,336 +37,7 @@
 
 namespace engine
 {
-namespace
-{
-namespace fs = std::filesystem;
-using Json = nlohmann::json;
-constexpr std::size_t maximum_text_size = 4 * 1024 * 1024;
-
-[[nodiscard]] bool read_text(const fs::path& path, std::string& text)
-{
-    if (ResourceSystem::read_text(path, text) && text.size() <= maximum_text_size)
-    {
-        return true;
-    }
-    text.clear();
-    return false;
-}
-
-[[nodiscard]] bool relative_path(std::string_view input, std::string& normalized)
-{
-    normalized.clear();
-    if (input.empty() || input.find_first_of("\\:") != std::string_view::npos ||
-        input.find('\0') != std::string_view::npos)
-    {
-        return false;
-    }
-    const fs::path path = PathUtils::from_utf8(input);
-    if (path.is_absolute() || path.has_root_path())
-    {
-        return false;
-    }
-    const auto clean = path.lexically_normal();
-    for (const auto& part : clean)
-    {
-        if (part == "..")
-        {
-            return false;
-        }
-    }
-    normalized = PathUtils::to_utf8(clean);
-    return !normalized.empty() && normalized != "." && normalized.back() != '/';
-}
-
-[[nodiscard]] bool safe_revision(std::string_view value)
-{
-    if (value.empty() || value.size() > 128 || value == "." || value == ".." || value == "builtin")
-    {
-        return false;
-    }
-    for (const char character : value)
-    {
-        if (!((character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') ||
-              (character >= '0' && character <= '9') || character == '-' || character == '_' ||
-              character == '.'))
-        {
-            return false;
-        }
-    }
-    return true;
-}
-
-[[nodiscard]] bool contained_file(const fs::path& root, std::string_view relative, fs::path& path,
-                                  bool directory = false)
-{
-    std::error_code error;
-    const auto canonical_root = fs::canonical(root, error);
-    if (error || !fs::is_directory(canonical_root, error) || error)
-    {
-        return false;
-    }
-    const auto candidate = fs::canonical(canonical_root / PathUtils::from_utf8(relative), error);
-    if (error)
-    {
-        return false;
-    }
-    auto component = candidate.begin();
-    for (const auto& root_component : canonical_root)
-    {
-        if (component == candidate.end() || *component != root_component)
-        {
-            return false;
-        }
-        ++component;
-    }
-    const bool correct_type =
-        directory ? fs::is_directory(candidate, error) : fs::is_regular_file(candidate, error);
-    if (component == candidate.end() || !correct_type || error)
-    {
-        return false;
-    }
-    path = candidate;
-    return true;
-}
-
-[[nodiscard]] bool matches_file(const fs::path& path, std::uint64_t size, std::string_view hash)
-{
-    std::uint64_t value = 0;
-    std::uint64_t actual_size = 0;
-    if (hash.size() != 16 || !VirtualFileSystem::hash_file(path, value, actual_size) ||
-        actual_size != size)
-    {
-        return false;
-    }
-    constexpr char hex[] = "0123456789abcdef";
-    std::array<char, 16> actual_hash{};
-    for (std::size_t index = actual_hash.size(); index > 0; --index)
-    {
-        actual_hash[index - 1] = hex[value & 15];
-        value >>= 4;
-    }
-    return hash == std::string_view(actual_hash.data(), actual_hash.size());
-}
-
-[[nodiscard]] bool script_path(std::string_view path)
-{
-    return path.ends_with(".js") || path.ends_with(".mjs");
-}
-
-struct Snapshot
-{
-    ResourceCatalog catalog;
-    MountList mounts;
-    std::string revision;
-    std::string entry = "scripts/game.js";
-};
-
-struct ControlRead
-{
-    std::string text;
-    fs::file_time_type written{};
-    bool exists = false;
-    bool valid = false;
-    bool hot_reload = false;
-    std::string error;
-};
-
-ControlRead read_control(const fs::path& root)
-{
-    ControlRead output;
-    const auto file = root / "script-control.json";
-    std::error_code error;
-    output.exists = fs::exists(file, error);
-    if (!output.exists && !error)
-    {
-        return output;
-    }
-    if (error || !read_text(file, output.text))
-    {
-        output.error = "Cannot read script control";
-        return output;
-    }
-    output.written = fs::last_write_time(file, error);
-    if (error)
-    {
-        output.error = "Cannot inspect script control timestamp";
-        return output;
-    }
-    const auto document = Json::parse(output.text, nullptr, false);
-    if (!document.is_object() || !document.contains("hotReload") ||
-        !document["hotReload"].is_boolean())
-    {
-        output.error = "Script control requires a boolean hotReload";
-        return output;
-    }
-    output.valid = true;
-    output.hot_reload = document["hotReload"].get<bool>();
-    return output;
-}
-
-bool write_status(const fs::path& root, const std::string& text, std::string& message)
-{
-    const auto target = root / "script-status.json";
-    const auto temporary = root / "script-status.json.tmp";
-    std::error_code error;
-    fs::remove(temporary, error);
-    if (error)
-    {
-        message = "Cannot remove temporary script status: " + error.message();
-        return false;
-    }
-    std::ofstream file(temporary, std::ios::binary | std::ios::trunc);
-    file << text;
-    file.close();
-    if (!file)
-    {
-        message = "Cannot write script status";
-        return false;
-    }
-    if (!SDL_RenamePath(PathUtils::to_utf8(temporary).c_str(), PathUtils::to_utf8(target).c_str()))
-    {
-        message = std::string("Cannot publish script status: ") + SDL_GetError();
-        return false;
-    }
-    return true;
-}
-
-struct DeploymentRead
-{
-    std::string last_manifest;
-    std::string current_revision;
-    std::string target_platform;
-    std::unique_ptr<Snapshot> available;
-    std::string error;
-
-    bool fail(std::string message)
-    {
-        error = std::move(message);
-        return false;
-    }
-
-    [[nodiscard]] bool read(const fs::path& persistent_root,
-                            const std::atomic<bool>* cancelled = nullptr)
-    {
-        const fs::path root = persistent_root / "assets";
-        const fs::path manifest = root / "available.json";
-        std::error_code error;
-        if (!fs::exists(manifest, error) && !error)
-        {
-            // 已接受的完整版本不因发布文件暂时缺失而退回内置版本。
-            return true;
-        }
-        std::string text;
-        if (error || !read_text(manifest, text))
-        {
-            return fail("Cannot read asset version manifest");
-        }
-        if (text == last_manifest)
-        {
-            return true;
-        }
-        const auto document = Json::parse(text, nullptr, false);
-        if (!document.is_object() || !document.contains("revision") ||
-            !document["revision"].is_string() || !document.contains("entry") ||
-            !document["entry"].is_string() || !document.contains("files") ||
-            !document["files"].is_array() || !document.contains("deleted") ||
-            !document["deleted"].is_array())
-        {
-            return fail("Invalid asset version manifest");
-        }
-        auto candidate = std::make_unique<Snapshot>();
-        candidate->revision = document["revision"].get<std::string>();
-        const std::string entry = document["entry"].get<std::string>();
-        if (!safe_revision(candidate->revision) || !relative_path(entry, candidate->entry) ||
-            entry != candidate->entry || !script_path(entry))
-        {
-            return fail("Unsafe asset revision or entry path");
-        }
-        if (candidate->revision == current_revision)
-        {
-            return fail("A published revision is immutable; publish a new revision");
-        }
-        fs::path version_root;
-        if (!contained_file(persistent_root, "assets/versions/" + candidate->revision, version_root,
-                            true))
-        {
-            return fail("Missing or escaping asset version directory");
-        }
-        std::set<std::string> seen;
-        for (const auto& item : document["files"])
-        {
-            if (cancelled && cancelled->load(std::memory_order_relaxed))
-            {
-                return fail("Deployment verification cancelled");
-            }
-            if (!item.is_object() || !item.contains("path") || !item["path"].is_string() ||
-                !item.contains("size") || !item["size"].is_number_unsigned() ||
-                !item.contains("hash") || !item["hash"].is_string())
-            {
-                return fail("Invalid version file description");
-            }
-            const auto path = item["path"].get<std::string>();
-            std::string normalized;
-            fs::path file;
-            if (!relative_path(path, normalized) || normalized != path ||
-                !seen.insert(path).second || !contained_file(version_root, path, file))
-            {
-                return fail("Asset version file failed path, size or hash check: " + path);
-            }
-            if (!matches_file(file, item["size"].get<std::uint64_t>(),
-                              item["hash"].get<std::string>()))
-            {
-                return fail("Version asset failed size or hash check: " + path);
-            }
-        }
-        std::set<std::string> deleted;
-        for (const auto& item : document["deleted"])
-        {
-            if (!item.is_string())
-            {
-                return fail("Invalid deleted asset path");
-            }
-            const auto path = item.get<std::string>();
-            std::string normalized;
-            if (!relative_path(path, normalized) || normalized != path || seen.contains(path) ||
-                !deleted.insert(path).second)
-            {
-                return fail("Unsafe or conflicting deleted asset path: " + path);
-            }
-        }
-        if (!seen.contains("catalog.bin") ||
-            !ResourceSystem::read_catalog(version_root, candidate->catalog))
-        {
-            return fail("Published resources require a valid runtime catalog");
-        }
-        if (candidate->catalog.data().target_platform != target_platform)
-        {
-            return fail("Published resource catalog targets a different platform");
-        }
-        candidate->mounts = {{"content", version_root}};
-        bool has_entry = false;
-        std::set<std::string> expected{"catalog.bin"};
-        for (const auto& asset : candidate->catalog.data().entries)
-        {
-            if (!asset->location || asset->location->mount != "content")
-            {
-                return fail("Deployment catalog contains an unsupported mount");
-            }
-            expected.insert(asset->location->path);
-            has_entry = has_entry || (asset->kind == schema::AssetKind::script &&
-                                      asset->module_path == candidate->entry);
-        }
-        if (!has_entry || seen != expected)
-        {
-            return fail("Version manifest does not match the complete runtime catalog");
-        }
-        last_manifest = std::move(text);
-        available = std::move(candidate);
-        return true;
-    }
-};
-
-} // namespace
+using namespace gameplay_detail;
 
 struct GameplaySession::State
 {
@@ -395,6 +70,30 @@ struct GameplaySession::State
     std::string last_status;
     bool gameplay_requested = false;
     bool hot_reload = false;
+    enum class PreparePhase
+    {
+        idle,
+        load,
+        precheck,
+        restore,
+        initialize,
+        gpu,
+        ready,
+        failed,
+        active
+    };
+    PreparePhase prepare_phase = PreparePhase::idle;
+    std::string prepare_entry;
+    std::string prepare_scene;
+    std::uint64_t prepare_generation = 0;
+    std::uint64_t restore_request = 0;
+    std::uint32_t prepare_script_completed = 0;
+    std::uint32_t prepare_scene_completed = 0;
+    std::unique_ptr<ResourceLoad> prepare_script_load;
+    std::unique_ptr<ResourceLoad> prepare_scene_load;
+    ResourcePtr prepare_script;
+    ResourcePtr prepare_scene_resource;
+    std::unique_ptr<Snapshot> prepare_snapshot;
 
     explicit State(GameplaySession& session)
         : owner(session),
@@ -710,6 +409,265 @@ bool GameplaySession::set_resources(const schema::AssetCatalogDataT& data, const
     return true;
 }
 
+bool GameplaySession::begin_prepare(const ResourceCatalog& catalog, const MountList& mounts,
+                                    std::string_view entry, std::string_view scene)
+{
+    auto* resources = ResourceSystem::instance();
+    if (!resources || !world_.is_initialized() || !renderer_.is_initialized() ||
+        (script_ && (!script_->is_initialized() || script_->status().running)) ||
+        (state_ && state_->prepare_phase != State::PreparePhase::idle))
+    {
+        last_error_ = "Gameplay preparation is unavailable or already active";
+        return false;
+    }
+    if (catalog.revision().empty() || catalog.revision() != resources->catalog().revision() ||
+        catalog.data().target_platform != resources->catalog().data().target_platform)
+    {
+        last_error_ = "Gameplay snapshot does not match the current directory";
+        return false;
+    }
+    if (!state_)
+    {
+        state_ = std::make_unique<State>(*this);
+    }
+    state_->prepare_snapshot = std::make_unique<Snapshot>();
+    state_->prepare_snapshot->catalog = catalog;
+    state_->prepare_snapshot->mounts = mounts;
+    state_->prepare_snapshot->revision = std::string(catalog.revision());
+    state_->prepare_snapshot->entry = entry.empty() ? "scripts/game.js" : std::string(entry);
+    state_->builtin = *state_->prepare_snapshot;
+    state_->prepare_entry = state_->prepare_snapshot->entry;
+    state_->prepare_scene = scene;
+    state_->prepare_generation = resources->generation();
+    state_->prepare_script_completed = 0;
+    state_->prepare_scene_completed = 0;
+    state_->prepare_phase = State::PreparePhase::load;
+    last_error_.clear();
+    return true;
+}
+
+GameplayPrepareStatus GameplaySession::step_prepare(std::uint32_t resource_budget,
+                                                    double max_seconds)
+{
+    using Phase = State::PreparePhase;
+    auto* resources = ResourceSystem::instance();
+    if (!state_ || !resources || !std::isfinite(max_seconds) || max_seconds <= 0 ||
+        state_->prepare_phase == Phase::idle || state_->prepare_phase == Phase::failed ||
+        state_->prepare_phase == Phase::active)
+    {
+        return GameplayPrepareStatus::failed;
+    }
+    if (state_->prepare_phase == Phase::ready)
+    {
+        return GameplayPrepareStatus::ready;
+    }
+    auto fail = [&](std::string_view message)
+    {
+        last_error_ = message;
+        if (state_->restore_request)
+        {
+            world_.cancel_restore_scene(state_->restore_request);
+            state_->restore_request = 0;
+        }
+        state_->prepare_script_load.reset();
+        state_->prepare_scene_load.reset();
+        state_->prepare_script.reset();
+        state_->prepare_scene_resource.reset();
+        if (script_)
+        {
+            script_->stop_gameplay();
+        }
+        release_scene();
+        state_->prepare_phase = Phase::failed;
+        return GameplayPrepareStatus::failed;
+    };
+    if (resources->generation() != state_->prepare_generation)
+    {
+        return fail("Resource directory changed during gameplay preparation");
+    }
+    if (resource_budget == 0)
+    {
+        return GameplayPrepareStatus::preparing;
+    }
+    if (state_->prepare_phase == Phase::load)
+    {
+        const auto started = std::chrono::steady_clock::now();
+        std::uint32_t remaining = resource_budget;
+        auto begin = [&](std::string_view guid, std::unique_ptr<ResourceLoad>& load)
+        { return resources->loader().begin_load(guid, load) && load != nullptr; };
+        if (script_ && !state_->prepare_script && !state_->prepare_script_load)
+        {
+            const schema::AssetEntryT* entry = nullptr;
+            for (const auto& item : resources->catalog().data().entries)
+            {
+                if (item->kind == schema::AssetKind::script &&
+                    item->module_path == state_->prepare_entry)
+                {
+                    entry = item.get();
+                    break;
+                }
+            }
+            if (!entry || !begin(entry->guid, state_->prepare_script_load))
+            {
+                return fail("Cannot begin asynchronous entry script load");
+            }
+        }
+        if (!state_->prepare_scene.empty() && !state_->prepare_scene_resource &&
+            !state_->prepare_scene_load)
+        {
+            Guid guid;
+            if (!resources->catalog().identities().path_to_guid(state_->prepare_scene, guid) ||
+                !begin(guid, state_->prepare_scene_load))
+            {
+                return fail("Cannot begin asynchronous startup scene load");
+            }
+        }
+        auto advance =
+            [&](std::unique_ptr<ResourceLoad>& load, ResourcePtr& output, std::uint32_t& completed)
+        {
+            if (!load || remaining == 0 ||
+                std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count() >=
+                    max_seconds)
+            {
+                return true;
+            }
+            ResourceLoadProgress progress;
+            const auto status = load->step(remaining, progress);
+            const auto newly_completed =
+                progress.completed > completed ? progress.completed - completed : 0;
+            remaining -= std::min(remaining, newly_completed);
+            completed = progress.completed;
+            if (status == ResourceLoadStatus::failed)
+            {
+                last_error_ = load->last_error();
+                return false;
+            }
+            if (status == ResourceLoadStatus::ready)
+            {
+                output = load->resource();
+                load.reset();
+                return output && output->generation() == state_->prepare_generation;
+            }
+            return true;
+        };
+        if (!advance(state_->prepare_script_load, state_->prepare_script,
+                     state_->prepare_script_completed) ||
+            !advance(state_->prepare_scene_load, state_->prepare_scene_resource,
+                     state_->prepare_scene_completed))
+        {
+            const std::string error =
+                last_error_.empty() ? "Gameplay resource load failed" : last_error_;
+            return fail(error);
+        }
+        if ((!script_ || state_->prepare_script) &&
+            (state_->prepare_scene.empty() || state_->prepare_scene_resource))
+        {
+            state_->prepare_phase = Phase::precheck;
+        }
+        return GameplayPrepareStatus::preparing;
+    }
+    if (state_->prepare_phase == Phase::precheck)
+    {
+        const auto started = std::chrono::steady_clock::now();
+        const bool ready =
+            !script_ || script_->prepare_gameplay(
+                            state_->prepare_snapshot->catalog, state_->prepare_snapshot->mounts,
+                            state_->prepare_entry, state_->prepare_snapshot->revision);
+        LogSystem::write(LogLevel::info,
+                         "Startup script precheck seconds: " +
+                             std::to_string(std::chrono::duration<double>(
+                                                std::chrono::steady_clock::now() - started)
+                                                .count()));
+        if (!ready)
+        {
+            const std::string error = script_->status().last_error;
+            return fail(error);
+        }
+        state_->prepare_phase = Phase::restore;
+        return GameplayPrepareStatus::preparing;
+    }
+    if (state_->prepare_phase == Phase::restore)
+    {
+        if (state_->prepare_scene_resource)
+        {
+            if (!state_->restore_request)
+            {
+                state_->restore_request =
+                    world_.begin_restore_scene(state_->prepare_scene_resource);
+                if (!state_->restore_request)
+                {
+                    return fail("Cannot begin startup scene restoration");
+                }
+            }
+            const auto status = world_.step_restore_scene(
+                state_->restore_request, std::numeric_limits<std::size_t>::max(), max_seconds);
+            if (status == SceneRestoreStatus::failed)
+            {
+                return fail("Cannot restore startup scene");
+            }
+            if (status != SceneRestoreStatus::ready)
+            {
+                return GameplayPrepareStatus::preparing;
+            }
+            if (!world_.commit_restore_scene(state_->restore_request))
+            {
+                return fail("Cannot commit startup scene");
+            }
+            state_->restore_request = 0;
+        }
+        state_->prepare_phase = Phase::initialize;
+        return GameplayPrepareStatus::preparing;
+    }
+    if (state_->prepare_phase == Phase::initialize)
+    {
+        const auto started = std::chrono::steady_clock::now();
+        const bool ready = !script_ || script_->start_prepared_gameplay();
+        LogSystem::write(LogLevel::info,
+                         "Startup project initialization seconds: " +
+                             std::to_string(std::chrono::duration<double>(
+                                                std::chrono::steady_clock::now() - started)
+                                                .count()));
+        if (!ready)
+        {
+            const std::string error = script_->status().last_error;
+            return fail(error);
+        }
+        state_->prepare_phase = Phase::gpu;
+        return GameplayPrepareStatus::preparing;
+    }
+    if (state_->prepare_phase == Phase::gpu)
+    {
+        const auto started = std::chrono::steady_clock::now();
+        const bool ready = renderer_.prepare_scene();
+        LogSystem::write(LogLevel::info,
+                         "Startup GPU preparation seconds: " +
+                             std::to_string(std::chrono::duration<double>(
+                                                std::chrono::steady_clock::now() - started)
+                                                .count()));
+        if (!ready)
+        {
+            return fail("Cannot prepare startup scene rendering resources");
+        }
+        state_->prepare_phase = Phase::ready;
+        return GameplayPrepareStatus::ready;
+    }
+    return GameplayPrepareStatus::failed;
+}
+
+bool GameplaySession::activate_prepared()
+{
+    if (!state_ || state_->prepare_phase != State::PreparePhase::ready)
+    {
+        return false;
+    }
+    state_->prepare_phase = State::PreparePhase::active;
+    state_->gameplay_requested = script_ != nullptr;
+    state_->prepare_script.reset();
+    state_->prepare_scene_resource.reset();
+    state_->prepare_snapshot.reset();
+    return true;
+}
+
 bool GameplaySession::start(std::string_view entry)
 {
     last_error_.clear();
@@ -808,7 +766,7 @@ void GameplaySession::release_scene() noexcept
     }
     if (audio_ != nullptr)
     {
-        audio_->clear();
+        audio_->clear_scene();
     }
     if (physics_ != nullptr)
     {
@@ -828,6 +786,17 @@ void GameplaySession::stop(std::string_view reason) noexcept
     {
         state_->gameplay_requested = false;
         state_->invalidate_background();
+        if (state_->restore_request)
+        {
+            world_.cancel_restore_scene(state_->restore_request);
+            state_->restore_request = 0;
+        }
+        state_->prepare_script_load.reset();
+        state_->prepare_scene_load.reset();
+        state_->prepare_script.reset();
+        state_->prepare_scene_resource.reset();
+        state_->prepare_snapshot.reset();
+        state_->prepare_phase = State::PreparePhase::idle;
     }
     if (script_ != nullptr)
     {

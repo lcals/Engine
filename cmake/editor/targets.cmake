@@ -94,6 +94,7 @@ if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
                 src/engine/editor/asset_pipeline/asset_importer_registry.cpp
                 src/engine/editor/asset_pipeline/importer_utils.cpp
                 src/engine/editor/asset_pipeline/editor_tools.cpp
+                src/engine/editor/asset_pipeline/import_tool.cpp
                 src/engine/editor/asset_pipeline/asset_io.cpp
                 src/engine/editor/asset_pipeline/asset_publish.cpp
                 src/engine/editor/asset_pipeline/scene_importer.cpp
@@ -157,6 +158,8 @@ if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
                 TOML_EXCEPTIONS=0
                 JSON_NOEXCEPTION=1
                 ENGINE_SHADERC_EXECUTABLE="${ENGINE_SHADERC_EXECUTABLE}"
+                ENGINE_FFMPEG_EXECUTABLE="${ENGINE_FFMPEG_EXECUTABLE}"
+                ENGINE_FFPROBE_EXECUTABLE="${ENGINE_FFPROBE_EXECUTABLE}"
                 ENGINE_BGFX_SHADER_INCLUDE_DIR="${ENGINE_BGFX_SHADER_INCLUDE_DIR}"
                 ENGINE_SCHEMA_SOURCE_DIR="${PROJECT_SOURCE_DIR}/include/schemas/runtime")
     find_program(ENGINE_NODE_EXECUTABLE NAMES node)

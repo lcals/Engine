@@ -2,6 +2,7 @@
 
 #include "runtime/resource/virtual_file_system.hpp"
 
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -23,8 +24,16 @@ class FontSystem;
 class UiSystem;
 class ScriptRuntime;
 class TaskSystem;
+class ResourceCatalog;
 struct ScriptStatus;
 struct ProjectScriptRequest;
+
+enum class GameplayPrepareStatus
+{
+    preparing,
+    ready,
+    failed
+};
 
 class GameplaySession final
 {
@@ -43,6 +52,11 @@ public:
 
     [[nodiscard]] bool set_resources(const schema::AssetCatalogDataT& data, const MountList& mounts,
                                      std::string_view entry = {});
+    [[nodiscard]] bool begin_prepare(const ResourceCatalog& catalog, const MountList& mounts,
+                                     std::string_view entry = {}, std::string_view scene = {});
+    [[nodiscard]] GameplayPrepareStatus step_prepare(std::uint32_t resource_budget,
+                                                     double max_seconds);
+    [[nodiscard]] bool activate_prepared();
     [[nodiscard]] bool tick();
     [[nodiscard]] bool start(std::string_view entry = {});
     void stop(std::string_view reason = {}) noexcept;

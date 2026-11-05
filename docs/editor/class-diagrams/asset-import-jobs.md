@@ -1,6 +1,6 @@
 # 资源导入异步批次（规划／待实现）
 
-本页只定义现有 `AssetPipelineSystem` 的规划增量，不表示当前已有异步导入。当前公开入口仍是同步 `build_assets()`，实现最终调用 `tasks_.run(tasks)` 等待；`ImportContext` 尚无取消和细项进度入口，`run_process()` 也会阻塞等候离线工具结束。
+本页只定义现有 `AssetPipelineSystem` 的规划增量，不表示当前已有异步导入。当前公开入口仍是同步 `build_assets()`，实现最终调用 `tasks_.run(tasks)` 等待；`ImportContext` 已增加可选取消检查，但当前同步调用没有提供作业取消入口；新 `run_import_tool()` 可限量读取输出、合作取消并回收进程，旧 `run_process()` 仍阻塞等候离线工具结束。
 
 [现行资源管线](asset-pipeline-system.md) · [现行导入接口](asset-importers.md) · [影片导入](../../plugins/editor/class-diagrams/movie-importer.md) · [影片与导入 MCP](../../plugins/editor/class-diagrams/movie-mcp-tools.md)
 
@@ -175,7 +175,7 @@ classDiagram
 
 ## 编辑器共享的最小离线工具函数
 
-以下函数规划公开于 `include/engine/editor/asset_pipeline/import_tool.hpp`，实现留在编辑器层，命名空间为 `engine::editor::asset_pipeline`。它们是普通函数，不新增 Process 类、工具注册框架或工作线程；仅在选定方案确实使用外部工具时调用。直接链接库的方案使用同一取消检查完成可取消调用，不为两种候选提前创建后端框架。
+以下函数已公开于 `include/engine/editor/asset_pipeline/import_tool.hpp`，实现留在编辑器层，命名空间为 `engine::editor::asset_pipeline`。它们是普通函数，不新增 Process 类、工具注册框架或工作线程；仅在选定方案确实使用外部工具时调用。直接链接库的方案使用同一取消检查完成可取消调用，不为两种候选提前创建后端框架。
 
 ```mermaid
 classDiagram

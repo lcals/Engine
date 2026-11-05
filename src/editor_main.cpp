@@ -76,6 +76,7 @@
 #include "plugins/editor/asset_import/fbx_importer.hpp"
 #include "plugins/editor/asset_import/font_importer.hpp"
 #include "plugins/editor/asset_import/json_importer.hpp"
+#include "plugins/editor/asset_import/movie_importer.hpp"
 #include "plugins/editor/asset_import/ui_importer.hpp"
 #include "plugins/editor/asset_import/usd_importer.hpp"
 #endif
@@ -165,10 +166,10 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
         [](engine::WorldSystem& world, engine::RenderSystem& renderer, engine::UiSystem& ui,
            engine::PhysicsSystem& physics, engine::NavigationSystem& navigation,
            engine::InputSystem& input, engine::WindowSystem& window,
-           engine::AnimationSystem& animation) -> std::unique_ptr<engine::ScriptRuntime>
+           engine::AnimationSystem& animation, engine::MoviePlayer* movies) -> std::unique_ptr<engine::ScriptRuntime>
     {
         return std::make_unique<engine::plugins::script::ScriptSystem>(
-            &world, &renderer, &ui, &physics, &navigation, &input, &window, &animation);
+            &world, &renderer, &ui, &physics, &navigation, &input, &window, &animation, movies);
     };
 #endif
 #if ENGINE_HAS_MODELING_PLUGIN
@@ -280,6 +281,13 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
         if (!pipeline.add_importer(json_importer))
         {
             std::fputs("Cannot register JSON importer\n", stderr);
+            return 1;
+        }
+        std::unique_ptr<engine::editor::asset_pipeline::AssetImporter> movie_importer =
+            std::make_unique<engine::plugins::asset_import::MovieImporter>();
+        if (!pipeline.add_importer(movie_importer))
+        {
+            std::fputs("Cannot register movie importer\n", stderr);
             return 1;
         }
         std::unique_ptr<engine::editor::asset_pipeline::AssetImporter> fbx_importer =

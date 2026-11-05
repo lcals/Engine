@@ -2,11 +2,16 @@
 
 #include "runtime/animation/animation_retargeter.hpp"
 #include "runtime/app/runtime_parallel_config.hpp"
+#include "runtime/engine_config.hpp"
 #include "runtime/frame_status.hpp"
+#include "runtime/resource/virtual_file_system.hpp"
 #include "runtime/window/window_system.hpp"
 
 #include <cstddef>
+#include <cstdint>
 #include <memory>
+#include <string>
+#include <string_view>
 
 namespace engine
 {
@@ -28,13 +33,23 @@ class ResourceSystem;
 class ScriptRuntime;
 class ThreadSystem;
 class TaskSystem;
+class MoviePlayer;
+class ResourceCatalog;
+
+enum class RuntimeStartupStatus
+{
+    preparing,
+    ready,
+    failed
+};
 
 // 工厂由宿主提供，创建尚未初始化的实例；返回空表示创建失败。
 // 所有系统借用只用于玩法回调，宿主关闭它们前先结束玩法。
 using ScriptRuntimeFactory = std::unique_ptr<ScriptRuntime> (*)(WorldSystem&, RenderSystem&,
                                                                 UiSystem&, PhysicsSystem&,
                                                                 NavigationSystem&, InputSystem&,
-                                                                WindowSystem&, AnimationSystem&);
+                                                                WindowSystem&, AnimationSystem&,
+                                                                MoviePlayer*);
 
 // 只指定装配时的位置，逐帧调度继续使用 System 的子系统登记顺序。
 enum class RuntimeStage
@@ -66,6 +81,16 @@ public:
                                   ScriptRuntimeFactory script_factory, RuntimeSetup setup,
                                   ThreadSystem* threads, const RuntimeParallelConfig& parallel,
                                   AnimationRetargeterFactory retargeter_factory = nullptr);
+    [[nodiscard]] bool initialize_presentation(const EngineConfig& config,
+                                               ResourceSystem* resources, ThreadSystem* threads,
+                                               const RuntimeParallelConfig& parallel);
+    [[nodiscard]] bool begin_gameplay(ScriptRuntimeFactory script_factory, RuntimeSetup setup,
+                                      AnimationRetargeterFactory retargeter_factory,
+                                      std::shared_ptr<const ResourceCatalog> catalog,
+                                      std::shared_ptr<const MountList> mounts,
+                                      std::string_view entry = {}, std::string_view scene = {});
+    [[nodiscard]] RuntimeStartupStatus step_gameplay(double max_seconds);
+    [[nodiscard]] bool activate_gameplay();
     [[nodiscard]] FrameStatus tick(double delta_time);
     // 单独处理事件并发布输入，供不推进世界的宿主流程使用；每帧与 tick 二选一。
     [[nodiscard]] FrameStatus poll_events(double delta_time);
@@ -80,10 +105,16 @@ public:
     [[nodiscard]] UiSystem* ui() noexcept;
     // 返回本宿主独占任务域的借用，仅初始化成功至关闭前有效。
     [[nodiscard]] TaskSystem* tasks() noexcept;
+    // 播放器由宿主独占；借用有效期至宿主关闭。
+    [[nodiscard]] MoviePlayer* movie_player() noexcept;
     void request_exit() noexcept;
     void shutdown() noexcept;
 
 private:
+    [[nodiscard]] bool initialize_gameplay(const EngineConfig& config,
+                                           ScriptRuntimeFactory script_factory, RuntimeSetup setup,
+                                           AnimationRetargeterFactory retargeter_factory);
+    void reset_gameplay() noexcept;
     Engine& engine_;
     std::unique_ptr<ThreadSystem> owned_threads_;
     std::unique_ptr<TaskSystem> tasks_;
@@ -93,9 +124,26 @@ private:
     std::unique_ptr<TaskSystem> animation_tasks_;
     std::unique_ptr<TaskSystem> navigation_tasks_;
     RuntimeParallelConfig parallel_;
+    EngineConfig presentation_config_;
+    ScriptRuntimeFactory startup_script_factory_ = nullptr;
+    RuntimeSetup startup_setup_ = nullptr;
+    AnimationRetargeterFactory startup_retargeter_factory_ = nullptr;
+    std::shared_ptr<const ResourceCatalog> startup_catalog_;
+    std::shared_ptr<const MountList> startup_mounts_;
+    std::string startup_entry_;
+    std::string startup_scene_;
+    std::uint64_t presented_movie_id_ = 0;
+    std::uint64_t presented_movie_generation_ = 0;
+    RuntimeStartupStatus startup_status_ = RuntimeStartupStatus::failed;
+    bool startup_requested_ = false;
+    bool gameplay_active_ = false;
     ResourceSystem* resources_ = nullptr;
+    std::unique_ptr<ResourceSystem> owned_resources_;
     std::unique_ptr<WindowSystem> window_;
     std::unique_ptr<InputSystem> input_;
+    std::unique_ptr<RenderSystem> owned_renderer_;
+    std::unique_ptr<AudioSystem> owned_audio_;
+    std::unique_ptr<MoviePlayer> movie_player_;
     std::unique_ptr<GameplaySession> gameplay_;
     WorldSystem* world_ = nullptr;
     RenderSystem* renderer_ = nullptr;

@@ -19,6 +19,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cmath>
 #include <cstdint>
 #include <map>
@@ -29,6 +30,8 @@ namespace engine
 {
 namespace
 {
+
+std::atomic<std::uint64_t> next_audio_generation{1};
 
 struct Listener
 {
@@ -214,6 +217,9 @@ struct AudioSystem::Impl
         bool bound = false;
         bool flushed = false;
         bool feed_failed = false;
+        AudioVoiceState state = AudioVoiceState::playing;
+        double last_position = 0.0;
+        std::string error;
     };
 
     ~Impl()
@@ -258,6 +264,7 @@ struct AudioSystem::Impl
     void close_device() noexcept
     {
         voices.clear();
+        independent.clear();
         if (device != 0)
         {
             SDL_CloseAudioDevice(device);
@@ -317,6 +324,9 @@ struct AudioSystem::Impl
     }
 
     std::map<std::uint64_t, std::unique_ptr<Voice>> voices;
+    std::map<std::uint64_t, std::unique_ptr<Voice>> independent;
+    std::uint64_t generation = next_audio_generation.fetch_add(1);
+    std::uint64_t next_id = 1;
     SDL_AudioDeviceID device = 0;
     bool audio_initialized = false;
     bool paused = false;
@@ -347,12 +357,29 @@ bool AudioSystem::on_tick(double)
     }
     if (world_ == nullptr || world_->scenes().empty())
     {
-        impl_->close_device();
+        impl_->voices.clear();
+        if (impl_->independent.empty())
+        {
+            impl_->close_device();
+        }
         return true;
     }
     if (!world_->refresh_scene_state())
     {
         return false;
+    }
+    if (world_->paused())
+    {
+        for (auto& [id, voice] : impl_->voices)
+        {
+            (void)id;
+            if (voice->bound)
+            {
+                SDL_UnbindAudioStream(voice->stream);
+                voice->bound = false;
+            }
+        }
+        return true;
     }
     for (auto iterator = impl_->voices.begin(); iterator != impl_->voices.end();)
     {
@@ -522,7 +549,7 @@ bool AudioSystem::on_tick(double)
     return success;
 }
 
-void AudioSystem::clear() noexcept
+void AudioSystem::clear_scene() noexcept
 {
     if (!impl_)
     {
@@ -565,8 +592,187 @@ void AudioSystem::clear() noexcept
             (void)query_success;
         }
     }
-    impl_->close_device();
+    impl_->voices.clear();
     impl_->error.clear();
+}
+
+void AudioSystem::clear() noexcept
+{
+    clear_scene();
+    if (impl_)
+    {
+        impl_->close_device();
+    }
+}
+
+bool AudioSystem::set_world(WorldSystem* world)
+{
+    if (!impl_ || !is_initialized() || (world && !world->is_initialized()))
+    {
+        return false;
+    }
+    if (world_ != world)
+    {
+        clear_scene();
+        world_ = world;
+    }
+    return true;
+}
+
+bool AudioSystem::play(ResourcePtr clip, AudioVoiceHandle& output)
+{
+    output = {};
+    if (!impl_ || !is_initialized() || !clip || !clip->audio() || !valid_clip(*clip->audio()))
+    {
+        if (impl_)
+        {
+            impl_->error = "Invalid audio clip";
+        }
+        return false;
+    }
+    if (!impl_->open_device())
+    {
+        return false;
+    }
+    auto voice = std::make_unique<Impl::Voice>();
+    const SDL_AudioSpec input{SDL_AUDIO_F32, 2, static_cast<int>(clip->audio()->sample_rate)};
+    const SDL_AudioSpec output_format{SDL_AUDIO_F32, 2, 48000};
+    voice->clip = std::move(clip);
+    voice->stream = SDL_CreateAudioStream(&input, &output_format);
+    if (!voice->stream ||
+        !SDL_SetAudioStreamGetCallback(voice->stream, Impl::Voice::feed, voice.get()) ||
+        !SDL_BindAudioStream(impl_->device, voice->stream))
+    {
+        return impl_->fail("Cannot start independent audio voice");
+    }
+    voice->bound = true;
+    const auto id = impl_->next_id++;
+    impl_->independent.emplace(id, std::move(voice));
+    output = {id, impl_->generation};
+    impl_->error.clear();
+    return true;
+}
+
+bool AudioSystem::set_paused(AudioVoiceHandle handle, bool paused)
+{
+    if (!impl_ || handle.generation != impl_->generation)
+    {
+        return false;
+    }
+    const auto found = impl_->independent.find(handle.id);
+    if (found == impl_->independent.end())
+    {
+        return false;
+    }
+    auto& voice = *found->second;
+    if (voice.state != AudioVoiceState::playing && voice.state != AudioVoiceState::paused)
+    {
+        return false;
+    }
+    if (paused == (voice.state == AudioVoiceState::paused))
+    {
+        return true;
+    }
+    if (paused)
+    {
+        SDL_UnbindAudioStream(voice.stream);
+        voice.bound = false;
+        voice.state = AudioVoiceState::paused;
+    }
+    else
+    {
+        if (!SDL_BindAudioStream(impl_->device, voice.stream))
+        {
+            return impl_->fail("Cannot resume audio voice");
+        }
+        voice.bound = true;
+        voice.state = AudioVoiceState::playing;
+    }
+    return true;
+}
+
+bool AudioSystem::stop(AudioVoiceHandle handle)
+{
+    AudioPlaybackStatus status;
+    if (!playback(handle, status) || (status.state != AudioVoiceState::playing &&
+                                      status.state != AudioVoiceState::paused))
+    {
+        return false;
+    }
+    auto& voice = *impl_->independent.find(handle.id)->second;
+    if (voice.bound)
+    {
+        SDL_UnbindAudioStream(voice.stream);
+    }
+    voice.bound = false;
+    voice.state = AudioVoiceState::stopped;
+    return true;
+}
+
+bool AudioSystem::playback(AudioVoiceHandle handle, AudioPlaybackStatus& output) const
+{
+    output = {};
+    if (!impl_ || handle.generation != impl_->generation)
+    {
+        return false;
+    }
+    const auto found = impl_->independent.find(handle.id);
+    if (found == impl_->independent.end())
+    {
+        return false;
+    }
+    auto& voice = *found->second;
+    const auto& clip = *voice.clip->audio();
+    if (!SDL_LockAudioStream(voice.stream))
+    {
+        return impl_->fail("Cannot lock audio voice");
+    }
+    const int queued = SDL_GetAudioStreamQueued(voice.stream);
+    const int available = SDL_GetAudioStreamAvailable(voice.stream);
+    const bool failed = voice.feed_failed;
+    const bool finished = voice.flushed && queued == 0 && available == 0;
+    const auto submitted = voice.frame;
+    if (!SDL_UnlockAudioStream(voice.stream) || queued < 0 || available < 0)
+    {
+        return impl_->fail("Cannot query audio voice");
+    }
+    if (failed &&
+        (voice.state == AudioVoiceState::playing || voice.state == AudioVoiceState::paused))
+    {
+        voice.state = AudioVoiceState::failed;
+        voice.error = "Audio callback could not queue or finish PCM samples";
+    }
+    else if (finished && voice.state == AudioVoiceState::playing)
+    {
+        voice.state = AudioVoiceState::completed;
+    }
+    const double pending = static_cast<double>(queued) / (2.0 * sizeof(float) * clip.sample_rate) +
+                           static_cast<double>(available) / (2.0 * sizeof(float) * 48000.0);
+    const double position = static_cast<double>(submitted) / clip.sample_rate - pending;
+    if (voice.state == AudioVoiceState::playing || voice.state == AudioVoiceState::paused)
+    {
+        voice.last_position = std::clamp(std::max(voice.last_position, position), 0.0,
+                                         static_cast<double>(clip.frames) / clip.sample_rate);
+    }
+    if (voice.state == AudioVoiceState::completed)
+    {
+        voice.last_position = static_cast<double>(clip.frames) / clip.sample_rate;
+    }
+    output = {voice.state, voice.last_position, static_cast<double>(clip.frames) / clip.sample_rate,
+              voice.error};
+    return true;
+}
+
+bool AudioSystem::release(AudioVoiceHandle handle)
+{
+    AudioPlaybackStatus status;
+    if (!playback(handle, status) || status.state == AudioVoiceState::playing ||
+        status.state == AudioVoiceState::paused)
+    {
+        return false;
+    }
+    impl_->independent.erase(handle.id);
+    return true;
 }
 
 bool AudioSystem::set_paused(bool paused)

@@ -36,6 +36,7 @@ int main(int argc, char* argv[])
     const auto source = Json::parse(text, nullptr, false);
     if (!expect(source.is_object() && engine::load_runtime_settings(argv[1], settings, error) &&
                     error.empty() && settings.game_language == "zh-CN" &&
+                    settings.startup_movie.empty() &&
                     settings.engine.window_title == "Runtime settings fixture" &&
                     settings.engine.width == 1440 && settings.engine.height == 900 &&
                     settings.engine.target_frame_rate == 30 &&
@@ -79,6 +80,7 @@ int main(int argc, char* argv[])
         R"({"parallel":{"render":{"maximum_lights":null}}})",
         R"({"parallel":{"completion_budget_seconds":null}})",
         R"({"game":{"game_language":42}})",
+        R"({"game":{"startup_movie":42}})",
         R"({"game":{"quality":"high"}})",
         R"({"game":[]})",
         R"({"parallel":{"threads":{"worker_limit":65}}})",
@@ -119,6 +121,15 @@ int main(int argc, char* argv[])
         }
     }
     auto candidate = source;
+    candidate["game"]["startup_movie"] = "movies/intro.movie";
+    if (!expect(engine::decode_runtime_settings(candidate.dump(), settings, error) &&
+                    settings.startup_movie == "movies/intro.movie" &&
+                    engine::decode_runtime_settings(source.dump(), settings, error) &&
+                    settings.startup_movie.empty(),
+                "optional startup movie is copied and missing value clears previous selection"))
+    {
+        return 1;
+    }
     candidate.merge_patch(Json::parse(
         R"({"engine":{"target_frame_rate":-1},"parallel":{"navigation_tile_threshold":1024,"render":{"texture_batch_size":64,"maximum_local_shadow_faces":0,"maximum_planar_reflections":0}}})",
         nullptr, false));

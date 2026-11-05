@@ -11,6 +11,7 @@ roots = [
     "textures/paving-normal.png",
     "textures/paving-orm.png",
     "scripts/game.ts",
+    "movies/lcals.mp4",
     "scripts/modules/menu.ts",
     "scripts/modules/font-gallery.ts",
     "scenes/launcher.scene",

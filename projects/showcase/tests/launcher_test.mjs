@@ -88,6 +88,19 @@ try {
         }
     };
 
+    run("the menu can request and release a studio intro replay", () => {
+        begin();
+        fixture.click("replay-intro");
+        application.Update();
+        assert.equal(fixture.movie?.path, "movies/lcals.mp4");
+        assert.equal(fixture.element("replay-intro").enabled, false);
+        fixture.movie.state = 3;
+        application.Update();
+        assert.equal(fixture.movie, null);
+        assert.equal(fixture.movieReleased, 1);
+        assert.equal(fixture.element("replay-intro").enabled, true);
+    });
+
     run("real menu preserves the original document and subscriptions across scene visits", () => {
         begin();
         const originalView = fixture.scene.view;

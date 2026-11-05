@@ -1,8 +1,8 @@
 # 影片启动与宿主分阶段装配
 
-> **规划 / 待实现，与当前代码区分。** 本页定义供评审的启动设计，不表示当前
-> RuntimeHost、GameplaySession 或配置解析器已提供这些能力。现行方法继续以各自类图和源码为准；
-> 本轮只设计文档，不选择视频后端，不新增 System、Manager 或通用加载框架。
+> **部分实现，分阶段启动仍待完成。** 现有宿主支持独立呈现初始化、播放器与影片帧呈现；
+> GameplaySession 的候选准备及宿主的 begin / step / activate 还未实现。
+> 本页其余方法和交接流程仍为设计，现行行为以源码为准。
 
 [类图索引](../../class-diagrams/index.md) · [当前运行宿主](runtime-host.md) ·
 [播放器契约](movie-player.md) · [影片音频复用](movie-audio.md) ·
@@ -96,7 +96,7 @@ classDiagram
 classDiagram
     class RuntimeHost {
         +initialize_presentation(const EngineConfig& config, ResourceSystem* resources, ThreadSystem* threads, const RuntimeParallelConfig& parallel) bool
-        +begin_gameplay(ScriptRuntimeFactory script_factory, RuntimeSetup setup, AnimationRetargeterFactory retargeter_factory, string_view entry, string_view scene) bool
+        +begin_gameplay(ScriptRuntimeFactory script_factory, RuntimeSetup setup, AnimationRetargeterFactory retargeter_factory, shared_ptr~const ResourceCatalog~ catalog, shared_ptr~const MountList~ mounts, string_view entry, string_view scene) bool
         +step_gameplay(double max_seconds) RuntimeStartupStatus
         +activate_gameplay() bool
         +movie_player() MoviePlayer*
@@ -110,6 +110,8 @@ classDiagram
     class EngineConfig
     class RuntimeParallelConfig
     class ResourceSystem
+    class ResourceCatalog
+    class MountList
     class ThreadSystem
     class ScriptRuntimeFactory
     class RuntimeSetup
@@ -118,6 +120,8 @@ classDiagram
     RuntimeHost ..> EngineConfig : 呈现初始化参数
     RuntimeHost ..> RuntimeParallelConfig : 复制完整预算
     RuntimeHost ..> ResourceSystem : 可空外供参数
+    RuntimeHost o-- ResourceCatalog : 锁存调用方首次提交的只读快照
+    RuntimeHost o-- MountList : 锁存同次提交的只读挂载
     RuntimeHost ..> ThreadSystem : 可空外供参数
     RuntimeHost ..> ScriptRuntimeFactory : 复制可空创建函数
     RuntimeHost ..> RuntimeSetup : 复制可空装配函数
@@ -132,7 +136,9 @@ classDiagram
 - `initialize_presentation()` 的 resources / threads 可空且由调用方显式传入；parallel 不补隐式
   预算。成功仅代表可派发事件、执行任务和呈现，不能据此认为玩法或主页就绪；重复初始化失败。
 - `begin_gameplay()` 只受理并锁存一次准备请求，可在影片首帧之前调用；成功不表示已经派发游戏
-  任务或初始化世界。entry / scene 立即复制，默认空；retargeter_factory 默认 nullptr，script_factory
+  任务或初始化世界。catalog / mounts 是调用方已经提交给 ResourceSystem 的同一不可变快照，
+  必须非空；Host 复制共享引用，不在首帧前复制整份目录。调用方须保证它们确为首次提交的同一
+  目录和挂载，提交后不得修改。entry / scene 立即复制，默认空；retargeter_factory 默认 nullptr，script_factory
   和 setup 由调用方显式传入可空值。重复受理失败，不能悄悄替换请求。不得从完成委托里关闭 Host。
   scene 仅是调用方本次请求的初始场景逻辑路径，不自动发现主页、不新增另一套场景配置；空值
   保持由脚本入口选择场景的原语义，此时同步项目不因此获得平滑加载保证。
@@ -159,7 +165,7 @@ Manager。Host 世界树初始化成功后将 entry / scene 转交会话，预�
 classDiagram
     class GameplaySession {
         <<planned additions>>
-        +begin_prepare(string_view entry, string_view scene) bool
+        +begin_prepare(const ResourceCatalog& catalog, const MountList& mounts, string_view entry, string_view scene) bool
         +step_prepare(uint32_t resource_budget, double max_seconds) GameplayPrepareStatus
         +activate_prepared() bool
     }
@@ -186,7 +192,9 @@ classDiagram
     RuntimeHost --> GameplaySession : 传入明确入口并推进准备
 ```
 
-三个新增方法为 `[[nodiscard]]`，entry / scene 默认空并立即复制，其他预算由调用方显式给出。
+三个新增方法为 `[[nodiscard]]`，begin_prepare 复制调用方已提交的 catalog / mounts 建立候选快照，
+不再次调用 update_catalog，不改变目录代次；目录与挂载必须是调用方首次提交的同一快照，
+目录修订与目标平台必须匹配当前目录，否则拒绝。entry / scene 默认空并立即复制，其他预算由调用方显式给出。
 begin_prepare 拒绝仍在正式运行或已有准备请求的会话；先由调用方显式 stop，不能自动停止他人
 玩法。step_prepare 的 max_seconds 为有限正数，resource_budget 为本次资源完成额度；0 只查询，
 未开始请求或失败返回 failed，不等待 worker。Host 的 preparing 还包括世界树装配，只有会话
@@ -236,7 +244,7 @@ sequenceDiagram
     Note over Host,Audio: 同一窗口 GPU 音频服务全程保持
     Caller->>Player: play(startup_movie, handle)
     Player-->>Caller: bool 接受后 preparing
-    Caller->>Host: begin_gameplay(script_factory, setup, retargeter_factory, entry, scene)
+    Caller->>Host: begin_gameplay(script_factory, setup, retargeter_factory, catalog, mounts, entry, scene)
     Host-->>Caller: bool 仅锁存请求 尚未派发游戏准备
     Player->>Workers: 有界读取及视频纯数据解码
     Workers-->>Host: 所属线程派发完成结果
@@ -251,7 +259,7 @@ sequenceDiagram
     Note over Host,Workers: 首帧身份匹配后 才允许实际开始准备
     Host->>Game: 一次 Engine.initialize 世界树 记录同步耗时
     Host->>Renderer: bind_world(world, fonts, ui)
-    Host->>Game: GameplaySession.begin_prepare(entry, scene)
+    Host->>Game: GameplaySession.begin_prepare(catalog, mounts, entry, scene)
     Host->>Workers: 完整游戏版本校验和必要 CPU 数据准备
     loop 影片播放或保留末帧 等待准备
         Host->>Host: 事件 完成派发 和播放控制
@@ -287,7 +295,7 @@ current_handle 可能返回 preparing 或终态，不能据此假定存在可呈
 释放仍由 Caller 执行，Host 不能凭借该只读身份查询抢走脚本或 Native 请求。
 
 准备阶段不启动正式 Gameplay.Update、场景模拟和场景声部。世界、字体与 UI 就绪后，Renderer
-通过规划的 `bind_world(WorldSystem*, FontSystem*, UiSystem*) -> bool` 借用它们以准备主页 GPU；
+通过 `bind_world(WorldSystem*, FontSystem*, UiSystem*) -> bool` 借用它们以准备主页 GPU；
 AudioSystem 通过 `set_world(WorldSystem*) -> bool` 在正式交接时接入场景声部，影片声部始终存在于
 同一 AudioSystem。必要的项目初始化也必须达到可交接安全点，不能延到 activate 中一次性阻塞。
 
@@ -353,8 +361,8 @@ ready 必须同时表示：必要系统已初始化、项目 VM 已完成所需�
 
 ## 启动配置规划
 
-规划在 `settings/runtime-game.toml` 的 `[common]` 及目标平台覆盖中增加可选 `startup_movie`，
-聚合到 `game.startup_movie`，对应 RuntimeSettings 的字符串字段；尚未修改现行字段或解析器。
+`settings/runtime-game.toml` 的 `[common]` 及目标平台覆盖中可选 `startup_movie`，
+聚合到 `game.startup_movie`，对应 RuntimeSettings 的字符串字段；播放器及自动资源收集尚未接入。
 值是目录中的影片逻辑路径，缺项 / 空字符串表示无片头，不是原生文件路径。资源构建须自动将
 该 Movie 及其 AudioClip 依赖加入使用集合，保持原有 GUID、catalog、gen / packs 契约。
 该配置只选择启动媒体，不把主页跳转或业务完成回调写进影片资源。

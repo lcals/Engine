@@ -95,10 +95,12 @@ cmake --workflow --preset ninja-engine-release
 | 桌面编辑器 | `editor` | 运行设置读取所用 toml++、Dear ImGui（docking 与 SDL3 绑定） |
 | 编辑器与离线资源管线 | `asset-pipeline` | OpenUSD、SQLite、efsw、FlatBuffers、toml++、Basis Universal、meshoptimizer、bgfx 编译工具（shaderc、texturec、geometryc） |
 | 编辑器建模插件 | `modeling` | Earcut、Manifold（含 Clipper2 依赖）；仅选中建模插件时加入 |
-| 编辑器资源导入 | `font-import`、`usd-import` | 统一 `asset_import` 插件所需的 FreeType 与 OpenUSD；不进入运行包 |
+| 编辑器资源导入 | `font-import`、`usd-import`、`movie-import` | 统一 `asset_import` 插件所需的 FreeType、OpenUSD，以及宿主 FFmpeg/ffprobe（VP9 转码）；离线工具不进入运行包 |
 | 脚本插件 QuickJS 后端 | `quickjs` | quickjs-ng；仅选中脚本插件且 `ENGINE_SCRIPT_BACKEND=quickjs` 时加入 |
 
 编辑器建模与场景烘焙共用固定 Git 子模块 xatlas；场景烘焙另使用 lightmapper。只有选择对应插件时才创建这些第三方目标，运行包不链接编辑器烘焙依赖。
+
+影片导入工具由 `movie-import` 宿主 feature 准备 FFmpeg 与 ffprobe，配置时检查两者可运行且 FFmpeg 包含 `libvpx-vp9`。编辑器导出时随工具部署许可证和所需动态库；运行时只使用 libvpx，不部署离线编码工具。开发环境也可通过 `ENGINE_FFMPEG_EXECUTABLE` 和 `ENGINE_FFPROBE_EXECUTABLE` 显式指定已准备的宿主工具；仅在未部署工具包时，开发版编辑器可通过 `ENGINE_IMPORT_TOOL_DIR` 指定工具目录。影片格式和当前限制见[影片导入](plugins/editor/class-diagrams/movie-importer.md)。
 
 RmlUi 关闭默认 FreeType 字体引擎，使用核心 `FontSystem` 消费已导入的曲线字体资源。FreeType 仅供统一资源导入插件的 FontImporter 使用，不进入运行时依赖和 Android 包。
 

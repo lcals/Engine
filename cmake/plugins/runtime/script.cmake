@@ -30,7 +30,8 @@ function(engine_configure_script_plugin)
     target_include_directories(engine_script PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
     target_link_libraries(
         engine_script
-        PRIVATE engine::app
+        PRIVATE engine::movie
+                engine::app
                 engine::storage
                 engine::input
                 engine::log

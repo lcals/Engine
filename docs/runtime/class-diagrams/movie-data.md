@@ -4,6 +4,10 @@
 
 本页定义规划中的资源与单项校验契约。Movie 按现有资源类型登记，新增 `AssetKind::movie`；它不是项目启动配置、场景组件或媒体管理系统。唯一持久模型拟放入 `include/schemas/runtime/movie.fbs`，生成 C++ 与其他语言结构；本轮只设计，不创建 schema 或实现。
 
+## 运行编码选择
+
+首版 `encoding_version = 1` 固定为 VP9 Profile 0、8 位 YUV 4:2:0，载荷为 IVF 文件；运行时使用 libvpx 解码，编辑器通过 FFmpeg 离线转码并剥离音频。IVF 头部和每帧长度、时间戳均须检查，禁止越界；首版固定帧率、从零开始顺序递增，帧数量、尺寸和帧率须与 schema 一致。实际解码时仍须验证图像格式与尺寸，不能只信任 IVF 头部。音轨独立存储为 AudioClip。libvpx 是 VP8/VP9 参考实现，有 vcpkg port；[官方解码接口](https://github.com/webmproject/libvpx/blob/main/usage_dx.dox)与 [vcpkg 包](https://vcpkg.io/en/package/libvpx.html)为选型依据。各目标平台的编译和运行仍需分别验证。
+
 ## 生成模型与资源归属
 
 ```mermaid
@@ -91,7 +95,7 @@ classDiagram
 - 缓存为 `cache/gen/<完整GUID>`，运行包为标准 `catalog.bin` 与 `gen/` 或 `packs/`。资源信封、摘要、目录代际、共享缓存与发布机制继续沿用现有链路，不新建影片路径或缓存。
 - 启动影片由规划中的启动配置纳入构建入口；业务影片沿用项目使用清单，选择性构建时须显式列入。`Movie.Play()` 的动态路径字符串不能被当作已经实现的脚本静态依赖推断。两者都按真实依赖自动包含可选 AudioClip，不把全部源素材加入运行包。
 - 音频只存在独立 `AudioClip` 资源，Movie 的 `audio_guid` 是依赖引用，不把同一音轨再次塞进 `payload`。无音轨时为空且不声明音频依赖；AudioClip 不反向依赖 Movie。
-- `payload` 是最终选定的单一运行编码载荷，不是任意源文件。实际视频编码、内部索引和 profile 在选型验证后随 `encoding_version` 固定；不在每个 meta 中开放运行时后端选择，也不因 opaque 载荷而略过校验。
+- `payload` 是最终选定的单一运行编码载荷，不是任意源文件。实际视频编码、内部索引和 profile 由 `encoding_version` 固定；不在每个 meta 中开放运行时后端选择，也不因 opaque 载荷而略过校验。
 
 ## 校验与加载
 

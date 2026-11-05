@@ -749,6 +749,10 @@ bool incremental_scene_restore()
     const auto cancelled = world.begin_restore_scene(resource);
     if (!expect(cancelled != 0 && world.begin_restore_scene(resource) == 0 &&
                     world.step_restore_scene(cancelled, 0) == SceneRestoreStatus::loading &&
+                    world.step_restore_scene(cancelled, 100, -1.0) == SceneRestoreStatus::failed &&
+                    world.step_restore_scene(cancelled, 100, std::numeric_limits<double>::quiet_NaN()) ==
+                        SceneRestoreStatus::failed &&
+                    world.step_restore_scene(cancelled, 0, 0.001) == SceneRestoreStatus::loading &&
                     !world.commit_restore_scene(cancelled) && world.scene() == active,
                 "zero budget and premature commit preserve active scene"))
     {
