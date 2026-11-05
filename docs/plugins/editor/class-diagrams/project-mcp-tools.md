@@ -4,6 +4,8 @@
 
 ProjectMcpTools 是现有项目工具的业务适配模块，显式保存项目与运行目标，借用资源系统并向通用 McpSystem 登记工具。资源与运行调试分别维护注册及实现文件；Android 传输继续由模块私有实现负责。项目启停由 EditorMcpTools 通过统一命令通道登记。
 
+规划入口：[影片编辑与 MCP（待实现）](movie-mcp-tools.md)通过普通 `register_movie_tools()` 与既有编辑器命令通道组织参数、预览和通用异步导入。参数查询仅提供 meta、已导入 Movie 描述与过期状态，不由 MCP 或编辑器核心再探测原始媒体；资源构建与发布继续复用本页 `build_resources/sync_assets`。当前这两个工具仍同步执行，不能将[异步导入规划](../../../editor/class-diagrams/asset-import-jobs.md)当作已经实现的能力；本页现行方法保持不变。
+
 ```mermaid
 classDiagram
     direction TB

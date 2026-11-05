@@ -1145,3 +1145,101 @@ classDiagram
 ## 输入关系
 
 [输入系统](../runtime/class-diagrams/input-system.md)由 RuntimeHost 独占，借用 WindowSystem，并在宿主暂停模拟前更新；不加入 World，也不反向依赖 UI、脚本或角色插件。脚本 BindingContext 仅借用系统并记录本 Run 创建句柄的清理责任。CharacterControllerSystem 无 WindowSystem 借用及固定输入 fallback，调用方明确提交 CharacterInput；脚本通过可选角色组件绑定提交。完整边界见[输入设计](../runtime/input.md)。
+
+## 影片规划关系（设计契约，尚未实现）
+
+此节不替换上方现行所有权。运行、源资源与 MCP 的完整拟定方法分别在[播放器](../runtime/class-diagrams/movie-player.md)、[启动装配](../runtime/class-diagrams/movie-startup.md)、[音频](../runtime/class-diagrams/movie-audio.md)、[导入](../plugins/editor/class-diagrams/movie-importer.md)、[任务](../editor/class-diagrams/asset-import-jobs.md)和[MCP](../plugins/editor/class-diagrams/movie-mcp-tools.md)维护，这里只汇总关系。
+
+```mermaid
+classDiagram
+    class RuntimeHost
+    class Engine
+    class WorldSystem
+    class WindowSystem
+    class RenderSystem
+    class AudioSystem
+    class MoviePlayer
+    class MovieFrame
+    class MoviePlaybackHandle
+    class AudioVoiceHandle
+    class ResourceSystem
+    class ResourceLoader
+    class Resource
+    class TaskSystem
+    class MovieDataT
+    class AudioClipDataT
+    class MovieResourceCodec
+    class ResourceCodec
+    RuntimeHost *-- WindowSystem : 同一窗口
+    RuntimeHost *-- RenderSystem : 早期初始化至关闭
+    RuntimeHost *-- AudioSystem : 同一设备与现有混音
+    RuntimeHost *-- MoviePlayer : 启动与业务共用
+    RuntimeHost --> Engine : 后期初始化游戏系统一次
+    Engine *-- WorldSystem : 世界生命周期
+    RenderSystem --> WorldSystem : 就绪后借用绑定
+    AudioSystem --> WorldSystem : 就绪后借用绑定
+    MoviePlayer --> ResourceSystem : 借用底层目录和加载入口
+    MoviePlayer ..> ResourceLoader : 只使用核心加载契约
+    MoviePlayer --> TaskSystem : 借用已有解码域
+    MoviePlayer --> AudioSystem : 独立声部输出
+    MoviePlayer *-- AudioVoiceHandle : 音频身份
+    MoviePlayer ..> MoviePlaybackHandle : 原生与脚本的播放身份
+    MoviePlayer o-- Resource : 固定本次请求的不可变资源快照
+    MoviePlayer ..> MovieFrame : 交出瞬时平面视图
+    RuntimeHost ..> MovieFrame : 本次同步转交
+    RenderSystem ..> MovieFrame : 复制后上传与单次呈现
+    MovieResourceCodec --|> ResourceCodec
+    MovieResourceCodec ..> MovieDataT : 生成模型校验
+    MovieResourceCodec ..> AudioClipDataT : 真实依赖校验
+    MovieDataT ..> AudioClipDataT : 唯一音频GUID依赖
+```
+
+```mermaid
+classDiagram
+    class MovieImporter
+    class AssetImporter
+    class AssetPipelineSystem
+    class AssetBuildSystem
+    class AssetSyncSystem
+    class ProjectMcpTools
+    class MovieDataT
+    class AudioClipDataT
+    class MoviePlayer
+    class MovieBinding
+    class ScriptBinding
+    class BindingContext
+    class MoviePlaybackHandle
+    class MovieEditorCommands
+    class ResourceSystem
+    class TaskSystem
+    class EditorCommands
+    class EditorMcpTools
+    class McpSystem
+    class register_movie_tools
+    class EditorHost
+    MovieImporter --|> AssetImporter
+    AssetPipelineSystem *-- AssetImporter : 现有显式登记
+    MovieImporter ..> MovieDataT : 转换主GUID产物
+    MovieImporter ..> AudioClipDataT : 转换可选音轨子资源
+    AssetBuildSystem --> AssetPipelineSystem : 现有构建依赖闭包
+    ProjectMcpTools --> AssetBuildSystem : 复用现有资源构建
+    ProjectMcpTools --> AssetSyncSystem : 复用现有完整版本同步
+    MovieBinding --|> ScriptBinding
+    MovieBinding ..> BindingContext : 当前Run调用上下文
+    BindingContext --> MoviePlayer : 可空宿主借用
+    BindingContext *-- MoviePlaybackHandle : 本Run只保留值身份
+    EditorHost *-- MovieEditorCommands : 主线程命令与预览协调
+    MovieEditorCommands --> AssetPipelineSystem : 导入请求和任务查询
+    MovieEditorCommands --> ResourceSystem : 借用以异步读取已导入描述
+    MovieEditorCommands --> TaskSystem : 借用执行摘要与参数IO
+    EditorHost *-- MoviePlayer : 独占预览实例
+    MovieEditorCommands --> MoviePlayer : 持续借用专用预览实例
+    EditorCommands --> MovieEditorCommands : 借用命令回调
+    register_movie_tools ..> McpSystem : 登记工具
+    register_movie_tools --> EditorMcpTools : 固定项目命令通道
+    EditorMcpTools ..> EditorCommands : 现有回执协议
+```
+
+命名空间分别为：核心 `engine`、生成模型 `engine::schema`、MovieImporter 为 `engine::plugins::asset_import`、MovieBinding 为 `engine::plugins::script::bindings`、MovieEditorCommands 为 `engine::editor`、MCP 登记为 `engine::plugins::mcp`。宿主节点只表示入口装配，不新增宿主包装类。运行时不 include 或链接这些具体编辑器/脚本插件；插件通过宿主注入核心借用。
+
+启动流程与业务流程只在调用方策略上不同，不增加第二套播放器、音频设备、GPU 或资源目录。后台只做不可变数据准备；世界/脚本/GPU 的主线程阶段必须实际拆分，不能用一个预算参数掩盖同步长调用。MCP 只转发既有编辑器命令，导入任务扩展原管线而不新增影片 JobManager。编解码后端、链接增量和完整播放性能仍待实测，不属于本次类图设计的已实现结果。

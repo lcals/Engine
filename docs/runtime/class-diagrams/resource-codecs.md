@@ -1,5 +1,7 @@
 # 资源解码器
 
+规划中的 MovieResourceCodec、生成影片模型与音频引用校验另见[影片资源](movie-data.md)；本页当前登记表不表示影片类型已经接入。
+
 [类图索引](../../class-diagrams/index.md) · [资源系统](resource-system.md) · [已加载资源](resource.md)
 
 ResourceSystem 负责目录、VFS、资源信封、代际和单项读取；每种资源的 FlatBuffers 解码、自身字段与声明引用校验、跨实体校验由对应 ResourceCodec 实现。解码器不加载依赖、不持有资源、不判断编辑器或运行宿主身份。

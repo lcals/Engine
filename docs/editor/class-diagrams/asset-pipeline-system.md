@@ -4,6 +4,8 @@
 
 `catalog()` 提供完整可用资源目录，编辑器直接取得元数据，无需打包或把清单落盘后再读回。运行时契约见[资源加载](../../runtime/resource-loading.md)。
 
+规划入口：[资源导入异步批次（待实现）](asset-import-jobs.md)为现有系统增加 start/poll/cancel、成功源记录只读查询、前置发现准备和合作进度能力，不另建影片作业系统。当前 `build_assets()` 与 `tasks_.run()` 仍同步等待；[影片导入规划](../../plugins/editor/class-diagrams/movie-importer.md)继续复用本页身份、缓存、依赖与整批发布。以下方法定义不包含尚未实现的增量。
+
 ```mermaid
 classDiagram
     class System

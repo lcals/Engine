@@ -1,5 +1,7 @@
 # 渲染系统
 
+无场景 YUV 影片呈现及世界借用绑定的规划增量见[影片播放器](movie-player.md#帧视图与呈现)。它们尚未实现，本页继续维护当前渲染接口。
+
 [类图索引](../../class-diagrams/index.md) · [引擎与系统](engine-system.md) · [完整引用关系](../../class-diagrams/references.md)
 
 公开图定义 `RenderSystem` 的方法；私有实现另列职责与所有权，其他节点为跨图引用或第三方库。
@@ -283,7 +285,7 @@ classDiagram
     direction TB
     class RenderSystem {
         <<final>>
-        +RenderSystem(WindowSystem& windows, WorldSystem#42; world, FontSystem#42; fonts, UiSystem#42; ui, TaskSystem#42; tasks = nullptr, const RenderConfig& config = {})
+        +RenderSystem(WindowSystem& windows, WorldSystem#42; world, FontSystem#42; fonts, UiSystem#42; ui, TaskSystem#42; tasks = nullptr, const RenderConfig& config = #123;#125;)
         +~RenderSystem()
         +add_extension(RenderExtension& extension) bool
         +remove_extension(RenderExtension& extension) bool

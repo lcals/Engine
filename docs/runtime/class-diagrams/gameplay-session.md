@@ -2,6 +2,11 @@
 
 [类图索引](../../class-diagrams/index.md) · [脚本运行契约](script-runtime.md) · [运行宿主](runtime-host.md)
 
+> **影片启动规划 / 待实现：** [分阶段启动](movie-startup.md)要求先提交真实影片首帧，再逐帧准备
+> 玩法；主页 ready 必须包含 VM、ECS 与 GPU，不能只表示 CPU 资源就绪。场景停止将按
+> [音频规划](movie-audio.md)只清理场景声部，不关闭宿主共享设备或 Native 影片。以下现行
+> start / stop 方法及说明未在本轮变更，不能视为已支持预算内分步准备。
+
 ```mermaid
 classDiagram
     class ProjectScriptRequest

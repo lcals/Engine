@@ -2,6 +2,11 @@
 
 [类图索引](../../class-diagrams/index.md) · [完整引用关系](../../class-diagrams/references.md)
 
+> **影片启动规划 / 待实现：** 真正先呈现影片、再准备世界的分阶段装配与新增契约见
+> [影片启动](movie-startup.md)，播放器与音频复用分别见[MoviePlayer](movie-player.md)和
+> [影片音频](movie-audio.md)。以下仍描述当前实现；规划中的 Renderer / AudioSystem 早期拥有、
+> World 后期绑定及脚本工厂 MoviePlayer 借用尚未替换本页现行方法和生命周期。
+
 ```mermaid
 classDiagram
     direction TB
@@ -176,4 +181,4 @@ flowchart TD
 
 - `ui()` 和 `window()/input()/renderer()` 一样只在初始化成功至关闭之前返回借用，供宿主装配 UI 编辑器插件；不依赖子系统编号或 RTTI。`set_event_observer` 登记可空的 WindowEventHandler 与上下文，主线程在原生事件路由之前通知，回调不能消费或改写事件；关闭先清除此借用。
 
-动画提供者的可空工厂装配、失败回滚及所有权见[重定向注入](animation-retargeting.md#宿主注入)。
+动画提供者的可空工厂装配、失败回滚及所有权见[重定向注入](animation-retargeting.md#可选插件装配与关闭)。

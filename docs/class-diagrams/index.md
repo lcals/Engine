@@ -51,6 +51,23 @@
 - [音频导入器](../editor/class-diagrams/audio-importer.md)：按 meta 转换 WAV 为交错 PCM，生成 GUID 资源。
 - [资源管线](../editor/class-diagrams/asset-pipeline-system.md)：meta 身份、SQLite 索引、依赖增量和 GUID 缓存发布。
 
+## 影片播放（设计契约，尚未实现）
+
+以下入口共同维护启动片头、业务全屏播放、原始素材处理与编辑器 MCP 的拟定契约；现行源码尚未增加影片能力。视频后端未选定，正式构建只装配最终通过包体与性能验证的一套实现；不把 FFmpeg、C4 或 Bink 调研当成已接入依赖。
+
+| 独立类图 | 评审内容 |
+| --- | --- |
+| [播放器与帧呈现](../runtime/class-diagrams/movie-player.md) | MoviePlayer、播放身份与终态、YUV 帧借用、SIMD/AVX、RenderSystem 增量 |
+| [影片资源](../runtime/class-diagrams/movie-data.md) | 唯一生成模型、MovieResourceCodec、视频载荷与独立 AudioClip 依赖 |
+| [复用音频](../runtime/class-diagrams/movie-audio.md) | AudioSystem 无场景声部、共享设备、位置查询与清理边界 |
+| [启动与业务装配](../runtime/class-diagrams/movie-startup.md) | 真正先窗口播放、后台准备、单帧呈现与主页切换条件 |
+| [影片脚本绑定](../plugins/runtime/class-diagrams/movie-script-api.md) | 同一能力的脚本外观、Run 所属句柄与热重载清理 |
+| [影片源资源导入](../plugins/editor/class-diagrams/movie-importer.md) | 原 MP4/MOV 保留、稳定子 GUID、meta、指纹和标准缓存 |
+| [资源导入任务](../editor/class-diagrams/asset-import-jobs.md) | 原管线补开始/查询/取消，继续使用既有任务域与原子发布 |
+| [影片 MCP 与预览](../plugins/editor/class-diagrams/movie-mcp-tools.md) | 命令通道、参数修改、预览和现有构建/同步工具复用 |
+
+跨层拥有、借用与调用方向汇总见[影片规划关系](references.md#影片规划关系设计契约尚未实现)。这些设计页只定义规划增量，现行类图继续按当前代码维护；实施时再同步替换相关已实现契约。
+
 ## 场景与项目运行
 
 - [ECS 场景与虚拟节点](../runtime/class-diagrams/ecs-scene.md)：Node/组件值句柄、Flecs 唯一运行数据、直接查询，以及预制体/脚本/撤销迁移边界；当前实现与分模块类图的统一入口。
@@ -69,7 +86,7 @@
 - [特效系统与组件](../plugins/runtime/class-diagrams/effects.md)：独立 EffectSystem、EffectComponent、共享资源与实例播放生命周期。
 - [特效导入与 MCP](../plugins/editor/class-diagrams/effect-importer.md)：官方效果字节、meta 依赖映射、可撤销编辑和播放命令。
 - [动画组件](../runtime/class-diagrams/animator.md)：片段选择、双动作过渡、播放、暂停、定位及运行状态。
-- [动画扩展实现评审](../runtime/scripted-animation-controller.md#实现接口评审)：当前已实现动画扩展的契约入口，Animator 完整方法统一见[动画组件](../runtime/class-diagrams/animator.md)；包含 [TS 状态机](../plugins/runtime/class-diagrams/animation-state-machine.md)、[重定向核心契约](../runtime/class-diagrams/animation-retargeting.md)、[可选重定向实现](../plugins/runtime/class-diagrams/animation-retarget.md)、[IK 与挂点](../runtime/class-diagrams/animation-rigging.md)、[事件注入](../runtime/class-diagrams/animation-events.md)。
+- [动画扩展实现评审](../runtime/scripted-animation-controller.md#已确认的接口评审记录)：当前已实现动画扩展的契约入口，Animator 完整方法统一见[动画组件](../runtime/class-diagrams/animator.md)；包含 [TS 状态机](../plugins/runtime/class-diagrams/animation-state-machine.md)、[重定向核心契约](../runtime/class-diagrams/animation-retargeting.md)、[可选重定向实现](../plugins/runtime/class-diagrams/animation-retarget.md)、[IK 与挂点](../runtime/class-diagrams/animation-rigging.md)、[事件注入](../runtime/class-diagrams/animation-events.md)。
 - [角色物理组件](../runtime/class-diagrams/character-motor.md)：胶囊运动、地面/台阶与 Jolt 查询，不解释输入。
 - [角色控制器](../plugins/runtime/class-diagrams/character-controller.md)：可选运行时输入与第一/第三人称相机策略。
 - [物理组件](../runtime/class-diagrams/physics-components.md)：Collider、RigidBody、碰撞形状、运动设置与瞬态冲量。

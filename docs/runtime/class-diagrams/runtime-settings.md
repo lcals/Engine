@@ -2,6 +2,10 @@
 
 [类图索引](../../class-diagrams/index.md) · [运行宿主](runtime-host.md) · [并行预算](../parallelism.md)
 
+> **影片配置规划 / 待实现：** 可选 `game.startup_movie` 逻辑资源路径及自动打包入口见
+> [启动配置规划](movie-startup.md#启动配置规划)和[影片资源](movie-data.md)。该字段尚未加入以下
+> RuntimeSettings 结构、现行配置验证或导出实现；无片头配置时保持原启动语义。
+
 ```mermaid
 classDiagram
     class RuntimeSettings {
