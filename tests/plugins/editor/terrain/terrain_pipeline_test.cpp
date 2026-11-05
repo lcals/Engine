@@ -90,7 +90,7 @@ struct Project
                 return false;
             }
         }
-        return write(root / "settings/import.toml", "import_threads = 1\n");
+        return write(root / "settings/editor-import.toml", "[common]\nimport_threads = 1\n");
     }
 };
 

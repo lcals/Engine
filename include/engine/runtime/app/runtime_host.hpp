@@ -60,10 +60,10 @@ public:
     // resources 可空；非空时借用已初始化的资源核心，调用方须在宿主关闭后再释放它。
     // script_factory 可空；实例交给世界独占，核心不选择具体脚本插件。
     // threads 可空；非空借用已初始化预算，调用方在宿主关闭后再关闭它。
-    [[nodiscard]] bool initialize(const EngineConfig& config, ResourceSystem* resources = nullptr,
-                                  ScriptRuntimeFactory script_factory = nullptr,
-                                  RuntimeSetup setup = nullptr, ThreadSystem* threads = nullptr,
-                                  const RuntimeParallelConfig& parallel = {},
+    // 完整运行预算由调用方读取配置后显式提交；可空依赖也须明确传入。
+    [[nodiscard]] bool initialize(const EngineConfig& config, ResourceSystem* resources,
+                                  ScriptRuntimeFactory script_factory, RuntimeSetup setup,
+                                  ThreadSystem* threads, const RuntimeParallelConfig& parallel,
                                   AnimationRetargeterFactory retargeter_factory = nullptr);
     [[nodiscard]] FrameStatus tick(double delta_time);
     // 单独处理事件并发布输入，供不推进世界的宿主流程使用；每帧与 tick 二选一。

@@ -29,7 +29,7 @@ C++20 跨平台游戏引擎，使用 CMake、vcpkg 和成熟开源库。运行�
 
 ```sh
 git submodule update --init
-npm ci --prefix projects/showcase/settings
+npm ci --prefix projects/showcase/settings/typescript
 cmake --preset ninja-engine-debug
 cmake --build --preset ninja-engine-debug-prepare
 cmake --build --preset ninja-engine-debug

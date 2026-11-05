@@ -20,7 +20,7 @@ set(ENGINE_EXPORT_PROJECT
     "${PROJECT_SOURCE_DIR}/projects/showcase"
     CACHE PATH "Exported project")
 set(ENGINE_EXPORT_MANIFEST
-    "settings/resource-build.toml"
+    "settings/editor-resource-build.toml"
     CACHE STRING "Project build manifest")
 set(ENGINE_EXPORT_PRODUCT
     "engine-showcase"

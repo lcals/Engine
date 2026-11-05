@@ -61,7 +61,7 @@ def compile_catalog(project, asset_builder=None, manifest=None, resource_root=No
             )
         return source
     if manifest is None:
-        manifest = Path("settings/resource-build.toml")
+        manifest = Path("settings/editor-resource-build.toml")
     command = [
         str(Path(asset_builder).resolve()),
         "--project",
@@ -129,7 +129,7 @@ def prepare(project, output, asset_builder=None, manifest=None, resource_root=No
         source = compile_catalog(project, asset_builder, manifest, resource_root)
         receipt = stage_assets(source, staging)
         # APK assets 是平台容器；settings 与 catalog/gen/packs 并列，不进入资源清单。
-        export_runtime_settings(project, staging)
+        export_runtime_settings(project, staging, "android")
     return receipt
 
 
@@ -145,7 +145,7 @@ def main():
         "--asset-builder", type=Path, help="宿主 asset_build_app 路径，编译 Android GUID 产物"
     )
     parser.add_argument(
-        "--manifest", type=Path, help="项目构建清单；默认 settings/resource-build.toml"
+        "--manifest", type=Path, help="项目构建清单；默认 settings/editor-resource-build.toml"
     )
     parser.add_argument("--resource-root", type=Path, help="已有 v2 运行包目录；指定后不调用构建器")
     arguments = parser.parse_args()

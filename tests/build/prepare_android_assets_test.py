@@ -2,6 +2,7 @@
 
 import importlib.util
 import json
+import shutil
 from pathlib import Path
 import re
 import subprocess
@@ -199,7 +200,7 @@ class AndroidBuildArgumentTest(unittest.TestCase):
                     "--target",
                     "android",
                     "--manifest",
-                    "settings/resource-build.toml",
+                    "settings/editor-resource-build.toml",
                 ],
             )
             self.assertNotIn("shell", run.call_args.kwargs)
@@ -212,6 +213,8 @@ class PrepareAndroidAssetsTest(unittest.TestCase):
         self.project = self.root / "项目 with spaces $literal"
         for name in ("settings", "assets", "cache"):
             (self.project / name).mkdir(parents=True)
+        for source in (ROOT / "projects/showcase/settings").glob("runtime-*.toml"):
+            shutil.copy2(source, self.project / "settings" / source.name)
         self.source = self.project / "cache/build/android"
         self.source.mkdir(parents=True)
         self.output = self.root / "android/assets"
@@ -224,28 +227,29 @@ class PrepareAndroidAssetsTest(unittest.TestCase):
         self.temporary.cleanup()
 
     def test_parallel_settings_ship_outside_the_resource_catalog(self):
-        settings = "version = 1\n[profiles.mobile.threads]\nworker_limit = 2\n"
-        (self.project / "settings/parallel.toml").write_text(settings, encoding="utf-8")
+        parallel = self.project / "settings/runtime-parallel.toml"
+        settings = parallel.read_text(encoding="utf-8").replace("worker_limit = 3", "worker_limit = 2").replace(
+            'worker_priority = "normal"', 'worker_priority = "low"')
+        parallel.write_text(settings + "\n[platform.windows.threads]\nworker_limit=8\n", encoding="utf-8")
         (self.project / "settings/private.json").write_text("must not ship", encoding="utf-8")
         receipt = self.prepare()
-        self.assertEqual(json.loads((self.output / "settings/runtime.json").read_text()),
-                         {"version": 1, "game_language": "en", "profiles": {"mobile": {"parallel": {"threads": {"worker_limit": 2}}}}})
-        self.assertFalse((self.output / "settings/parallel.toml").exists())
-        self.assertFalse((self.output / "settings/runtime.toml").exists())
+        runtime = json.loads((self.output / "settings/runtime.json").read_text())
+        self.assertEqual(runtime["parallel"]["threads"], {"worker_limit": 2, "worker_priority": "low"})
+        self.assertNotIn("platform", runtime["parallel"])
+        self.assertEqual(set(runtime), {"game", "engine", "parallel"})
+        self.assertFalse((self.output / "settings/runtime-parallel.toml").exists())
+        self.assertFalse((self.output / "settings/runtime-game.toml").exists())
         self.assertFalse((self.output / "settings/private.json").exists())
         self.assertEqual(receipt["file_count"], len(self.entries) + 1)
         previous = self.snapshot()
-        (self.project / "settings/parallel.toml").write_text("invalid", encoding="utf-8")
+        (self.project / "settings/runtime-parallel.toml").write_text("invalid", encoding="utf-8")
         with self.assertRaises(ValueError):
             self.prepare()
         self.assertEqual(self.snapshot(), previous)
 
-    def test_duplicate_parallel_source_does_not_replace_previous_package(self):
-        (self.project / "settings/runtime.toml").write_text(
-            "version=1\n[defaults.parallel.threads]\nworker_limit=2\n", encoding="utf-8"
-        )
-        (self.project / "settings/parallel.toml").write_text(
-            "version=1\n[defaults.threads]\nworker_limit=4\n", encoding="utf-8"
+    def test_invalid_source_structure_does_not_replace_previous_package(self):
+        (self.project / "settings/runtime-parallel.toml").write_text(
+            "worker_limit=4\n", encoding="utf-8"
         )
         previous = self.snapshot()
         with self.assertRaises(ValueError):

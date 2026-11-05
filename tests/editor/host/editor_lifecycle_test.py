@@ -187,8 +187,8 @@ def test(editor, mcp, root, temporary):
             with (large_assets / name).open("wb") as resource:
                 resource.truncate(33 * 1024 * 1024)
         (project / "settings/lifecycle-package.toml").write_text(
-            'output="cache/build/lifecycle-package"\n'
-            '[[items]]\nname="game"\nstorage="package"\n'
+            '[common]\noutput="cache/build/lifecycle-package"\n'
+            '[[common.items]]\nname="game"\nstorage="package"\n'
             'roots=["scripts/game.ts","scenes/main.scene"]\n'
             'keep=["large/first.bin","large/second.bin"]\n',
             encoding="utf-8",

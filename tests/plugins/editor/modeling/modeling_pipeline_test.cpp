@@ -100,6 +100,10 @@ int main()
             return 1;
         }
     }
+    if (!write(project.root / "settings/editor-import.toml", "[common]\nimport_threads = 8\n"))
+    {
+        return 1;
+    }
     schema::EditableMeshDataT model;
     schema::MeshDataT expected;
     std::vector<std::uint8_t> bytes;

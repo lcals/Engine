@@ -73,10 +73,10 @@
 #endif
 
 #if ENGINE_HAS_ASSET_IMPORT_PLUGIN
-#include "plugins/editor/asset_import/font_importer.hpp"
-#include "plugins/editor/asset_import/ui_importer.hpp"
-#include "plugins/editor/asset_import/json_importer.hpp"
 #include "plugins/editor/asset_import/fbx_importer.hpp"
+#include "plugins/editor/asset_import/font_importer.hpp"
+#include "plugins/editor/asset_import/json_importer.hpp"
+#include "plugins/editor/asset_import/ui_importer.hpp"
 #include "plugins/editor/asset_import/usd_importer.hpp"
 #endif
 
@@ -138,8 +138,7 @@ void print_usage()
 {
     fmt::print("Usage: editor_app --project <project-directory> "
                "[--runtime-dir <persistent-directory>] [--frames <positive-count>] [--width "
-               "<pixels>] [--height <pixels>] [--workers <0..64>] [--runtime-profile "
-               "<desktop|mobile>]\n");
+               "<pixels>] [--height <pixels>] [--workers <0..64>]\n");
 }
 
 int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& environment,
@@ -162,11 +161,11 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
 #endif
     engine::ScriptRuntimeFactory script_factory = nullptr;
 #if ENGINE_HAS_SCRIPT_PLUGIN
-    script_factory = [](engine::WorldSystem& world, engine::RenderSystem& renderer,
-                        engine::UiSystem& ui, engine::PhysicsSystem& physics,
-                        engine::NavigationSystem& navigation, engine::InputSystem& input,
-                        engine::WindowSystem& window,
-                        engine::AnimationSystem& animation) -> std::unique_ptr<engine::ScriptRuntime>
+    script_factory =
+        [](engine::WorldSystem& world, engine::RenderSystem& renderer, engine::UiSystem& ui,
+           engine::PhysicsSystem& physics, engine::NavigationSystem& navigation,
+           engine::InputSystem& input, engine::WindowSystem& window,
+           engine::AnimationSystem& animation) -> std::unique_ptr<engine::ScriptRuntime>
     {
         return std::make_unique<engine::plugins::script::ScriptSystem>(
             &world, &renderer, &ui, &physics, &navigation, &input, &window, &animation);
@@ -320,13 +319,13 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
             return 1;
         }
         resources.set_loader(&resource_graph);
-        const bool runtime_ready = runtime.initialize(
-            config, &resources, script_factory, configure_runtime_plugins, &threads, parallel,
-            retargeter_factory);
+        const bool runtime_ready =
+            runtime.initialize(config, &resources, script_factory, configure_runtime_plugins,
+                               &threads, parallel, retargeter_factory);
 #else
-        const bool runtime_ready = runtime.initialize(
-            config, nullptr, script_factory, configure_runtime_plugins, &threads, parallel,
-            retargeter_factory);
+        const bool runtime_ready =
+            runtime.initialize(config, nullptr, script_factory, configure_runtime_plugins, &threads,
+                               parallel, retargeter_factory);
 #endif
         if (!runtime_ready)
         {
@@ -767,8 +766,13 @@ int main(int argc, char* argv[])
     std::optional<std::uint32_t> width_override;
     std::optional<std::uint32_t> height_override;
     std::optional<std::size_t> worker_override;
-    std::string runtime_profile = "desktop";
-    config.window_title = "Engine Editor";
+#if defined(_WIN32)
+    constexpr std::string_view platform = "windows";
+#elif defined(__APPLE__)
+    constexpr std::string_view platform = "macos";
+#else
+    constexpr std::string_view platform = "linux";
+#endif
     std::string project_argument;
     fs::path runtime_directory;
     std::uint64_t frame_limit = 0;
@@ -786,16 +790,6 @@ int main(int argc, char* argv[])
                 return 2;
             }
             worker_override = count;
-            continue;
-        }
-        if (argument == "--runtime-profile" && index + 1 < argc)
-        {
-            runtime_profile = argv[++index];
-            if (runtime_profile != "desktop" && runtime_profile != "mobile")
-            {
-                print_usage();
-                return 2;
-            }
             continue;
         }
         if (argument == "--help" && argc == 2)
@@ -895,7 +889,7 @@ int main(int argc, char* argv[])
                                          PathUtils::to_utf8(engine::App::persistent_data_path()));
     LogSystem::write(LogLevel::info, "Editor log: " + PathUtils::to_utf8(log.file_path()));
     std::string settings_error;
-    if (!engine::editor::load_project_runtime_settings(project_root, runtime_profile, settings,
+    if (!engine::editor::load_project_runtime_settings(project_root, platform, settings,
                                                        settings_error))
     {
         LogSystem::write(LogLevel::error, settings_error);

@@ -3081,7 +3081,7 @@ int main(int argc, char** argv)
     app.assets_path = workspace / fs::path(u8"builtin-资源");
     app.persistent_data_path = workspace / fs::path(u8"data-持久");
     app.cache_path = workspace / fs::path(u8"cache-缓存");
-    if (!engine::App::initialize(app) || engine::App::game_language() != "en")
+    if (!engine::App::initialize(app) || !engine::App::game_language().empty())
     {
         return 1;
     }

@@ -2,6 +2,7 @@
 
 from pathlib import Path
 import json
+import shutil
 import plistlib
 import tempfile
 import sys
@@ -45,6 +46,9 @@ class DesktopExportTest(unittest.TestCase):
         builder.write_bytes(b"fixture builder")
         project = self.root / "project"
         project.mkdir(exist_ok=True)
+        (project / "settings").mkdir(exist_ok=True)
+        for source in (ROOT / "projects/showcase/settings").glob("runtime-*.toml"):
+            shutil.copy2(source, project / "settings" / source.name)
         icu = self.root / "icudtl.dat"
         icu.write_bytes(b"fixture ICU")
         return SimpleNamespace(
@@ -57,7 +61,7 @@ class DesktopExportTest(unittest.TestCase):
             app_bundle=app_bundle,
             product="game_runtime",
             output=self.destination,
-            manifest=Path("settings/resource-build.toml"),
+            manifest=Path("settings/editor-resource-build.toml"),
             support_file=[],
             support_directory=[],
             cmake="cmake",
@@ -96,22 +100,27 @@ class DesktopExportTest(unittest.TestCase):
                     (base / "assets" / self.entry["path"]).read_bytes(), self.entry["entity"]
                 )
                 self.assertFalse((base / "catalog.bin").exists())
-                self.assertEqual(json.loads((base / "settings/runtime.json").read_text()),
-                                 {"version": 1, "game_language": "en"})
+                runtime = json.loads((base / "settings/runtime.json").read_text())
+                self.assertEqual(set(runtime), {"game", "engine", "parallel"})
+                self.assertEqual(runtime["game"]["game_language"], "en")
+                self.assertEqual(runtime["parallel"]["threads"]["worker_limit"], 0)
                 self.assertFalse((base / "assets/settings").exists())
                 self.assertEqual((base / "icudtl.dat").read_bytes(), b"fixture ICU")
 
     def test_runtime_settings_aggregate_sources_without_shipping_toml(self):
         args = self.export_arguments()
         settings = args.project / "settings"
-        settings.mkdir()
-        (settings / "runtime.toml").write_text(
-            'version=1\ngame_language="zh-CN"\n[defaults.engine]\nwidth=1600\ntarget_frame_rate=45\n', encoding="utf-8"
+        settings.mkdir(exist_ok=True)
+        (settings / "runtime-game.toml").write_text(
+            '[common]\ngame_language="zh-CN"\n', encoding="utf-8"
         )
-        (settings / "parallel.toml").write_text(
-            'version=1\n[profiles.mobile.threads]\nworker_limit=2\n', encoding="utf-8"
+        (settings / "runtime-engine.toml").write_text(
+            '[common]\nwindow_title="Game"\nwidth=1600\nheight=900\ntarget_frame_rate=45\n', encoding="utf-8"
         )
-        (settings / "editor.toml").write_text("must not ship", encoding="utf-8")
+        parallel = settings / "runtime-parallel.toml"
+        parallel.write_text(parallel.read_text(encoding="utf-8").replace("worker_limit = 0", "worker_limit = 5") +
+                            '\n[platform.macos.threads]\nworker_priority="low"\n', encoding="utf-8")
+        (settings / "editor-settings.toml").write_text("must not ship", encoding="utf-8")
         with (
             mock.patch.object(desktop, "ROOT", self.root),
             mock.patch.object(desktop, "build_resources", return_value=self.source),
@@ -120,15 +129,17 @@ class DesktopExportTest(unittest.TestCase):
         ):
             desktop.export(args)
         result = json.loads((self.destination / "settings/runtime.json").read_text())
-        self.assertEqual(result["game_language"], "zh-CN")
-        self.assertEqual(result["defaults"]["engine"], {"width": 1600, "target_frame_rate": 45})
-        self.assertEqual(result["profiles"]["mobile"]["parallel"]["threads"]["worker_limit"], 2)
+        self.assertEqual(set(result), {"game", "engine", "parallel"})
+        self.assertEqual(result["game"], {"game_language": "zh-CN"})
+        self.assertEqual(result["engine"], {"window_title": "Game", "width": 1600, "height": 900, "target_frame_rate": 45})
+        self.assertEqual(result["parallel"]["threads"], {"worker_limit": 5, "worker_priority": "low"})
+        self.assertNotIn("platform", result["parallel"])
         self.assertEqual({p.name for p in (self.destination / "settings").iterdir()}, {"runtime.json"})
 
     def test_build_resources_passes_package_target_and_optional_manifest(self):
         args = self.export_arguments()
         receipt = {"status": "ok", "targetPlatform": "macos", "output": str(self.source)}
-        for manifest in (Path("settings/resource-build.toml"), None):
+        for manifest in (Path("settings/editor-resource-build.toml"), None):
             with self.subTest(manifest=manifest):
                 args.manifest = manifest
                 with mock.patch.object(

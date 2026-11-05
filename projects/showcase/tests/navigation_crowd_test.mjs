@@ -144,9 +144,9 @@ try {
     execFileSync(
         process.execPath,
         [
-            path.join(root, "projects/showcase/settings/node_modules/typescript/lib/tsc.js"),
+            path.join(root, "projects/showcase/settings/typescript/node_modules/typescript/lib/tsc.js"),
             "--project",
-            path.join(root, "projects/showcase/settings/tsconfig.json"),
+            path.join(root, "projects/showcase/settings/typescript/tsconfig.json"),
             "--outDir",
             output,
             "--sourceMap",

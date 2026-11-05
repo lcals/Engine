@@ -77,15 +77,16 @@ def mesh_component(mesh, material, static):
 def prepare():
     for part in ("assets", "settings", "cache"):
         (PROJECT / part).mkdir(parents=True, exist_ok=True)
+    for name in ("runtime-game.toml", "runtime-parallel.toml"):
+        shutil.copy2(ROOT / "projects/showcase/settings" / name, PROJECT / "settings" / name)
     settings = {
-        "import.toml": "import_threads = 2\n",
-        "editor.toml": "[editor]\ntarget_frame_rate = 60\n",
-        "runtime.toml": "version = 1\n[defaults.engine]\nwidth = 960\nheight = 640\ntarget_frame_rate = 60\n[profiles.desktop]\n[profiles.mobile]\n[overrides]\n",
+        "editor-import.toml": "[common]\nimport_threads = 2\n",
+        "editor-settings.toml": "[common]\ntarget_frame_rate = 60\n",
+        "runtime-engine.toml": "[common]\nwindow_title = \"Engine validation\"\nwidth = 960\nheight = 640\ntarget_frame_rate = 60\n",
     }
     for filename, text in settings.items():
         target = PROJECT / "settings" / filename
-        if not target.exists():
-            target.write_text(text, encoding="utf-8")
+        target.write_text(text, encoding="utf-8")
     new_source(
         "meshes/floor.mesh",
         "vertices = [[-2,0,-2,0,1,0],[-2,0,2,0,1,0],[2,0,2,0,1,0],[2,0,-2,0,1,0]]\nindices = [0,1,2,0,2,3]\ntexcoords = [[0,0],[0,1],[1,1],[1,0]]\n",

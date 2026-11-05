@@ -36,7 +36,7 @@ public:
     AssetBuildSystem(AssetBuildSystem&&) = delete;
     AssetBuildSystem& operator=(AssetBuildSystem&&) = delete;
 
-    // manifest 为空使用 settings/resource-build.toml；缺失清单或 items 时全量构建。
+    // manifest 为空使用 settings/editor-resource-build.toml；缺失清单或 common.items 时全量构建。
     // target_platform 为空采用宿主；空 items 选择清单全部构建项。
     [[nodiscard]] bool build(const std::filesystem::path& project_root,
                              const std::filesystem::path& manifest = {},

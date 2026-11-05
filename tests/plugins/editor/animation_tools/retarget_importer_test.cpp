@@ -117,6 +117,10 @@ bool exercise()
             return false;
         }
     }
+    if (!write(fixture.root / "settings/editor-import.toml", "[common]\nimport_threads = 8\n"))
+    {
+        return false;
+    }
     engine::ThreadSystem threads;
     engine::TaskSystem tasks(threads);
     engine::ResourceSystem resources;

@@ -1,0 +1,75 @@
+{
+  "game": {
+    "game_language": "zh-CN"
+  },
+  "engine": {
+    "window_title": "Runtime settings fixture",
+    "width": 1440,
+    "height": 900,
+    "target_frame_rate": 30
+  },
+  "parallel": {
+    "threads": {
+      "worker_limit": 2,
+      "worker_priority": "normal"
+    },
+    "runtime": {
+      "max_concurrency": 2,
+      "priority": "high",
+      "max_pending": 1024
+    },
+    "background": {
+      "max_concurrency": 1,
+      "priority": "low",
+      "max_pending": 128
+    },
+    "loading": {
+      "max_concurrency": 4,
+      "priority": "low",
+      "max_pending": 256
+    },
+    "physics": {
+      "max_concurrency": 2,
+      "priority": "high",
+      "max_pending": 2048
+    },
+    "animation": {
+      "max_concurrency": 2,
+      "priority": "high",
+      "max_pending": 256
+    },
+    "navigation": {
+      "max_concurrency": 2,
+      "priority": "normal",
+      "max_pending": 256
+    },
+    "resources": {
+      "max_in_flight": 3,
+      "max_in_flight_bytes": 67108864,
+      "completion_budget": 16
+    },
+    "animation_sampling": {
+      "min_parallel_count": 8,
+      "batch_size": 16
+    },
+    "scene_restore": {
+      "nodes_per_step": 64,
+      "max_seconds": 0.001
+    },
+    "render": {
+      "texture_batch_size": 2,
+      "texture_staging_bytes": 67108864,
+      "cluster_tile_size": 64,
+      "cluster_depth_slices": 24,
+      "maximum_lights": 256,
+      "maximum_cluster_lights": 64,
+      "shadow_atlas_size": 4096,
+      "local_shadow_tile_size": 512,
+      "maximum_local_shadow_faces": 24,
+      "maximum_planar_reflections": 2
+    },
+    "navigation_tile_threshold": 4,
+    "completions_per_frame": 16,
+    "completion_budget_seconds": 0.001
+  }
+}

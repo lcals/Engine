@@ -1,6 +1,7 @@
 #include "scene_snapshot.hpp"
 
 #include "runtime_plugins.hpp"
+#include "runtime_settings_fixture.hpp"
 
 #include "plugins/runtime/character_controller/character_camera.hpp"
 #include "plugins/runtime/character_controller/character_controller.hpp"
@@ -120,7 +121,12 @@ bool host_input_physics_camera_order()
 {
     engine::RuntimeHost host;
     InstalledPlugins plugins;
-    engine::EngineConfig config;
+    engine::RuntimeSettings settings;
+    if (!test_support::load_runtime_settings(settings))
+    {
+        return false;
+    }
+    auto config = settings.engine;
     config.window_title = "Character host ordering";
     config.width = 320;
     config.height = 240;
@@ -128,7 +134,8 @@ bool host_input_physics_camera_order()
     // 拒绝第二个装配位置后允许同一宿主重新装配，旧借用不再使用。
     plugins.reject_after_physics = true;
     installing = &plugins;
-    const bool rejected = !host.initialize(config, nullptr, nullptr, install_plugins);
+    const bool rejected =
+        !host.initialize(config, nullptr, nullptr, install_plugins, nullptr, settings.parallel);
     installing = nullptr;
     if (!expect(rejected && host.world() == nullptr && host.window() == nullptr,
                 "failed staged setup releases the partial host"))
@@ -137,7 +144,8 @@ bool host_input_physics_camera_order()
     }
     plugins = {};
     installing = &plugins;
-    const bool initialized = host.initialize(config, nullptr, nullptr, install_plugins);
+    const bool initialized =
+        host.initialize(config, nullptr, nullptr, install_plugins, nullptr, settings.parallel);
     installing = nullptr;
     if (!expect(initialized && plugins.calls == 2 &&
                     plugins.stages[0] == engine::RuntimeStage::before_physics &&

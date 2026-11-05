@@ -1,0 +1,5 @@
+[common]
+window_title = "Engine"
+width = 1280
+height = 720
+target_frame_rate = -1

@@ -514,6 +514,8 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
                 bgfx::bimg
                 basisu::basisu_encoder)
     engine_apply_options(engine_window_render_test)
+    target_compile_definitions(engine_window_render_test PRIVATE
+                               ENGINE_TEST_RUNTIME_SETTINGS="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/runtime-settings.json")
     if(TARGET engine_resource_graph)
         target_link_libraries(engine_window_render_test PRIVATE engine::resource_graph)
         target_compile_definitions(engine_window_render_test PRIVATE ENGINE_TEST_RESOURCE_GRAPH=1)
@@ -992,7 +994,8 @@ if(TARGET engine_character_controller)
                                                engine::resource engine::render SDL3::SDL3)
         target_include_directories(engine_character_host_test PRIVATE "${PROJECT_SOURCE_DIR}/src")
         target_compile_definitions(engine_character_host_test
-                                   PRIVATE ENGINE_HAS_CHARACTER_CONTROLLER=1)
+                                   PRIVATE ENGINE_HAS_CHARACTER_CONTROLLER=1
+                                   ENGINE_TEST_RUNTIME_SETTINGS="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/runtime-settings.json")
         engine_apply_options(engine_character_host_test)
         if(ENGINE_ENABLE_GPU_TESTS)
             add_test(NAME engine.character_host COMMAND engine_character_host_test)
@@ -1232,9 +1235,11 @@ if(TARGET engine_runtime)
     set_tests_properties(engine.gameplay_session PROPERTIES TIMEOUT 60)
 
     add_executable(engine_runtime_settings_test runtime/app/runtime_settings_test.cpp)
-    target_link_libraries(engine_runtime_settings_test PRIVATE engine::runtime)
+    target_link_libraries(engine_runtime_settings_test PRIVATE engine::runtime
+                                                             nlohmann_json::nlohmann_json)
     engine_apply_options(engine_runtime_settings_test)
-    add_test(NAME engine.runtime_settings COMMAND engine_runtime_settings_test)
+    add_test(NAME engine.runtime_settings COMMAND engine_runtime_settings_test
+        "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/runtime-settings.json")
     set_tests_properties(engine.runtime_settings PROPERTIES TIMEOUT 30)
 endif()
 

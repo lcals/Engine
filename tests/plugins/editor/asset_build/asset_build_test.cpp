@@ -62,9 +62,9 @@ std::string material(double roughness)
 
 std::string manifest()
 {
-    return "output = \"cache/build/game\"\n"
-           "[[items]]\nname = \"main\"\nstorage = \"package\"\nroots = [\"main.scene\"]\n"
-           "[[items]]\nname = \"extra\"\nstorage = \"files\"\nroots = [\"message.txt\"]\n";
+    return "[common]\noutput = \"cache/build/game\"\n"
+           "[[common.items]]\nname = \"main\"\nstorage = \"package\"\nroots = [\"main.scene\"]\n"
+           "[[common.items]]\nname = \"extra\"\nstorage = \"files\"\nroots = [\"message.txt\"]\n";
 }
 
 struct Fixture
@@ -95,7 +95,8 @@ struct Fixture
             }
         }
         const auto assets = root / "assets";
-        return write(assets / "message.txt", "runtime data") &&
+        return write(root / "settings/editor-import.toml", "[common]\nimport_threads = 8\n") &&
+               write(assets / "message.txt", "runtime data") &&
                write(assets / "unused.txt", "not selected") &&
                write(assets / "cube.material", material(0.4)) &&
                write(assets / "cube.material.meta", meta(material_guid, "material")) &&
@@ -110,7 +111,7 @@ struct Fixture
                          "\"00000000-0000-4000-8000-000000000005\"\nmaterial = \"" +
                          material_guid + "\"\n") &&
                write(assets / "main.scene.meta", meta(scene_guid, "scene")) &&
-               write(root / "settings/resource-build.toml", manifest());
+               write(root / "settings/editor-resource-build.toml", manifest());
     }
 
     ~Fixture() noexcept
@@ -126,7 +127,7 @@ struct Fixture
 bool build(engine::plugins::asset_build::AssetBuildSystem& builder, const Fixture& fixture,
            const std::vector<std::string>& items, std::string_view target = {})
 {
-    if (!builder.build(fixture.root, "settings/resource-build.toml", items, target))
+    if (!builder.build(fixture.root, "settings/editor-resource-build.toml", items, target))
     {
         std::fprintf(stderr, "resource build: %s\n", builder.last_error().c_str());
         return false;
@@ -248,32 +249,33 @@ bool tests()
     const auto stable_catalog = read(output / "catalog.bin");
     const auto stable_package = read(output / packed_path);
     const auto stable_stats = builder.last_build().revision;
-    if (!expect(!builder.build(fixture.root, "settings/resource-build.toml",
+    if (!expect(!builder.build(fixture.root, "settings/editor-resource-build.toml",
                                std::vector<std::string>{"missing"}) &&
                     read(output / "catalog.bin") == stable_catalog &&
                     read(output / packed_path) == stable_package &&
                     builder.last_build().revision == stable_stats,
                 "unknown item preserves prior publication") ||
-        !expect(!builder.build(fixture.root, "settings/../resource-build.toml"),
+        !expect(!builder.build(fixture.root, "settings/../editor-resource-build.toml"),
                 "manifest traversal rejected") ||
         !expect(build(builder, fixture, {"main", "extra"}, "android") &&
                     engine::ResourceSystem::read_catalog(output, catalog) &&
                     catalog.data().target_platform == "android" &&
                     builder.last_build().reused_package_count == 0,
                 "target platform participates in package reuse identity") ||
-        !expect(write(fixture.root / "settings/resource-build.toml",
-                      manifest() + "[[items]]\nname = \"conflict\"\nstorage = \"files\"\nroots = "
-                                   "[\"main.scene\"]\n") &&
-                    !builder.build(fixture.root, "settings/resource-build.toml"),
+        !expect(write(fixture.root / "settings/editor-resource-build.toml",
+                      manifest() +
+                          "[[common.items]]\nname = \"conflict\"\nstorage = \"files\"\nroots = "
+                          "[\"main.scene\"]\n") &&
+                    !builder.build(fixture.root, "settings/editor-resource-build.toml"),
                 "conflicting physical layouts rejected"))
     {
         return false;
     }
-    if (!expect(write(fixture.root / "settings/resource-build.toml",
+    if (!expect(write(fixture.root / "settings/editor-resource-build.toml",
                       "target_platform = \"android\"\n" + manifest()) &&
-                    !builder.build(fixture.root, "settings/resource-build.toml"),
+                    !builder.build(fixture.root, "settings/editor-resource-build.toml"),
                 "removed manifest target field is rejected instead of read compatibly") ||
-        !expect(write(fixture.root / "settings/resource-build.toml", "") &&
+        !expect(write(fixture.root / "settings/editor-resource-build.toml", "") &&
                     builder.build(fixture.root),
                 "an empty manifest selects every imported project resource"))
     {
@@ -285,14 +287,14 @@ bool tests()
                     builder.last_build().resource_count == 4 + builtin_count &&
                     engine::ResourceSystem::read_catalog(default_output, catalog),
                 "default publication is isolated by target and contains all project resources") ||
-        !expect(write(fixture.root / "settings/resource-build.toml",
-                      "[[items]]\nname = \"empty\"\nstorage = \"package\"\nroots = []\n") &&
+        !expect(write(fixture.root / "settings/editor-resource-build.toml",
+                      "[[common.items]]\nname = \"empty\"\nstorage = \"package\"\nroots = []\n") &&
                     builder.build(fixture.root) &&
                     builder.last_build().resource_count == builtin_count &&
                     builder.last_build().package_count == 1,
                 "an explicit empty root list selects no project assets but retains builtins") ||
-        !expect(write(fixture.root / "settings/resource-build.toml",
-                      "[[items]]\nname = \"baseline\"\nstorage = \"package\"\n"
+        !expect(write(fixture.root / "settings/editor-resource-build.toml",
+                      "[[common.items]]\nname = \"baseline\"\nstorage = \"package\"\n"
                       "roots = [\"builtin://materials/default-pbr\"]\n") &&
                     builder.build(fixture.root) &&
                     builder.last_build().resource_count == builtin_count &&
@@ -301,14 +303,15 @@ bool tests()
     {
         return false;
     }
-    if (!expect(write(fixture.root / "settings/resource-build.toml",
-                      "[[items]]\nname = \"incomplete\"\nstorage = \"files\"\n") &&
+    if (!expect(write(fixture.root / "settings/editor-resource-build.toml",
+                      "[[common.items]]\nname = \"incomplete\"\nstorage = \"files\"\n") &&
                     !builder.build(fixture.root),
                 "missing roots does not silently become an empty project selection") ||
-        !expect(write(fixture.root / "settings/resource-build.toml",
-                      "[[items]]\nname = \"builtin\"\nstorage = \"package\"\nroots = []\n") &&
-                    !builder.build(fixture.root),
-                "project build items cannot claim the reserved builtin package name"))
+        !expect(
+            write(fixture.root / "settings/editor-resource-build.toml",
+                  "[[common.items]]\nname = \"builtin\"\nstorage = \"package\"\nroots = []\n") &&
+                !builder.build(fixture.root),
+            "project build items cannot claim the reserved builtin package name"))
     {
         return false;
     }
@@ -317,8 +320,8 @@ bool tests()
     engine::Guid unselected;
     if (!expect(
             !code && write(fixture.root / "assets/project/message.txt", "folder resource") &&
-                write(fixture.root / "settings/resource-build.toml",
-                      "[[items]]\nname = \"folder\"\nstorage = \"files\"\n"
+                write(fixture.root / "settings/editor-resource-build.toml",
+                      "[[common.items]]\nname = \"folder\"\nstorage = \"files\"\n"
                       "roots = [\"project/message.txt\"]\n") &&
                 builder.build(fixture.root) &&
                 engine::ResourceSystem::read_catalog(default_output, catalog) &&
@@ -329,10 +332,11 @@ bool tests()
         !expect(builder.build(fixture.root, "settings/missing.toml") &&
                     builder.last_build().resource_count == builtin_count + 5,
                 "a missing explicit manifest selects all imported project resources") ||
-        !expect(std::filesystem::remove(fixture.root / "settings/resource-build.toml", code) &&
-                    !code && builder.build(fixture.root) &&
-                    builder.last_build().resource_count == builtin_count + 5,
-                "an absent default manifest selects all resources without compatibility lookup"))
+        !expect(
+            std::filesystem::remove(fixture.root / "settings/editor-resource-build.toml", code) &&
+                !code && builder.build(fixture.root) &&
+                builder.last_build().resource_count == builtin_count + 5,
+            "an absent default manifest selects all resources without compatibility lookup"))
     {
         return false;
     }

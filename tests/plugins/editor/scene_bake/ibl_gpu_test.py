@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import shutil
 import json
 import math
 from pathlib import Path
@@ -143,10 +144,12 @@ def prepare():
     project = fixture.PROJECT
     for folder in ("assets", "settings", "cache"):
         (project / folder).mkdir(parents=True, exist_ok=True)
+    for name in ("runtime-game.toml", "runtime-parallel.toml"):
+        shutil.copy2(ROOT / "projects/showcase/settings" / name, project / "settings" / name)
     for name, data in {
-        "import.toml": "import_threads = 2\n",
-        "editor.toml": "[editor]\ntarget_frame_rate = 60\n",
-        "runtime.toml": "version = 1\n[defaults.engine]\nwidth = 960\nheight = 640\ntarget_frame_rate = 60\n[profiles.desktop]\n[profiles.mobile]\n[overrides]\n",
+        "editor-import.toml": "[common]\nimport_threads = 2\n",
+        "editor-settings.toml": "[common]\ntarget_frame_rate = 60\n",
+        "runtime-engine.toml": "[common]\nwindow_title = \"Engine validation\"\nwidth = 960\nheight = 640\ntarget_frame_rate = 60\n",
     }.items():
         (project / "settings" / name).write_text(data)
     source = project / "assets/textures/white.ktx"

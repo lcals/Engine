@@ -49,7 +49,7 @@ try {
             "Usage: node build_scripts.mjs --project <project-directory> (--inputs | --output <staging-directory> | --snippet <request.json>)",
         );
     const project = path.resolve(args[1]);
-    const settings = path.join(project, "settings");
+    const settings = path.join(project, "settings/typescript");
     const assets = path.join(project, "assets");
     const cache = path.join(project, "cache");
     for (const name of ["settings", "assets", "cache"]) requireDirectory(path.join(project, name));

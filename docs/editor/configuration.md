@@ -1,19 +1,19 @@
 # 编辑器配置
 
-配置按职责区分：`EngineConfig` 保存窗口等运行时配置；项目 `settings/` 保存 TypeScript 工程、依赖锁文件和资源导入设置；界面语言等编辑器偏好不属于运行时启动条件。
+配置按职责区分：`EngineConfig` 保存窗口等运行时配置；项目 `settings/` 保存各模块配置；TypeScript 工程及依赖锁文件独立放在 `settings/typescript/`；界面语言等编辑器偏好不属于运行时启动条件。
 
-`settings/import.toml` 的 `import_threads` 控制编辑器 oneTBB 任务域的并发上限，默认 8，允许 1–64。缺少该文件时使用默认值，内容或范围非法时导入失败。该值不是独占线程数，也受进程预算限制；本轮在导入前、任务域空闲时配置，忙碌时改额度明确失败。项目参数归资源管线，进程总并行预算由宿主决定。
+`settings/editor-import.toml` 的 `[common].import_threads` 控制编辑器 oneTBB 任务域的并发上限，允许 1–64，公开范例显式配置 8。文件、分组或字段缺失，以及内容或范围非法时均导入失败。该值不是独占线程数，也受进程预算限制；本轮在导入前、任务域空闲时配置，忙碌时改额度明确失败。项目参数归资源管线，进程总并行预算由宿主决定。
 
-界面偏好管理与默认值写入尚未实现；项目级限帧、导入与运行预算已由相应 TOML 配置。已实现配置与状态契约见[配置与状态类图](../runtime/class-diagrams/types.md)，项目目录约束见[项目与出包](project.md)。
+界面偏好管理尚未实现；项目级限帧、导入与运行预算已由相应 TOML 配置。已实现配置与状态契约见[配置与状态类图](../runtime/class-diagrams/types.md)，项目目录约束见[项目与出包](project.md)。
 
 ## 帧率上限
 
-核心 `Engine` 提供整帧限速，运行时默认 `-1` 表示不限帧。正整数为每秒帧数上限，`0`、小于 `-1` 的值或脚本非整数输入被拒绝，原设置保持不变。宿主在完整帧开始和结束调用限帧接口，休眠只补足剩余帧预算，超预算不额外等待；下一帧真实时间差包含等待时间，物理固定步长不变。
+核心 `Engine` 提供整帧限速，`-1` 表示不限帧。正整数为每秒帧数上限，`0`、小于 `-1` 的值或脚本非整数输入被拒绝，原设置保持不变。宿主在完整帧开始和结束调用限帧接口，休眠只补足剩余帧预算，超预算不额外等待；下一帧真实时间差包含等待时间，物理固定步长不变。
 
-项目编辑器配置放 `settings/editor.toml`，文件或字段缺失时默认 60，格式或数值错误拒绝启动：
+项目编辑器配置放 `settings/editor-settings.toml`，帧率必须显式填写；缺文件、缺字段、格式或数值错误均拒绝启动：
 
 ```toml
-[editor]
+[common]
 target_frame_rate = 60
 ```
 
@@ -35,4 +35,10 @@ export default class Game extends Gameplay {
 
 ## 运行设置与并行预算
 
-`settings/runtime.toml` 与 `settings/parallel.toml` 由编辑器和构建工具读取，转换为核心配置；运行包消费汇总的 `settings/runtime.json`，不引入 TOML。默认值、平台档位与覆盖顺序见[运行并行配置](../runtime/parallelism.md)。
+`settings/runtime-*.toml` 由编辑器和构建工具读取，合并公共与当前平台参数，按完整必填契约转换为核心配置；运行包消费汇总的 `settings/runtime.json`，不引入 TOML。模块分工、平台初始值与覆盖顺序见[运行并行配置](../runtime/parallelism.md)。
+
+## 文件风格
+
+所有引擎项目设置使用 `runtime-<模块>.toml` 或 `editor-<模块>.toml`。参数放在 `[common]` 中，运行时平台差异放在 `[platform.windows]`、`[platform.android]` 等表；不使用根层散落参数、version、defaults、profiles 或 overrides。编辑器设置、导入并发与资源构建清单各自独立，使用 `[common]`、`[[common.items]]`；它们不会进入运行包。
+
+TS 工程保留工具标准 JSON 格式：`settings/typescript/tsconfig.json`、`package.json` 与锁文件。源码仍在 `assets/`，编译生成物仍在 `cache/`。资源自身的 scene/material/meta 等描述文件继续遵守各资源类型契约。

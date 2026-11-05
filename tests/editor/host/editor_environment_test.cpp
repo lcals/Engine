@@ -1,4 +1,5 @@
 #include "editor/editor_environment.hpp"
+#include "editor/editor_system.hpp"
 #include "editor/project/project_system.hpp"
 #include "runtime/app/app.hpp"
 #include "runtime/engine_config.hpp"
@@ -82,6 +83,28 @@ bool run_cases(const fs::path& workspace)
     {
         return false;
     }
+    engine::editor::EditorSystem editor(environment);
+    const auto settings = root / "settings/editor-settings.toml";
+    if (!expect(!editor.initialize(config), "editor settings file is required"))
+    {
+        return false;
+    }
+    for (const char* invalid :
+         {"", "[common]\n", "target_frame_rate = 60\n", "common = 60\n", "[common]\nunknown = 60\n",
+          "[common]\ntarget_frame_rate = 0\n", "[common]\ntarget_frame_rate = 60.0\n"})
+    {
+        if (!expect(write(settings, invalid) && !editor.initialize(config),
+                    "reject ungrouped, unknown, or invalid editor settings"))
+        {
+            return false;
+        }
+    }
+    if (!expect(write(settings, "[common]\ntarget_frame_rate = -1\n") && editor.initialize(config),
+                "accept the editor common settings table"))
+    {
+        return false;
+    }
+    editor.shutdown();
     project.shutdown();
     if (!expect(!environment.is_initialized(), "project lifetime covers environment use"))
     {

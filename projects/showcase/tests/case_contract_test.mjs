@@ -14,8 +14,8 @@ const output = await mkdtemp(path.join(tmpdir(), "engine-showcase-contract-"));
 
 try {
     execFileSync(process.execPath, [
-        path.join(project, "settings/node_modules/typescript/lib/tsc.js"),
-        "--project", path.join(project, "settings/tsconfig.json"),
+        path.join(project, "settings/typescript/node_modules/typescript/lib/tsc.js"),
+        "--project", path.join(project, "settings/typescript/tsconfig.json"),
         "--outDir", output, "--sourceMap", "false",
     ], { stdio: "inherit" });
     await writeFile(path.join(output, "package.json"), '{"type":"module"}\n');
@@ -39,7 +39,7 @@ try {
         assert.ok(values.every((value) => typeof value === "string" && value.length > 0));
         assert.equal(new Set(values).size, values.length, `case ${field} must be unique`);
     }
-    const build = await readFile(path.join(project, "settings/resource-build.toml"), "utf8");
+    const build = await readFile(path.join(project, "settings/editor-resource-build.toml"), "utf8");
     const rootsSection = build.match(/\broots\s*=\s*\[([^\]]*)\]/);
     assert.ok(rootsSection, "the project declares runtime roots");
     const roots = new Set([...rootsSection[1].matchAll(/"([^"]+)"/g)].map((match) => match[1]));

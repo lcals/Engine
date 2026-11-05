@@ -114,7 +114,7 @@ struct Project
                 return false;
             }
         }
-        return true;
+        return write(root / "settings/editor-import.toml", "[common]\nimport_threads = 8\n");
     }
 
     ~Project()

@@ -188,7 +188,10 @@ int main()
     std::string error;
     std::string first;
     std::string second;
-    if (!expect(write_text(source, "one", error), "create source", error) ||
+    if (!expect(write_text(project.root / "settings/editor-import.toml",
+                           "[common]\nimport_threads = 8\n", error),
+                "configure editor imports", error) ||
+        !expect(write_text(source, "one", error), "create source", error) ||
         !expect(ensure_asset_guid(project.root, source, "source", first, error),
                 "create source identity", error) ||
         !expect(ensure_asset_guid(project.root, source, "source", second, error) && first == second,

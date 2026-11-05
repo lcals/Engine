@@ -64,7 +64,7 @@ V8 在 Windows、macOS、Linux、Android 等平台统一默认关闭 WebAssembly
 
 公开项目锁定 TypeScript 7.0.2。项目级编译复用该版本的官方原生 `tsc`，官方 `typescript/unstable/sync` 和 `unstable/ast` API 负责配置解析、AST 及导入信息；它们与编译器保持同一 package-lock，不调用旧 JS 编译器的 `Program.emit` / `transpileModule`，也不维护自有 TS 解析器。编译器原生程序、API、标准库、配置与源码都参与输入指纹，继续每批执行一次项目级编译。
 
-临时 MCP TypeScript 同样通过官方编译器输出 ES2022 CommonJS，在严格类型检查后交给当前 VM 的临时函数执行；模块 namespace 与 default 导出按[项目脚本执行契约](class-diagrams/project-script-execution.md)处理。`node <settings>/node_modules/typescript/bin/tsc --project <settings>/tsconfig.json --noEmit` 仍是官方 CLI 类型检查入口。
+临时 MCP TypeScript 同样通过官方编译器输出 ES2022 CommonJS，在严格类型检查后交给当前 VM 的临时函数执行；模块 namespace 与 default 导出按[项目脚本执行契约](class-diagrams/project-script-execution.md)处理。`node <settings>/typescript/node_modules/typescript/bin/tsc --project <settings>/typescript/tsconfig.json --noEmit` 仍是官方 CLI 类型检查入口。
 
 npm flatbuffers 当前稳定发布为 25.9.23，与原生 FlatBuffers/flatc 25.12.19 的发布渠道独立。schema 生成和运行时对象继续使用既定跨语言契约，不能只因版本号不同就混入未发布的 JS 包。
 
@@ -97,11 +97,11 @@ export default class Game extends Gameplay {
 
 资源类型表参与公共导入指纹，首次升级会重新导入旧项目缓存；之后继续按资源增量构建，不需清空缓存或重编第三方依赖。
 
-脚本在 `Gameplay.OnInitialize` 等有效回调内调用 `Json.Load("config/maps.json")`，得到 `unknown` 类型的独立 JavaScript 值，并由项目校验字段。模块顶层、构造阶段、缺失路径、非 JSON 资源和非法载荷返回 `null`，合法 JSON `null` 同样返回 `null`。JSON 内的字符串不会自动成为资源依赖；精简包须在 `settings/resource-build.toml` 显式列出配置及其使用的场景、模型等入口，UI 图片继续在 `.rml.meta` 声明。接口及边界见 [JSON 导入](../editor/class-diagrams/json-importer.md)与[脚本读取](class-diagrams/json-script-api.md)。
+脚本在 `Gameplay.OnInitialize` 等有效回调内调用 `Json.Load("config/maps.json")`，得到 `unknown` 类型的独立 JavaScript 值，并由项目校验字段。模块顶层、构造阶段、缺失路径、非 JSON 资源和非法载荷返回 `null`，合法 JSON `null` 同样返回 `null`。JSON 内的字符串不会自动成为资源依赖；精简包须在 `settings/editor-resource-build.toml` 显式列出配置及其使用的场景、模型等入口，UI 图片继续在 `.rml.meta` 声明。接口及边界见 [JSON 导入](../editor/class-diagrams/json-importer.md)与[脚本读取](class-diagrams/json-script-api.md)。
 
 ## 项目结构与模块限制
 
-TS 配置、package 与锁文件放在项目 `settings/`，源码及其他资源放 `assets/`；生成物位于 `cache/gen/<完整GUID>`，不提交缓存和 `node_modules/`。运行模块标识使用 `.js` 后缀。
+TS 配置、package 与锁文件放在项目 `settings/typescript/`，源码及其他资源放 `assets/`；生成物位于 `cache/gen/<完整GUID>`，不提交缓存和 `node_modules/`。运行模块标识使用 `.js` 后缀。
 
 脚本源码及部署控制 JSON 文本上限为 4 MiB，单次模块图最多 256 个模块。仅支持相对静态 ES import 与虚拟 `engine` 模块，不提供动态 import、顶层 await、Node.js API，也不自动打包 npm 运行时依赖。
 

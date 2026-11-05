@@ -2,6 +2,7 @@
 
 #include "animation_fixture.hpp"
 #include "resource_fixture.hpp"
+#include "runtime_settings_fixture.hpp"
 
 #if defined(ENGINE_TEST_RESOURCE_GRAPH)
 #include "plugins/runtime/resource_graph/resource_graph_system.hpp"
@@ -42,8 +43,8 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
-#include <cstdio>
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <limits>
@@ -775,8 +776,8 @@ engine::schema::TextureDataT ibl_test_texture(const char* path, bool cube)
     bx::StaticMemoryBlockWriter writer(bytes.data(), static_cast<std::uint32_t>(bytes.size()));
     bx::Error error;
     const auto written = bimg::imageWriteKtx(
-        &writer, cube ? bimg::TextureFormat::RGBA16F : bimg::TextureFormat::RG16F, cube,
-        4, 4, 0, 1, 1, false, pixels.data(), &error);
+        &writer, cube ? bimg::TextureFormat::RGBA16F : bimg::TextureFormat::RG16F, cube, 4, 4, 0, 1,
+        1, false, pixels.data(), &error);
     engine::schema::TextureDataT result;
     result.path = path;
     result.width = result.height = 4;
@@ -784,8 +785,8 @@ engine::schema::TextureDataT ibl_test_texture(const char* path, bool cube)
     result.srgb = false;
     result.cube_map = cube;
     result.encoding = engine::schema::TextureEncoding::ktx;
-    result.format = cube ? engine::schema::TextureFormat::rgba16f
-                         : engine::schema::TextureFormat::rg16f;
+    result.format =
+        cube ? engine::schema::TextureFormat::rgba16f : engine::schema::TextureFormat::rg16f;
     if (error.isOk() && written == static_cast<std::int32_t>(bytes.size()))
     {
         result.data.assign(bytes.begin(), bytes.end());
@@ -1095,8 +1096,8 @@ bool test_pbr_occlusion_lighting(const engine::EngineConfig& config)
         !renderer.initialize(config) || !fixture.add(occluded) || !fixture.add(unoccluded) ||
         !fixture.add(specgloss_srgb) || !fixture.add(specgloss_srgb_rough) ||
         !fixture.add(specgloss_linear) || !fixture.add(tilted_normal) ||
-        !fixture.add(frame_normal) ||
-        !fixture.publish(resources) || !render_frames(windows, renderer, 4))
+        !fixture.add(frame_normal) || !fixture.publish(resources) ||
+        !render_frames(windows, renderer, 4))
     {
         return false;
     }
@@ -1154,8 +1155,7 @@ bool test_pbr_occlusion_lighting(const engine::EngineConfig& config)
     const auto indirect1 = indirect_one.pixel(x, y);
     std::fprintf(stderr, "PBR AO red channel: direct %u/%u, indirect %u/%u\n", direct0[0],
                  direct1[0], indirect0[0], indirect1[0]);
-    if (!expect(direct1[0] > 20 &&
-                    std::abs(static_cast<int>(direct1[0]) - direct0[0]) <= 2 &&
+    if (!expect(direct1[0] > 20 && std::abs(static_cast<int>(direct1[0]) - direct0[0]) <= 2 &&
                     std::abs(static_cast<int>(direct1[1]) - direct0[1]) <= 2 &&
                     std::abs(static_cast<int>(direct1[2]) - direct0[2]) <= 2,
                 "material occlusion leaves direct lighting unchanged") ||
@@ -1275,9 +1275,9 @@ bool test_pbr_occlusion_lighting(const engine::EngineConfig& config)
             vertex.mutate_nx((nx / sx) / normal_length);
             vertex.mutate_nz((nz / sz) / normal_length);
         }
-        baked.tangents.assign(baked.vertices.size(),
-                              {nz * sx / tangent_length, 0, -nx * sz / tangent_length,
-                               sx < 0 ? -1.0 : 1.0});
+        baked.tangents.assign(
+            baked.vertices.size(),
+            {nz * sx / tangent_length, 0, -nx * sz / tangent_length, sx < 0 ? -1.0 : 1.0});
         if (sx < 0)
         {
             for (std::size_t i = 0; i < baked.indices.size(); i += 3)
@@ -1317,9 +1317,8 @@ bool test_pbr_occlusion_lighting(const engine::EngineConfig& config)
                 tangent.mutate_w(1.0);
             }
             Screenshot wrong_handedness;
-            if (!mesh.set_mesh_data(baked) ||
-                !screenshot(windows, renderer, fixture.root, "pbr-wrong-handedness",
-                            wrong_handedness))
+            if (!mesh.set_mesh_data(baked) || !screenshot(windows, renderer, fixture.root,
+                                                          "pbr-wrong-handedness", wrong_handedness))
             {
                 return false;
             }
@@ -1356,14 +1355,14 @@ bool test_pbr_occlusion_lighting(const engine::EngineConfig& config)
         const double nz = 2.0 * 218.0 / 255.0 - 1.0;
         const double norm = std::sqrt(nx * nx + ny * ny + nz * nz);
         const double cos_delta = nz / norm;
-        const double alpha2 = std::clamp(0.125 * (1.0 / (cos_delta * cos_delta) - 1.0),
-                                         0.0, 1.0);
+        const double alpha2 = std::clamp(0.125 * (1.0 / (cos_delta * cos_delta) - 1.0), 0.0, 1.0);
         for (const double angle : {0.0, 60.0, 85.0, 89.0, 91.0})
         {
             hemisphere_light_pose.rotation = {0, angle, 0};
             Screenshot terminator;
             if (!material.set_float("normalScale", scale) ||
-                !light_node.get_component<engine::Transform>().set_settings(hemisphere_light_pose) ||
+                !light_node.get_component<engine::Transform>().set_settings(
+                    hemisphere_light_pose) ||
                 !screenshot(windows, renderer, fixture.root, "pbr-bump-terminator", terminator))
             {
                 return false;
@@ -1372,15 +1371,19 @@ bool test_pbr_occlusion_lighting(const engine::EngineConfig& config)
             const double cos_light = std::cos(theta);
             const double n_dot_l = std::max(0.0, (nx * std::sin(theta) + nz * cos_light) / norm);
             const double fresnel = 0.04 + 0.96 * std::pow(1.0 - std::cos(theta * 0.5), 5.0);
-            const double shadowing = cos_light <= 0.0 ? 0.0 :
-                2.0 / (1.0 + std::sqrt(1.0 + alpha2 * std::pow(std::tan(theta), 2.0)));
+            const double shadowing =
+                cos_light <= 0.0
+                    ? 0.0
+                    : 2.0 / (1.0 + std::sqrt(1.0 + alpha2 * std::pow(std::tan(theta), 2.0)));
             const double radiance = 3.0 * 0.6 * (1.0 - fresnel) * n_dot_l * shadowing / pi;
             const double expected = 255.0 * linear_to_srgb(radiance / (1.0 + radiance));
             const auto actual = terminator.pixel(x, y)[0];
-            std::fprintf(stderr, "PBR diffuse terminator scale %.0f angle %.0f: %u (reference %.2f)\n",
+            std::fprintf(stderr,
+                         "PBR diffuse terminator scale %.0f angle %.0f: %u (reference %.2f)\n",
                          scale, angle, actual, expected);
-            if (!expect(std::abs(actual - expected) <= 2.0,
-                        "diffuse terminator follows published shadowing without changing flat normals"))
+            if (!expect(
+                    std::abs(actual - expected) <= 2.0,
+                    "diffuse terminator follows published shadowing without changing flat normals"))
             {
                 return false;
             }
@@ -1427,9 +1430,9 @@ bool test_pbr_occlusion_lighting(const engine::EngineConfig& config)
     const auto dielectric_red = linear(dielectric.pixel(x, y)[0]);
     const auto partial_red = linear(partial_metal.pixel(x, y)[0]);
     const auto metal_red = linear(metal.pixel(x, y)[0]);
-    const double expected_red = 3.0 * (0.96 * 0.5 * 0.8 / 3.141592653589793 +
-                                      (0.04 + 0.8) * 0.5 /
-                                          (4.0 * 3.141592653589793 * std::pow(0.7, 4)));
+    const double expected_red =
+        3.0 * (0.96 * 0.5 * 0.8 / 3.141592653589793 +
+               (0.04 + 0.8) * 0.5 / (4.0 * 3.141592653589793 * std::pow(0.7, 4)));
     std::fprintf(stderr, "PBR metallic linear red: %.4f / %.4f / %.4f (reference %.4f)\n",
                  dielectric_red, partial_red, metal_red, expected_red);
     if (!expect(std::abs(partial_red - (dielectric_red + metal_red) * 0.5) < 0.04 &&
@@ -1450,8 +1453,8 @@ bool test_pbr_occlusion_lighting(const engine::EngineConfig& config)
     Screenshot grazing;
     if (!camera_node.get_component<engine::Transform>().set_settings(camera_pose) ||
         !light_node.get_component<engine::Transform>().set_settings(light_pose) ||
-        !material.set_v4("baseColor", {0, 0, 0, 1}) ||
-        !material.set_float("metallic", 0) || !material.set_float("roughness", 0.5F) ||
+        !material.set_v4("baseColor", {0, 0, 0, 1}) || !material.set_float("metallic", 0) ||
+        !material.set_float("roughness", 0.5F) ||
         !screenshot(windows, renderer, fixture.root, "pbr-grazing-fresnel", grazing))
     {
         return false;
@@ -1459,8 +1462,8 @@ bool test_pbr_occlusion_lighting(const engine::EngineConfig& config)
     const double cosine = std::cos(radians);
     const double alpha_squared = std::pow(0.5, 4);
     const double distribution = 1.0 / (3.141592653589793 * alpha_squared);
-    const double visibility = 0.25 /
-        (cosine * std::sqrt(cosine * cosine * (1.0 - alpha_squared) + alpha_squared));
+    const double visibility =
+        0.25 / (cosine * std::sqrt(cosine * cosine * (1.0 - alpha_squared) + alpha_squared));
     const double fresnel = 0.04 + 0.96 * std::pow(1.0 - cosine, 5);
     const double expected_grazing = 3.0 * distribution * visibility * fresnel * cosine;
     const double actual_grazing = linear(grazing.pixel(x, y)[0]);
@@ -1489,8 +1492,7 @@ bool test_pbr_occlusion_lighting(const engine::EngineConfig& config)
     {
         return false;
     }
-    const double expected_peak = 0.0001 * 0.25 * 0.04 /
-                                 (3.141592653589793 * std::pow(0.045, 4));
+    const double expected_peak = 0.0001 * 0.25 * 0.04 / (3.141592653589793 * std::pow(0.045, 4));
     const double actual_peak = linear(smooth_peak.pixel(x, y)[0]);
     std::fprintf(stderr, "PBR smooth GGX peak linear: %.4f (reference %.4f)\n", actual_peak,
                  expected_peak);
@@ -1522,8 +1524,8 @@ bool test_pbr_occlusion_lighting(const engine::EngineConfig& config)
     for (std::size_t channel = 0; channel < f0.size(); ++channel)
     {
         const double expected = 0.1 * distribution * visibility *
-                                (f0[channel] + (1.0 - f0[channel]) *
-                                                   std::pow(1.0 - cosine, 5)) * cosine;
+                                (f0[channel] + (1.0 - f0[channel]) * std::pow(1.0 - cosine, 5)) *
+                                cosine;
         const double actual = linear(specular_pixel[channel]);
         std::fprintf(stderr, "SpecGloss grazing channel %zu: %.4f (reference %.4f)\n", channel,
                      actual, expected);
@@ -1571,17 +1573,15 @@ bool test_pbr_occlusion_lighting(const engine::EngineConfig& config)
     // peak so that both transfer functions affect the measured real draw.
     constexpr std::array<double, 3> texture_factor{0.8, 0.6, 0.4};
     const auto srgb_decode = [](double value)
-    {
-        return value <= 0.04045 ? value / 12.92 : std::pow((value + 0.055) / 1.055, 2.4);
-    };
+    { return value <= 0.04045 ? value / 12.92 : std::pow((value + 0.055) / 1.055, 2.4); };
     if (!material.set_v4("baseColor", {0, 0, 0, 1}) ||
         !material.set_v3("specularColor", {0.8F, 0.6F, 0.4F}) ||
         !material.set_float("smoothness", 0.8F))
     {
         return false;
     }
-    const auto check_specgloss_texture = [&](const char* path, const char* capture_name,
-                                             std::uint8_t alpha, bool srgb)
+    const auto check_specgloss_texture =
+        [&](const char* path, const char* capture_name, std::uint8_t alpha, bool srgb)
     {
         Screenshot capture;
         if (!material.set_texture("specularTexture", path) ||
@@ -1597,8 +1597,8 @@ bool test_pbr_occlusion_lighting(const engine::EngineConfig& config)
             const double f0 = texture_factor[channel] * (srgb ? srgb_decode(encoded) : encoded);
             const double expected = f0 / (4.0 * 3.141592653589793 * std::pow(roughness, 4));
             const double actual = linear(pixel[channel]);
-            std::fprintf(stderr, "%s channel %zu: %.4f (reference %.4f)\n", capture_name,
-                         channel, actual, expected);
+            std::fprintf(stderr, "%s channel %zu: %.4f (reference %.4f)\n", capture_name, channel,
+                         actual, expected);
             if (!expect(std::abs(actual - expected) < 0.035,
                         "SpecGloss texture uses its RGB color space and linear glossiness alpha"))
             {
@@ -1711,8 +1711,8 @@ bool test_ibl_white_furnace(const engine::EngineConfig& config)
         }
         const double actual = linear(capture.pixel(capture.width / 2, capture.height / 2)[0]);
         const double expected = (1.0 - metallic) * (1.0 - 0.2740);
-        std::fprintf(stderr, "No-IBL ambient grazing m=%.2f: %.4f (integral %.4f)\n",
-                     metallic, actual, expected);
+        std::fprintf(stderr, "No-IBL ambient grazing m=%.2f: %.4f (integral %.4f)\n", metallic,
+                     actual, expected);
         if (!expect(std::abs(actual - expected) < 0.045,
                     "diffuse-only ambient respects Fresnel and metallic mixing without an IBL"))
         {
@@ -1734,8 +1734,8 @@ bool test_ibl_white_furnace(const engine::EngineConfig& config)
         return false;
     }
     constexpr std::array<double, 3> ambient_reference{0.17626, 0.12354, 0.04391};
-    const auto ambient_pixel = ambient_specgloss.pixel(ambient_specgloss.width / 2,
-                                                      ambient_specgloss.height / 2);
+    const auto ambient_pixel =
+        ambient_specgloss.pixel(ambient_specgloss.width / 2, ambient_specgloss.height / 2);
     for (std::size_t channel = 0; channel < ambient_reference.size(); ++channel)
     {
         const double actual = linear(ambient_pixel[channel]);
@@ -1778,8 +1778,8 @@ bool test_ibl_white_furnace(const engine::EngineConfig& config)
                 }
                 const auto pixel = capture.pixel(capture.width / 2, capture.height / 2);
                 const double actual = linear(pixel[0]);
-                std::fprintf(stderr, "IBL white furnace angle=%.0f m=%.2f r=%.2f: %.4f\n",
-                             angle, metallic, roughness, actual);
+                std::fprintf(stderr, "IBL white furnace angle=%.0f m=%.2f r=%.2f: %.4f\n", angle,
+                             metallic, roughness, actual);
                 if (!expect(std::abs(actual - 1.0) < 0.08,
                             "white furnace conserves energy across angles and materials"))
                 {
@@ -1814,8 +1814,8 @@ bool test_ibl_white_furnace(const engine::EngineConfig& config)
         const double expected = 0.5 * (base[channel] * (1.0 - dielectric) + dielectric) +
                                 0.5 * reflected(base[channel]);
         const double actual = linear(pixel[channel]);
-        std::fprintf(stderr, "IBL colored half-metal channel %zu: %.4f (reference %.4f)\n",
-                     channel, actual, expected);
+        std::fprintf(stderr, "IBL colored half-metal channel %zu: %.4f (reference %.4f)\n", channel,
+                     actual, expected);
         if (!expect(std::abs(actual - expected) < 0.04,
                     "colored metal and dielectric lobes are mixed after IBL evaluation"))
         {
@@ -1837,8 +1837,8 @@ bool test_ibl_white_furnace(const engine::EngineConfig& config)
         const double reflectance = reflected(specgloss_f0[channel]);
         const double expected = 0.2 * (1.0 - reflectance) + reflectance;
         const double actual = linear(specgloss_pixel[channel]);
-        std::fprintf(stderr, "IBL SpecGloss channel %zu: %.4f (reference %.4f)\n", channel,
-                     actual, expected);
+        std::fprintf(stderr, "IBL SpecGloss channel %zu: %.4f (reference %.4f)\n", channel, actual,
+                     expected);
         if (!expect(std::abs(actual - expected) < 0.04,
                     "SpecGloss IBL respects colored Fresnel and diffuse input"))
         {
@@ -1853,8 +1853,7 @@ bool test_ibl_white_furnace(const engine::EngineConfig& config)
     auto light_settings = light.settings();
     light_settings.intensity = 3;
     if (!light || !light.set_settings(light_settings) || !light.set_enabled(false) ||
-        !material.set_float("specularWorkflow", 0) ||
-        !material.set_v4("baseColor", {1, 1, 1, 1}) ||
+        !material.set_float("specularWorkflow", 0) || !material.set_v4("baseColor", {1, 1, 1, 1}) ||
         !material.set_texture("baseColorTexture", albedo.path) ||
         !material.set_float("metallic", 0.5F) || !material.set_float("roughness", 0.5F))
     {
@@ -1886,11 +1885,11 @@ bool test_ibl_white_furnace(const engine::EngineConfig& config)
         }
         const double color = srgb_decode(static_cast<double>(albedo_texel[channel]) / 255.0);
         const double dielectric = reflected(0.04);
-        const double expected_ibl = 0.5 * (color * (1.0 - dielectric) + dielectric) +
-                                    0.5 * reflected(color);
+        const double expected_ibl =
+            0.5 * (color * (1.0 - dielectric) + dielectric) + 0.5 * reflected(color);
         const double f0 = 0.5 * (0.04 + color);
-        const double expected_direct = 3.0 * (0.5 * 0.96 * color / pi +
-                                               f0 / (4.0 * pi * std::pow(0.5, 4)));
+        const double expected_direct =
+            3.0 * (0.5 * 0.96 * color / pi + f0 / (4.0 * pi * std::pow(0.5, 4)));
         const double actual_ibl = linear(ibl_pixel[channel]);
         const double actual_direct = linear(direct_pixel[channel]);
         const double actual_combined = linear(combined_pixel[channel]);
@@ -1899,8 +1898,7 @@ bool test_ibl_white_furnace(const engine::EngineConfig& config)
         const double quantization = linear(combined_pixel[channel] + 1) - actual_combined;
         const double tolerance = quantization + 0.025;
         const double ibl_tolerance = linear(ibl_pixel[channel] + 1) - actual_ibl + 0.015;
-        const double direct_tolerance =
-            linear(direct_pixel[channel] + 1) - actual_direct + 0.025;
+        const double direct_tolerance = linear(direct_pixel[channel] + 1) - actual_direct + 0.025;
         std::fprintf(stderr,
                      "HDR composition channel %zu: IBL %.4f/%.4f direct %.4f/%.4f "
                      "combined %.4f/%.4f tolerance %.4f\n",
@@ -2218,10 +2216,11 @@ bool test_textured_renderer(const engine::EngineConfig& config, bool shared)
     auto background = environment.settings();
     background.clear_color = 0x0a407fff;
     Screenshot srgb_dark;
-    if (!expect(environment && environment.set_settings(background) &&
-                    mesh.material().set_texture("baseColorTexture", "builtin://textures/white-srgb") &&
-                    mesh.material().set_v4("baseColor", {0.001, 0.0031308, 0.01, 1}),
-                "configure dark linear colors and display-encoded background") ||
+    if (!expect(
+            environment && environment.set_settings(background) &&
+                mesh.material().set_texture("baseColorTexture", "builtin://textures/white-srgb") &&
+                mesh.material().set_v4("baseColor", {0.001, 0.0031308, 0.01, 1}),
+            "configure dark linear colors and display-encoded background") ||
         !screenshot(windows, renderer, fixture.root, "srgb-dark", srgb_dark))
     {
         return false;
@@ -3281,8 +3280,9 @@ bool test_reflections_water_and_diffuse_capture(const engine::EngineConfig& conf
             }
         }
     }
-    std::fprintf(stderr, "window/render SSR display-space contribution F0 dielectric/mixed/metal: "
-                         "%llu/%llu/%llu\n",
+    std::fprintf(stderr,
+                 "window/render SSR display-space contribution F0 dielectric/mixed/metal: "
+                 "%llu/%llu/%llu\n",
                  static_cast<unsigned long long>(ssr_energy[0]),
                  static_cast<unsigned long long>(ssr_energy[1]),
                  static_cast<unsigned long long>(ssr_energy[2]));
@@ -3306,9 +3306,9 @@ bool test_reflections_water_and_diffuse_capture(const engine::EngineConfig& conf
         !fixture.add(irradiance) || !fixture.add(prefilter) || !fixture.add(lut) ||
         !fixture.publish(resources) ||
         !engine::ResourceSystem::path_to_guid(irradiance.path,
-                                             ssr_ibl_environment.ibl_irradiance_guid) ||
+                                              ssr_ibl_environment.ibl_irradiance_guid) ||
         !engine::ResourceSystem::path_to_guid(prefilter.path,
-                                             ssr_ibl_environment.ibl_prefilter_guid) ||
+                                              ssr_ibl_environment.ibl_prefilter_guid) ||
         !engine::ResourceSystem::path_to_guid(lut.path, ssr_ibl_environment.ibl_lut_guid) ||
         !environment.set_settings(ssr_ibl_environment))
     {
@@ -3321,9 +3321,11 @@ bool test_reflections_water_and_diffuse_capture(const engine::EngineConfig& conf
     ssr_ibl_environment.ibl_enabled = false;
     post_settings.ssr_enabled = true;
     if (!post.set_settings(post_settings) || !environment.set_settings(ssr_ibl_environment) ||
-        !screenshot(windows, renderer, fixture.root, "ssr-ibl-disabled-loaded", ibl_disabled_loaded) ||
+        !screenshot(windows, renderer, fixture.root, "ssr-ibl-disabled-loaded",
+                    ibl_disabled_loaded) ||
         !environment.set_settings(environment_settings) ||
-        !screenshot(windows, renderer, fixture.root, "ssr-ibl-disabled-absent", ibl_disabled_absent))
+        !screenshot(windows, renderer, fixture.root, "ssr-ibl-disabled-absent",
+                    ibl_disabled_absent))
     {
         return false;
     }
@@ -3332,9 +3334,10 @@ bool test_reflections_water_and_diffuse_capture(const engine::EngineConfig& conf
     {
         for (std::size_t channel = 0; channel < 3; ++channel)
         {
-            disabled_ibl_difference = std::max(disabled_ibl_difference, std::abs(
-                static_cast<int>(ibl_disabled_loaded.pixels[pixel][channel]) -
-                static_cast<int>(ibl_disabled_absent.pixels[pixel][channel])));
+            disabled_ibl_difference =
+                std::max(disabled_ibl_difference,
+                         std::abs(static_cast<int>(ibl_disabled_loaded.pixels[pixel][channel]) -
+                                  static_cast<int>(ibl_disabled_absent.pixels[pixel][channel])));
         }
     }
     std::fprintf(stderr, "SSR disabled IBL loaded/absent maximum pixel difference: %d\n",
@@ -3376,8 +3379,8 @@ bool test_reflections_water_and_diffuse_capture(const engine::EngineConfig& conf
         ibl_changed += ibl_difference > 6;
         ibl_ssr_changed += ssr_difference > 6;
     }
-    std::fprintf(stderr, "window/render IBL changed pixels: %zu; SSR with IBL: %zu\n",
-                 ibl_changed, ibl_ssr_changed);
+    std::fprintf(stderr, "window/render IBL changed pixels: %zu; SSR with IBL: %zu\n", ibl_changed,
+                 ibl_ssr_changed);
     Screenshot specgloss_ibl_on;
     Screenshot specgloss_ibl_off;
     if (!ground_material.set_float("specularWorkflow", 1) ||
@@ -3399,9 +3402,9 @@ bool test_reflections_water_and_diffuse_capture(const engine::EngineConfig& conf
     {
         for (std::size_t channel = 0; channel < 3; ++channel)
         {
-            specgloss_changes[channel] += static_cast<std::uint64_t>(std::abs(
-                static_cast<int>(specgloss_ibl_on.pixels[pixel][channel]) -
-                static_cast<int>(specgloss_ibl_off.pixels[pixel][channel])));
+            specgloss_changes[channel] += static_cast<std::uint64_t>(
+                std::abs(static_cast<int>(specgloss_ibl_on.pixels[pixel][channel]) -
+                         static_cast<int>(specgloss_ibl_off.pixels[pixel][channel])));
         }
     }
     std::fprintf(stderr, "window/render SpecGloss SSR+IBL RGB change: %llu/%llu/%llu\n",
@@ -3973,18 +3976,21 @@ bool test_render_extensions(const engine::EngineConfig& config)
                   "renderer destruction clears extension reverse registration");
 }
 
-bool test_engine(const engine::EngineConfig& config)
+bool test_engine(const engine::EngineConfig& config, const engine::RuntimeParallelConfig& parallel)
 {
     engine::RuntimeHost engine;
     engine::EngineConfig invalid_config = config;
     invalid_config.width = 0;
     if (!expect(&engine::Engine::instance() == &engine::Engine::instance(),
                 "Engine must be a singleton") ||
-        !expect(!engine.initialize(invalid_config), "reject invalid window configuration") ||
+        !expect(!engine.initialize(invalid_config, nullptr, nullptr, nullptr, nullptr, parallel),
+                "reject invalid window configuration") ||
         !expect(engine.tick(delta_time) == engine::FrameStatus::failed,
                 "tick must fail before initialization") ||
-        !expect(engine.initialize(config), "initialize engine with all runtime systems") ||
-        !expect(!engine.initialize(config), "reject repeated initialization while running") ||
+        !expect(engine.initialize(config, nullptr, nullptr, nullptr, nullptr, parallel),
+                "initialize engine with all runtime systems") ||
+        !expect(!engine.initialize(config, nullptr, nullptr, nullptr, nullptr, parallel),
+                "reject repeated initialization while running") ||
         !expect(engine.gameplay()->script_status() == nullptr && !engine.gameplay()->start() &&
                     !engine.gameplay()->last_error().empty(),
                 "default runtime has no implicit script plugin and reports unavailable gameplay") ||
@@ -4052,7 +4058,8 @@ bool test_engine(const engine::EngineConfig& config)
     engine.shutdown();
     return expect(engine.tick(delta_time) == engine::FrameStatus::failed,
                   "shutdown engine must reject frames") &&
-           expect(engine.initialize(config), "reinitialize engine after shutdown") &&
+           expect(engine.initialize(config, nullptr, nullptr, nullptr, nullptr, parallel),
+                  "reinitialize engine after shutdown") &&
            tick_engine_frames(engine, 8);
 }
 
@@ -4090,12 +4097,13 @@ private:
     std::size_t loads_ = 0;
 };
 
-bool test_borrowed_resource_host(const engine::EngineConfig& config)
+bool test_borrowed_resource_host(const engine::EngineConfig& config,
+                                 const engine::RuntimeParallelConfig& parallel)
 {
     engine::ResourceSystem resources;
     ObservedResourceLoader loader(resources);
     engine::RuntimeHost host;
-    if (!expect(!host.initialize(config, &resources) &&
+    if (!expect(!host.initialize(config, &resources, nullptr, nullptr, nullptr, parallel) &&
                     engine::Engine::instance().system_count() == 0 &&
                     engine::ResourceSystem::instance() == nullptr,
                 "uninitialized borrowed resources fail before claiming the engine") ||
@@ -4106,11 +4114,13 @@ bool test_borrowed_resource_host(const engine::EngineConfig& config)
     resources.set_loader(&loader);
     auto invalid_config = config;
     invalid_config.width = 0;
-    if (!expect(!host.initialize(invalid_config, &resources) && resources.is_initialized() &&
+    if (!expect(!host.initialize(invalid_config, &resources, nullptr, nullptr, nullptr, parallel) &&
+                    resources.is_initialized() &&
                     engine::ResourceSystem::instance() == &resources &&
                     &resources.loader() == &loader,
                 "partial host initialization never closes borrowed resource services") ||
-        !expect(host.initialize(config, &resources) && &resources.loader() == &loader,
+        !expect(host.initialize(config, &resources, nullptr, nullptr, nullptr, parallel) &&
+                    &resources.loader() == &loader,
                 "runtime host preserves the caller's selected loader") ||
         !expect(host.world() && create_cube_scene(*host.world(), false),
                 "scene components use the injected loader") ||
@@ -4216,15 +4226,15 @@ private:
     engine::ScriptStatus status_;
 };
 
-bool test_script_runtime_factory(const engine::EngineConfig& config)
+bool test_script_runtime_factory(const engine::EngineConfig& config,
+                                 const engine::RuntimeParallelConfig& parallel)
 {
     engine::RuntimeHost host;
     const auto failed_factory =
         [](engine::WorldSystem&, engine::RenderSystem&, engine::UiSystem&, engine::PhysicsSystem&,
-           engine::NavigationSystem&, engine::InputSystem&,
-           engine::WindowSystem&,
+           engine::NavigationSystem&, engine::InputSystem&, engine::WindowSystem&,
            engine::AnimationSystem&) -> std::unique_ptr<engine::ScriptRuntime> { return {}; };
-    if (!expect(!host.initialize(config, nullptr, failed_factory) &&
+    if (!expect(!host.initialize(config, nullptr, failed_factory, nullptr, nullptr, parallel) &&
                     engine::Engine::instance().system_count() == 0 && host.world() == nullptr,
                 "failed script factory unwinds the partial host without a fallback"))
     {
@@ -4233,18 +4243,18 @@ bool test_script_runtime_factory(const engine::EngineConfig& config)
     script_lifecycle = {};
     const auto factory = [](engine::WorldSystem& world, engine::RenderSystem& renderer,
                             engine::UiSystem&, engine::PhysicsSystem&, engine::NavigationSystem&,
-                            engine::InputSystem&,
-                            engine::WindowSystem&,
+                            engine::InputSystem&, engine::WindowSystem&,
                             engine::AnimationSystem&) -> std::unique_ptr<engine::ScriptRuntime>
     {
         script_lifecycle.renderer = &renderer;
         return std::make_unique<ObservedScriptRuntime>(world);
     };
-    if (!expect(
-            host.initialize(config, nullptr, factory) && script_lifecycle.world == host.world() &&
-                script_lifecycle.renderer == host.renderer() && script_lifecycle.initialized == 1 &&
-                host.gameplay()->script_status() != nullptr,
-            "host factory supplies an abstract script child without a concrete plugin") ||
+    if (!expect(host.initialize(config, nullptr, factory, nullptr, nullptr, parallel) &&
+                    script_lifecycle.world == host.world() &&
+                    script_lifecycle.renderer == host.renderer() &&
+                    script_lifecycle.initialized == 1 &&
+                    host.gameplay()->script_status() != nullptr,
+                "host factory supplies an abstract script child without a concrete plugin") ||
         !expect(create_cube_scene(*host.world(), false), "create scene owned by the caller") ||
         !tick_engine_frames(host, 3) ||
         !expect(script_lifecycle.ticks == 3,
@@ -4265,7 +4275,12 @@ bool test_script_runtime_factory(const engine::EngineConfig& config)
 
 int main(int, char**)
 {
-    engine::EngineConfig config;
+    engine::RuntimeSettings settings;
+    if (!test_support::load_runtime_settings(settings))
+    {
+        return 1;
+    }
+    auto config = settings.engine;
     config.window_title = "Engine GPU integration test";
     config.width = 640;
     config.height = 360;
@@ -4284,9 +4299,11 @@ int main(int, char**)
         settings_passed && test_reflections_water_and_diffuse_capture(config);
     const bool hdr_passed = reflection_passed && test_hdr_and_bloom(config);
     const bool extensions_passed = hdr_passed && test_render_extensions(config);
-    const bool engine_passed = extensions_passed && test_engine(config);
-    const bool borrowed_passed = engine_passed && test_borrowed_resource_host(config);
-    const bool script_factory_passed = borrowed_passed && test_script_runtime_factory(config);
+    const bool engine_passed = extensions_passed && test_engine(config, settings.parallel);
+    const bool borrowed_passed =
+        engine_passed && test_borrowed_resource_host(config, settings.parallel);
+    const bool script_factory_passed =
+        borrowed_passed && test_script_runtime_factory(config, settings.parallel);
     if (!windows_passed || !scene_passed || !textures_passed || !settings_passed || !hdr_passed ||
         !reflection_passed || !extensions_passed || !engine_passed || !borrowed_passed ||
         !script_factory_passed)

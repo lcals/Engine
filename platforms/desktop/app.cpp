@@ -30,7 +30,7 @@ struct AppState
     std::filesystem::path assets_path;
     std::filesystem::path persistent_data_path;
     std::filesystem::path cache_path;
-    std::string game_language = "en";
+    std::string game_language;
     bool initialized = false;
 };
 

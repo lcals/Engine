@@ -46,8 +46,7 @@ constexpr bool packaged_gameplay = false;
 
 void print_usage()
 {
-    fmt::print("Usage: engine_app [--frames <positive-count>] [--workers <0..64>] "
-               "[--runtime-profile <desktop|mobile>]\n");
+    fmt::print("Usage: engine_app [--frames <positive-count>] [--workers <0..64>]\n");
 }
 
 } // namespace
@@ -58,7 +57,6 @@ int main(int argc, char* argv[])
     auto& config = settings.engine;
     auto& parallel = settings.parallel;
     std::optional<std::size_t> worker_override;
-    std::string runtime_profile = ENGINE_RUNTIME_PROFILE;
     std::uint64_t frame_limit = 0;
     for (int index = 1; index < argc; ++index)
     {
@@ -74,16 +72,6 @@ int main(int argc, char* argv[])
                 return 2;
             }
             worker_override = count;
-            continue;
-        }
-        if (argument == "--runtime-profile" && index + 1 < argc)
-        {
-            runtime_profile = argv[++index];
-            if (runtime_profile != "desktop" && runtime_profile != "mobile")
-            {
-                print_usage();
-                return 2;
-            }
             continue;
         }
         if (argument == "--help" && argc == 2)
@@ -121,15 +109,7 @@ int main(int argc, char* argv[])
     }
     const auto settings_path = engine::App::assets_path() / ENGINE_RUNTIME_SETTINGS_PATH;
     std::string settings_error;
-    // APK settings are required by the platform package; native filesystem probes cannot see them.
-    bool read_settings = packaged_gameplay || ENGINE_RUNTIME_SETTINGS_REQUIRED;
-    if (!read_settings)
-    {
-        std::error_code status;
-        read_settings = std::filesystem::exists(settings_path, status) || status;
-    }
-    if (read_settings &&
-        !engine::load_runtime_settings(settings_path, runtime_profile, settings, settings_error))
+    if (!engine::load_runtime_settings(settings_path, settings, settings_error))
     {
         engine::LogSystem::write(engine::LogLevel::error, settings_error);
         engine::App::shutdown();
@@ -179,24 +159,24 @@ int main(int argc, char* argv[])
 #endif
     engine::ScriptRuntimeFactory script_factory = nullptr;
 #if ENGINE_HAS_SCRIPT_PLUGIN
-    script_factory = [](engine::WorldSystem& world, engine::RenderSystem& renderer,
-                        engine::UiSystem& ui, engine::PhysicsSystem& physics,
-                        engine::NavigationSystem& navigation, engine::InputSystem& input,
-                        engine::WindowSystem& window,
-                        engine::AnimationSystem& animation) -> std::unique_ptr<engine::ScriptRuntime>
+    script_factory =
+        [](engine::WorldSystem& world, engine::RenderSystem& renderer, engine::UiSystem& ui,
+           engine::PhysicsSystem& physics, engine::NavigationSystem& navigation,
+           engine::InputSystem& input, engine::WindowSystem& window,
+           engine::AnimationSystem& animation) -> std::unique_ptr<engine::ScriptRuntime>
     {
         return std::make_unique<engine::plugins::script::ScriptSystem>(
             &world, &renderer, &ui, &physics, &navigation, &input, &window, &animation);
     };
 #endif
 #if ENGINE_HAS_RESOURCE_GRAPH_PLUGIN
-    const bool engine_ready = engine.initialize(config, &resources, script_factory,
-                                                configure_runtime_plugins, nullptr, parallel,
-                                                retargeter_factory);
+    const bool engine_ready =
+        engine.initialize(config, &resources, script_factory, configure_runtime_plugins, nullptr,
+                          parallel, retargeter_factory);
 #else
-    const bool engine_ready = engine.initialize(config, nullptr, script_factory,
-                                                configure_runtime_plugins, nullptr, parallel,
-                                                retargeter_factory);
+    const bool engine_ready =
+        engine.initialize(config, nullptr, script_factory, configure_runtime_plugins, nullptr,
+                          parallel, retargeter_factory);
 #endif
     if (!engine_ready)
     {

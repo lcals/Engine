@@ -57,7 +57,7 @@ classDiagram
 - 公开接口包含构造、析构与命令服务借用；具体业务由模块注册，继承 `System` 的公共生命周期方法。初始化失败和清理遵守[系统约定](../../runtime/class-diagrams/engine-system.md)。
 - `gameplay` 默认为空，此时管理编辑器上下文与编辑器帧率配置；非空时借用运行宿主提供的玩法会话，接入本机项目控制协议，App 必须先就绪。宿主必须让 GameplaySession 和 EditorEnvironment 存活到 EditorSystem 关闭。编辑器作为环境友元读取私有规范化项目身份，用于项目编辑器配置、会话回执和 MCP 目标校验；不公开第二套路径接口。
 - 编辑器启动默认空白，不自动执行 Gameplay。`on_tick()` 在主线程通过统一 editor-command 通道接收带会话标识与请求编号的启停命令，调用 GameplaySession 启停，原子发布 `project-status.json`；统一通道校验项目和会话、持久化逐请求回执；旧会话请求不重放，重复请求不重复执行。状态包含待机、启动中、运行中、停止中、关闭、最近错误，以及核心当前生效的 `targetFrameRate`。
-- 编辑器启动读取项目 `settings/editor.toml` 的 `[editor].target_frame_rate`，缺文件或缺键默认 `60`；仅接受 `-1` 或正的 32 位整数，非法配置返回失败。此配置仅属于编辑器，核心不读取项目文件。
+- 编辑器启动读取项目 `settings/editor-settings.toml` 的 `[common].target_frame_rate`，文件和字段必需，项目显式配置为 `60`；仅接受 `-1` 或正的 32 位整数，非法配置返回失败。此配置仅属于编辑器，核心不读取项目文件。
 - 启动玩法前保存核心当前帧率上限，切换到 `-1` 后调用 GameplaySession；业务可设置自己的上限。启动失败、停止、脚本自动停止、切到预览及关闭编辑器时，在玩法清理之后恢复保存值；重复启动和停止不会覆盖备份，玩法设置不写回编辑器配置。
 - 宿主每帧以核心 `begin_frame()/end_frame()` 包围编辑器命令、预览或玩法更新及渲染，待机与预览共用编辑器上限；窗口暂停沿用事件轮询等待，不额外叠加限帧等待。
 - 配置 ScenePreview 时，预览状态发布为 `preview`；start_project 先关闭预览，stop_project 同时关闭预览并停止玩法，禁止项目和预览同时驱动世界。宿主在预览期间跳过 RuntimeHost::tick，仅更新窗口、预览输入与渲染。

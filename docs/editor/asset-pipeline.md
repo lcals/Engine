@@ -20,7 +20,7 @@
 
 ## 转换与发布
 
-`AssetPipelineSystem` 扫描源文件、校验 meta、建立依赖图，通过 `TaskSystem` 下发转换任务。任务系统使用 oneTBB，只负责依赖调度；`settings/import.toml` 的 `import_threads` 默认为 8，允许 1–64。源扫描、版本决策、文件发布和错误报告归资源管线。
+`AssetPipelineSystem` 扫描源文件、校验 meta、建立依赖图，通过 `TaskSystem` 下发转换任务。任务系统使用 oneTBB，只负责依赖调度；`settings/editor-import.toml` 必须显式提供 `[common].import_threads`，项目配置为 8，允许 1–64。源扫描、版本决策、文件发布和错误报告归资源管线。
 
 系统属于 `engine::editor`，逐类型导入接口与实现属于 `engine::editor::asset_pipeline`。每种资源在独立导入器文件中实现识别、默认 meta、指纹、依赖与转换；管线只通过登记接口调度。初始化登记默认实现，宿主可在空闲时通过 `add_importer` 登记新 id，或通过 `set_importer` 替换已有 id 的实现，关闭后清空。编辑器基础不引用或链接具体插件。
 
@@ -105,7 +105,7 @@ srgb = false
 
 例如未压缩的 8 位通道 `128`，作为线性数据时约为 `0.502`，但误作 sRGB 解码后约为 `0.216`。对法线 XY，Shader 将其映射到 `[-1,1]` 后分别约为 `0.004` 和 `-0.568`，会明显改变方向；ORM 的遮蔽、粗糙度或金属度也会被错误改变。纹理绑定本身当前不校验颜色用途；修改 `.meta` 后重新导入，由正常增量管线更新资源。
 
-BasisU 使用已有依赖的 C++ 编码接口，整体并行度由项目 `import_threads` 控制（默认 8），每任务编码器使用单线程。`third_party/overlay-ports/basisu/quiet-library-output.patch` 将上游 HDR 输入诊断写到 stderr，确保 MCP stdout 只承载协议。
+BasisU 使用已有依赖的 C++ 编码接口，整体并行度由项目 `[common].import_threads` 显式控制（当前配置为 8），每任务编码器使用单线程。`third_party/overlay-ports/basisu/quiet-library-output.patch` 将上游 HDR 输入诊断写到 stderr，确保 MCP stdout 只承载协议。
 
 KTX 使用独立 `texture_ktx` 导入器，支持线性 RGBA16F / RG16F 的 KTX1 二维或 cube 纹理，单层 mip 或完整 mip 链；不重新压缩或生成 mip。`.meta` 使用 `compression = "none"`、`srgb = false`，`format` 为 `auto` 或与容器一致的半浮点格式；若指定 `mipmaps`，须与源文件一致。生成的 TextureData 保留 KTX 数据，经统一目录加载后由 bgfx 创建纹理。当前不支持 KTX2、纹理数组或体纹理。
 

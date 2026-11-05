@@ -12,7 +12,7 @@
 
 ## 固定操作步骤
 
-1. **确定比较条件。** 记录代码提交、实际可执行文件指纹、实际运行配置快照及档位（编辑器的源 `settings/parallel.toml` 或运行包的聚合 `settings/runtime.json`）、资源 revision、项目/场景、设备/系统、后端、分辨率、构建类型、脚本后端、帧率限制、镜头、随机种子和操作序列。每轮从同一明确状态开始；重置在采集窗口外完成。
+1. **确定比较条件。** 记录代码提交、实际可执行文件指纹、实际运行配置快照及档位（编辑器的源 `settings/runtime-parallel.toml` 或运行包的聚合 `settings/runtime.json`）、资源 revision、项目/场景、设备/系统、后端、分辨率、构建类型、脚本后端、帧率限制、镜头、随机种子和操作序列。每轮从同一明确状态开始；重置在采集窗口外完成。
 2. **准备工具和二进制。** 只在需要时增量构建 Release + Tracy；已有依赖、工具和可执行文件可复用。Debug 用于正确性检查，不用其帧耗时代表发布性能。保持 QuickJS，不因采样重编 V8，也不运行 CI。
 3. **启动并核对目标。** 新编辑器实例先等日志出现 `Editor ready`，再首次 `sync_assets`；核对 active/available revision 后启动项目，确认 MCP 回执中的 project、runtimeDir、资源版本及活动场景。提前同步可能被视为上次会话已有版本而未激活，不能用重复发布同版本代替激活确认。进程启动身份只保留在本地采集 metadata 中。采集期间不并行编译、截图、导入、跑测试或做离线分析。
 4. **连接后再操作。** 先采集静止基线，再按固定序列施加负载。等待包装器的 `connected` 事件后，才通过已有项目 UI/MCP 开始负载；输入操作独立保留回执。采集器不点击按钮、不重放爆炸，也不重试业务请求。
@@ -257,7 +257,7 @@ FindCollisions self 累计 468.788229 ms，占 Jolt 步进总计 692.487364 ms �
 
 ## 并行观测
 
-[线程与任务类图](class-diagrams/task-system.md)维护公共契约。[运行并行与项目预算](parallelism.md)维护项目源 `settings/parallel.toml`、编辑器配置转换及运行包聚合 `settings/runtime.json`；运行时只接收明确的运行设置，不读取项目 TOML。Task.execute 的单行注释保存 domain、task、priority 和 queued_ns；排队纳秒从提交算到函数开始，批次节点包含依赖等待。Task.batch 包含图构造、协作执行和等待，不能将其 inclusive 与同线程子任务耗时相加。Task.wait / Task.shutdown 是等待成本，不是任务 CPU 运算。
+[线程与任务类图](class-diagrams/task-system.md)维护公共契约。[运行并行与项目预算](parallelism.md)维护项目源 `settings/runtime-parallel.toml`、编辑器配置转换及运行包聚合 `settings/runtime.json`；运行时只接收明确的运行设置，不读取项目 TOML。Task.execute 的单行注释保存 domain、task、priority 和 queued_ns；排队纳秒从提交算到函数开始，批次节点包含依赖等待。Task.batch 包含图构造、协作执行和等待，不能将其 inclusive 与同线程子任务耗时相加。Task.wait / Task.shutdown 是等待成本，不是任务 CPU 运算。
 
 | 链路 | 应分别观察的阶段 | 当前边界 |
 | --- | --- | --- |

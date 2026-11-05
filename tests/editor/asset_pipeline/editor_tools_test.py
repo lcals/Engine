@@ -18,15 +18,15 @@ def test(root, node, temporary):
     (tools / "include").mkdir()
     shutil.copy2(root / "scripts/build_scripts.mjs", tools / "scripts/build_scripts.mjs")
     shutil.copy2(root / "include/engine.d.ts", tools / "include/engine.d.ts")
-    compiler = root / "projects/showcase/settings/node_modules/typescript"
+    compiler = root / "projects/showcase/settings/typescript/node_modules/typescript"
     copy_typescript_toolchain(compiler, tools / "node_modules")
     project = temporary / "moved project"
-    for directory in ["settings", "assets", "cache"]:
+    for directory in ["settings/typescript", "assets", "cache"]:
         (project / directory).mkdir(parents=True)
     version = json.loads((compiler / "package.json").read_text(encoding="utf-8"))["version"]
-    package = project / "settings/package.json"
+    package = project / "settings/typescript/package.json"
     package.write_text(json.dumps({"devDependencies": {"typescript": version}}), encoding="utf-8")
-    (project / "settings/tsconfig.json").write_text(
+    (project / "settings/typescript/tsconfig.json").write_text(
         json.dumps(
             {
                 "compilerOptions": {
@@ -38,7 +38,7 @@ def test(root, node, temporary):
                     "lib": ["ES2022"],
                 },
                 "files": [str(temporary / "missing engine/include/engine.d.ts")],
-                "include": ["../assets/**/*.ts"],
+                "include": ["../../assets/**/*.ts"],
             }
         ),
         encoding="utf-8",
@@ -84,11 +84,11 @@ def test(root, node, temporary):
     result = run("--inputs")
     assert result.returncode != 0 and "Project requires TypeScript 0.0.0" in result.stderr
     # 已安装的项目编译器继续优先，不能被随包版本覆盖。
-    copy_typescript_toolchain(compiler, project / "settings/node_modules")
+    copy_typescript_toolchain(compiler, project / "settings/typescript/node_modules")
     result = run("--inputs")
     assert result.returncode == 0, result.stderr
     paths = {entry["path"] for entry in json.loads(result.stdout)["inputs"]}
-    assert (project / "settings/node_modules/typescript/dist/api/sync/api.js").as_posix() in paths
+    assert (project / "settings/typescript/node_modules/typescript/dist/api/sync/api.js").as_posix() in paths
     assert (tools / "node_modules/typescript/dist/api/sync/api.js").as_posix() not in paths
     # 片段在 cache 中编译，沿用实际 sourcePath 相对导入，但不能污染 assets。
     (project / "assets/dependency.ts").write_text("export const value = 7;\n", encoding="utf-8")

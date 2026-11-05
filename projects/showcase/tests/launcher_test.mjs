@@ -16,7 +16,7 @@ const cubePath = "scenes/main.scene";
 import { engineStub } from "./lifecycle_engine.mjs";
 
 try {
-    const settings = path.join(root, "projects/showcase/settings");
+    const settings = path.join(root, "projects/showcase/settings/typescript");
     execFileSync(
         process.execPath,
         [

@@ -372,8 +372,8 @@ def test(server, root, work, initial_sync_only=False):
         with (large / name).open("wb") as resource:
             resource.truncate(33 * 1024 * 1024)
     (project / "settings/android-package.toml").write_text(
-        'output="cache/build/android-package"\n'
-        '[[items]]\nname="game"\nstorage="package"\n'
+        '[common]\noutput="cache/build/android-package"\n'
+        '[[common.items]]\nname="game"\nstorage="package"\n'
         'roots=["scripts/game.ts","scenes/main.scene"]\n'
         'keep=["large/first.bin","large/second.bin"]\n',
         encoding="utf-8",

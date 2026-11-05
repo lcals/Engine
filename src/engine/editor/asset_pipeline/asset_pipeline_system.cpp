@@ -206,39 +206,31 @@ bool project_idle(const std::filesystem::path& root, std::string& error)
 
 bool import_threads(const std::filesystem::path& settings, std::size_t& count, std::string& error)
 {
-    count = 8;
-    const auto path = settings / "import.toml";
-    std::error_code code;
-    const bool exists = std::filesystem::exists(path, code);
-    if (code)
-    {
-        error = "cannot inspect settings/import.toml";
-        return false;
-    }
-    if (!exists)
-    {
-        return true;
-    }
+    const auto path = settings / "editor-import.toml";
     std::string text;
     if (!ResourceSystem::read_text(path, text))
     {
-        error = "cannot read settings/import.toml";
+        error = "cannot read settings/editor-import.toml";
         return false;
     }
     auto parsed = toml::parse(text);
     if (!parsed)
     {
-        error = "invalid settings/import.toml: " + std::string(parsed.error().description());
+        error = "invalid settings/editor-import.toml: " + std::string(parsed.error().description());
         return false;
     }
-    if (!parsed.table().contains("import_threads"))
+    const auto common = parsed["common"];
+    const auto setting = common["import_threads"];
+    if (parsed.table().size() != (common.is_table() ? 1u : 0u) ||
+        (common.is_table() && common.as_table()->size() != (setting ? 1u : 0u)))
     {
-        return true;
+        error = "settings/editor-import.toml only accepts [common].import_threads";
+        return false;
     }
-    const auto value = parsed["import_threads"].value<std::int64_t>();
+    const auto value = setting.value_exact<std::int64_t>();
     if (!value || *value < 1 || *value > 64)
     {
-        error = "settings/import.toml import_threads must be an integer from 1 to 64";
+        error = "settings/editor-import.toml import_threads must be an integer from 1 to 64";
         return false;
     }
     count = static_cast<std::size_t>(*value);

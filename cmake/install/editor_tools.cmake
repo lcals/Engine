@@ -28,7 +28,7 @@ function(engine_editor_export_arguments output)
         file(REAL_PATH "${_node_real}" _node_real)
     endif()
     set(ENGINE_TYPESCRIPT_PACKAGE_DIR
-        "${PROJECT_SOURCE_DIR}/projects/showcase/settings/node_modules/typescript"
+        "${PROJECT_SOURCE_DIR}/projects/showcase/settings/typescript/node_modules/typescript"
         CACHE PATH "Installed TypeScript package deployed with the standalone editor")
     # npm 依赖由环境安装准备；普通 configure 不强制安装，仅导出时检查复制来源。
     list(

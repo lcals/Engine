@@ -1,4 +1,4 @@
-[[items]]
+[[common.items]]
 name = "game"
 storage = "package"
 roots = [

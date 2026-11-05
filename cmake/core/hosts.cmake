@@ -103,17 +103,11 @@ endif()
 
 function(engine_configure_runtime_settings target)
     if(ANDROID)
-        target_compile_definitions(${target} PRIVATE ENGINE_RUNTIME_PROFILE="mobile"
-            ENGINE_RUNTIME_SETTINGS_PATH="settings/runtime.json"
-            ENGINE_RUNTIME_SETTINGS_REQUIRED=1)
-    elseif(IOS)
-        target_compile_definitions(${target} PRIVATE ENGINE_RUNTIME_PROFILE="mobile"
-            ENGINE_RUNTIME_SETTINGS_PATH="../settings/runtime.json"
-            ENGINE_RUNTIME_SETTINGS_REQUIRED=0)
+        target_compile_definitions(${target} PRIVATE
+            ENGINE_RUNTIME_SETTINGS_PATH="settings/runtime.json")
     else()
-        target_compile_definitions(${target} PRIVATE ENGINE_RUNTIME_PROFILE="desktop"
-            ENGINE_RUNTIME_SETTINGS_PATH="../settings/runtime.json"
-            ENGINE_RUNTIME_SETTINGS_REQUIRED=0)
+        target_compile_definitions(${target} PRIVATE
+            ENGINE_RUNTIME_SETTINGS_PATH="../settings/runtime.json")
     endif()
 endfunction()
 if(TARGET engine_app)

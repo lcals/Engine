@@ -101,7 +101,7 @@ struct Project
                 return false;
             }
         }
-        return write(root / "settings/import.toml", "import_threads = 2\n");
+        return write(root / "settings/editor-import.toml", "[common]\nimport_threads = 2\n");
     }
 
     bool copy_effect(const fs::path& source, const fs::path& fixture_assets,
