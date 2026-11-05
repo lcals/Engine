@@ -134,10 +134,9 @@ bool EditorEnvironment::apply_resources(const schema::AssetCatalogDataT& data,
     {
         return false;
     }
-    if (!gameplay.set_resources(data, {{"content", builtin_path_}}))
-    {
-        return false;
-    }
+    fs::path candidate;
+    fs::path lease_path;
+    std::unique_ptr<asset_pipeline::ProjectLock> lease;
     if (session_marker_.empty())
     {
         const auto directory = builtin_path_ / "editor-hosts";
@@ -148,9 +147,9 @@ bool EditorEnvironment::apply_resources(const schema::AssetCatalogDataT& data,
             return false;
         }
         const auto nonce = std::chrono::steady_clock::now().time_since_epoch().count();
-        const auto candidate = directory / (std::to_string(nonce) + ".json");
+        candidate = directory / (std::to_string(nonce) + ".json");
         const auto temporary = directory / (std::to_string(nonce) + ".tmp");
-        const auto lease_path = directory / (std::to_string(nonce) + ".lock");
+        lease_path = directory / (std::to_string(nonce) + ".lock");
         for (const auto& path : {candidate, temporary, lease_path})
         {
             const auto status = fs::symlink_status(path, error);
@@ -161,7 +160,7 @@ bool EditorEnvironment::apply_resources(const schema::AssetCatalogDataT& data,
             }
             error.clear();
         }
-        auto lease = std::make_unique<asset_pipeline::ProjectLock>();
+        lease = std::make_unique<asset_pipeline::ProjectLock>();
         std::string lock_error;
         if (!lease->acquire(lease_path, lock_error))
         {
@@ -184,7 +183,21 @@ bool EditorEnvironment::apply_resources(const schema::AssetCatalogDataT& data,
             fs::remove(lease_path, error);
             return false;
         }
-        session_marker_ = candidate;
+    }
+    if (!gameplay.set_resources(data, {{"content", builtin_path_}}))
+    {
+        if (!candidate.empty())
+        {
+            std::error_code error;
+            fs::remove(candidate, error);
+            lease.reset();
+            fs::remove(lease_path, error);
+        }
+        return false;
+    }
+    if (!candidate.empty())
+    {
+        session_marker_ = std::move(candidate);
         session_lease_ = std::move(lease);
     }
     resource_revision_ = data.revision;

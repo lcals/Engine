@@ -1,4 +1,6 @@
 #include "runtime/audio/audio_system.hpp"
+
+#include "runtime/scene/audio_source_runtime.hpp"
 #include "runtime/scene/ecs_scene.hpp"
 #include "runtime/scene/ecs_storage.hpp"
 
@@ -356,9 +358,11 @@ bool AudioSystem::on_tick(double)
     {
         auto node = world_->find_node(iterator->first);
         auto source = node ? node.get_component<AudioSource>() : AudioSource{};
-        if (!source || source.runtime()->playback_ == AudioPlayback::stopped ||
-            source.runtime()->playback_ == AudioPlayback::failed ||
-            source.runtime()->revision_ != iterator->second->revision ||
+        if (!source ||
+            engine::ecs_detail::component_runtime(source)->playback_ == AudioPlayback::stopped ||
+            engine::ecs_detail::component_runtime(source)->playback_ == AudioPlayback::failed ||
+            engine::ecs_detail::component_runtime(source)->revision_ !=
+                iterator->second->revision ||
             source.instance_id() != iterator->second->instance_id)
         {
             iterator = impl_->voices.erase(iterator);
@@ -404,18 +408,19 @@ bool AudioSystem::on_tick(double)
                 }
                 return true;
             }
-            if (source.runtime()->awake_pending_)
+            if (engine::ecs_detail::component_runtime(source)->awake_pending_)
             {
-                source.runtime()->awake_pending_ = false;
+                engine::ecs_detail::component_runtime(source)->awake_pending_ = false;
                 if (stored.data.play_on_awake && source.clip_data() && !source.play())
                 {
                     impl_->error = "Cannot request play-on-awake audio";
-                    source.runtime()->playback_ = AudioPlayback::failed;
+                    engine::ecs_detail::component_runtime(source)->playback_ =
+                        AudioPlayback::failed;
                     success = false;
                 }
             }
             auto found = impl_->voices.find(node.id());
-            if (source.runtime()->playback_ == AudioPlayback::paused)
+            if (engine::ecs_detail::component_runtime(source)->playback_ == AudioPlayback::paused)
             {
                 if (found != impl_->voices.end() && found->second->bound)
                 {
@@ -424,15 +429,16 @@ bool AudioSystem::on_tick(double)
                 }
                 return true;
             }
-            if (source.runtime()->playback_ != AudioPlayback::pending &&
-                source.runtime()->playback_ != AudioPlayback::playing)
+            if (engine::ecs_detail::component_runtime(source)->playback_ !=
+                    AudioPlayback::pending &&
+                engine::ecs_detail::component_runtime(source)->playback_ != AudioPlayback::playing)
             {
                 return true;
             }
             const auto fail_source = [&]()
             {
                 impl_->voices.erase(node.id());
-                source.runtime()->playback_ = AudioPlayback::failed;
+                engine::ecs_detail::component_runtime(source)->playback_ = AudioPlayback::failed;
                 success = false;
             };
             const auto* clip = source.clip_data();
@@ -453,9 +459,9 @@ bool AudioSystem::on_tick(double)
                 const SDL_AudioSpec input{SDL_AUDIO_F32, 2, static_cast<int>(clip->sample_rate)};
                 const SDL_AudioSpec output{SDL_AUDIO_F32, 2, 48000};
                 voice->stream = SDL_CreateAudioStream(&input, &output);
-                voice->clip = source.runtime()->clip_;
+                voice->clip = engine::ecs_detail::component_runtime(source)->clip_;
                 voice->instance_id = source.instance_id();
-                voice->revision = source.runtime()->revision_;
+                voice->revision = engine::ecs_detail::component_runtime(source)->revision_;
                 if (!voice->stream ||
                     !SDL_SetAudioStreamGetCallback(voice->stream, Impl::Voice::feed, voice.get()))
                 {
@@ -484,12 +490,12 @@ bool AudioSystem::on_tick(double)
             }
             if (finished)
             {
-                source.runtime()->playback_ = AudioPlayback::stopped;
+                engine::ecs_detail::component_runtime(source)->playback_ = AudioPlayback::stopped;
                 impl_->voices.erase(found);
             }
             else
             {
-                source.runtime()->playback_ = AudioPlayback::playing;
+                engine::ecs_detail::component_runtime(source)->playback_ = AudioPlayback::playing;
             }
 
             return true;
@@ -535,8 +541,9 @@ void AudioSystem::clear() noexcept
 
                 if (auto source = node.get_component<AudioSource>())
                 {
-                    source.runtime()->playback_ = AudioPlayback::stopped;
-                    source.runtime()->awake_pending_ = false;
+                    engine::ecs_detail::component_runtime(source)->playback_ =
+                        AudioPlayback::stopped;
+                    engine::ecs_detail::component_runtime(source)->awake_pending_ = false;
                 }
 
                 return true;

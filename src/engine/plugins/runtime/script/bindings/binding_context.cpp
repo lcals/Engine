@@ -1,5 +1,7 @@
 #include "plugins/runtime/script/bindings/binding_context.hpp"
 
+#include "runtime/scene/animator_runtime.hpp"
+
 #include "runtime/app/app.hpp"
 #include "runtime/input/input_system.hpp"
 #include "runtime/log/log_system.hpp"
@@ -498,7 +500,7 @@ bool BindingContext::take_animation_event(AnimationEvent& output)
         const auto& event = animation_events_[animation_event_cursor_++];
         const auto node = find_node(event.scene_id, event.node_id);
         const auto animator = node ? node.get_component<Animator>() : Animator{};
-        const auto* runtime = animator ? animator.runtime() : nullptr;
+        const auto* runtime = animator ? engine::ecs_detail::component_runtime(animator) : nullptr;
         if (animator && animator.active() &&
             animator.instance_id() == event.component_instance_id && runtime &&
             runtime->playback_id_ == event.playback_id &&

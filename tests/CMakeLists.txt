@@ -155,7 +155,9 @@ endif()
 
 if(TARGET engine_asset_sync)
     add_executable(engine_asset_sync_test plugins/editor/asset_sync/asset_sync_test.cpp)
+    target_include_directories(engine_asset_sync_test PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
     target_link_libraries(engine_asset_sync_test PRIVATE engine::asset_sync engine::resource
+                                                         engine_editor_lock SDL3::SDL3
                                                          nlohmann_json::nlohmann_json)
     target_compile_definitions(engine_asset_sync_test PRIVATE JSON_NOEXCEPTION=1)
     engine_apply_options(engine_asset_sync_test)
@@ -1228,6 +1230,19 @@ if(TARGET engine_navigation_crowd_editor)
 endif()
 
 if(TARGET engine_runtime)
+    add_executable(engine_runtime_host_test runtime/app/runtime_host_test.cpp)
+    target_link_libraries(engine_runtime_host_test PRIVATE engine::runtime engine::app
+                                                          engine::resource engine::task
+                                                          nlohmann_json::nlohmann_json SDL3::SDL3)
+    target_compile_definitions(engine_runtime_host_test PRIVATE
+                               JSON_NOEXCEPTION=1
+                               ENGINE_TEST_RUNTIME_SETTINGS="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/runtime-settings.json")
+    engine_apply_options(engine_runtime_host_test)
+    if(ENGINE_ENABLE_GPU_TESTS)
+        add_test(NAME engine.runtime_host COMMAND engine_runtime_host_test)
+        set_tests_properties(engine.runtime_host PROPERTIES TIMEOUT 60 RUN_SERIAL TRUE)
+    endif()
+
     add_executable(engine_gameplay_session_test runtime/gameplay/gameplay_session_test.cpp)
     target_link_libraries(engine_gameplay_session_test PRIVATE engine::runtime)
     engine_apply_options(engine_gameplay_session_test)

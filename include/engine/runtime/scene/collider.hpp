@@ -17,12 +17,7 @@ namespace schema
 struct MeshDataT;
 }
 
-struct ColliderRuntime
-{
-    std::shared_ptr<const Resource> mesh_;
-    std::shared_ptr<const schema::MeshDataT> transient_mesh_;
-    std::shared_ptr<const MeshCollisionData> mesh_parts_;
-};
+struct ColliderRuntime;
 
 class Collider final : public Component
 {
@@ -34,7 +29,6 @@ public:
     }
     [[nodiscard]] static bool register_type(ComponentRegistry& registry);
     using Runtime = ColliderRuntime;
-    [[nodiscard]] Runtime* runtime() const noexcept;
     static constexpr ComponentType component_type = ComponentType::ColliderData;
     // 默认校验持久描述；瞬时网格仅在调用方持有相应几何时允许空 GUID。
     [[nodiscard]] static bool
@@ -53,6 +47,8 @@ public:
     [[nodiscard]] std::string_view mesh_path() const noexcept;
 
 private:
+    template <class T> friend auto engine::ecs_detail::component_runtime(T component) noexcept;
+    [[nodiscard]] Runtime* runtime() const noexcept;
     friend class PhysicsSystem;
 };
 

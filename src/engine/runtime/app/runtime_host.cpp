@@ -19,6 +19,7 @@
 #include "runtime/window/window_system.hpp"
 #include "runtime/world/world_system.hpp"
 
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <utility>
@@ -270,8 +271,14 @@ FrameStatus RuntimeHost::poll_events(double delta_time)
     }
     const auto completions_started = std::chrono::steady_clock::now();
     std::size_t remaining = parallel_.completions_per_frame;
-    for (auto* domain : {tasks_.get(), physics_tasks_.get(), animation_tasks_.get(),
-                         navigation_tasks_.get(), background_tasks_.get(), loading_tasks_.get()})
+    const std::array domains{tasks_.get(),
+                             physics_tasks_.get(),
+                             animation_tasks_.get(),
+                             navigation_tasks_.get(),
+                             background_tasks_.get(),
+                             loading_tasks_.get()};
+    std::size_t idle_domains = 0;
+    while (remaining != 0 && idle_domains < domains.size())
     {
         const double elapsed =
             std::chrono::duration<double>(std::chrono::steady_clock::now() - completions_started)
@@ -280,8 +287,12 @@ FrameStatus RuntimeHost::poll_events(double delta_time)
         {
             break;
         }
-        remaining -=
-            domain->dispatch_completions(remaining, parallel_.completion_budget_seconds - elapsed);
+        auto* domain = domains[completion_domain_];
+        completion_domain_ = (completion_domain_ + 1) % domains.size();
+        const auto completed =
+            domain->dispatch_completions(1, parallel_.completion_budget_seconds - elapsed);
+        remaining -= completed;
+        idle_domains = completed == 0 ? idle_domains + 1 : 0;
     }
     resources_->poll_async();
     // 上一回调可能改变文档 / 可见性；没有 SDL 事件也必须刷新持续占用事实。
@@ -396,6 +407,7 @@ void RuntimeHost::shutdown() noexcept
     initialized_ = false;
     exit_requested_ = false;
     failed_ = false;
+    completion_domain_ = 0;
 }
 
 } // namespace engine

@@ -811,7 +811,7 @@ WorldSystem、NavigationSystem、EditorSystem 分别拥有图中的第三方实�
 | ScriptRuntime | System、ResourceCatalog、ResourceMount、ScriptStatus | 核心声明的五方法执行契约，无语言实现或虚拟机链接 |
 | ScriptSystem 插件 | ScriptVm、ScriptBindingRegistry、LogSystem、ResourceSystem、PathUtils、WorldSystem                                                               | JS 模块预检与执行、共用原生绑定、玩法生命周期及状态；VM 依赖只在所选适配实现中 |
 | GameplaySession       | ScriptRuntime、ResourceSystem、VirtualFileSystem、WorldSystem、RenderSystem、PhysicsSystem、AudioSystem、App、nlohmann/json                                                | 宿主会话、候选版本预检、资源释放和目录提交、热重载调度 |
-| ProjectSystem         | toml++、LogSystem、PathUtils                                                                                                                  | 项目目录检查及日志                                     |
+| ProjectSystem         | LogSystem、PathUtils                                                                                                                  | 项目目录检查及日志                                     |
 | EditorEnvironment     | ProjectSystem、App、GameplaySession、ResourceSystem、LogSystem、PathUtils                                                                     | 编辑器路径映射、活动缓存租约与目录提交                 |
 | EditorSystem          | Dear ImGui、EditorEnvironment、GameplaySession、EditorCommands、SceneCommands、App、ResourceSystem、LogSystem、PathUtils、SDL3、nlohmann/json | 编辑器上下文、主线程命令、项目启停与状态回执           |
 | EditorCommands        | 标准函数及独占指针、nlohmann/json                                                                                                             | 命令登记、批量执行及撤销/重做历史                      |

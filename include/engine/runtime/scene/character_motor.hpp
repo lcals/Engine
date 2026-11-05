@@ -9,15 +9,7 @@ namespace engine
 
 class PhysicsSystem;
 
-struct CharacterMotorRuntime
-{
-    Vec3 desired_velocity_{};
-    Vec3 velocity_{};
-    Vec3 pending_velocity_{};
-    float pending_jump_ = 0.0F;
-    bool grounded_ = false;
-    bool reset_pending_ = false;
-};
+struct CharacterMotorRuntime;
 
 class CharacterMotor final : public Component
 {
@@ -29,7 +21,6 @@ public:
     }
     [[nodiscard]] static bool register_type(ComponentRegistry& registry);
     using Runtime = CharacterMotorRuntime;
-    [[nodiscard]] Runtime* runtime() const noexcept;
     static constexpr ComponentType component_type = ComponentType::CharacterMotorData;
     [[nodiscard]] static bool valid_settings(const schema::CharacterMotorDataT& settings) noexcept;
     [[nodiscard]] schema::CharacterMotorDataT settings() const noexcept;
@@ -45,6 +36,10 @@ public:
     [[nodiscard]] Vec3 velocity() const noexcept;
     [[nodiscard]] bool jump(float speed) noexcept;
     [[nodiscard]] bool grounded() const noexcept;
+
+private:
+    template <class T> friend auto engine::ecs_detail::component_runtime(T component) noexcept;
+    [[nodiscard]] Runtime* runtime() const noexcept;
 };
 
 } // namespace engine

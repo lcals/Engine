@@ -4,15 +4,7 @@
 
 namespace engine
 {
-struct BoneAttachmentRuntime
-{
-    Animator source;
-    std::uint64_t skeleton_generation = 0;
-    std::uint64_t source_pose_revision = 0;
-    std::uint32_t resolved_socket_index = 0;
-    bool following = false;
-    bool binding_pending = false;
-};
+struct BoneAttachmentRuntime;
 class BoneAttachment final : public Component
 {
 public:
@@ -24,7 +16,6 @@ public:
     {
     }
     [[nodiscard]] static bool register_type(ComponentRegistry& registry);
-    [[nodiscard]] Runtime* runtime() const noexcept;
     [[nodiscard]] static bool valid_settings(const Data& data) noexcept;
     [[nodiscard]] Data settings() const noexcept;
     [[nodiscard]] bool get_settings(Data& output) const noexcept;
@@ -35,5 +26,9 @@ public:
     [[nodiscard]] bool restore_data(const schema::ComponentDataT& data);
     [[nodiscard]] bool remap_node_references(schema::ComponentDataT& data,
                                              std::span<const schema::NodeIdMappingT> mapping) const;
+
+private:
+    template <class T> friend auto engine::ecs_detail::component_runtime(T component) noexcept;
+    [[nodiscard]] Runtime* runtime() const noexcept;
 };
 } // namespace engine

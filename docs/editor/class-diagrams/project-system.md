@@ -21,12 +21,8 @@ classDiagram
     class EngineConfig {
         <<struct>>
     }
-    class tomlplusplus["toml++"] {
-        <<library>>
-    }
     System <|-- ProjectSystem
     ProjectSystem ..> EngineConfig : on_initialize 参数
-    ProjectSystem ..> tomlplusplus : 编译及链接依赖
     note for ProjectSystem "继承 System 生命周期；析构中调用 shutdown()"
     class PathUtils
     ProjectSystem ..> PathUtils : UTF-8 路径转换
@@ -39,7 +35,7 @@ classDiagram
 - 编辑器宿主独立拥有的根系统；运行时 `Engine` 不拥有或依赖它。构造函数接收实际项目根目录并保存自己的字符串副本，不借用调用者字符串。
 - 构造函数只保存路径；`on_initialize()` 检查根目录及其 `settings/`、`cache/`、`assets/` 均存在且为目录；空路径、任一目录缺失、类型不符或无法完成检查均返回 `false`。继承的配置参数用于统一生命周期签名，不读取其中的窗口配置。
 - 文件系统检查使用返回状态和 `std::error_code`，不使用异常。编辑器宿主先初始化项目，再启动引擎窗口和编辑器系统；项目验证失败时编辑器启动失败，尚未初始化窗口。
-- toml++ 参与依赖编译与链接验证。项目设置由资源管线读取；APK 内部资源由运行时 ResourceSystem 读取，不属于 ProjectSystem。
+- 项目设置由所属编辑器功能模块读取，ProjectSystem 不依赖 TOML 解析器；APK 内部资源由运行时 ResourceSystem 读取，不属于 ProjectSystem。
 - 不提供项目路径 getter。私有项目输入仅供目录校验以及友元 `EditorEnvironment` 建立编辑器环境，运行时资源位置统一读取 `App`。项目根用于编辑器配置与编译，不是新的运行时资源路径。初始化失败和清理遵守[系统约定](../../runtime/class-diagrams/engine-system.md)。
 - 不重写 `on_tick()`，沿用基类默认成功的空更新；无逐帧业务任务。
 

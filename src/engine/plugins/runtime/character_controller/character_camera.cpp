@@ -1,5 +1,7 @@
 #include "plugins/runtime/character_controller/character_camera.hpp"
 
+#include "plugins/runtime/character_controller/character_camera_runtime.hpp"
+
 #include "runtime/scene/ecs_storage.hpp"
 
 #include "runtime/scene/node.hpp"

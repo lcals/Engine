@@ -41,7 +41,6 @@ classDiagram
         +TextComponent()
         +TextComponent(Component component)
         +register_type(ComponentRegistry& registry) bool$
-        +runtime() TextComponentRuntime#42;
         +initialize() bool
         +valid_settings(const TextDataT& settings) bool$
         +settings() TextDataT
@@ -124,4 +123,4 @@ classDiagram
 
 HDR 绘制契约：`FontDraw.linear_output` 默认 false，表示既有显示色预乘输出。`render_scene` 接受同名参数，由场景渲染调用方按目标明确传入；UI 保持 false。为 true 时，字体 Shader 使用 `u_font_texture.z=1` 将预乘显示色先解预乘、按精确 sRGB 曲线转换线性再预乘，字形覆盖率与 alpha 不进行颜色转换。字体仍进入场景深度目标，参与最终曝光和色调映射；不按 view 编号猜测调用方。
 
-本页组件均为可复制值句柄，生成设置唯一存于 `ComponentStorage<Data>` 的 ECS 列；`settings()` 返回独立值，`get_settings(output)` 明确返回失败。Runtime 为 ECS 中的领域运行列，资源引用、请求和缓存归该列或所属 System；句柄不拥有这些数据。`runtime()` 指针仅在当前结构稳定阶段有效，不能跨 ECS 结构修改留存。类型注册、失效身份与查询规则见 [ECS 场景](ecs-scene.md)。
+本页组件均为可复制值句柄，生成设置唯一存于 `ComponentStorage<Data>` 的 ECS 列；`settings()` 返回独立值，`get_settings(output)` 明确返回失败。Runtime 为 ECS 中的领域运行列，资源引用、请求和缓存归该列或所属 System；句柄不拥有这些数据。Runtime 定义与可变访问仅供所属模块内部实现使用，公开组件不提供 `runtime()`；原生系统的 ECS 列借用仅在当前结构稳定阶段有效，不能跨结构修改留存。类型注册、失效身份与查询规则见 [ECS 场景](ecs-scene.md)。

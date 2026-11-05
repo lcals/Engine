@@ -5,6 +5,7 @@
 #include "runtime/frame_status.hpp"
 #include "runtime/window/window_system.hpp"
 
+#include <cstddef>
 #include <memory>
 
 namespace engine
@@ -107,6 +108,7 @@ private:
     bool initialized_ = false;
     bool exit_requested_ = false;
     bool failed_ = false;
+    std::size_t completion_domain_ = 0;
     WindowEventHandler event_observer_ = nullptr;
     void* event_observer_context_ = nullptr;
 };

@@ -9,10 +9,7 @@
 namespace engine
 {
 
-struct CameraRuntime
-{
-    std::vector<std::uint64_t> hidden_meshes_;
-};
+struct CameraRuntime;
 
 class Camera final : public Component
 {
@@ -24,7 +21,6 @@ public:
     }
     [[nodiscard]] static bool register_type(ComponentRegistry& registry);
     using Runtime = CameraRuntime;
-    [[nodiscard]] Runtime* runtime() const noexcept;
     static constexpr ComponentType component_type = ComponentType::CameraData;
     [[nodiscard]] bool restore_data(const schema::ComponentDataT& data);
 
@@ -41,6 +37,10 @@ public:
     [[nodiscard]] bool set_hidden_meshes(std::span<const std::uint64_t> mesh_instance_ids);
     void clear_hidden_meshes() noexcept;
     [[nodiscard]] bool mesh_visible(std::uint64_t mesh_instance_id) const noexcept;
+
+private:
+    template <class T> friend auto engine::ecs_detail::component_runtime(T component) noexcept;
+    [[nodiscard]] Runtime* runtime() const noexcept;
 };
 
 } // namespace engine

@@ -8,11 +8,7 @@
 namespace engine::plugins::character_controller
 {
 
-struct CharacterControllerRuntime
-{
-    std::uint64_t driven_motor_ = 0;
-    CharacterInput input_{};
-};
+struct CharacterControllerRuntime;
 
 class CharacterController final : public Component
 {
@@ -25,7 +21,6 @@ public:
     }
     [[nodiscard]] static bool register_type(ComponentRegistry& registry);
     using Runtime = CharacterControllerRuntime;
-    [[nodiscard]] Runtime* runtime() const noexcept;
     static constexpr ComponentType component_type = ComponentType::CharacterControllerData;
     [[nodiscard]] static bool
     valid_settings(const schema::CharacterControllerDataT& settings) noexcept;
@@ -39,6 +34,10 @@ public:
     [[nodiscard]] bool restore_data(const schema::ComponentDataT& data);
     [[nodiscard]] bool remap_node_references(schema::ComponentDataT& data,
                                              std::span<const schema::NodeIdMappingT> mapping) const;
+
+private:
+    template <class T> friend auto engine::ecs_detail::component_runtime(T component) noexcept;
+    [[nodiscard]] Runtime* runtime() const noexcept;
 };
 
 } // namespace engine::plugins::character_controller

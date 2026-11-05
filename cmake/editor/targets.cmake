@@ -1,3 +1,11 @@
+if(ENGINE_ENABLE_EDITOR_DEPS OR ENGINE_ENABLE_ASSET_PIPELINE_DEPS
+   OR "editor/asset_sync" IN_LIST ENGINE_SELECTED_PLUGINS)
+    add_library(engine_editor_lock STATIC src/engine/editor/asset_pipeline/project_lock.cpp)
+    target_include_directories(engine_editor_lock PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+    target_link_libraries(engine_editor_lock PRIVATE engine::core)
+    engine_apply_options(engine_editor_lock)
+endif()
+
 if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS OR "editor/modeling" IN_LIST ENGINE_SELECTED_PLUGINS)
     add_library(engine_editor_mesh STATIC src/engine/editor/mesh/mesh_tangents.cpp)
     target_compile_features(engine_editor_mesh PRIVATE cxx_std_20)
@@ -19,16 +27,13 @@ endif()
 
 if(ENGINE_ENABLE_EDITOR_DEPS)
     engine_add_system(editor project)
-    # toml++ 的 formatter 在异常开关下具有不同布局；所有自有目标统一采用无异常头文件实现。
-    # 不链接 vcpkg 的带异常二进制库，避免同名 formatter 符号混入同一进程。
-    get_target_property(_project_toml_includes tomlplusplus::tomlplusplus
-                        INTERFACE_INCLUDE_DIRECTORIES)
-    target_include_directories(engine_project SYSTEM PRIVATE ${_project_toml_includes})
     target_link_libraries(engine_project PRIVATE engine::log)
-    target_compile_definitions(engine_project PRIVATE TOML_HEADER_ONLY=1 TOML_EXCEPTIONS=0)
+    # 配置解析使用无异常头文件实现，避免与 vcpkg 的异常 ABI 混用。
+    get_target_property(_editor_toml_includes tomlplusplus::tomlplusplus
+                        INTERFACE_INCLUDE_DIRECTORIES)
 
     engine_add_system(editor editor src/engine/editor/editor_system.cpp)
-    target_include_directories(engine_editor SYSTEM PRIVATE ${_project_toml_includes})
+    target_include_directories(engine_editor SYSTEM PRIVATE ${_editor_toml_includes})
     target_compile_definitions(engine_editor PRIVATE TOML_HEADER_ONLY=1 TOML_EXCEPTIONS=0)
     target_sources(
         engine_editor
@@ -55,9 +60,6 @@ if(ENGINE_ENABLE_EDITOR_DEPS)
                 src/engine/editor/commands/components/audio_listener_commands.cpp
                 src/engine/editor/commands/editor_command_channel.cpp)
     target_include_directories(engine_editor PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
-    if(NOT ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
-        target_sources(engine_editor PRIVATE src/engine/editor/asset_pipeline/project_lock.cpp)
-    endif()
     target_link_libraries(
         engine_editor
         PUBLIC nlohmann_json::nlohmann_json
@@ -71,6 +73,7 @@ if(ENGINE_ENABLE_EDITOR_DEPS)
                 engine::world
                 engine::window
                 engine::input
+                engine_editor_lock
                 imgui::imgui
                 SDL3::SDL3)
     target_compile_definitions(engine_editor PUBLIC JSON_NOEXCEPTION=1)
@@ -93,7 +96,6 @@ if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
                 src/engine/editor/asset_pipeline/editor_tools.cpp
                 src/engine/editor/asset_pipeline/asset_io.cpp
                 src/engine/editor/asset_pipeline/asset_publish.cpp
-                src/engine/editor/asset_pipeline/project_lock.cpp
                 src/engine/editor/asset_pipeline/scene_importer.cpp
                 src/engine/editor/asset_pipeline/prefab_importer.cpp
                 src/engine/editor/asset_pipeline/prefab_source.cpp
@@ -136,7 +138,8 @@ if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
     target_link_libraries(
         engine_asset_pipeline
         PUBLIC engine::scene_data engine::task
-        PRIVATE engine::app
+        PRIVATE engine_editor_lock
+                engine::app
                 engine::world
                 engine::resource
                 unofficial::sqlite3::sqlite3

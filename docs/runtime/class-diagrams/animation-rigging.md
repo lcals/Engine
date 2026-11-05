@@ -2,7 +2,7 @@
 
 [类图索引](../../class-diagrams/index.md) · [既有 Animator](animator.md) · [动画系统](animation-system.md) · [资源与重定向](animation-retargeting.md) · [分层方案](../scripted-animation-controller.md)
 
-**本页公开契约已获用户确认，代码与验证正在同步接入。** 只扩展现有 `Animator`、`AnimationSystem`、Skeleton 生成数据及一个 `BoneAttachment` 值句柄组件，不新增动画 System、Manager、播放器或 Ozz 包装框架。已有 Animator 方法仍由所属图定义；本页只列新增方法，其他页引用这些类型时不重复定义。
+**本页维护已确认并已实现的公开契约，实际验证范围见[测试文档](../../testing.md)。** 扩展现有 `Animator`、`AnimationSystem`、Skeleton 生成数据及一个 `BoneAttachment` 值句柄组件，不新增动画 System、Manager、播放器或 Ozz 包装框架。Animator 当前完整公开方法统一由[动画组件](animator.md)定义；本页维护请求、值快照与执行关系，跨图不重复定义方法。
 
 `Animator`、请求和查询值属于 `engine`；`*DataT` 与 `JointLocalPose` 属于 `engine::schema`。`JointLocalPose` 的字段由[资源与重定向图](animation-retargeting.md)定义，本页直接复用。文中的 `array_float_16` 表示 `std::array<float, 16>`，不是另一种矩阵类。
 
@@ -10,16 +10,7 @@
 
 ```mermaid
 classDiagram
-    class Animator {
-        <<existing value handle, new methods only>>
-        +play_animation(const AnimationPlayRequest& request) bool
-        +get_playback_info(AnimatorPlaybackInfo& output) bool
-        +get_bone_pose(string_view joint_path, AnimationPoseTransform& output) bool
-        +get_socket_pose(string_view socket_name, AnimationPoseTransform& output) bool
-        +set_aim_ik_target(string_view name, const AnimationIkTarget& target) bool
-        +set_two_bone_ik_target(string_view name, const AnimationIkTarget& target) bool
-        +get_ik_target(string_view name, AnimationIkTarget& output) bool
-    }
+    class Animator
     class AnimationPlayRequest {
         <<transient request>>
         +string animation_path
@@ -216,6 +207,7 @@ classDiagram
         <<internal ECS derived input>>
         +ComponentType owner_type
         +uint64_t owner_instance_id
+        +validate(Node owner, uint64_t owner_instance_id) bool noexcept function_pointer
         +array_float_16 local = identity
         +bool active = false
     }
@@ -249,6 +241,7 @@ classDiagram
     flecs_world_t *-- WorldTransform : 既有世界变换缓存
     AnimationSystem --> WorldSystem : 继续现有借用
     AnimationSystem ..> TransformDrive : 动画安全点发布或撤销跟随
+    TransformDrive ..> BoneAttachment : 借用生产者验证函数，不拥有组件
     WorldSystem ..> TransformDrive : 同一层级更新路径消费
     WorldSystem ..> WorldTransform : 刷新跟随节点及其子树
     Transform ..> WorldTransform : world_matrix 只读取统一结果
@@ -263,7 +256,7 @@ classDiagram
 
 `socket_name`、各偏移数值和引用在开启跟随前完整验证；失败保留原 Data、运行绑定和有效变换。follow 关闭时允许尚未配置来源，方便创建默认组件。来源、socket 或骨架定义变化须重新验证；可见性不等同于禁用。
 
-`TransformDrive` 属于 `engine::ecs_detail`，仅是 World 与动画提交之间的内部 ECS 值，没有公开 setter、继承层次或注册门面。其 owner_type 与 owner_instance_id 明确唯一驱动者；失效组件不能清除新实例的驱动。World 在原有层级派生阶段以有效 drive.local 替代作者 local，写入同一个 `WorldTransform` 并刷新后代，因此渲染、子节点、射线起点和 `Transform::world_matrix` 得到同一份世界变换，不另存一个只供挂点查询的平行世界矩阵。
+`TransformDrive` 属于 `engine::ecs_detail`，仅是 World 与动画提交之间的内部 ECS 值，没有公开 setter、继承层次或注册门面。其 owner_type 与 owner_instance_id 明确唯一驱动者；失效组件不能清除新实例的驱动。生产者同时提交可空 `noexcept` 只读有效性函数指针；空函数或校验失败时使用作者 TRS。函数代码借用须覆盖 drive 存活期，先校验 owner 完整组件实例身份，再读取本领域状态；不得修改 ECS、刷新缓存或重入 World。挂点生产者在该函数中检查跟随设置、Animator 身份、姿态及来源祖先状态，World 不认识这些具体类型。World 在原有层级派生阶段以有效 drive.local 替代作者 local，写入同一个 `WorldTransform` 并刷新后代，因此渲染、子节点、射线起点和 `Transform::world_matrix` 得到同一份世界变换，不另存一个只供挂点查询的平行世界矩阵。
 
 作者 `TransformData`、资源 socket 偏移与组件实例偏移均保持独立；每帧跟随只更新 Runtime/派生缓存。场景保存、prefab override 和撤销不得把当前动作造成的跟随结果烘焙进作者 Transform 或偏移。关闭 follow、停用或移除跟随组件时撤销其 drive，派生缓存恢复由原作者 TRS 计算；不隐式生成作者修改。
 
@@ -296,4 +289,4 @@ AttachmentLocal = inverse(P) * AttachmentWorld
 
 带碰撞的 kinematic 跟随需要在正式物理同步阶段消费同一派生结果；首期不能仅写 Transform 就宣称已同步碰撞。掉落要先解除跟随、按玩法处理父级且保留世界姿态，再把唯一位置控制权交给物理。挂件/父链环、重复写入者与未支持的跨 Actor 约束明确拒绝。
 
-预览、编辑命令和 MCP 均复用上述核心契约；骨链、挂点、目标与权重的制作界面留在可选 `editor/animation_tools`，不把界面或具体插件链接进运行时核心。本页只提交类图供评审，没有新增 schema、绑定、运行代码或验证结论。
+预览、编辑命令和 MCP 均复用上述核心契约；骨链、挂点、目标与权重的制作界面留在可选 `editor/animation_tools`，不把界面或具体插件链接进运行时核心。本页描述接口、职责和实现边界；构建、功能及平台验证结果集中记录在[测试文档](../../testing.md)。

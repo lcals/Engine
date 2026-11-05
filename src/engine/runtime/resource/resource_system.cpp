@@ -149,7 +149,7 @@ class ResourceSystem::AsyncLoad final : public ResourceLoad
 public:
     AsyncLoad(ResourceSystem& owner, std::string guid)
         : owner_(owner), state_(owner.async_), catalog_(state_->catalog), guid_(std::move(guid)),
-          generation_(owner.generation_)
+          generation_(owner.generation_), loader_(&owner.loader())
     {
     }
 
@@ -164,9 +164,10 @@ public:
     ResourceLoadStatus step(std::uint32_t budget, ResourceLoadProgress& output) override
     {
         if (status_ == ResourceLoadStatus::loading &&
-            (!state_->active || !owner_.is_initialized() || owner_.generation_ != generation_))
+            (!state_->active || !owner_.is_initialized() || owner_.generation_ != generation_ ||
+             &owner_.loader() != loader_))
         {
-            fail("Resource catalog changed or asynchronous loading stopped");
+            fail("Resource catalog or loader changed, or asynchronous loading stopped");
         }
         if (status_ != ResourceLoadStatus::loading || budget == 0)
         {
@@ -323,6 +324,7 @@ private:
     std::shared_ptr<const ResourceCatalog> catalog_;
     std::string guid_;
     std::uint64_t generation_ = 0;
+    ResourceLoader* loader_ = nullptr;
     std::shared_ptr<Work> work_;
     ResourcePtr root_;
     ResourceLoadStatus status_ = ResourceLoadStatus::loading;

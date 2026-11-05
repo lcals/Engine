@@ -231,6 +231,7 @@ struct DeploymentRead
 {
     std::string last_manifest;
     std::string current_revision;
+    std::string target_platform;
     std::unique_ptr<Snapshot> available;
     std::string error;
 
@@ -334,6 +335,10 @@ struct DeploymentRead
         {
             return fail("Published resources require a valid runtime catalog");
         }
+        if (candidate->catalog.data().target_platform != target_platform)
+        {
+            return fail("Published resource catalog targets a different platform");
+        }
         candidate->mounts = {{"content", version_root}};
         bool has_entry = false;
         std::set<std::string> expected{"catalog.bin"};
@@ -375,6 +380,7 @@ struct GameplaySession::State
 
     GameplaySession& owner;
     fs::path persistent_root;
+    std::string target_platform;
     std::shared_ptr<BackgroundIo> pending;
     std::uint64_t generation = 1;
     std::string desired_status;
@@ -394,6 +400,10 @@ struct GameplaySession::State
         : owner(session),
           persistent_root(App::is_initialized() ? App::persistent_data_path() : fs::path{})
     {
+        if (const auto* resources = ResourceSystem::instance())
+        {
+            target_platform = resources->catalog().data().target_platform;
+        }
     }
 
     bool fail(std::string message)
@@ -521,6 +531,7 @@ struct GameplaySession::State
         operation->generation = generation;
         operation->deployment.last_manifest = last_manifest;
         operation->deployment.current_revision = available ? available->revision : "";
+        operation->deployment.target_platform = target_platform;
         if (desired_status != last_status)
         {
             operation->status_text = desired_status;
@@ -556,6 +567,7 @@ struct GameplaySession::State
         DeploymentRead result;
         result.last_manifest = last_manifest;
         result.current_revision = available ? available->revision : "";
+        result.target_platform = target_platform;
         if (!result.read(persistent_root))
         {
             return fail(std::move(result.error));
@@ -718,27 +730,35 @@ bool GameplaySession::start(std::string_view entry)
     }
     if (!state_)
     {
-        auto candidate = std::make_unique<State>(*this);
-        candidate->builtin.mounts = {{"content", App::assets_path()}};
-        if (!ResourceSystem::read_catalog(App::assets_path(), candidate->builtin.catalog))
-        {
-            last_error_ = "Cannot read the built-in runtime catalog";
-            return false;
-        }
-        candidate->builtin.revision = candidate->builtin.catalog.revision();
-        state_ = std::move(candidate);
+        state_ = std::make_unique<State>(*this);
     }
     state_->invalidate_background();
     state_->requested_entry = entry;
     state_->poll_control();
-    if (!state_->poll_available())
+    const bool deployment_valid = state_->poll_available();
+    const std::string deployment_error = deployment_valid ? std::string{} : last_error_;
+    if (!state_->available && state_->builtin.catalog.revision().empty())
     {
-        state_->publish();
-        return false;
+        if (!ResourceSystem::read_catalog(App::assets_path(), state_->builtin.catalog))
+        {
+            last_error_ = "Cannot read the built-in runtime catalog";
+            if (!deployment_error.empty())
+            {
+                last_error_ += "; " + deployment_error;
+            }
+            state_->publish();
+            return false;
+        }
+        state_->builtin.mounts = {{"content", App::assets_path()}};
+        state_->builtin.revision = state_->builtin.catalog.revision();
     }
     const auto& selected = state_->available ? *state_->available : state_->builtin;
     state_->last_attempt = selected.revision;
     const bool result = state_->apply(selected);
+    if (result && !deployment_error.empty())
+    {
+        last_error_ = deployment_error;
+    }
     state_->publish();
     state_->schedule_background();
     return result;

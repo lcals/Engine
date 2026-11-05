@@ -7,10 +7,7 @@ namespace engine
 {
 class Resource;
 
-struct LightProbeVolumeComponentRuntime
-{
-    std::shared_ptr<const Resource> resource_;
-};
+struct LightProbeVolumeComponentRuntime;
 
 class LightProbeVolumeComponent final : public Component
 {
@@ -23,7 +20,6 @@ public:
     }
     [[nodiscard]] static bool register_type(ComponentRegistry& registry);
     using Runtime = LightProbeVolumeComponentRuntime;
-    [[nodiscard]] Runtime* runtime() const noexcept;
     static constexpr ComponentType component_type = ComponentType::LightProbeVolumeData;
     [[nodiscard]] bool restore_data(const schema::ComponentDataT& data);
     [[nodiscard]] LightProbeVolumeSettings settings() const noexcept;
@@ -31,5 +27,9 @@ public:
     [[nodiscard]] bool set_settings(const LightProbeVolumeSettings& settings);
     // 体积变换与烘焙位置不一致时返回空；引用独立资源版本。
     [[nodiscard]] std::shared_ptr<const Resource> resource() const noexcept;
+
+private:
+    template <class T> friend auto engine::ecs_detail::component_runtime(T component) noexcept;
+    [[nodiscard]] Runtime* runtime() const noexcept;
 };
 } // namespace engine

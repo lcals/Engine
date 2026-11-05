@@ -26,13 +26,7 @@ enum class AudioPlayback
     failed
 };
 
-struct AudioSourceRuntime
-{
-    std::shared_ptr<const Resource> clip_;
-    std::uint64_t revision_ = 0;
-    AudioPlayback playback_ = AudioPlayback::stopped;
-    bool awake_pending_ = true;
-};
+struct AudioSourceRuntime;
 
 class AudioSource final : public Component
 {
@@ -44,7 +38,6 @@ public:
     }
     [[nodiscard]] static bool register_type(ComponentRegistry& registry);
     using Runtime = AudioSourceRuntime;
-    [[nodiscard]] Runtime* runtime() const noexcept;
     static constexpr ComponentType component_type = ComponentType::AudioSourceData;
     [[nodiscard]] static bool valid_settings(const schema::AudioSourceDataT& settings) noexcept;
     [[nodiscard]] schema::AudioSourceDataT settings() const noexcept;
@@ -60,6 +53,10 @@ public:
     [[nodiscard]] bool stop() noexcept;
     [[nodiscard]] bool playing() const noexcept;
     [[nodiscard]] AudioPlayback playback() const noexcept;
+
+private:
+    template <class T> friend auto engine::ecs_detail::component_runtime(T component) noexcept;
+    [[nodiscard]] Runtime* runtime() const noexcept;
 };
 
 } // namespace engine

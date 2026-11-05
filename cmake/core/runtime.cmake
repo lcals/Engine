@@ -136,6 +136,7 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
     add_library(engine_scene_ecs INTERFACE)
     add_library(engine::scene_ecs ALIAS engine_scene_ecs)
     target_link_libraries(engine_scene_ecs INTERFACE engine::scene_data flecs::flecs_static)
+    target_include_directories(engine_scene_ecs INTERFACE "${PROJECT_SOURCE_DIR}/src/engine")
     target_sources(
         engine_world
         PRIVATE src/engine/runtime/scene/component.cpp

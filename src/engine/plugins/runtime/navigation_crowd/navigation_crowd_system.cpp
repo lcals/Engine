@@ -1,4 +1,6 @@
 #include "plugins/runtime/navigation_crowd/navigation_crowd_system.hpp"
+
+#include "plugins/runtime/navigation_crowd/navigation_agent_runtime.hpp"
 #include "runtime/scene/ecs_scene.hpp"
 #include "runtime/scene/ecs_storage.hpp"
 
@@ -161,8 +163,9 @@ bool NavigationCrowdSystem::on_tick(double delta_time)
             auto transform = node.get_component<Transform>();
             if (!available || !can_drive(node, transform))
             {
-                component.runtime()->state_ = NavigationAgentStatus::invalid;
-                component.runtime()->velocity_ = {};
+                engine::ecs_detail::component_runtime(component)->state_ =
+                    NavigationAgentStatus::invalid;
+                engine::ecs_detail::component_runtime(component)->velocity_ = {};
                 return true;
             }
             auto& entry = state_->agents[component.instance_id()];
@@ -216,9 +219,12 @@ bool NavigationCrowdSystem::on_tick(double delta_time)
         NavigationAgentState snapshot;
         bool live = navigation_.agent_state(entry.handle, snapshot);
         const bool moved = !same_position(position, entry.last_position);
-        const bool changed = entry.settings_revision != component.runtime()->settings_revision_;
-        const bool requested = entry.request_revision != component.runtime()->request_revision_ ||
-                               entry.requested_target != component.runtime()->has_target_;
+        const bool changed = entry.settings_revision !=
+                             engine::ecs_detail::component_runtime(component)->settings_revision_;
+        const bool requested =
+            entry.request_revision !=
+                engine::ecs_detail::component_runtime(component)->request_revision_ ||
+            entry.requested_target != engine::ecs_detail::component_runtime(component)->has_target_;
         const bool revised = entry.navigation_revision != navigation_.revision();
         if (live && moved)
         {
@@ -250,26 +256,31 @@ bool NavigationCrowdSystem::on_tick(double delta_time)
             live = false;
         }
         entry.last_position = position;
-        entry.settings_revision = component.runtime()->settings_revision_;
+        entry.settings_revision =
+            engine::ecs_detail::component_runtime(component)->settings_revision_;
         entry.navigation_revision = navigation_.revision();
-        entry.request_revision = component.runtime()->request_revision_;
-        entry.requested_target = component.runtime()->has_target_;
+        entry.request_revision =
+            engine::ecs_detail::component_runtime(component)->request_revision_;
+        entry.requested_target = engine::ecs_detail::component_runtime(component)->has_target_;
         if (!live)
         {
-            component.runtime()->state_ = NavigationAgentStatus::invalid;
-            component.runtime()->velocity_ = {};
+            engine::ecs_detail::component_runtime(component)->state_ =
+                NavigationAgentStatus::invalid;
+            engine::ecs_detail::component_runtime(component)->velocity_ = {};
             continue;
         }
         if (created || requested)
         {
             const bool accepted =
-                component.runtime()->has_target_
-                    ? navigation_.set_agent_target(entry.handle, component.runtime()->target_)
+                engine::ecs_detail::component_runtime(component)->has_target_
+                    ? navigation_.set_agent_target(
+                          entry.handle, engine::ecs_detail::component_runtime(component)->target_)
                     : navigation_.stop_agent(entry.handle);
             if (!accepted)
             {
-                component.runtime()->state_ = NavigationAgentStatus::unreachable;
-                component.runtime()->velocity_ = {};
+                engine::ecs_detail::component_runtime(component)->state_ =
+                    NavigationAgentStatus::unreachable;
+                engine::ecs_detail::component_runtime(component)->velocity_ = {};
             }
         }
     }
@@ -285,8 +296,8 @@ bool NavigationCrowdSystem::on_tick(double delta_time)
         {
             continue;
         }
-        component.runtime()->state_ = snapshot.status;
-        component.runtime()->velocity_ = snapshot.velocity;
+        engine::ecs_detail::component_runtime(component)->state_ = snapshot.status;
+        engine::ecs_detail::component_runtime(component)->velocity_ = snapshot.velocity;
         if (snapshot.status == NavigationAgentStatus::invalid)
         {
             continue;
@@ -304,8 +315,9 @@ bool NavigationCrowdSystem::on_tick(double delta_time)
         }
         if (!transform.set_settings(settings))
         {
-            component.runtime()->state_ = NavigationAgentStatus::invalid;
-            component.runtime()->velocity_ = {};
+            engine::ecs_detail::component_runtime(component)->state_ =
+                NavigationAgentStatus::invalid;
+            engine::ecs_detail::component_runtime(component)->velocity_ = {};
             if (navigation_.remove_agent(entry.handle))
             {
                 state_->retry_failed_agents = true;

@@ -1,5 +1,9 @@
 #include "runtime/physics/physics_system.hpp"
 
+#include "runtime/scene/character_motor_runtime.hpp"
+#include "runtime/scene/collider_runtime.hpp"
+#include "runtime/scene/rigid_body_runtime.hpp"
+
 #include "runtime/performance/profiling.hpp"
 #include "runtime/physics/mesh_collision_data.hpp"
 #include "runtime/physics/physics_jobs.hpp"
@@ -2241,9 +2245,9 @@ bool PhysicsSystem::set_collider_data(Collider collider, const schema::ColliderD
     state_->mark_synchronized(node.scene()->id());
     *collider.write_data<Collider::Data>() = *snapshot.collider;
     collider.modified();
-    collider.runtime()->mesh_ = std::move(snapshot.mesh);
-    collider.runtime()->transient_mesh_.reset();
-    collider.runtime()->mesh_parts_.reset();
+    engine::ecs_detail::component_runtime(collider)->mesh_ = std::move(snapshot.mesh);
+    engine::ecs_detail::component_runtime(collider)->transient_mesh_.reset();
+    engine::ecs_detail::component_runtime(collider)->mesh_parts_.reset();
     return true;
 }
 
@@ -2268,7 +2272,7 @@ bool PhysicsSystem::set_mesh_data(Collider collider, const schema::MeshDataT& me
         return false;
     }
     BodySnapshot snapshot;
-    snapshot.mesh_parts = collider.runtime()->mesh_parts_;
+    snapshot.mesh_parts = engine::ecs_detail::component_runtime(collider)->mesh_parts_;
     if (!read_snapshot(node, collider.settings(), collider.mesh_data(), rigid, snapshot))
     {
         return false;
@@ -2301,9 +2305,10 @@ bool PhysicsSystem::set_mesh_data(Collider collider, const schema::MeshDataT& me
     state_->mark_synchronized(node.scene()->id());
     *collider.write_data<Collider::Data>() = *snapshot.collider;
     collider.modified();
-    collider.runtime()->mesh_.reset();
-    collider.runtime()->transient_mesh_ = std::move(snapshot.transient_mesh);
-    collider.runtime()->mesh_parts_.reset();
+    engine::ecs_detail::component_runtime(collider)->mesh_.reset();
+    engine::ecs_detail::component_runtime(collider)->transient_mesh_ =
+        std::move(snapshot.transient_mesh);
+    engine::ecs_detail::component_runtime(collider)->mesh_parts_.reset();
     return true;
 }
 
@@ -2328,7 +2333,7 @@ bool PhysicsSystem::set_mesh_parts(Collider collider, const MeshCollisionData& p
         return false;
     }
     BodySnapshot snapshot;
-    snapshot.mesh_parts = collider.runtime()->mesh_parts_;
+    snapshot.mesh_parts = engine::ecs_detail::component_runtime(collider)->mesh_parts_;
     if (!read_snapshot(node, collider.settings(), collider.mesh_data(), rigid, snapshot))
     {
         return false;
@@ -2361,9 +2366,9 @@ bool PhysicsSystem::set_mesh_parts(Collider collider, const MeshCollisionData& p
     state_->mark_synchronized(node.scene()->id());
     *collider.write_data<Collider::Data>() = *snapshot.collider;
     collider.modified();
-    collider.runtime()->mesh_.reset();
-    collider.runtime()->transient_mesh_.reset();
-    collider.runtime()->mesh_parts_ = std::move(snapshot.mesh_parts);
+    engine::ecs_detail::component_runtime(collider)->mesh_.reset();
+    engine::ecs_detail::component_runtime(collider)->transient_mesh_.reset();
+    engine::ecs_detail::component_runtime(collider)->mesh_parts_ = std::move(snapshot.mesh_parts);
     return true;
 }
 
@@ -2437,17 +2442,18 @@ bool PhysicsSystem::on_tick(double delta_time)
                                 return;
                             }
                             snapshot.instance_id = motor.instance_id();
-                            snapshot.reset_velocity = motor.runtime()->reset_pending_;
+                            snapshot.reset_velocity =
+                                engine::ecs_detail::component_runtime(motor)->reset_pending_;
                             character_snapshots.push_back(std::move(snapshot));
                         }
                         else
                         {
-                            motor.runtime()->desired_velocity_ = {};
-                            motor.runtime()->velocity_ = {};
-                            motor.runtime()->pending_velocity_ = {};
-                            motor.runtime()->pending_jump_ = 0.0F;
-                            motor.runtime()->grounded_ = false;
-                            motor.runtime()->reset_pending_ = false;
+                            engine::ecs_detail::component_runtime(motor)->desired_velocity_ = {};
+                            engine::ecs_detail::component_runtime(motor)->velocity_ = {};
+                            engine::ecs_detail::component_runtime(motor)->pending_velocity_ = {};
+                            engine::ecs_detail::component_runtime(motor)->pending_jump_ = 0.0F;
+                            engine::ecs_detail::component_runtime(motor)->grounded_ = false;
+                            engine::ecs_detail::component_runtime(motor)->reset_pending_ = false;
                         }
                     }
                     auto collider = node.get_component<Collider>();
@@ -2457,14 +2463,17 @@ bool PhysicsSystem::on_tick(double delta_time)
                     {
                         if (rigid_body.valid())
                         {
-                            rigid_body.runtime()->pending_impulse_ = {};
+                            engine::ecs_detail::component_runtime(rigid_body)
+                                ->pending_impulse_ = {};
                         }
                         return;
                     }
                     BodySnapshot snapshot;
-                    snapshot.mesh = collider.runtime()->mesh_;
-                    snapshot.transient_mesh = collider.runtime()->transient_mesh_;
-                    snapshot.mesh_parts = collider.runtime()->mesh_parts_;
+                    snapshot.mesh = engine::ecs_detail::component_runtime(collider)->mesh_;
+                    snapshot.transient_mesh =
+                        engine::ecs_detail::component_runtime(collider)->transient_mesh_;
+                    snapshot.mesh_parts =
+                        engine::ecs_detail::component_runtime(collider)->mesh_parts_;
                     const auto existing = state_->bodies.find(node.id());
                     const auto* previous =
                         existing != state_->bodies.end() ? &existing->second.snapshot : nullptr;
@@ -2544,10 +2553,12 @@ bool PhysicsSystem::on_tick(double delta_time)
             auto body = !node.valid() ? RigidBody{} : node.get_component<RigidBody>();
             if (body.valid() && body.settings().motion == schema::BodyMotion::dynamic)
             {
-                if (body.runtime()->pending_impulse_ != Vec3{})
+                if (engine::ecs_detail::component_runtime(body)->pending_impulse_ != Vec3{})
                 {
-                    interface.AddImpulse(entry.body, vector(body.runtime()->pending_impulse_));
-                    body.runtime()->pending_impulse_ = {};
+                    interface.AddImpulse(
+                        entry.body,
+                        vector(engine::ecs_detail::component_runtime(body)->pending_impulse_));
+                    engine::ecs_detail::component_runtime(body)->pending_impulse_ = {};
                 }
             }
         }
@@ -2594,19 +2605,22 @@ bool PhysicsSystem::on_tick(double delta_time)
                 if (on_ground && toward_ground)
                 {
                     velocity = ground_velocity;
-                    if (motor.runtime()->pending_jump_ > 0.0F)
+                    if (engine::ecs_detail::component_runtime(motor)->pending_jump_ > 0.0F)
                     {
-                        velocity += JPH::Vec3(0, motor.runtime()->pending_jump_, 0);
+                        velocity += JPH::Vec3(
+                            0, engine::ecs_detail::component_runtime(motor)->pending_jump_, 0);
                     }
                 }
-                motor.runtime()->pending_jump_ = 0.0F;
-                const auto delta = vector(motor.runtime()->pending_velocity_);
-                motor.runtime()->pending_velocity_ = {};
+                engine::ecs_detail::component_runtime(motor)->pending_jump_ = 0.0F;
+                const auto delta =
+                    vector(engine::ecs_detail::component_runtime(motor)->pending_velocity_);
+                engine::ecs_detail::component_runtime(motor)->pending_velocity_ = {};
                 entry.external_velocity += JPH::Vec3(delta.GetX(), 0, delta.GetZ());
                 const auto gravity = state_->physics.GetGravity() * motor.settings().gravity_factor;
-                velocity += gravity * static_cast<float>(fixed_step) +
-                            vector(motor.runtime()->desired_velocity_) + entry.external_velocity +
-                            JPH::Vec3(0, delta.GetY(), 0);
+                velocity +=
+                    gravity * static_cast<float>(fixed_step) +
+                    vector(engine::ecs_detail::component_runtime(motor)->desired_velocity_) +
+                    entry.external_velocity + JPH::Vec3(0, delta.GetY(), 0);
                 if (!finite(velocity) || !finite(entry.external_velocity))
                 {
                     clear();
@@ -2687,9 +2701,10 @@ bool PhysicsSystem::on_tick(double delta_time)
                 clear();
                 return false;
             }
-            motor.runtime()->velocity_ = vector(entry.character->GetLinearVelocity());
-            motor.runtime()->reset_pending_ = false;
-            motor.runtime()->grounded_ =
+            engine::ecs_detail::component_runtime(motor)->velocity_ =
+                vector(entry.character->GetLinearVelocity());
+            engine::ecs_detail::component_runtime(motor)->reset_pending_ = false;
+            engine::ecs_detail::component_runtime(motor)->grounded_ =
                 entry.character->GetGroundState() == JPH::CharacterBase::EGroundState::OnGround &&
                 entry.character->GetLinearVelocity().GetY() -
                         entry.character->GetGroundVelocity().GetY() <

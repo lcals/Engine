@@ -1,4 +1,6 @@
 #include "plugins/runtime/character_controller/character_controller_system.hpp"
+
+#include "plugins/runtime/character_controller/character_controller_runtime.hpp"
 #include "runtime/scene/ecs_scene.hpp"
 #include "runtime/scene/ecs_storage.hpp"
 
@@ -46,7 +48,7 @@ void CharacterControllerSystem::discard_component_inputs() noexcept
 
             if (auto controller = node.get_component<CharacterController>())
             {
-                controller.runtime()->input_ = {};
+                engine::ecs_detail::component_runtime(controller)->input_ = {};
             }
 
             return true;
@@ -228,7 +230,7 @@ bool CharacterControllerSystem::on_tick(double)
         static_cast<bool>(player) ? player.get_component<CharacterMotor>() : CharacterMotor{};
     if (!explicit_input && static_cast<bool>(controller))
     {
-        input = controller.runtime()->input_;
+        input = engine::ecs_detail::component_runtime(controller)->input_;
     }
     discard_component_inputs();
     if (!controller || !controller.active() || !detail::active(player) || !motor || !motor.active())
@@ -313,7 +315,7 @@ bool CharacterControllerSystem::on_tick(double)
     driving_node_ = player.id();
     driving_controller_ = controller.instance_id();
     driving_motor_ = motor.instance_id();
-    controller.runtime()->driven_motor_ = driving_motor_;
+    engine::ecs_detail::component_runtime(controller)->driven_motor_ = driving_motor_;
     return true;
 }
 

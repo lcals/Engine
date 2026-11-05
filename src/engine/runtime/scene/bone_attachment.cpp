@@ -1,5 +1,8 @@
 #include "runtime/scene/bone_attachment.hpp"
 
+#include "runtime/scene/animator_runtime.hpp"
+#include "runtime/scene/bone_attachment_runtime.hpp"
+
 #include "runtime/animation/animation_attachment.hpp"
 #include "runtime/animation/animation_math.hpp"
 #include "runtime/scene/ecs_storage.hpp"
@@ -75,7 +78,8 @@ bool BoneAttachment::set_source(Animator source)
 bool BoneAttachment::following() const noexcept
 {
     if (!valid() || !active() || !settings().follow_enabled || !runtime()->source ||
-        !runtime()->source.active() || !runtime()->source.runtime()->pose_revision_ ||
+        !runtime()->source.active() ||
+        !engine::ecs_detail::component_runtime(runtime()->source)->pose_revision_ ||
         !runtime()->following)
     {
         return false;

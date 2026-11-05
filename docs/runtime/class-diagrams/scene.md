@@ -55,11 +55,11 @@ classDiagram
 
 - WorldSystem 最多有一个当前玩法 Scene，另可保留常驻场景及一个未发布候选。场景 ID 在世界重新初始化后不重用。
 - `create_node()` 创建实体并自动添加 Transform。节点的完整 64 位实体 ID 含代次；局部 ID 另行分配并由 `local_node_index_` 索引。索引只保存身份映射，不复制节点状态或拥有 Node 对象。
-- SceneInfoT 存放于内部场景实体，活动相机只以局部 ID 保存；`active_camera()` 按需返回 Camera 值句柄。`set_active_camera(Camera{})` 清空选择，过期非空或其他场景镜头失败。添加 Camera 不自动改变选择。
+- SceneInfoT 存放于内部场景实体，活动相机只以局部 ID 保存；`active_camera()` 按需返回 Camera 值句柄。`set_active_camera(Camera{})` 清空选择，过期非空或其他场景镜头失败。Camera 类型在登记时安装移除观察器，移除活动 Camera 即清空选择；同节点重新添加 Camera 不恢复旧选择。添加 Camera 不自动改变选择。
 - `collect_nodes()` 按创建/恢复顺序生成独立值句柄数组；不暴露 ECS 内部地址或拥有容器。数组跨 ECS 移表仍可用于重新查找，但被删除实体的句柄立即失效。游戏系统以具体列和 Published 标记查询，不每帧调用该快照接口。
 - `destroy_node()` 删除节点及全部 ChildOf 后代，先清理索引和活动镜头选择，再释放 ECS 列与运行资源；不存在返回 false。其他实体身份不变。
 - 候选恢复使用源局部 ID，允许乱序、不连续及最大 uint64_t；后续自动 ID 在耗尽时失败。无效父链、组件或资源使候选完整回滚；发布前没有 Published 标记，原生系统查询不能看到半成品。
-- `build_data()` 由 ECS 中的唯一生成数据组装独立 SceneDataT，失败清空输出。运行实体 ID、缓存、请求与后端句柄不落盘；FlatBuffers 与 TypeScript 使用同一 schema。
+- `build_data()` 由 ECS 中的唯一生成数据组装独立 SceneDataT，失败清空输出。非零活动相机引用必须对应会保存的 Camera；相机节点或 Camera 组件为 transient 时失败，不能输出缺少所引用相机的快照。运行实体 ID、缓存、请求与后端句柄不落盘；FlatBuffers 与 TypeScript 使用同一 schema。
 
 ## 场景查询收敛契约
 

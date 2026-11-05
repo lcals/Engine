@@ -1,5 +1,7 @@
 #include "plugins/runtime/effects/effect_component.hpp"
 
+#include "plugins/runtime/effects/effect_component_runtime.hpp"
+
 #include "runtime/scene/ecs_storage.hpp"
 
 #include "plugins/runtime/effects/effect_resource_path.hpp"

@@ -1,5 +1,7 @@
 #include "runtime/scene/collider.hpp"
 
+#include "runtime/scene/collider_runtime.hpp"
+
 #include "runtime/scene/ecs_storage.hpp"
 
 #include "runtime/core/guid_map.hpp"

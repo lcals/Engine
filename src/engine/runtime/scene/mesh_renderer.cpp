@@ -1,5 +1,8 @@
 #include "runtime/scene/mesh_renderer.hpp"
 
+#include "runtime/scene/material_state.hpp"
+#include "runtime/scene/mesh_renderer_runtime.hpp"
+
 #include "runtime/scene/ecs_storage.hpp"
 
 #include "runtime/resource/resource_system.hpp"

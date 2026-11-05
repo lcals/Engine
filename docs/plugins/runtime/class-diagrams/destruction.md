@@ -21,7 +21,6 @@ class DestructionComponent {
         +DestructionComponent()
         +DestructionComponent(Component component)
         +register_type(ComponentRegistry& registry) bool$
-        +runtime() DestructionComponentRuntime#42;
 +valid_settings(const DestructionDataT& settings) bool$
 +settings() DestructionDataT
 +get_settings(DestructionDataT& output) bool
@@ -173,4 +172,4 @@ Pa 阈值与项目损伤计数解耦。
 
 常驻源节点与组节点各自遵守普通 Node 生命周期，独立生成根节点不自动继承源常驻标记。源和相关组均存活时，切场景保留图、姿态与在途损伤候选；发布仍按原 Scene、Node、生命周期和 revision 检查。源常驻而普通组被卸载时，系统回收残余生成记录，置 `ready=false`、`pending=false` 并保留图/损伤与一次明确错误；后续同步返回成功，不停止宿主或反复重建。调用方可显式 Reset 重建初始组。该边界不引入通用派生节点所有权层。
 
-本页组件均为可复制值句柄，生成设置唯一存于 `ComponentStorage<Data>` 的 ECS 列；`settings()` 返回独立值，`get_settings(output)` 明确返回失败。Runtime 为 ECS 中的领域运行列，资源引用、请求和缓存归该列或所属 System；句柄不拥有这些数据。`runtime()` 指针仅在当前结构稳定阶段有效，不能跨 ECS 结构修改留存。类型注册、失效身份与查询规则见 [ECS 场景](../../../runtime/class-diagrams/ecs-scene.md)。
+本页组件均为可复制值句柄，生成设置唯一存于 `ComponentStorage<Data>` 的 ECS 列；`settings()` 返回独立值，`get_settings(output)` 明确返回失败。Runtime 为 ECS 中的领域运行列，资源引用、请求和缓存归该列或所属 System；句柄不拥有这些数据。Runtime 定义与可变访问仅供所属模块内部实现使用，公开组件不提供 `runtime()`；原生系统的 ECS 列借用仅在当前结构稳定阶段有效，不能跨结构修改留存。类型注册、失效身份与查询规则见 [ECS 场景](../../../runtime/class-diagrams/ecs-scene.md)。

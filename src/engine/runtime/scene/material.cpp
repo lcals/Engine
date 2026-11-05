@@ -1,5 +1,8 @@
 #include "runtime/scene/material.hpp"
 
+#include "runtime/scene/material_state.hpp"
+#include "runtime/scene/mesh_renderer_runtime.hpp"
+
 #include "runtime/scene/mesh_renderer.hpp"
 
 #include "runtime/resource/codecs/material_value_utils.hpp"
@@ -575,7 +578,7 @@ MaterialState* Material::state() const noexcept
     {
         return nullptr;
     }
-    auto* runtime = MeshRenderer(owner_).runtime();
+    auto* runtime = engine::ecs_detail::component_runtime(MeshRenderer(owner_));
     if (!runtime || slot_ >= runtime->materials_.size() ||
         runtime->materials_[slot_].identity != identity_)
     {

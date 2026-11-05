@@ -1,5 +1,7 @@
 #include "runtime/scene/animator.hpp"
 
+#include "runtime/scene/animator_runtime.hpp"
+
 #include "runtime/animation/animation_binding.hpp"
 #include "runtime/animation/animation_ik.hpp"
 #include "runtime/animation/animation_math.hpp"
@@ -47,7 +49,8 @@ bool committed_pose(Animator animator, ResourcePtr& target, MeshRenderer& render
 {
     target.reset();
     renderer = {};
-    if (!animator || !animator.active() || !animator.runtime()->pose_revision_ ||
+    if (!animator || !animator.active() ||
+        !engine::ecs_detail::component_runtime(animator)->pose_revision_ ||
         !flecs::world(animator.node().world()->native_world())
              .entity(animator.node().id())
              .has<ecs_detail::Published>())
@@ -55,13 +58,16 @@ bool committed_pose(Animator animator, ResourcePtr& target, MeshRenderer& render
         return false;
     }
     renderer = animator.node().get_component<MeshRenderer>();
-    target = animator.runtime()->target_skeleton_;
+    target = engine::ecs_detail::component_runtime(animator)->target_skeleton_;
     const auto* mesh = renderer ? renderer.mesh_data() : nullptr;
     return renderer && renderer.active() && mesh && target && target->skeleton() &&
            mesh->skeleton_guid == target->info().guid &&
-           animator.runtime()->pose_mesh_revision_ == renderer.mesh_revision() &&
-           animator.runtime()->pose_mesh_instance_ == renderer.instance_id() &&
-           animator.runtime()->committed_models_.size() == target->skeleton()->joints.size();
+           engine::ecs_detail::component_runtime(animator)->pose_mesh_revision_ ==
+               renderer.mesh_revision() &&
+           engine::ecs_detail::component_runtime(animator)->pose_mesh_instance_ ==
+               renderer.instance_id() &&
+           engine::ecs_detail::component_runtime(animator)->committed_models_.size() ==
+               target->skeleton()->joints.size();
 }
 } // namespace
 

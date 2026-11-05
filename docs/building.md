@@ -92,7 +92,7 @@ cmake --workflow --preset ninja-engine-release
 | 分组 | vcpkg feature | 依赖 |
 | --- | --- | --- |
 | 游戏运行时 | `runtime` | SDL3、bgfx、flecs、oneTBB、Jolt Physics、Recast Navigation、RmlUi、FlatBuffers、Basis Universal |
-| 桌面编辑器 | `editor` | 项目系统所用 toml++、Dear ImGui（docking 与 SDL3 绑定） |
+| 桌面编辑器 | `editor` | 运行设置读取所用 toml++、Dear ImGui（docking 与 SDL3 绑定） |
 | 编辑器与离线资源管线 | `asset-pipeline` | OpenUSD、SQLite、efsw、FlatBuffers、toml++、Basis Universal、meshoptimizer、bgfx 编译工具（shaderc、texturec、geometryc） |
 | 编辑器建模插件 | `modeling` | Earcut、Manifold（含 Clipper2 依赖）；仅选中建模插件时加入 |
 | 编辑器资源导入 | `font-import`、`usd-import` | 统一 `asset_import` 插件所需的 FreeType 与 OpenUSD；不进入运行包 |

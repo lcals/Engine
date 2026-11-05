@@ -297,7 +297,9 @@ bool Scene::build_data(schema::SceneDataT& output) const
     {
         return false;
     }
-    if (const auto camera = active_camera(); camera && camera.node().transient())
+    if (const auto camera = active_camera();
+        info->active_camera_node != 0 &&
+        (!camera || camera.transient() || camera.node().transient()))
     {
         return false;
     }

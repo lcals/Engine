@@ -1,5 +1,7 @@
 #include "plugins/runtime/destruction/destruction_system.hpp"
 
+#include "plugins/runtime/destruction/destruction_component_runtime.hpp"
+
 #include "plugins/runtime/destruction/destruction_component.hpp"
 #include "runtime/performance/profiling.hpp"
 #include "runtime/physics/physics_system.hpp"
@@ -506,16 +508,19 @@ bool DestructionSystem::publish(DestructionComponent component, DestructionGraph
     if (!state_ || world_.find_node(component.node().id()) != component.node() ||
         component.node().parent() || groups.size() != candidate.groups().size() ||
         (prepared != nullptr && prepared->size() != groups.size()) ||
-        component.runtime()->revision_ == std::numeric_limits<std::uint64_t>::max())
+        engine::ecs_detail::component_runtime(component)->revision_ ==
+            std::numeric_limits<std::uint64_t>::max())
     {
-        component.runtime()->last_error_ = "Destruction requires a root node in the active world";
+        engine::ecs_detail::component_runtime(component)->last_error_ =
+            "Destruction requires a root node in the active world";
         return false;
     }
     std::string material = "builtin://materials/default-pbr";
     if (!component.settings().material_guid.empty() &&
         !ResourceSystem::guid_to_path(component.settings().material_guid, material))
     {
-        component.runtime()->last_error_ = "Cannot resolve destruction material";
+        engine::ecs_detail::component_runtime(component)->last_error_ =
+            "Cannot resolve destruction material";
         return false;
     }
     const auto& asset = candidate.data();
@@ -529,15 +534,16 @@ bool DestructionSystem::publish(DestructionComponent component, DestructionGraph
     std::vector<GeneratedGroup> created;
     std::vector<GeneratedGroup> published;
     std::vector<std::pair<RigidBody, schema::RigidBodyDataT>> velocity_updates;
-    bool changed = !reuse_groups || groups.size() != previous.size() ||
-                   candidate.healths() != component.runtime()->graph_.healths();
+    bool changed =
+        !reuse_groups || groups.size() != previous.size() ||
+        candidate.healths() != engine::ecs_detail::component_runtime(component)->graph_.healths();
     const auto fail = [&](std::string error)
     {
         if (!release_groups(world_, physics_, created))
         {
             error += "; failed to clean candidate bodies";
         }
-        component.runtime()->last_error_ = std::move(error);
+        engine::ecs_detail::component_runtime(component)->last_error_ = std::move(error);
         return false;
     };
     for (std::size_t index = 0; index < groups.size(); ++index)
@@ -656,7 +662,7 @@ bool DestructionSystem::publish(DestructionComponent component, DestructionGraph
     }
     if (!changed)
     {
-        component.runtime()->last_error_.clear();
+        engine::ecs_detail::component_runtime(component)->last_error_.clear();
         return true;
     }
     std::vector<GeneratedGroup> retired;
@@ -680,11 +686,11 @@ bool DestructionSystem::publish(DestructionComponent component, DestructionGraph
         }
     }
     previous = std::move(published);
-    component.runtime()->graph_ = std::move(candidate);
-    component.runtime()->ready_ = true;
-    component.runtime()->pending_ = false;
-    component.runtime()->last_error_.clear();
-    ++component.runtime()->revision_;
+    engine::ecs_detail::component_runtime(component)->graph_ = std::move(candidate);
+    engine::ecs_detail::component_runtime(component)->ready_ = true;
+    engine::ecs_detail::component_runtime(component)->pending_ = false;
+    engine::ecs_detail::component_runtime(component)->last_error_.clear();
+    ++engine::ecs_detail::component_runtime(component)->revision_;
     return true;
 }
 
@@ -701,13 +707,15 @@ bool DestructionSystem::prepare_groups(DestructionComponent component,
     auto transform = component.node().get_component<Transform>();
     if (!transform || !valid_transform(transform.settings()))
     {
-        component.runtime()->last_error_ = "Destruction requires a positive uniform scale";
+        engine::ecs_detail::component_runtime(component)->last_error_ =
+            "Destruction requires a positive uniform scale";
         return false;
     }
     schema::DestructionStateDataT previous;
     if (preserve && !snapshot(component, previous))
     {
-        component.runtime()->last_error_ = "Cannot capture destruction groups before replacement";
+        engine::ecs_detail::component_runtime(component)->last_error_ =
+            "Cannot capture destruction groups before replacement";
         return false;
     }
     for (const auto& group : candidate.groups())
@@ -726,7 +734,7 @@ bool DestructionSystem::prepare_groups(DestructionComponent component,
                              });
             if (found == previous.groups.end())
             {
-                component.runtime()->last_error_ =
+                engine::ecs_detail::component_runtime(component)->last_error_ =
                     "Replacement destruction group has no source pose";
                 return false;
             }
@@ -746,7 +754,8 @@ bool DestructionSystem::prepare_groups(DestructionComponent component,
             float matrix[16];
             if (!source_node || !source_node.get_component<Transform>().world_matrix(matrix))
             {
-                component.runtime()->last_error_ = "Cannot resolve source destruction transform";
+                engine::ecs_detail::component_runtime(component)->last_error_ =
+                    "Cannot resolve source destruction transform";
                 return false;
             }
             const auto a = world_point(matrix, old_center);
@@ -784,23 +793,26 @@ bool DestructionSystem::damage(DestructionComponent component, const Vec3& cente
         return false;
     }
     ENGINE_PROFILE_ZONE("Destruction.damage");
-    if (!state_ || !component.runtime()->ready_ || !active_component(component) ||
-        !finite(center) || !std::isfinite(radius) || radius <= 0 || radius > 100000 ||
-        !std::isfinite(damage_value) || damage_value < 0 || damage_value > 1000000 ||
-        !std::isfinite(impulse) || impulse < 0 || impulse > 1000000)
+    if (!state_ || !engine::ecs_detail::component_runtime(component)->ready_ ||
+        !active_component(component) || !finite(center) || !std::isfinite(radius) || radius <= 0 ||
+        radius > 100000 || !std::isfinite(damage_value) || damage_value < 0 ||
+        damage_value > 1000000 || !std::isfinite(impulse) || impulse < 0 || impulse > 1000000)
     {
-        component.runtime()->last_error_ = "Invalid destruction sphere, damage or impulse";
+        engine::ecs_detail::component_runtime(component)->last_error_ =
+            "Invalid destruction sphere, damage or impulse";
         return false;
     }
     const auto found = state_->generated.find(component.node().id());
     DestructionGraph candidate;
     if (found == state_->generated.end() ||
-        !component.runtime()->graph_.clone(candidate, component.runtime()->last_error_))
+        !engine::ecs_detail::component_runtime(component)->graph_.clone(
+            candidate, engine::ecs_detail::component_runtime(component)->last_error_))
     {
-        component.runtime()->last_error_ = "Cannot prepare destruction damage candidate";
+        engine::ecs_detail::component_runtime(component)->last_error_ =
+            "Cannot prepare destruction damage candidate";
         return false;
     }
-    for (const auto& group : component.runtime()->graph_.groups())
+    for (const auto& group : engine::ecs_detail::component_runtime(component)->graph_.groups())
     {
         const auto generated =
             std::find_if(found->second.begin(), found->second.end(),
@@ -812,13 +824,14 @@ bool DestructionSystem::damage(DestructionComponent component, const Vec3& cente
         float matrix[16];
         if (!transform || !valid_transform(transform.settings()) || !transform.world_matrix(matrix))
         {
-            component.runtime()->last_error_ = "Cannot locate destruction group transform";
+            engine::ecs_detail::component_runtime(component)->last_error_ =
+                "Cannot locate destruction group transform";
             return false;
         }
         const double scale = transform.settings().scale.x();
         if (!candidate.damage_sphere(group.id, local_point(matrix, center, scale),
                                      static_cast<float>(radius / scale), damage_value,
-                                     component.runtime()->last_error_))
+                                     engine::ecs_detail::component_runtime(component)->last_error_))
         {
             return false;
         }
@@ -850,7 +863,8 @@ bool DestructionSystem::damage(DestructionComponent component, const Vec3& cente
         double volume = 0;
         if (!node || !node.get_component<Transform>().world_matrix(matrix))
         {
-            component.runtime()->last_error_ = "Cannot prepare destruction impulse";
+            engine::ecs_detail::component_runtime(component)->last_error_ =
+                "Cannot prepare destruction impulse";
             return false;
         }
         const auto pivot = world_point(matrix, center_of(candidate.data(), group.chunks, volume));
@@ -882,9 +896,9 @@ bool DestructionSystem::reset(DestructionComponent component)
         return false;
     }
     DestructionGraph candidate;
-    return component.runtime()->resource_ &&
-           candidate.initialize(component.runtime()->graph_.data(),
-                                component.runtime()->last_error_) &&
+    return engine::ecs_detail::component_runtime(component)->resource_ &&
+           candidate.initialize(engine::ecs_detail::component_runtime(component)->graph_.data(),
+                                engine::ecs_detail::component_runtime(component)->last_error_) &&
            rebuild(component, std::move(candidate), false);
 }
 
@@ -898,25 +912,28 @@ bool DestructionSystem::apply_stress(DestructionComponent component, const Vec3&
         return false;
     }
     ENGINE_PROFILE_ZONE("Destruction.apply_stress");
-    if (!state_ || !component.runtime()->ready_ || !active_component(component) ||
-        !finite(gravity) || std::abs(gravity.x()) > 100000 || std::abs(gravity.y()) > 100000 ||
-        std::abs(gravity.z()) > 100000 || !std::isfinite(elastic_limit) || elastic_limit <= 0 ||
-        !std::isfinite(fatal_limit) || fatal_limit < elastic_limit || iterations == 0 ||
-        iterations > 1000)
+    if (!state_ || !engine::ecs_detail::component_runtime(component)->ready_ ||
+        !active_component(component) || !finite(gravity) || std::abs(gravity.x()) > 100000 ||
+        std::abs(gravity.y()) > 100000 || std::abs(gravity.z()) > 100000 ||
+        !std::isfinite(elastic_limit) || elastic_limit <= 0 || !std::isfinite(fatal_limit) ||
+        fatal_limit < elastic_limit || iterations == 0 || iterations > 1000)
     {
-        component.runtime()->last_error_ = "Invalid destruction gravity stress parameters";
+        engine::ecs_detail::component_runtime(component)->last_error_ =
+            "Invalid destruction gravity stress parameters";
         return false;
     }
     const auto found = state_->generated.find(component.node().id());
     DestructionGraph candidate;
     if (found == state_->generated.end() ||
-        !component.runtime()->graph_.clone(candidate, component.runtime()->last_error_))
+        !engine::ecs_detail::component_runtime(component)->graph_.clone(
+            candidate, engine::ecs_detail::component_runtime(component)->last_error_))
     {
-        component.runtime()->last_error_ = "Cannot prepare destruction stress candidate";
+        engine::ecs_detail::component_runtime(component)->last_error_ =
+            "Cannot prepare destruction stress candidate";
         return false;
     }
     std::uint32_t count = 0;
-    for (const auto& group : component.runtime()->graph_.groups())
+    for (const auto& group : engine::ecs_detail::component_runtime(component)->graph_.groups())
     {
         if (!group.anchored)
         {
@@ -932,7 +949,8 @@ bool DestructionSystem::apply_stress(DestructionComponent component, const Vec3&
         float matrix[16];
         if (!transform || !valid_transform(transform.settings()) || !transform.world_matrix(matrix))
         {
-            component.runtime()->last_error_ = "Cannot locate destruction stress group transform";
+            engine::ecs_detail::component_runtime(component)->last_error_ =
+                "Cannot locate destruction stress group transform";
             return false;
         }
         // For uniform scale s: weight/area grows by s. Transpose(s*R) rotates gravity
@@ -944,15 +962,15 @@ bool DestructionSystem::apply_stress(DestructionComponent component, const Vec3&
         std::uint32_t group_broken = 0;
         if (!candidate.apply_stress(group.id, local_gravity, component.settings().density,
                                     elastic_limit, fatal_limit, iterations, group_broken,
-                                    component.runtime()->last_error_))
+                                    engine::ecs_detail::component_runtime(component)->last_error_))
         {
             return false;
         }
         count += group_broken;
     }
-    if (candidate.healths() == component.runtime()->graph_.healths())
+    if (candidate.healths() == engine::ecs_detail::component_runtime(component)->graph_.healths())
     {
-        component.runtime()->last_error_.clear();
+        engine::ecs_detail::component_runtime(component)->last_error_.clear();
         return true;
     }
     std::vector<schema::DestructionGroupStateT> states;
@@ -974,13 +992,14 @@ bool DestructionSystem::request_damage(DestructionComponent component, const Vec
         return false;
     }
     if (!state_ || !is_initialized() || tasks_ == nullptr || !tasks_->is_initialized() ||
-        !completed || !component.runtime()->ready_ || !active_component(component) ||
+        !completed || !engine::ecs_detail::component_runtime(component)->ready_ ||
+        !active_component(component) ||
         world_.find_node(component.node().id()) != component.node() || !finite(center) ||
         !std::isfinite(radius) || radius <= 0 || radius > 100000 || !std::isfinite(damage_value) ||
         damage_value < 0 || damage_value > 1000000 || !std::isfinite(impulse) || impulse < 0 ||
         impulse > 1000000)
     {
-        component.runtime()->last_error_ =
+        engine::ecs_detail::component_runtime(component)->last_error_ =
             "Invalid asynchronous destruction request or task domain";
         return false;
     }
@@ -988,26 +1007,28 @@ bool DestructionSystem::request_damage(DestructionComponent component, const Vec
     auto found = state_->owners.find(id);
     if (found != state_->owners.end() &&
         (found->second.scene != component.node().scene()->id() ||
-         found->second.lifetime.lock() != component.runtime()->lifetime_ ||
-         found->second.revision != component.runtime()->revision_))
+         found->second.lifetime.lock() !=
+             engine::ecs_detail::component_runtime(component)->lifetime_ ||
+         found->second.revision != engine::ecs_detail::component_runtime(component)->revision_))
     {
         state_->cancel(found->second);
         state_->owners.erase(found);
     }
     if (state_->pending >= max_pending_requests_)
     {
-        component.runtime()->last_error_ = "Destruction asynchronous request budget is full";
+        engine::ecs_detail::component_runtime(component)->last_error_ =
+            "Destruction asynchronous request budget is full";
         return false;
     }
     auto& owner = state_->owners[id];
     owner.node = id;
     owner.scene = component.node().scene()->id();
-    owner.revision = component.runtime()->revision_;
-    owner.lifetime = component.runtime()->lifetime_;
+    owner.revision = engine::ecs_detail::component_runtime(component)->revision_;
+    owner.lifetime = engine::ecs_detail::component_runtime(component)->lifetime_;
     owner.requests.push_back({center, radius, damage_value, impulse, std::move(completed)});
     ++state_->pending;
     ++state_->pending_by_owner[id];
-    component.runtime()->last_error_.clear();
+    engine::ecs_detail::component_runtime(component)->last_error_.clear();
     return true;
 }
 
@@ -1034,9 +1055,10 @@ void DestructionSystem::process_requests()
             node = {};
         }
         auto component = node ? node.get_component<DestructionComponent>() : DestructionComponent{};
-        if (!component || !component.runtime()->ready_ || !active_component(component) ||
-            owner.lifetime.lock() != component.runtime()->lifetime_ ||
-            owner.revision != component.runtime()->revision_)
+        if (!component || !engine::ecs_detail::component_runtime(component)->ready_ ||
+            !active_component(component) ||
+            owner.lifetime.lock() != engine::ecs_detail::component_runtime(component)->lifetime_ ||
+            owner.revision != engine::ecs_detail::component_runtime(component)->revision_)
         {
             state_->cancel(owner);
             state_->owners.erase(current);
@@ -1071,7 +1093,7 @@ void DestructionSystem::process_requests()
                 }
                 if (!success)
                 {
-                    component.runtime()->last_error_ =
+                    engine::ecs_detail::component_runtime(component)->last_error_ =
                         "Destruction source identity or scale changed during preparation";
                 }
             }
@@ -1091,11 +1113,11 @@ void DestructionSystem::process_requests()
                     success = publish(component, std::move(prepared.graph), groups, true,
                                       &prepared.groups);
                 }
-                owner.revision = component.runtime()->revision_;
+                owner.revision = engine::ecs_detail::component_runtime(component)->revision_;
             }
             else if (!prepared.error.empty())
             {
-                component.runtime()->last_error_ = prepared.error;
+                engine::ecs_detail::component_runtime(component)->last_error_ = prepared.error;
             }
             owner.prepared.reset();
             state_->ready.push_back(
@@ -1133,10 +1155,12 @@ void DestructionSystem::process_requests()
         {
             auto prepared = std::make_shared<State::Prepared>();
             const auto found = state_->generated.find(id);
-            bool valid = found != state_->generated.end() &&
-                         component.runtime()->graph_.clone(prepared->graph,
-                                                           component.runtime()->last_error_);
-            for (const auto& group : component.runtime()->graph_.groups())
+            bool valid =
+                found != state_->generated.end() &&
+                engine::ecs_detail::component_runtime(component)->graph_.clone(
+                    prepared->graph, engine::ecs_detail::component_runtime(component)->last_error_);
+            for (const auto& group :
+                 engine::ecs_detail::component_runtime(component)->graph_.groups())
             {
                 if (!valid)
                 {
@@ -1160,7 +1184,8 @@ void DestructionSystem::process_requests()
             }
             if (!valid)
             {
-                component.runtime()->last_error_ = "Cannot capture asynchronous destruction input";
+                engine::ecs_detail::component_runtime(component)->last_error_ =
+                    "Cannot capture asynchronous destruction input";
                 state_->ready.push_back({std::move(owner.requests.front().completed), false, id});
                 owner.requests.pop_front();
                 continue;
@@ -1206,7 +1231,7 @@ bool DestructionSystem::owns_fragment(DestructionComponent component,
     {
         return false;
     }
-    if (!state_ || !component.runtime()->ready_ ||
+    if (!state_ || !engine::ecs_detail::component_runtime(component)->ready_ ||
         world_.find_node(component.node().id()) != component.node() ||
         component.node().get_component<DestructionComponent>() != component)
     {
@@ -1229,25 +1254,28 @@ bool DestructionSystem::retire_fragments(DestructionComponent component, std::ui
     }
     ENGINE_PROFILE_ZONE("Destruction.retire_fragments");
     const auto id = component.node().id();
-    if (!state_ || !is_initialized() || !component.runtime()->ready_ ||
+    if (!state_ || !is_initialized() || !engine::ecs_detail::component_runtime(component)->ready_ ||
         world_.find_node(id) != component.node() ||
         component.node().get_component<DestructionComponent>() != component ||
         !std::isfinite(max_age_seconds) || max_age_seconds < 0)
     {
-        component.runtime()->last_error_ = "Invalid destruction retirement owner or budget";
+        engine::ecs_detail::component_runtime(component)->last_error_ =
+            "Invalid destruction retirement owner or budget";
         return false;
     }
     if (state_->pending_by_owner.contains(id))
     {
-        component.runtime()->last_error_ =
+        engine::ecs_detail::component_runtime(component)->last_error_ =
             "Destruction retirement requires all owner requests to complete";
         return false;
     }
     const auto found = state_->generated.find(id);
     if (found == state_->generated.end() ||
-        found->second.size() != component.runtime()->graph_.groups().size())
+        found->second.size() !=
+            engine::ecs_detail::component_runtime(component)->graph_.groups().size())
     {
-        component.runtime()->last_error_ = "Cannot locate destruction groups for retirement";
+        engine::ecs_detail::component_runtime(component)->last_error_ =
+            "Cannot locate destruction groups for retirement";
         return false;
     }
     std::vector<const GeneratedGroup*> dynamic;
@@ -1268,7 +1296,7 @@ bool DestructionSystem::retire_fragments(DestructionComponent component, std::ui
             body.settings().motion !=
                 (group.anchored ? schema::BodyMotion::static_body : schema::BodyMotion::dynamic))
         {
-            component.runtime()->last_error_ =
+            engine::ecs_detail::component_runtime(component)->last_error_ =
                 "A generated destruction fragment was removed or replaced";
             return false;
         }
@@ -1293,7 +1321,7 @@ bool DestructionSystem::retire_fragments(DestructionComponent component, std::ui
     const auto count = std::max(expired, excess);
     if (count == 0)
     {
-        component.runtime()->last_error_.clear();
+        engine::ecs_detail::component_runtime(component)->last_error_.clear();
         return true;
     }
     std::vector<std::uint32_t> groups;
@@ -1303,8 +1331,10 @@ bool DestructionSystem::retire_fragments(DestructionComponent component, std::ui
     }
     DestructionGraph candidate;
     std::vector<schema::DestructionGroupStateT> states;
-    if (!component.runtime()->graph_.clone(candidate, component.runtime()->last_error_) ||
-        !candidate.retire_groups(groups, component.runtime()->last_error_) ||
+    if (!engine::ecs_detail::component_runtime(component)->graph_.clone(
+            candidate, engine::ecs_detail::component_runtime(component)->last_error_) ||
+        !candidate.retire_groups(groups,
+                                 engine::ecs_detail::component_runtime(component)->last_error_) ||
         !prepare_groups(component, candidate, true, states) ||
         !publish(component, std::move(candidate), states, true))
     {
@@ -1322,7 +1352,8 @@ bool DestructionSystem::refresh_support(DestructionComponent component, Collider
         return false;
     }
     ENGINE_PROFILE_ZONE("Destruction.refresh_support");
-    if (!support || !state_ || !component.runtime()->ready_ || !active_component(component) ||
+    if (!support || !state_ || !engine::ecs_detail::component_runtime(component)->ready_ ||
+        !active_component(component) ||
         world_.find_node(component.node().id()) != component.node() ||
         world_.find_node(support.node().id()) != support.node() ||
         component.node().get_component<DestructionComponent>() != component ||
@@ -1330,7 +1361,7 @@ bool DestructionSystem::refresh_support(DestructionComponent component, Collider
         max_gap <= 0 || max_gap > 1000 || !std::isfinite(min_coverage) || min_coverage <= 0 ||
         min_coverage > 1)
     {
-        component.runtime()->last_error_ =
+        engine::ecs_detail::component_runtime(component)->last_error_ =
             "Invalid destruction foundation query, component or scene";
         return false;
     }
@@ -1339,18 +1370,19 @@ bool DestructionSystem::refresh_support(DestructionComponent component, Collider
         owns_fragment(component, support.node().id()) ||
         (support_body && support_body.settings().motion != schema::BodyMotion::static_body))
     {
-        component.runtime()->last_error_ =
+        engine::ecs_detail::component_runtime(component)->last_error_ =
             "Destruction support must be an external static solid collider";
         return false;
     }
     const auto found = state_->generated.find(component.node().id());
     if (found == state_->generated.end())
     {
-        component.runtime()->last_error_ = "Cannot locate generated destruction groups";
+        engine::ecs_detail::component_runtime(component)->last_error_ =
+            "Cannot locate generated destruction groups";
         return false;
     }
-    const auto& asset = component.runtime()->graph_.data();
-    const auto health = component.runtime()->graph_.healths();
+    const auto& asset = engine::ecs_detail::component_runtime(component)->graph_.data();
+    const auto health = engine::ecs_detail::component_runtime(component)->graph_.healths();
     std::size_t world_bond = asset.bonds.size();
     std::vector<std::uint32_t> released;
     for (std::uint32_t chunk_id = 0; chunk_id < asset.chunks.size(); ++chunk_id)
@@ -1372,13 +1404,13 @@ bool DestructionSystem::refresh_support(DestructionComponent component, Collider
         float matrix[16];
         if (!transform || !valid_transform(transform.settings()) || !transform.world_matrix(matrix))
         {
-            component.runtime()->last_error_ =
+            engine::ecs_detail::component_runtime(component)->last_error_ =
                 "Cannot locate the current foundation group transform";
             return false;
         }
         double coverage = 0;
         if (!support_coverage(chunk, matrix, support, physics_, max_gap, coverage,
-                              component.runtime()->last_error_))
+                              engine::ecs_detail::component_runtime(component)->last_error_))
         {
             return false;
         }
@@ -1389,13 +1421,15 @@ bool DestructionSystem::refresh_support(DestructionComponent component, Collider
     }
     if (released.empty())
     {
-        component.runtime()->last_error_.clear();
+        engine::ecs_detail::component_runtime(component)->last_error_.clear();
         return true;
     }
     DestructionGraph candidate;
     std::vector<schema::DestructionGroupStateT> states;
-    return component.runtime()->graph_.clone(candidate, component.runtime()->last_error_) &&
-           candidate.release_anchors(released, component.runtime()->last_error_) &&
+    return engine::ecs_detail::component_runtime(component)->graph_.clone(
+               candidate, engine::ecs_detail::component_runtime(component)->last_error_) &&
+           candidate.release_anchors(
+               released, engine::ecs_detail::component_runtime(component)->last_error_) &&
            prepare_groups(component, candidate, true, states) &&
            publish(component, std::move(candidate), states, true);
 }
@@ -1408,7 +1442,8 @@ bool DestructionSystem::snapshot(DestructionComponent component,
     {
         return false;
     }
-    if (!state_ || !component.runtime()->ready_ || !component.runtime()->resource_ ||
+    if (!state_ || !engine::ecs_detail::component_runtime(component)->ready_ ||
+        !engine::ecs_detail::component_runtime(component)->resource_ ||
         world_.find_node(component.node().id()) != component.node())
     {
         return false;
@@ -1419,9 +1454,10 @@ bool DestructionSystem::snapshot(DestructionComponent component,
         return false;
     }
     schema::DestructionStateDataT state;
-    state.base_guid = component.runtime()->resource_->info().guid;
-    state.base_hash = component.runtime()->resource_->info().content_hash;
-    state.bond_health = component.runtime()->graph_.healths();
+    state.base_guid = engine::ecs_detail::component_runtime(component)->resource_->info().guid;
+    state.base_hash =
+        engine::ecs_detail::component_runtime(component)->resource_->info().content_hash;
+    state.bond_health = engine::ecs_detail::component_runtime(component)->graph_.healths();
     for (const auto& group : found->second)
     {
         auto saved = std::make_unique<schema::DestructionGroupStateT>();
@@ -1432,8 +1468,9 @@ bool DestructionSystem::snapshot(DestructionComponent component,
         saved->dynamic_age_seconds = group.dynamic_age_seconds;
         state.groups.push_back(std::move(saved));
     }
-    std::vector<bool> active(component.runtime()->graph_.data().chunks.size(), false);
-    for (const auto& group : component.runtime()->graph_.groups())
+    std::vector<bool> active(
+        engine::ecs_detail::component_runtime(component)->graph_.data().chunks.size(), false);
+    for (const auto& group : engine::ecs_detail::component_runtime(component)->graph_.groups())
     {
         for (const auto chunk : group.chunks)
         {
@@ -1458,17 +1495,21 @@ bool DestructionSystem::restore(DestructionComponent component,
     {
         return false;
     }
-    if (!component.runtime()->resource_ || state.schema_version != 2 ||
-        state.base_guid != component.runtime()->resource_->info().guid ||
-        state.base_hash != component.runtime()->resource_->info().content_hash)
+    if (!engine::ecs_detail::component_runtime(component)->resource_ || state.schema_version != 2 ||
+        state.base_guid !=
+            engine::ecs_detail::component_runtime(component)->resource_->info().guid ||
+        state.base_hash !=
+            engine::ecs_detail::component_runtime(component)->resource_->info().content_hash)
     {
-        component.runtime()->last_error_ = "Destruction state does not match its base resource";
+        engine::ecs_detail::component_runtime(component)->last_error_ =
+            "Destruction state does not match its base resource";
         return false;
     }
     DestructionGraph candidate;
-    if (!candidate.initialize(component.runtime()->graph_.data(),
-                              component.runtime()->last_error_) ||
-        !candidate.restore_health(state.bond_health, component.runtime()->last_error_))
+    if (!candidate.initialize(engine::ecs_detail::component_runtime(component)->graph_.data(),
+                              engine::ecs_detail::component_runtime(component)->last_error_) ||
+        !candidate.restore_health(state.bond_health,
+                                  engine::ecs_detail::component_runtime(component)->last_error_))
     {
         return false;
     }
@@ -1478,7 +1519,8 @@ bool DestructionSystem::restore(DestructionComponent component,
         (!state.retired_chunks.empty() &&
          state.retired_chunks.back() >= candidate.data().chunks.size()))
     {
-        component.runtime()->last_error_ = "Invalid retired destruction chunk identities";
+        engine::ecs_detail::component_runtime(component)->last_error_ =
+            "Invalid retired destruction chunk identities";
         return false;
     }
     std::vector<std::uint32_t> retired_groups;
@@ -1497,19 +1539,20 @@ bool DestructionSystem::restore(DestructionComponent component,
         }
         if (group.anchored || static_cast<std::size_t>(count) != group.chunks.size())
         {
-            component.runtime()->last_error_ =
+            engine::ecs_detail::component_runtime(component)->last_error_ =
                 "Retired chunks do not match complete detached groups";
             return false;
         }
         retired_groups.push_back(group.id);
     }
-    if (!candidate.retire_groups(retired_groups, component.runtime()->last_error_))
+    if (!candidate.retire_groups(retired_groups,
+                                 engine::ecs_detail::component_runtime(component)->last_error_))
     {
         return false;
     }
     if (state.groups.size() != candidate.groups().size())
     {
-        component.runtime()->last_error_ =
+        engine::ecs_detail::component_runtime(component)->last_error_ =
             "Destruction state group count does not match its bond state";
         return false;
     }
@@ -1521,7 +1564,8 @@ bool DestructionSystem::restore(DestructionComponent component,
                          [&](const auto& saved) { return saved && saved->chunks == group.chunks; });
         if (found == state.groups.end())
         {
-            component.runtime()->last_error_ = "Destruction state contains a mismatched group";
+            engine::ecs_detail::component_runtime(component)->last_error_ =
+                "Destruction state contains a mismatched group";
             return false;
         }
         groups.push_back(**found);
@@ -1573,7 +1617,7 @@ bool DestructionSystem::synchronize()
     {
         auto node = world_.find_node(found->first);
         auto component = node ? node.get_component<DestructionComponent>() : DestructionComponent{};
-        if (!component || !component.runtime()->resource_)
+        if (!component || !engine::ecs_detail::component_runtime(component)->resource_)
         {
             if (!release_groups(world_, physics_, found->second))
             {
@@ -1615,7 +1659,7 @@ bool DestructionSystem::synchronize(Node owner)
     }
     auto node = owner;
     auto component = node.get_component<DestructionComponent>();
-    if (!component || !component.runtime()->resource_)
+    if (!component || !engine::ecs_detail::component_runtime(component)->resource_)
     {
         const auto found = state_->generated.find(node.id());
         if (found != state_->generated.end())
@@ -1638,16 +1682,18 @@ bool DestructionSystem::synchronize(Node owner)
             return false;
         }
         state_->generated.erase(generated);
-        component.runtime()->ready_ = false;
-        component.runtime()->pending_ = false;
-        component.runtime()->last_error_ =
+        engine::ecs_detail::component_runtime(component)->ready_ = false;
+        engine::ecs_detail::component_runtime(component)->pending_ = false;
+        engine::ecs_detail::component_runtime(component)->last_error_ =
             "Generated destruction nodes were unloaded; Reset recreates the assembly";
         return true;
     }
-    if (!world_.paused() && component.runtime()->pending_ && component.active())
+    if (!world_.paused() && engine::ecs_detail::component_runtime(component)->pending_ &&
+        component.active())
     {
         DestructionGraph candidate;
-        if (!component.runtime()->graph_.clone(candidate, component.runtime()->last_error_) ||
+        if (!engine::ecs_detail::component_runtime(component)->graph_.clone(
+                candidate, engine::ecs_detail::component_runtime(component)->last_error_) ||
             !rebuild(component, std::move(candidate), false))
         {
             return false;
@@ -1661,7 +1707,7 @@ bool DestructionSystem::synchronize(Node owner)
     auto transform = node.get_component<Transform>();
     if (!transform || node.parent() || !valid_transform(transform.settings()))
     {
-        component.runtime()->last_error_ =
+        engine::ecs_detail::component_runtime(component)->last_error_ =
             "Destruction requires a root node with positive uniform scale";
         return false;
     }
@@ -1671,7 +1717,7 @@ bool DestructionSystem::synchronize(Node owner)
         auto fragment = world_.find_node(group.node);
         if (!fragment)
         {
-            component.runtime()->last_error_ =
+            engine::ecs_detail::component_runtime(component)->last_error_ =
                 "A generated destruction fragment was removed externally";
             return false;
         }
@@ -1681,7 +1727,7 @@ bool DestructionSystem::synchronize(Node owner)
         auto body = fragment.get_component<RigidBody>();
         if (!renderer || !collider || !fragment_transform || !body)
         {
-            component.runtime()->last_error_ =
+            engine::ecs_detail::component_runtime(component)->last_error_ =
                 "A generated destruction component was removed externally";
             return false;
         }
@@ -1697,7 +1743,8 @@ bool DestructionSystem::synchronize(Node owner)
             }
             auto body_settings = previous_body;
             double volume = 0;
-            (void)center_of(component.runtime()->graph_.data(), group.chunks, volume);
+            (void)center_of(engine::ecs_detail::component_runtime(component)->graph_.data(),
+                            group.chunks, volume);
             const double scale =
                 group.anchored ? transform.settings().scale.x() : previous_transform.scale.x();
             body_settings.mass =
@@ -1709,7 +1756,7 @@ bool DestructionSystem::synchronize(Node owner)
                 const bool restored = collider.set_enabled(previous_enabled) &&
                                       fragment_transform.set_settings(previous_transform) &&
                                       body.set_settings(previous_body);
-                component.runtime()->last_error_ =
+                engine::ecs_detail::component_runtime(component)->last_error_ =
                     restored ? "Cannot synchronize destruction collision"
                              : "Cannot restore destruction fragment settings";
                 return false;
@@ -1738,8 +1785,9 @@ void DestructionSystem::on_shutdown() noexcept
             {
                 if (auto component = node.get_component<DestructionComponent>())
                 {
-                    component.runtime()->ready_ = false;
-                    component.runtime()->pending_ = component.runtime()->resource_ != nullptr;
+                    engine::ecs_detail::component_runtime(component)->ready_ = false;
+                    engine::ecs_detail::component_runtime(component)->pending_ =
+                        engine::ecs_detail::component_runtime(component)->resource_ != nullptr;
                 }
             }
             (void)release_groups(world_, physics_, groups);

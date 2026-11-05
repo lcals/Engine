@@ -9,7 +9,6 @@ classDiagram
         +Animator()
         +Animator(Component component)
         +register_type(ComponentRegistry& registry) bool$
-        +runtime() AnimatorRuntime#42;
         <<final>>
         +valid_settings(const AnimatorDataT& settings)$ bool
         +settings() AnimatorDataT
@@ -17,6 +16,15 @@ classDiagram
         +set_settings(const AnimatorDataT& settings) bool
         +restore_data(const ComponentDataT& data) bool
         +set_animation(string_view path) bool
+        +play_animation(const AnimationPlayRequest& request) bool
+        +get_playback_info(AnimatorPlaybackInfo& output) bool
+        +get_bone_pose(string_view path, AnimationPoseTransform& output) bool
+        +get_socket_pose(string_view name, AnimationPoseTransform& output) bool
+        +set_aim_ik_target(string_view name, const AnimationIkTarget& target) bool
+        +set_two_bone_ik_target(string_view name, const AnimationIkTarget& target) bool
+        +get_ik_target(string_view name, AnimationIkTarget& output) bool
+        +set_event_markers(span~const AnimationEventMarkerDataT~ markers) bool
+        +clear_event_markers() void
         +cross_fade(string_view path, double seconds) bool
         +animation_path() string_view
         +play() bool
@@ -26,6 +34,16 @@ classDiagram
         +playback() AnimationPlayback
         +time() double
     }
+    class AnimationPlayRequest
+    class AnimatorPlaybackInfo
+    class AnimationPoseTransform
+    class AnimationIkTarget
+    class AnimationEventMarkerDataT
+    Animator ..> AnimationPlayRequest : 原子播放输入
+    Animator ..> AnimatorPlaybackInfo : 播放状态输出
+    Animator ..> AnimationPoseTransform : 已提交姿态输出
+    Animator ..> AnimationIkTarget : 实例目标输入和输出
+    Animator ..> AnimationEventMarkerDataT : 实例事件覆层输入
     class Component
     class Node
     class AnimationSystem
@@ -73,6 +91,6 @@ classDiagram
 - `seek()` 接受当前动画 `[0, duration]` 内的秒数；下一次系统更新提交该姿态。停止时定位会进入暂停以保留该姿态，播放中定位保持播放。速度范围为 `0..16`，零速度保留时间；单次播放到结尾进入暂停并保留最后姿态。
 - 可能失败的方法返回 `bool` 并标注 `[[nodiscard]]`；读取方法为 `const`，无外部分配或资源加载的控制方法为 `noexcept`。
 
-本页组件均为可复制值句柄，生成设置唯一存于 `ComponentStorage<Data>` 的 ECS 列；`settings()` 返回独立值，`get_settings(output)` 明确返回失败。Runtime 为 ECS 中的领域运行列，资源引用、请求和缓存归该列或所属 System；句柄不拥有这些数据。`runtime()` 指针仅在当前结构稳定阶段有效，不能跨 ECS 结构修改留存。类型注册、失效身份与查询规则见 [ECS 场景](ecs-scene.md)。
+本页组件均为可复制值句柄，生成设置唯一存于 `ComponentStorage<Data>` 的 ECS 列；`settings()` 返回独立值，`get_settings(output)` 明确返回失败。Runtime 为 ECS 中的领域运行列，资源引用、请求和缓存归该列或所属 System；句柄不拥有这些数据。Runtime 定义与可变访问仅供所属模块内部实现使用，公开组件不提供 `runtime()`；原生系统的 ECS 列借用仅在当前结构稳定阶段有效，不能跨结构修改留存。类型注册、失效身份与查询规则见 [ECS 场景](ecs-scene.md)。
 
-原子播放、累计时间与自然完成、骨骼／挂点查询、IK 和事件方法由[动画 rigging](animation-rigging.md)与[动画事件](animation-events.md)定义。
+本页维护 Animator 当前完整原生公开方法；请求、值快照和执行时序分别见[动画 rigging](animation-rigging.md)与[动画事件](animation-events.md)，专题图只引用本页的方法契约。

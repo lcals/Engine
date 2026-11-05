@@ -7,10 +7,7 @@ namespace engine
 
 class PhysicsSystem;
 
-struct RigidBodyRuntime
-{
-    Vec3 pending_impulse_{};
-};
+struct RigidBodyRuntime;
 
 class RigidBody final : public Component
 {
@@ -22,7 +19,6 @@ public:
     }
     [[nodiscard]] static bool register_type(ComponentRegistry& registry);
     using Runtime = RigidBodyRuntime;
-    [[nodiscard]] Runtime* runtime() const noexcept;
     static constexpr ComponentType component_type = ComponentType::RigidBodyData;
     [[nodiscard]] static bool valid_settings(const schema::RigidBodyDataT& settings) noexcept;
     [[nodiscard]] schema::RigidBodyDataT settings() const noexcept;
@@ -33,6 +29,10 @@ public:
     [[nodiscard]] bool add_impulse(const Vec3& impulse) noexcept;
     [[nodiscard]] bool set_linear_velocity(const Vec3& velocity) noexcept;
     [[nodiscard]] Vec3 linear_velocity() const noexcept;
+
+private:
+    template <class T> friend auto engine::ecs_detail::component_runtime(T component) noexcept;
+    [[nodiscard]] Runtime* runtime() const noexcept;
 };
 
 } // namespace engine

@@ -43,6 +43,26 @@ node projects/showcase/settings/typescript/node_modules/typescript/bin/tsc \
 
 `engine.scene_schema_cross_language` 在 ECS 迁移后已通过 Debug／Release 实跑；测试直接导入所需场景生成类型。全 SDK barrel 暴露的输入枚举生成问题仍见[已知失败与限制](#已知失败与限制)，未据此宣称输入生成器已修复。
 
+### 架构契约修复验证（2026-11-05，Windows x64）
+
+本轮同步[类图](class-diagrams/index.md)与实现：17 种组件的 Runtime 及材质槽状态移入内部头，公开句柄不再提供可变运行缓存入口；WorldSystem 通过生产者的只读验证函数消费通用变换驱动。活动相机移除后清除选择，保存拒绝被临时标记过滤的活动相机。任务完成委托按域轮转，部署按完整版本选择；编辑器目录提交先准备租约和登记，同步使用进程退出自动释放的 OS 锁。ProjectSystem 不再为依赖验证执行无业务用途的 TOML 操作。Animator 原生与 TS 公开方法分别统一到各自类图。
+
+使用根 `windows-static-debug` / `windows-static-release` Preset、默认 QuickJS 后端与已启用的完整插件集合，保留已有依赖和编译缓存。Debug 受影响的四个正式宿主目标及其库构建通过；Release 完整构建通过，定向 CTest **41/41 通过**（157.46 秒），未运行 Debug 测试。覆盖范围包括：
+
+- `engine.scene`、`engine.ecs_scene`、`engine.component_registry`、`engine.animation_rigging_events`：相机删除/重建与正式资源往返、临时相机保存拒绝、公开 Runtime 访问编译期约束、类型无关驱动及挂点即时失效。
+- `engine.runtime_host`、`plugins.runtime.resource_graph`：单完成额度下的域间公平性、坏持久清单/缺实体/错误平台选择完整基线、完整外部版本独立启动、坏热重载保留活动 Run，以及加载器切换失效。
+- `engine.editor_environment`、`engine.asset_sync`、`engine.project`：登记 I/O 失败保留资源代次、核心拒绝后清理候选、同步跨进程互斥及强制终止后的直接重试。
+- 其他定向项覆盖资源编解码、任务、物理、音频、动画/脚本、预制体、字体/UI、角色、导航群体、地形、破坏与特效；`engine.window_render` 和 `engine.font_ui_render` 实际使用 Windows DX12，架构边界与插件选择检查通过。
+
+核心回归可从以下命令重复执行；41 项定向运行的完整输出保存在忽略目录 `build/architecture-fix-ctest-release.log`，配置与构建日志为同目录的 `architecture-fix-*.log`。
+
+```powershell
+cmake --build --preset windows-static-debug --parallel 2 --target engine_app editor_app asset_build_app mcp_app
+ctest --preset windows-static-release --output-on-failure -R '^(engine\.(runtime_host|scene|ecs_scene|component_registry|animation_rigging_events|editor_environment|asset_sync|project)|plugins\.runtime\.resource_graph)$'
+```
+
+本轮额外核对 Animator 的 25 个原生公开方法名、33 个 TS 成员与所属类图一致；改动文档的本地链接及 `git diff --check` 通过。结论限于 Windows x64 静态构建及上述 Release 用例，不代表其他平台设备已验收，也不替代全仓 CTest。
+
 ### 项目配置整理验证（2026-11-05，Windows x64）
 
 项目设置统一为 `runtime-<模块>.toml`、`editor-<模块>.toml`，使用 `common` 与运行平台表；TypeScript 工程独立放在 `settings/typescript/`。所有当前支持的项目运行参数、编辑器帧率与导入并发必须显式配置，缺文件、缺字段、错误类型及非法范围均失败；配置链路不提供参数默认值。契约与示例见[编辑器配置](editor/configuration.md)和[运行预算](runtime/parallelism.md)。

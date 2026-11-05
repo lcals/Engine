@@ -1,5 +1,6 @@
 #include "plugins/editor/asset_sync/asset_sync_system.hpp"
 
+#include "editor/asset_pipeline/project_lock.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/utils/path_utils.hpp"
 
@@ -173,7 +174,7 @@ bool AssetSyncSystem::sync(const fs::path& source_cache, const fs::path& runtime
     revision_.clear();
     last_error_.clear();
     std::error_code error;
-    fs::path lock;
+    engine::editor::asset_pipeline::ProjectLock lock;
     fs::path staging;
     fs::path temporary_manifest;
     const auto cleanup = [&]()
@@ -186,10 +187,6 @@ bool AssetSyncSystem::sync(const fs::path& source_cache, const fs::path& runtime
         if (!staging.empty())
         {
             fs::remove_all(staging, ignored);
-        }
-        if (!lock.empty())
-        {
-            fs::remove(lock, ignored);
         }
     };
     const auto fail = [&](std::string message)
@@ -227,12 +224,17 @@ bool AssetSyncSystem::sync(const fs::path& source_cache, const fs::path& runtime
     {
         return fail("cannot create runtime versions: " + error.message());
     }
-    const auto lock_path = assets / ".sync-lock";
-    if (!fs::create_directory(lock_path, error))
+    const auto lock_directory = assets / ".sync-lock";
+    const auto lock_path = lock_directory / "owner.lock";
+    if (!no_symlinks(lock_path))
     {
-        return fail("another sync is active or an interrupted sync lock remains");
+        return fail("sync lock path contains symlinks");
     }
-    lock = lock_path;
+    fs::create_directories(lock_directory, error);
+    if (error || !lock.acquire(lock_path, last_error_))
+    {
+        return fail("cannot acquire asset sync lock: " + (error ? error.message() : last_error_));
+    }
 
     ResourceCatalog catalog;
     if (!ResourceSystem::read_catalog(source, catalog))

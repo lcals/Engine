@@ -1,5 +1,7 @@
 #include "plugins/runtime/terrain/terrain_component.hpp"
 
+#include "plugins/runtime/terrain/terrain_component_runtime.hpp"
+
 #include "runtime/scene/ecs_storage.hpp"
 
 #include "plugins/runtime/terrain/terrain_system.hpp"

@@ -17,21 +17,7 @@ namespace engine
 
 class Resource;
 
-struct MeshRendererRuntime
-{
-    std::shared_ptr<const Resource> mesh_resource_;
-    std::shared_ptr<const Resource> lightmap_resource_;
-    std::vector<MaterialState> materials_;
-    std::uint64_t next_material_identity_ = 1;
-    std::unique_ptr<schema::MeshDataT> dynamic_mesh_;
-    std::vector<schema::MeshVertex> deformed_vertices_;
-    std::vector<Vec4> deformed_tangents_;
-    std::vector<std::array<float, 16>> skinning_palette_;
-    std::vector<std::array<float, 16>> skinning_normal_palette_;
-    std::uint32_t skin_joint_count_ = 0;
-    std::uint64_t mesh_revision_ = 0;
-    std::uint64_t deformation_revision_ = 0;
-};
+struct MeshRendererRuntime;
 
 class MeshRenderer final : public Component
 {
@@ -44,7 +30,6 @@ public:
     }
     [[nodiscard]] static bool register_type(ComponentRegistry& registry);
     [[nodiscard]] bool initialize();
-    [[nodiscard]] Runtime* runtime() const noexcept;
     static constexpr ComponentType component_type = ComponentType::MeshRendererData;
     [[nodiscard]] bool restore_data(const schema::ComponentDataT& data);
     [[nodiscard]] bool build_data(schema::ComponentDataT& output) const;
@@ -88,6 +73,8 @@ public:
     [[nodiscard]] bool set_material_count(std::size_t count);
 
 private:
+    template <class T> friend auto engine::ecs_detail::component_runtime(T component) noexcept;
+    [[nodiscard]] Runtime* runtime() const noexcept;
     friend class Material;
 };
 

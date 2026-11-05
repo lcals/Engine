@@ -1,5 +1,7 @@
 #include "plugins/runtime/navigation_crowd/navigation_agent.hpp"
 
+#include "plugins/runtime/navigation_crowd/navigation_agent_runtime.hpp"
+
 #include "runtime/scene/ecs_storage.hpp"
 
 #include <cmath>

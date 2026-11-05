@@ -5,12 +5,7 @@
 namespace engine::plugins::character_controller
 {
 
-struct CharacterCameraRuntime
-{
-    double yaw_ = 0.0;
-    double pitch_ = 0.0;
-    bool angles_initialized_ = false;
-};
+struct CharacterCameraRuntime;
 
 class CharacterCamera final : public Component
 {
@@ -22,7 +17,6 @@ public:
     }
     [[nodiscard]] static bool register_type(ComponentRegistry& registry);
     using Runtime = CharacterCameraRuntime;
-    [[nodiscard]] Runtime* runtime() const noexcept;
     static constexpr ComponentType component_type = ComponentType::CharacterCameraData;
     [[nodiscard]] static bool valid_settings(const schema::CharacterCameraDataT& settings) noexcept;
     [[nodiscard]] schema::CharacterCameraDataT settings() const noexcept;
@@ -36,6 +30,10 @@ public:
     [[nodiscard]] bool set_angles(double yaw, double pitch) noexcept;
     [[nodiscard]] double yaw() const noexcept;
     [[nodiscard]] double pitch() const noexcept;
+
+private:
+    template <class T> friend auto engine::ecs_detail::component_runtime(T component) noexcept;
+    [[nodiscard]] Runtime* runtime() const noexcept;
 };
 
 } // namespace engine::plugins::character_controller

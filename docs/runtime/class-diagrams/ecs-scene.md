@@ -95,6 +95,8 @@ Node 只保存 WorldSystem 借用、世界生命周期代次及完整实体 ID�
 
 TS 保留 Node、Component 和具名组件操作外观；需要时才产生访问对象。绑定仍检查 Run、场景、实体及组件实例身份。没有原生批处理每帧为全场景创建 JS 包装对象的步骤，也不把项目 TS 业务搬进 C++。
 
+组件公开头仅前置声明其 Runtime 类型；Runtime 字段定义位于所属模块的 `src/engine/` 内部头。组件自身的 `runtime()` 为私有方法，内部 `ecs_detail::component_runtime` 仅用于已校验身份的短期访问，不向项目导出运行缓存、资源槽或修订号的可变入口。ComponentRegistry 的操作表查询为私有实现，宿主仍通过显式类型登记扩展组件；系统继续直接查询原生 ECS 列。
+
 ## 3. 真实数据按具体类型存储
 
 ```mermaid

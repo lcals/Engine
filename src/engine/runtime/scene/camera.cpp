@@ -1,5 +1,7 @@
 #include "runtime/scene/camera.hpp"
 
+#include "runtime/scene/camera_runtime.hpp"
+
 #include "runtime/scene/ecs_storage.hpp"
 
 #include "runtime/scene/camera_math.hpp"
@@ -15,7 +17,25 @@ namespace engine
 
 bool Camera::register_type(ComponentRegistry& registry)
 {
-    return register_component_storage<Camera, Data, Runtime>(registry);
+    if (!register_component_storage<Camera, Data, Runtime>(registry))
+    {
+        return false;
+    }
+    flecs::world(registry.native_world())
+        .observer<const ecs_detail::ComponentStorage<Data>>()
+        .event(flecs::OnRemove)
+        .each(
+            [](flecs::entity entity, const auto&)
+            {
+                const auto metadata = entity.target<ecs_detail::SceneMember>();
+                auto* info = metadata ? metadata.try_get_mut<schema::SceneInfoT>() : nullptr;
+                const auto* properties = entity.try_get<schema::NodePropertiesT>();
+                if (info && properties && info->active_camera_node == properties->id)
+                {
+                    info->active_camera_node = 0;
+                }
+            });
+    return true;
 }
 
 Camera::Runtime* Camera::runtime() const noexcept

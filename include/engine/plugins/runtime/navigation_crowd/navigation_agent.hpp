@@ -8,15 +8,7 @@
 namespace engine::plugins::navigation_crowd
 {
 
-struct NavigationAgentRuntime
-{
-    std::uint64_t settings_revision_ = 1;
-    std::uint64_t request_revision_ = 1;
-    Vec3 target_{};
-    Vec3 velocity_{};
-    bool has_target_ = false;
-    NavigationAgentStatus state_ = NavigationAgentStatus::idle;
-};
+struct NavigationAgentRuntime;
 
 class NavigationAgent final : public Component
 {
@@ -28,7 +20,6 @@ public:
     }
     [[nodiscard]] static bool register_type(ComponentRegistry& registry);
     using Runtime = NavigationAgentRuntime;
-    [[nodiscard]] Runtime* runtime() const noexcept;
     static constexpr ComponentType component_type = ComponentType::NavigationAgentData;
     [[nodiscard]] static bool valid_settings(const schema::NavigationAgentDataT& value) noexcept;
     [[nodiscard]] schema::NavigationAgentDataT settings() const noexcept;
@@ -40,6 +31,10 @@ public:
     [[nodiscard]] NavigationAgentStatus state() const noexcept;
     [[nodiscard]] Vec3 velocity() const noexcept;
     [[nodiscard]] bool restore_data(const schema::ComponentDataT& value);
+
+private:
+    template <class T> friend auto engine::ecs_detail::component_runtime(T component) noexcept;
+    [[nodiscard]] Runtime* runtime() const noexcept;
 };
 
 } // namespace engine::plugins::navigation_crowd

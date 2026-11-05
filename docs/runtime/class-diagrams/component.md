@@ -42,7 +42,6 @@ classDiagram
         +Camera()
         +Camera(Component component)
         +register_type(ComponentRegistry& registry) bool$
-        +runtime() CameraRuntime#42;
         +settings() CameraSettings
         +get_settings(CameraSettings& output) bool
         +set_settings(const CameraSettings& settings) bool
@@ -66,7 +65,6 @@ classDiagram
         +MeshRenderer()
         +MeshRenderer(Component component)
         +register_type(ComponentRegistry& registry) bool$
-        +runtime() MeshRendererRuntime#42;
         +mesh_path() string_view
         +set_mesh(string_view path) bool
         +material(size_t slot) Material
