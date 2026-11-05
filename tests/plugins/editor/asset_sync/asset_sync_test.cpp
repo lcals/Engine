@@ -1,7 +1,10 @@
+#include "editor/asset_pipeline/project_lock.hpp"
 #include "plugins/editor/asset_sync/asset_sync_system.hpp"
 #include "runtime/engine_config.hpp"
 #include "runtime/resource/resource_system.hpp"
+#include "runtime/utils/path_utils.hpp"
 
+#include <SDL3/SDL_process.h>
 #include <nlohmann/json.hpp>
 
 #include <array>
@@ -15,6 +18,7 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <thread>
 #include <utility>
 
 namespace
@@ -111,7 +115,46 @@ bool publish_scripts(const fs::path& source, const std::map<std::string, std::st
                                        builder.GetSize()));
 }
 
-bool exercise(const fs::path& root)
+bool process_lock(const std::string& executable, const fs::path& root,
+                  engine::plugins::asset_sync::AssetSyncSystem& sync, const fs::path& source,
+                  const fs::path& runtime)
+{
+    const auto lock_path = engine::PathUtils::to_utf8(runtime / "assets/.sync-lock/owner.lock");
+    const auto ready_path = engine::PathUtils::to_utf8(root / "lock-owner-ready");
+    const char* arguments[]{executable.c_str(), "--hold-sync-lock", lock_path.c_str(),
+                            ready_path.c_str(), nullptr};
+    auto* child = SDL_CreateProcess(arguments, false);
+    if (!check(child != nullptr, "start a competing sync lock owner"))
+    {
+        return false;
+    }
+    std::error_code error;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    const auto ready_file = engine::PathUtils::from_utf8(ready_path);
+    while (!fs::exists(ready_file, error) && !error &&
+           std::chrono::steady_clock::now() < deadline && !SDL_WaitProcess(child, false, nullptr))
+    {
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    const bool ready = fs::is_regular_file(ready_file, error) && !error;
+    const auto available = runtime / "assets/available.json";
+    const auto previous = read_json(available);
+    const bool excluded = ready && !sync.sync(source, runtime) && read_json(available) == previous;
+    const bool killed = SDL_KillProcess(child, true);
+    const auto exit_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    bool exited = false;
+    while (!(exited = SDL_WaitProcess(child, false, nullptr)) &&
+           std::chrono::steady_clock::now() < exit_deadline)
+    {
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    SDL_DestroyProcess(child);
+    return check(ready && excluded, "live cross-process owner excludes a concurrent sync") &&
+           check(killed && exited, "terminate the owner without releasing its lock in user code") &&
+           check(sync.sync(source, runtime), "retry automatically after the owner process dies");
+}
+
+bool exercise(const fs::path& root, const std::string& executable)
 {
     const auto source = root / "source";
     const auto runtime = root / "runtime";
@@ -174,15 +217,9 @@ bool exercise(const fs::path& root)
     {
         return false;
     }
-    fs::create_directory(runtime / "assets/.sync-lock", error);
-    if (!check(!error && !sync.sync(source, runtime),
-               "concurrent or interrupted sync lock rejected") ||
+    if (!check(sync.sync(source, runtime), "leftover lock paths do not imply a live owner") ||
+        !process_lock(executable, root, sync, source, runtime) ||
         !check(read_json(available) == third, "interrupted transfer never changes manifest"))
-    {
-        return false;
-    }
-    fs::remove(runtime / "assets/.sync-lock", error);
-    if (!check(!error && sync.sync(source, runtime), "retry after abandoned lock cleanup"))
     {
         return false;
     }
@@ -347,8 +384,22 @@ bool guid_exercise(const fs::path& root)
 
 } // namespace
 
-int main()
+int main(int argc, char* argv[])
 {
+    if (argc == 4 && std::string_view(argv[1]) == "--hold-sync-lock")
+    {
+        engine::editor::asset_pipeline::ProjectLock lock;
+        std::string error;
+        if (!lock.acquire(engine::PathUtils::from_utf8(argv[2]), error) ||
+            !write_file(engine::PathUtils::from_utf8(argv[3]), "ready"))
+        {
+            return 1;
+        }
+        for (;;)
+        {
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+        }
+    }
     std::error_code error;
     const auto temporary = fs::canonical(fs::temp_directory_path(error), error);
     if (error)
@@ -357,7 +408,7 @@ int main()
     }
     const auto nonce = std::chrono::steady_clock::now().time_since_epoch().count();
     const auto root = temporary / ("engine-asset-sync-test-" + std::to_string(nonce));
-    const bool success = exercise(root) && guid_exercise(root);
+    const bool success = exercise(root, argv[0]) && guid_exercise(root);
     fs::remove_all(root, error);
     return success && !error ? 0 : 1;
 }

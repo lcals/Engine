@@ -3,7 +3,6 @@
 #include "runtime/log/log_system.hpp"
 #include "runtime/performance/profiling.hpp"
 #include "runtime/resource/resource_system.hpp"
-#include "runtime/scene/bone_attachment.hpp"
 #include "runtime/scene/ecs_storage.hpp"
 #include "runtime/scene/scene.hpp"
 #include "runtime/scene/transform.hpp"
@@ -123,11 +122,13 @@ std::uint64_t WorldSystem::begin_restore_scene(std::shared_ptr<const Resource> r
     return restoring_->id();
 }
 
-SceneRestoreStatus WorldSystem::step_restore_scene(std::uint64_t request, std::size_t node_budget)
+SceneRestoreStatus WorldSystem::step_restore_scene(std::uint64_t request, std::size_t node_budget,
+                                                   double max_seconds)
 {
     ENGINE_PROFILE_ZONE("World.restoreStep");
     auto* resources = ResourceSystem::instance();
-    if (!can_modify() || !restoring_ || restoring_->id() != request)
+    if (!std::isfinite(max_seconds) || max_seconds < 0 || !can_modify() || !restoring_ ||
+        restoring_->id() != request)
     {
         return SceneRestoreStatus::failed;
     }
@@ -144,10 +145,12 @@ SceneRestoreStatus WorldSystem::step_restore_scene(std::uint64_t request, std::s
     const auto& data = *restoring_->resource_->scene();
     const auto started = std::chrono::steady_clock::now();
     const auto count = std::min(node_budget, restore_config_.nodes_per_step);
+    const double time_budget = max_seconds > 0 ? std::min(max_seconds, restore_config_.max_seconds)
+                                                : restore_config_.max_seconds;
     for (std::size_t index = 0; index < count; ++index)
     {
         if (std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count() >=
-            restore_config_.max_seconds)
+            time_budget)
         {
             break;
         }
@@ -479,35 +482,12 @@ bool WorldSystem::refresh_scene_state()
                                                  value.position.z(),
                                                  1};
                     const auto* drive = node.try_get<ecs_detail::TransformDrive>();
-                    if (drive && drive->active &&
-                        drive->owner_type == BoneAttachment::component_type)
+                    if (drive && drive->active && state->active && transform->state.flags.enabled &&
+                        drive->validate &&
+                        drive->validate(Node(*this, world_epoch_, node.id()),
+                                        drive->owner_instance_id))
                     {
-                        const auto* attachment =
-                            node.try_get<ecs_detail::ComponentStorage<BoneAttachment::Data>>();
-                        const auto* follow = node.try_get<BoneAttachment::Runtime>();
-                        if (attachment && follow &&
-                            attachment->state.instance_id == drive->owner_instance_id &&
-                            attachment->state.flags.enabled && attachment->data.follow_enabled &&
-                            state->active && transform->state.flags.enabled && follow->source &&
-                            follow->source.enabled() && follow->source.node().enabled() &&
-                            follow->source.runtime()->pose_revision_ != 0)
-                        {
-                            bool source_active = true;
-                            for (auto ancestor = follow->source.node(); ancestor;
-                                 ancestor = ancestor.parent())
-                            {
-                                if (!ancestor.enabled() ||
-                                    !ancestor.get_component<Transform>().enabled())
-                                {
-                                    source_active = false;
-                                    break;
-                                }
-                            }
-                            if (source_active)
-                            {
-                                std::copy(drive->local.begin(), drive->local.end(), local.begin());
-                            }
-                        }
+                        std::copy(drive->local.begin(), drive->local.end(), local.begin());
                     }
                     std::array<double, 16> result = local;
                     if (parent)

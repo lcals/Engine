@@ -14,14 +14,14 @@ struct RuntimeSettings
 {
     EngineConfig engine;
     RuntimeParallelConfig parallel;
+    std::string game_language;
+    std::string startup_movie;
 };
 
-// 按调用方默认值、defaults、指定 profile、overrides 覆盖；失败保持 output 不变。
-// profile 只能由宿主明确给出 desktop/mobile，配置解析器不识别项目或平台。
-[[nodiscard]] bool decode_runtime_settings(std::string_view text, std::string_view profile,
-                                           RuntimeSettings& output, std::string& error);
-[[nodiscard]] bool load_runtime_settings(const std::filesystem::path& path,
-                                         std::string_view profile, RuntimeSettings& output,
+// 读取 game/engine/parallel 配置；startup_movie 可缺省，其他字段缺失或非法时保持 output 不变。
+[[nodiscard]] bool decode_runtime_settings(std::string_view text, RuntimeSettings& output,
+                                           std::string& error);
+[[nodiscard]] bool load_runtime_settings(const std::filesystem::path& path, RuntimeSettings& output,
                                          std::string& error);
 
 } // namespace engine

@@ -110,4 +110,4 @@ AO 参数归相机节点的 PostProcessDataT：ao_enabled 默认 false；ao_radi
 
 HDR 与 Bloom 同属 PostProcessDataT：`hdr_enabled` 和 `bloom_enabled` 默认 false，保持旧场景的默认路径；`bloom_threshold` 默认 1、范围 `[0,100]`，`bloom_intensity` 默认 0.15、范围 `[0,10]`，`bloom_radius` 默认 1、范围 `[0.25,4]`，所有数值必须有限。Bloom 开启要求 HDR 已开启，关闭 HDR 要求 Bloom 已关闭。组件只验证显式请求，不自动修改另一开关；跨字段不一致时整份状态保持不变。调用者可一次提交两项关闭或开启，也可按先 HDR 后 Bloom 开启、先 Bloom 后 HDR 关闭的顺序提交。曝光与 AO 方法保留这组参数。
 
-本页组件均为可复制值句柄，生成设置唯一存于 `ComponentStorage<Data>` 的 ECS 列；`settings()` 返回独立值，`get_settings(output)` 明确返回失败。Runtime 为 ECS 中的领域运行列，资源引用、请求和缓存归该列或所属 System；句柄不拥有这些数据。`runtime()` 指针仅在当前结构稳定阶段有效，不能跨 ECS 结构修改留存。类型注册、失效身份与查询规则见 [ECS 场景](ecs-scene.md)。
+本页组件均为可复制值句柄，生成设置唯一存于 `ComponentStorage<Data>` 的 ECS 列；`settings()` 返回独立值，`get_settings(output)` 明确返回失败。Runtime 为 ECS 中的领域运行列，资源引用、请求和缓存归该列或所属 System；句柄不拥有这些数据。Runtime 定义与可变访问仅供所属模块内部实现使用，公开组件不提供 `runtime()`；原生系统的 ECS 列借用仅在当前结构稳定阶段有效，不能跨结构修改留存。类型注册、失效身份与查询规则见 [ECS 场景](ecs-scene.md)。

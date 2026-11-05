@@ -28,7 +28,7 @@
 
 `MoveTo` 成功仅表示请求被接受。面板分别列出 pending、moving、arrived、idle、unreachable、invalid 和提交失败数量；等待路径不会显示为已经到达。停止和返回会清理代理，返回时同时清除本场景导航网格和 UI 订阅。
 
-角色复用 [ozz 示例授权模型](models-source.md)及既有 walk 动作，各实例通过自己的 `root/GENERIC MAN new` 子路径绑定蒙皮与动画，不使用全场同名查找。资源和菜单统一进入 `settings/resource-build.toml`，不涉及本地付费项目。
+角色复用 [ozz 示例授权模型](models-source.md)及既有 walk 动作，各实例通过自己的 `root/GENERIC MAN new` 子路径绑定蒙皮与动画，不使用全场同名查找。资源和菜单统一进入 `settings/editor-resource-build.toml`，不涉及本地付费项目。
 
 `locomotions.fbx.meta` 为 walk、jog、run 显式配置 `animation_motion`：提取 `root/Hips` 的前向 Z 位移，保留 X/Y 摆动及全部旋转。当前角色使用默认 InPlace，根节点由导航移动，避免动画自身的前进位移在每次循环时回跳。共享配置 `assets/scripts/character_animations.ts` 记录原始 walk 参考步速：每周期位移 `142.5300068 × 0.01 = 1.425300068 m`，除以 `1.33333337 s`，约为 **1.068975 m/s**。播放倍率使用当前水平速度除以该步速，遵守 Animator 的 16 倍上限；代理以 3 m/s 移动时约为 2.806 倍。停止或等待路径时倍率为零，恢复后只改变倍率，保留原有播放进度。
 

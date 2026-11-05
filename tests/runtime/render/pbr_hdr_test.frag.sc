@@ -31,7 +31,7 @@ ClusterLightData load_cluster_light(uint index)
     light.kind_inner = vec4(u_test_light.x, 0.9, 0.0, 0.0);
     return light;
 }
-float shadow_visibility(vec3 position) { return 1.0; }
+float shadow_visibility(vec3 position, vec3 world_dx, vec3 world_dy) { return 1.0; }
 float local_shadow_visibility(uint index, vec3 position) { return 1.0; }
 #include "pbr_lighting.sh"
 void main()
@@ -39,7 +39,8 @@ void main()
     vec3 normal = vec3(0.0, 0.0, 1.0);
     vec3 base_color = u_test_base_color.rgb;
     vec3 f0 = mix(vec3_splat(0.04), base_color, u_test_parameters.y);
-    vec3 color = direct_light(0u, vec3_splat(0.0), normal, normal, normal,
+    vec3 color = direct_light(0u, vec3_splat(0.0), vec3_splat(0.0), vec3_splat(0.0),
+                              normal, normal, normal,
                               base_color, u_test_parameters.y, u_test_parameters.x,
                               f0, 0.0);
     gl_FragColor = vec4(color, 1.0);

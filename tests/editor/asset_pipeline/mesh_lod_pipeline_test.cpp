@@ -29,6 +29,14 @@ bool expect(bool value, const char* message)
     return value;
 }
 
+bool write(const fs::path& path, const std::string& text)
+{
+    std::ofstream stream(path, std::ios::binary | std::ios::trunc);
+    stream << text;
+    stream.close();
+    return static_cast<bool>(stream);
+}
+
 struct Fixture
 {
     fs::path root;
@@ -51,7 +59,7 @@ struct Fixture
                 return false;
             }
         }
-        return true;
+        return write(root / "settings/editor-import.toml", "[common]\nimport_threads = 8\n");
     }
     ~Fixture()
     {
@@ -62,14 +70,6 @@ struct Fixture
         }
     }
 };
-
-bool write(const fs::path& path, const std::string& text)
-{
-    std::ofstream stream(path, std::ios::binary | std::ios::trunc);
-    stream << text;
-    stream.close();
-    return static_cast<bool>(stream);
-}
 
 std::string read(const fs::path& path)
 {

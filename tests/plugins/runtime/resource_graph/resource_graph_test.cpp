@@ -545,6 +545,20 @@ bool test_async_graph_loading()
     };
     std::unique_ptr<ResourceLoad> operation;
     ResourceLoadProgress progress;
+    if (!resources.begin_load(guid(4), operation))
+    {
+        return false;
+    }
+    resources.set_loader(nullptr);
+    const bool loader_changed =
+        expect(operation->step(0, progress) == ResourceLoadStatus::failed && !operation->resource(),
+               "core single-item operations reject a changed selected loader before I/O");
+    operation.reset();
+    resources.set_loader(&graph);
+    if (!loader_changed)
+    {
+        return false;
+    }
     if (!graph.begin_load(guid(4), operation) ||
         !expect(operation->step(8, progress) == ResourceLoadStatus::loading &&
                     !operation->resource() && !graph.find(guid(1)),

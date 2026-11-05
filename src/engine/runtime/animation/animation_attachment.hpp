@@ -1,7 +1,10 @@
 #pragma once
 
 #include "runtime/resource/resource_system.hpp"
+
+#include "runtime/scene/animator_runtime.hpp"
 #include "runtime/scene/bone_attachment.hpp"
+#include "runtime/scene/bone_attachment_runtime.hpp"
 #include "runtime/scene/character_motor.hpp"
 #include "runtime/scene/collider.hpp"
 #include "runtime/scene/ecs_storage.hpp"
@@ -12,6 +15,32 @@
 
 namespace engine::animation_detail
 {
+inline bool attachment_drive_valid(Node owner, std::uint64_t instance) noexcept
+{
+    const auto attachment = owner.get_component<BoneAttachment>();
+    if (!attachment || attachment.instance_id() != instance)
+    {
+        return false;
+    }
+    const auto entity = flecs::world(owner.world()->native_world()).entity(owner.id());
+    const auto* stored = entity.try_get<ecs_detail::ComponentStorage<BoneAttachment::Data>>();
+    const auto* follow = entity.try_get<BoneAttachment::Runtime>();
+    if (!stored || !follow || !stored->state.flags.enabled || !stored->data.follow_enabled ||
+        !follow->source || !follow->source.enabled() ||
+        engine::ecs_detail::component_runtime(follow->source)->pose_revision_ == 0)
+    {
+        return false;
+    }
+    for (auto ancestor = follow->source.node(); ancestor; ancestor = ancestor.parent())
+    {
+        if (!ancestor.enabled() || !ancestor.get_component<Transform>().enabled())
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
 inline bool attachment_can_drive(Node node)
 {
     for (auto current = node; current; current = current.parent())
@@ -44,7 +73,7 @@ inline void clear_attachment_drive(BoneAttachment attachment)
         drive->active = false;
         node.world()->invalidate_scene_state();
     }
-    attachment.runtime()->following = false;
+    engine::ecs_detail::component_runtime(attachment)->following = false;
 }
 inline bool resolve_attachment_source(BoneAttachment attachment, const BoneAttachment::Data& data,
                                       Animator& source, std::uint32_t& socket_index,

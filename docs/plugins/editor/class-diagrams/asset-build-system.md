@@ -36,8 +36,8 @@ classDiagram
     AssetBuildSystem "1" *-- "1" ResourceBuildStats : 拥有最近成功构建统计
 ```
 
-- `build()` 是同步操作，返回成功或失败。`project_root` 为已通过项目检查的根目录；`manifest` 默认为空，使用固定的 `settings/resource-build.toml`，非空时必须是相对项目根目录、位于 `settings/` 内的清单路径，拒绝越界。清单缺失、未声明 `items` 或 `items = []` 时选择全部项目资源；显式构建项的 `roots = []` 表示不选项目入口，仍可通过 `keep` 保留资源。
-- `items` 只借用本次调用期间的构建项名称；空列表选择清单全部项。`target_platform` 默认为空，使用宿主平台；显式调用参数决定构建平台，清单不保存平台字段。默认输出为 `cache/build/<platform>`；清单可显式指定输出与存储方式。
+- `build()` 是同步操作，返回成功或失败。`project_root` 为已通过项目检查的根目录；`manifest` 默认为空，使用固定的 `settings/editor-resource-build.toml`，非空时必须是相对项目根目录、位于 `settings/` 内的清单路径，拒绝越界。清单缺失、未声明 `[common].items` 或 `items = []` 时选择全部项目资源；显式构建项的 `roots = []` 表示不选项目入口，仍可通过 `keep` 保留资源。
+- `items` 只借用本次调用期间的构建项名称；空列表选择清单全部项。`target_platform` 默认为空，使用宿主平台；显式调用参数决定构建平台，清单不保存平台字段。默认输出为 `cache/build/<platform>`；清单在 `[common]` 与 `[[common.items]]` 中显式指定输出与存储方式。
 - `ResourceBuildStats` 保存精简运行清单中的资源数、合并包数、本次复用包数、绝对输出根目录和发布版本。导入统计仍由资源管线的 `AssetBuildStats` 保存，二者不重复职责。
 - `last_build()` 返回内部只读借用，下一次成功构建会更新内容；失败保留上一份成功统计。`last_error()` 返回最近失败说明，成功后清空。两者均不得由调用者释放。
 

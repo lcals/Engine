@@ -46,6 +46,7 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
     target_sources(
         engine_render
         PRIVATE src/engine/runtime/render/render_surface.cpp
+                src/engine/runtime/render/movie_pass.cpp
                 src/engine/runtime/render/render_extension.cpp
                 src/engine/runtime/render/render_math.cpp
                 src/engine/runtime/render/render_settings.cpp
@@ -86,7 +87,7 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
                 bgfx::bx
                 basisu::basisu_encoder)
     include(${PROJECT_SOURCE_DIR}/cmake/core/render_shaders.cmake)
-    engine_embed_render_shaders(engine_render shadow)
+    engine_embed_render_shaders(engine_render shadow movie)
     engine_embed_upstream_feature_shaders(engine_render)
     engine_embed_assao_shaders(engine_render)
     engine_embed_skinning_shader(engine_render)
@@ -113,6 +114,7 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
                 src/engine/runtime/resource/codecs/texture_resource_codec.cpp
                 src/engine/runtime/resource/ktx_texture.cpp
                 src/engine/runtime/resource/codecs/audio_resource_codec.cpp
+                src/engine/runtime/resource/codecs/movie_resource_codec.cpp
                 src/engine/runtime/resource/codecs/font_resource_codec.cpp
                 src/engine/runtime/resource/codecs/light_probe_resource_codec.cpp
                 src/engine/runtime/resource/codecs/ui_resource_codec.cpp
@@ -136,6 +138,7 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
     add_library(engine_scene_ecs INTERFACE)
     add_library(engine::scene_ecs ALIAS engine_scene_ecs)
     target_link_libraries(engine_scene_ecs INTERFACE engine::scene_data flecs::flecs_static)
+    target_include_directories(engine_scene_ecs INTERFACE "${PROJECT_SOURCE_DIR}/src/engine")
     target_sources(
         engine_world
         PRIVATE src/engine/runtime/scene/component.cpp
@@ -248,7 +251,8 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
         engine::ui
         engine::render)
 
-    add_library(engine_gameplay STATIC src/engine/runtime/gameplay/gameplay_session.cpp)
+    add_library(engine_gameplay STATIC src/engine/runtime/gameplay/gameplay_session.cpp
+                                       src/engine/runtime/gameplay/deployment_selection.cpp)
     add_library(engine::gameplay ALIAS engine_gameplay)
     target_link_libraries(
         engine_gameplay
@@ -268,12 +272,18 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
     engine_enable_profiling(engine_gameplay)
     engine_apply_options(engine_gameplay)
 
+    add_library(engine_movie STATIC src/engine/runtime/movie/movie_player.cpp)
+    add_library(engine::movie ALIAS engine_movie)
+    target_link_libraries(engine_movie PUBLIC engine::core engine::scene_data
+        PRIVATE engine::resource engine::task engine::audio unofficial::libvpx::libvpx)
+    engine_apply_options(engine_movie)
+
     add_library(engine_runtime STATIC src/engine/runtime/app/runtime_host.cpp
         src/engine/runtime/app/runtime_settings.cpp)
     add_library(engine::runtime ALIAS engine_runtime)
     target_link_libraries(
         engine_runtime
-        PUBLIC engine::core engine::gameplay
+        PUBLIC engine::core engine::gameplay engine::movie
         PRIVATE ${ENGINE_RUNTIME_SYSTEM_TARGETS} nlohmann_json::nlohmann_json)
     target_compile_definitions(engine_runtime PRIVATE JSON_NOEXCEPTION=1)
     engine_apply_options(engine_runtime)

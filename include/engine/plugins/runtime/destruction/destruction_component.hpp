@@ -19,16 +19,7 @@ namespace engine::plugins::destruction
 
 class DestructionSystem;
 
-struct DestructionComponentRuntime
-{
-    ResourcePtr resource_;
-    DestructionGraph graph_;
-    std::shared_ptr<const std::uint8_t> lifetime_ = std::make_shared<const std::uint8_t>(0);
-    std::uint64_t revision_ = 0;
-    bool ready_ = false;
-    bool pending_ = false;
-    std::string last_error_;
-};
+struct DestructionComponentRuntime;
 
 class DestructionComponent final : public Component
 {
@@ -41,7 +32,6 @@ public:
     }
     [[nodiscard]] static bool register_type(ComponentRegistry& registry);
     using Runtime = DestructionComponentRuntime;
-    [[nodiscard]] Runtime* runtime() const noexcept;
     static constexpr ComponentType component_type = ComponentType::DestructionData;
     [[nodiscard]] static bool valid_settings(const schema::DestructionDataT& settings) noexcept;
     [[nodiscard]] schema::DestructionDataT settings() const noexcept;
@@ -70,6 +60,10 @@ public:
     [[nodiscard]] std::size_t group_count() const noexcept;
     [[nodiscard]] std::size_t dynamic_groups() const noexcept;
     [[nodiscard]] std::string last_error() const noexcept;
+
+private:
+    template <class T> friend auto engine::ecs_detail::component_runtime(T component) noexcept;
+    [[nodiscard]] Runtime* runtime() const noexcept;
 };
 
 } // namespace engine::plugins::destruction

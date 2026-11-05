@@ -9,6 +9,11 @@ export class LauncherController extends UiController<LauncherModel> {
             this.model.pending = "menu";
             if (!this.Refresh()) throw new Error("Cannot refresh the launcher view");
         })) return false;
+        const movie = this.view.FindElement("replay-intro");
+        if (!movie || !this.Listen(movie, "click", () => {
+            if (this.model.pending !== null || this.model.movie_playing) return;
+            this.model.movie_requested = true;
+        })) return false;
         for (const choice of this.model.choices) {
             const button = this.view.FindElement(choice.button);
             const title = this.view.FindElement(`${choice.button}-title`);
@@ -32,7 +37,9 @@ export class LauncherController extends UiController<LauncherModel> {
         const root = this.view.FindElement("launcher-root");
         const back = this.view.FindElement("back-menu");
         const status = this.view.FindElement("launcher-status");
-        if (!root || !back || !status) return false;
+        const movie = this.view.FindElement("replay-intro");
+        if (!root || !back || !status || !movie ||
+            !movie.SetEnabled(this.model.pending === null && !this.model.movie_playing)) return false;
         const in_world = this.model.selected !== null;
         const pending = this.model.pending;
         if (!root.SetClass("in-world", in_world) || !back.SetEnabled(pending === null))

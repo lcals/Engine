@@ -14,7 +14,6 @@ classDiagram
         +EffectComponent()
         +EffectComponent(Component component)
         +register_type(ComponentRegistry& registry) bool$
-        +runtime() EffectComponentRuntime#42;
         +valid_settings(const EffectDataT& settings) bool$
         +settings() EffectDataT
         +get_settings(EffectDataT& output) bool
@@ -99,4 +98,4 @@ classDiagram
 
 这些类型只在插件实现中使用，公开头不出现 SDK 或 bgfx 类型。所有状态返回值为 `[[nodiscard]]`；释放支持重复调用和部分初始化。类图仅引用其他图定义的核心类型，不重新声明其方法。
 
-本页组件均为可复制值句柄，生成设置唯一存于 `ComponentStorage<Data>` 的 ECS 列；`settings()` 返回独立值，`get_settings(output)` 明确返回失败。Runtime 为 ECS 中的领域运行列，资源引用、请求和缓存归该列或所属 System；句柄不拥有这些数据。`runtime()` 指针仅在当前结构稳定阶段有效，不能跨 ECS 结构修改留存。类型注册、失效身份与查询规则见 [ECS 场景](../../../runtime/class-diagrams/ecs-scene.md)。
+本页组件均为可复制值句柄，生成设置唯一存于 `ComponentStorage<Data>` 的 ECS 列；`settings()` 返回独立值，`get_settings(output)` 明确返回失败。Runtime 为 ECS 中的领域运行列，资源引用、请求和缓存归该列或所属 System；句柄不拥有这些数据。Runtime 定义与可变访问仅供所属模块内部实现使用，公开组件不提供 `runtime()`；原生系统的 ECS 列借用仅在当前结构稳定阶段有效，不能跨结构修改留存。类型注册、失效身份与查询规则见 [ECS 场景](../../../runtime/class-diagrams/ecs-scene.md)。

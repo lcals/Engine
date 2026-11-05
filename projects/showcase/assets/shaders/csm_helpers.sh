@@ -83,7 +83,7 @@ float shadow_cascade_visibility(int cascade, vec3 world_position, vec3 world_dx,
             // Packed-depth textures use POINT sampling. Compare against the receiver
             // plane at the actual texel centre, including the subtexel displacement.
             sample_uv = (floor(sample_uv / u_shadow_settings.y) + 0.5) * u_shadow_settings.y;
-            float depth = unpack_shadow_depth(texture2D(s_shadow_map, sample_uv));
+            float depth = unpack_shadow_depth(texture2DLod(s_shadow_map, sample_uv, 0.0));
             float receiver_depth = projected.z +
                 dot(depth_gradient, (sample_uv - uv) / rectangle.zw);
             visible += step(receiver_depth - u_shadow_settings.x, depth);
@@ -92,11 +92,9 @@ float shadow_cascade_visibility(int cascade, vec3 world_position, vec3 world_dx,
     return visible / 16.0;
 }
 
-float shadow_visibility(vec3 world_position)
+float shadow_visibility(vec3 world_position, vec3 world_dx, vec3 world_dy)
 {
-    // Take screen derivatives before cascade selection and its divergent branches.
-    vec3 world_dx = dFdx(world_position);
-    vec3 world_dy = dFdy(world_position);
+    // The caller supplies screen derivatives taken before divergent light loops.
     if (u_shadow_settings.w < 0.5 || u_shadow_params.x < 0.5)
     {
         return 1.0;

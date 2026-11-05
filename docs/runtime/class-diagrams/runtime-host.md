@@ -2,6 +2,11 @@
 
 [类图索引](../../class-diagrams/index.md) · [完整引用关系](../../class-diagrams/references.md)
 
+> **影片启动规划 / 待实现：** 真正先呈现影片、再准备世界的分阶段装配与新增契约见
+> [影片启动](movie-startup.md)，播放器与音频复用分别见[MoviePlayer](movie-player.md)和
+> [影片音频](movie-audio.md)。以下仍描述当前实现；规划中的 Renderer / AudioSystem 早期拥有、
+> World 后期绑定及脚本工厂 MoviePlayer 借用尚未替换本页现行方法和生命周期。
+
 ```mermaid
 classDiagram
     direction TB
@@ -102,7 +107,7 @@ classDiagram
 
 - RuntimeHost 位于运行时 app 模块，是桌面、编辑器和 Android 共用的运行组合入口。类型为 final，禁止复制和移动；构造、析构、查询、退出请求和关闭为 noexcept；initialize、tick 和 gameplay 的返回值标注 nodiscard。
 - 初始化先独立创建 WindowSystem 和 InputSystem；resources 为空时向 Engine 注册并拥有 ResourceSystem，非空时借用宿主已经初始化的资源底层，再装配 WorldSystem、RenderSystem。宿主初始化可选 Tracy 主线程名称，各模块独立提交采样；覆盖范围见[性能文档](../performance.md)；世界独占物理、音频、导航、动画、字体、界面和可选脚本子系统。引擎已被其他宿主使用时拒绝初始化，不清理他人的资源。
-- `resources`、`script_factory` 和 `setup` 默认空。`ScriptRuntimeFactory` 是 `std::unique_ptr<ScriptRuntime> (*)(WorldSystem&, RenderSystem&, UiSystem&, PhysicsSystem&, NavigationSystem&, InputSystem&, WindowSystem&, AnimationSystem&)` 函数指针别名，由可执行宿主选择插件并提供。先构造世界和渲染器，再调用工厂创建尚未初始化的抽象脚本子系统，交给世界统一初始化、更新和关闭；初始化仍按世界、渲染器的次序。非空工厂返回空或无法附属时，整个初始化失败并清理已取得的资源。渲染器与输入借用仅用于玩法回调；关闭时先由 GameplaySession 停止回调，再释放渲染器和世界。
+- 调用方必须显式提供 `config`、`resources`、`script_factory`、`setup`、`threads` 和完整的 `parallel` 预算；可空资源、工厂及装配函数由调用方显式传入 `nullptr`，不使用隐式预算。`ScriptRuntimeFactory` 是 `std::unique_ptr<ScriptRuntime> (*)(WorldSystem&, RenderSystem&, UiSystem&, PhysicsSystem&, NavigationSystem&, InputSystem&, WindowSystem&, AnimationSystem&)` 函数指针别名，由可执行宿主选择插件并提供。先构造世界和渲染器，再调用工厂创建尚未初始化的抽象脚本子系统，交给世界统一初始化、更新和关闭；初始化仍按世界、渲染器的次序。非空工厂返回空或无法附属时，整个初始化失败并清理已取得的资源。渲染器与输入借用仅用于玩法回调；关闭时先由 GameplaySession 停止回调，再释放渲染器和世界。
 
 上述工厂最后一个参数 `WindowSystem&`，传入宿主已有窗口，供脚本插件的现有/新增绑定
 调用现有窗口系统；不传 RuntimeHost，不让脚本插件持有或关闭宿主。窗口有效期覆盖全部 Run，
@@ -119,9 +124,9 @@ classDiagram
 
 ## 并行配置
 
-`RuntimeParallelConfig` 是运行宿主装配参数，默认同一套实现用于桌面和移动端。编辑器读取项目源 TOML 后直接传递类型配置；打包链导出聚合 `settings/runtime.json`，原生宿主读取 RuntimeSettings 的 engine / parallel 后再传入本对象。RuntimeHost 不解析项目 TOML，EngineConfig 与并行设置均由调用者提供。平台宿主或项目启动配置可覆盖线程上限、各域并发/优先级/积压额度、资源在途数量与字节、动画批量及完成委托每帧预算；核心不按调用方身份选择策略。宿主中域并发为 0 表示采用实际进程 worker 预算，传入 TaskSystem 前解析为正整数。线程预算只在启动时确定，借用进程 ThreadSystem 时沿用其预算。
+`RuntimeParallelConfig` 是运行宿主装配参数，预算值完整保存在项目配置中。编辑器读取项目源 TOML 后直接传递类型配置；打包链导出聚合 `settings/runtime.json`，原生宿主读取 RuntimeSettings 的 engine / parallel 后再传入本对象。RuntimeHost 不解析项目 TOML，EngineConfig 与完整并行设置均由调用者显式提供，不以 `parallel = {}` 补预算。线程上限、各域并发/优先级/积压额度、资源在途数量与字节、动画批量及完成委托每帧预算由配置确定；核心不按调用方身份选择策略。宿主中域并发为 0 表示采用实际进程 worker 预算，传入 TaskSystem 前解析为正整数。线程预算只在启动时确定，借用进程 ThreadSystem 时沿用其预算。
 
-运行时通用、物理、动画域默认高优先，导航正常，加载低优先；各域共享 oneTBB workers，额度不是独占核心。物理和动画关键计算仍在当前帧 join，保持输入/事件/骨骼时序；文件等待交给 SDL AsyncIO，资源解码交给加载域。每帧事件处理后先按数量和总时间预算派发完成委托，然后推进场景与绘制。数量或时间额度为零表示本帧不派发，不会等待队列。
+各任务域优先级由配置显式指定；各域共享 oneTBB workers，额度不是独占核心。物理和动画关键计算仍在当前帧 join，保持输入/事件/骨骼时序；文件等待交给 SDL AsyncIO，资源解码交给加载域。每帧按数量和总时间预算派发完成委托，然后推进场景与绘制。完成派发按任务域轮转，每次每域至多取一项；保留跨帧游标，预算耗尽后下帧从下一域继续，防止持续繁忙的运行域饿死部署和加载域。预算为零不派发，所有域均无就绪项时立即结束，不等待队列。单个委托仍须自行控制耗时，时间预算不抢占正在执行的委托。
 
 关闭依次销毁 GameplaySession、调用 ResourceSystem::shutdown_async()、关闭 Engine 拥有的渲染/世界及可选资源系统，再销毁 InputSystem 和 WindowSystem，随后收尾并关闭各 TaskSystem，最后释放自有 ThreadSystem。领域系统先完成其 Jolt barrier、资源操作和其他借用任务，才能销毁任务域；后台候选只拥有独立数据，不能借用已经销毁的输入或窗口。未派发委托不在关闭期间执行。
 
@@ -170,10 +175,10 @@ flowchart TD
 
 `poll_events(delta_time)` 在窗口可绘制时先同步 UI 文档，随后执行输入开帧、持续 UI 占用提交、唯一窗口事件泵和输入发布，并返回运行 / 暂停 / 退出 / 失败状态；不推进世界或渲染。`tick` 复用该方法，编辑器预览也调用同一入口，每宿主帧二者只选一个。`input()` 返回与 window() 相同生命周期的可空借用，供调用方创建和查询自己的通道，不新增编辑器模式。
 
-线程装配见[线程与任务系统](task-system.md)。initialize 的 threads 参数默认空：空时创建并初始化进程预算，非空须已初始化并在宿主之后关闭。宿主独占运行、后台、加载、物理、动画和导航任务域；tasks() 返回初始化期间运行域的可空借用。
+线程装配见[线程与任务系统](task-system.md)。initialize 的 threads 参数由调用方显式传入：空时根据 parallel.threads 创建并初始化进程预算，非空须已初始化并在宿主之后关闭。宿主独占运行、后台、加载、物理、动画和导航任务域；tasks() 返回初始化期间运行域的可空借用。
 
 遵守 TaskSystem 的生命周期契约：完成委托内需要退出时调用 `request_exit()`，由宿主循环在回调返回的安全点执行 `shutdown()`；委托内不得直接关闭或销毁当前任务域、RuntimeHost 等正在派发该委托的拥有者。
 
 - `ui()` 和 `window()/input()/renderer()` 一样只在初始化成功至关闭之前返回借用，供宿主装配 UI 编辑器插件；不依赖子系统编号或 RTTI。`set_event_observer` 登记可空的 WindowEventHandler 与上下文，主线程在原生事件路由之前通知，回调不能消费或改写事件；关闭先清除此借用。
 
-动画提供者的可空工厂装配、失败回滚及所有权见[重定向注入](animation-retargeting.md#宿主注入)。
+动画提供者的可空工厂装配、失败回滚及所有权见[重定向注入](animation-retargeting.md#可选插件装配与关闭)。

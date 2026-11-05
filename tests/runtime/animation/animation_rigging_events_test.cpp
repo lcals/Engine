@@ -275,6 +275,23 @@ bool attachment_identity()
         return false;
     }
     const auto saved_animator = animator.settings();
+    auto source_parent = fixture.world.scene()->create_node("Source parent");
+    auto source_transform = actor.get_component<engine::Transform>();
+    if (!source_parent || !actor.set_parent(source_parent) || !source_parent.set_enabled(false) ||
+        !expect(child_transform.world_matrix(matrix.data()) && close(matrix[12], 0),
+                "producer validation immediately rejects a disabled source ancestor") ||
+        !source_parent.set_enabled(true) ||
+        !expect(child_transform.world_matrix(matrix.data()) && close(matrix[12], 2),
+                "re-enabling the same source ancestor restores its drive") ||
+        !source_transform.set_enabled(false) ||
+        !expect(child_transform.world_matrix(matrix.data()) && close(matrix[12], 0),
+                "producer validation immediately rejects a disabled source Transform") ||
+        !source_transform.set_enabled(true) ||
+        !expect(child_transform.world_matrix(matrix.data()) && close(matrix[12], 2),
+                "the source Transform can resume without changing animation identity"))
+    {
+        return false;
+    }
     if (!actor.remove_component(engine::Animator::component_type))
     {
         return false;

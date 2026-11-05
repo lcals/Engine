@@ -38,6 +38,7 @@
         },
         "flecs",
         "joltphysics",
+        "libvpx",
         "quill",
         {
           "name": "tbb",
@@ -103,6 +104,17 @@
       "description": "TrueType/OpenType support for the editor asset import plugin",
       "dependencies": [
         "freetype"
+      ]
+    },
+    "movie-import": {
+      "description": "Host FFmpeg tools for offline movie import",
+      "dependencies": [
+        {
+          "name": "ffmpeg",
+          "host": true,
+          "default-features": false,
+          "features": ["ffmpeg", "ffprobe", "vpx", "swresample", "swscale"]
+        }
       ]
     },
     "usd-import": {

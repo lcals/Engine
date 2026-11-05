@@ -1,6 +1,8 @@
 #pragma once
 #include "runtime/animation/animation_attachment.hpp"
+
 #include "runtime/animation/animation_math.hpp"
+#include "runtime/scene/bone_attachment_runtime.hpp"
 #include <algorithm>
 #include <tuple>
 namespace engine::animation_detail::ik_detail
@@ -119,7 +121,7 @@ inline bool resolve_target(Animator actor, const schema::SkeletonDataT& skeleton
     }
     if (attachment)
     {
-        Animator source = attachment.runtime()->source;
+        Animator source = engine::ecs_detail::component_runtime(attachment)->source;
         std::uint32_t socket_index;
         std::uint64_t generation;
         if ((!source && !resolve_attachment_source(attachment, attachment.settings(), source,

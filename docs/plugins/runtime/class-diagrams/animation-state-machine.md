@@ -2,7 +2,7 @@
 
 [类图索引](../../../class-diagrams/index.md) · [现有动画脚本接口](animation-script-api.md) · [Animator](../../../runtime/class-diagrams/animator.md) · [分层方案](../../../runtime/scripted-animation-controller.md)
 
-**接口已确认并接入实现。** 本图定义脚本插件的 TS 外观与 Animator 脚本扩展，`include/engine.d.ts` 与实际绑定同步。既有 Animator 方法仍由原接口图维护；原生原子播放请求、重定向、IK 与骨骼挂点由各自运行时类图维护。
+**接口已确认并接入实现。** 本图定义脚本插件的 TS 外观与 Animator 脚本扩展，`include/engine.d.ts` 与实际绑定同步。Animator 当前完整脚本外观统一由[动画脚本接口](animation-script-api.md)维护；原生原子播放请求、重定向、IK 与骨骼挂点由各自运行时类图维护。
 
 ## 三层与所有权
 
@@ -48,18 +48,7 @@ classDiagram
         +IsTriggered(string name) boolean
         +SetSpeed(number value) boolean
     }
-    class Animator {
-        <<existing component handle>>
-        +SetStateMachine(AnimationStateMachine definition, AnimationActionAliases actionAliases) boolean
-        +ClearStateMachine() boolean
-        +SetParameters(ParameterValues values) boolean
-        +Trigger(string name) boolean
-        +ResetTrigger(string name) boolean
-        +SetStateMachinePaused(boolean value) boolean
-        +stateMachineState stringOrNull
-        +stateMachinePaused booleanOrNull
-        +stateMachineTransitioning boolean
-    }
+    class Animator
     class AnimationMachineInstance {
         <<Run private record>>
         -definition AnimationStateMachine
@@ -110,7 +99,7 @@ classDiagram
 
 ## 精确类型
 
-以下是待实现的 TS 签名，不代表当前绑定已经支持。可选参数和默认值以本节为准。
+以下为已实现的状态机 TS 签名，可选参数和默认值与 `include/engine.d.ts` 同步；Animator 的完整方法统一见[动画脚本接口](animation-script-api.md)。
 
 ```typescript
 declare module "engine" {
@@ -179,19 +168,6 @@ declare module "engine" {
         SetSpeed(value: number): boolean;
     }
 
-    // 合并到现有 Animator 类的新增脚本外观；既有方法仍由原图维护。
-    export interface Animator {
-        SetStateMachine(definition: AnimationStateMachine,
-                        actionAliases: AnimationActionAliases): boolean;
-        ClearStateMachine(): boolean;
-        SetParameters(values: ParameterValues): boolean;
-        Trigger(name: string): boolean;
-        ResetTrigger(name: string): boolean;
-        SetStateMachinePaused(value: boolean): boolean;
-        readonly stateMachineState: string | null;
-        readonly stateMachinePaused: boolean | null;
-        readonly stateMachineTransitioning: boolean;
-    }
 }
 ```
 
@@ -238,7 +214,7 @@ declare module "engine" {
 - `context.SetSpeed(value)` 只在活动状态的 OnEnter/OnUpdate 中可用，沿用原生 [0,16] 数值范围；条件和 OnExit 中返回 false。它只调节该实例当前动作速率，不切状态、不重置时间，也不修改共享定义。初始速率来自状态选项。
 - context 仅在当前同步回调有效，不得存入状态字段、闭包、定时任务或 Promise。其外观可随轻量实例复用，不在不同角色之间复用同一个公开 context 对象；每次回调检查当前有效作用域，作用域外使用拒绝，不能因此访问下一角色。无需每帧重建整套状态或上下文。TS 回调异常沿用当前 Run 的失败与完整清理策略，不承诺隔离任意角色异常或回滚用户副作用。
 
-现有非循环动作结束会进入 paused，机器仍需读取 finished/时间并评估退出。显式机器暂停、世界暂停、组件停用才冻结相应判断/计时；恢复不补算被暂停的时长。原生完成查询与累计时间仍需在 Animator 所属公开契约确认，不能在 TS 里另推算一份逐动作时钟。
+现有非循环动作结束会进入 paused，机器仍需读取 finished/时间并评估退出。显式机器暂停、世界暂停、组件停用才冻结相应判断/计时；恢复不补算被暂停的时长。原生完成查询与累计时间遵守 Animator 所属公开契约，TS 不另推算一份逐动作时钟。
 
 ## 现有 Run 与原生生命周期
 

@@ -1,5 +1,7 @@
 #include "plugins/runtime/script/bindings/animator_binding.hpp"
 
+#include "runtime/scene/animator_runtime.hpp"
+
 #include "plugins/runtime/script/bindings/binding_context.hpp"
 #include "runtime/resource/resource.hpp"
 #include "runtime/scene/animator.hpp"
@@ -354,7 +356,7 @@ void snapshot(const Arguments& arguments)
     {
         return;
     }
-    const auto* runtime = value.runtime();
+    const auto* runtime = engine::ecs_detail::component_runtime(value);
     arguments.set_return(vm::NativeValue::Object{
         {"animationGuid", runtime && runtime->animation_ ? runtime->animation_->info().guid : ""},
         {"resourceGeneration",

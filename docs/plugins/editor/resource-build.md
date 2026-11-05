@@ -19,7 +19,7 @@
 | 模块 | 负责内容 |
 | --- | --- |
 | `AssetPipelineSystem` | 扫描资源和 meta、校验身份、记录构建依赖与运行依赖、管理 SQLite 版本、调度增量转换。 |
-| `TaskSystem` | 使用 oneTBB 执行转换任务；由资源管线读取 `settings/import.toml` 并配置，导入线程默认 4。 |
+| `TaskSystem` | 使用 oneTBB 执行转换任务；由资源管线读取 `settings/editor-import.toml` 并配置，项目显式配置导入并发 8。 |
 | `AssetBuildSystem` | 借用资源管线，读取打包清单、计算运行资源闭包、组织输出、复用构建结果、校验并发布运行清单。 |
 | `ResourceSystem` | 接收目录与存储映射，提供 GUID / 路径转换和资源读取；不负责扫描、导入或打包。 |
 | MCP | 调用编辑器构建接口并返回结果，不另写依赖分析、转换或打包算法。 |
@@ -28,23 +28,23 @@
 
 ## 项目打包清单
 
-项目只维护一份可选的 `settings/resource-build.toml`，各平台共用。它描述项目实际使用的资源入口，不需要填写安装目录、APK 路径或引擎内置资源清单；平台由构建调用选择，导出工具负责部署到统一内置资源根。
+项目只维护一份可选的 `settings/editor-resource-build.toml`，各平台共用。它描述项目实际使用的资源入口，不需要填写安装目录、APK 路径或引擎内置资源清单；平台由构建调用选择，导出工具负责部署到统一内置资源根。
 
 ```toml
-[[items]]
+[[common.items]]
 name = "game"
 storage = "package"
 roots = ["scripts/game.ts", "scenes/main.scene"]
 keep = []
 ```
 
-- 清单文件不存在、没有 `items` 或 `items = []` 时，构建全部项目目录资源；默认以一个 `game` 合并包输出。这里的全量指经过导入的资源实体，不是复制项目的 `assets/`、`settings/` 和 `cache/` 源目录。
-- 显式 `[[items]]` 必须写 `roots` 数组。`roots = []` 表示有意不选择该项的项目入口；仍可用 `keep` 选择动态资源。空项目集合不会移除引擎必需的内置资源基线。
+- 清单文件不存在、没有 `[common].items` 或 `items = []` 时，构建全部项目目录资源；默认以一个 `game` 合并包输出。这里的全量指经过导入的资源实体，不是复制项目的 `assets/`、`settings/` 和 `cache/` 源目录。
+- 显式 `[[common.items]]` 必须写 `roots` 数组。`roots = []` 表示有意不选择该项的项目入口；仍可用 `keep` 选择动态资源。空项目集合不会移除引擎必需的内置资源基线。
 - 普通资源逻辑路径相对项目资源根，例如 `scenes/main.scene`；不带 `project/`。`builtin://` 是引擎保留域，`editor://` 仅属于编辑器，不能作为运行构建入口。
 - `roots` 是入口；`keep` 补充无法静态发现的动态加载资源。两者均递归包含真实运行依赖，不需手写每张间接贴图、每个材质或 Shader。
 - `storage = "files"` 保持 `gen/<完整GUID>` 散文件；`storage = "package"` 按 GUID 排序串联完整 `ERS1` 实体，输出为 `packs/<构建项名>-<指纹>`，无后缀。catalog 记录实体的包内偏移和长度，不增加包内目录。
 
-构建项名称只使用小写字母、数字、连字符或下划线；`builtin` 保留给引擎。未知字段、重复名称、错误类型、越界路径和项目子路径中的符号链接均拒绝。清单不接受 `target_platform`；平台只由调用参数指定，支持 `macos/ios/windows/android/linux`，省略时采用宿主平台。默认输出 `cache/build/<platform>`；高级配置可选 `output = "cache/build/<专用目录>"`，不能覆盖导入缓存或内置 Shader 工具缓存。
+构建项名称只使用小写字母、数字、连字符或下划线；`builtin` 保留给引擎。未知字段、重复名称、错误类型、越界路径和项目子路径中的符号链接均拒绝。清单不接受 `target_platform`；平台只由调用参数指定，支持 `macos/ios/windows/android/linux`，省略时采用宿主平台。默认输出 `cache/build/<platform>`；高级配置可在 `[common]` 下选填 `output = "cache/build/<专用目录>"`，不能覆盖导入缓存或内置 Shader 工具缓存。
 
 一次 `build()` 可以选择一个或多个构建项；未指定名称时选择清单中的全部项。无已配置构建项时不能按名称选择。未知项、重复选择、缺失入口和不兼容的存储配置返回失败。所选项共同生成一份 `catalog.bin`，同一 GUID 只出现一次。同种存储方式的共享项目依赖归名称排序最前的选中项；同一项目资源同时要求散文件与合并包时明确报错。
 
@@ -80,9 +80,9 @@ keep = []
 
 ## 工具入口
 
-`build_resources(manifest?, items?, targetPlatform?)` 使用当前项目；省略 `manifest` 时读取固定 `settings/resource-build.toml`，缺失则全量。可选 `targetPlatform` 决定平台，省略时采用宿主；`items` 为可选构建项名称。MCP 调用 `AssetBuildSystem.build(project_root, manifest, items, target_platform)`，返回成功状态、构建统计或错误说明，不另建配置或算法。
+`build_resources(manifest?, items?, targetPlatform?)` 使用当前项目；省略 `manifest` 时读取固定 `settings/editor-resource-build.toml`，缺失则全量。可选 `targetPlatform` 决定平台，省略时采用宿主；`items` 为可选构建项名称。MCP 调用 `AssetBuildSystem.build(project_root, manifest, items, target_platform)`，返回成功状态、构建统计或错误说明，不另建配置或算法。
 
-命令行使用 `asset_build_app --project <项目根目录> --package [--manifest settings/resource-build.toml] [--item game] [--target android]`；`--manifest` 本身也选择打包模式。成功时标准输出为单行 JSON，包含 `output`、`targetPlatform`、`resourceCount`、`packageCount`、`reusedPackageCount` 和 `revision`，资源和包统计包含自动内置基线；错误写入标准错误。未指定 `--package` 和 `--manifest` 时执行独立的纯导入操作，`--target` 同样适用。原生构建见[构建指南](../../building.md)，资源命令见[运行包命令](#运行包命令)。
+命令行使用 `asset_build_app --project <项目根目录> --package [--manifest settings/editor-resource-build.toml] [--item game] [--target android]`；`--manifest` 本身也选择打包模式。成功时标准输出为单行 JSON，包含 `output`、`targetPlatform`、`resourceCount`、`packageCount`、`reusedPackageCount` 和 `revision`，资源和包统计包含自动内置基线；错误写入标准错误。未指定 `--package` 和 `--manifest` 时执行独立的纯导入操作，`--target` 同样适用。原生构建见[构建指南](../../building.md)，资源命令见[运行包命令](#运行包命令)。
 
 真机同步消费这份运行清单及其引用的独立文件和包，不在同步工具中重新计算资源集合。
 
@@ -91,9 +91,9 @@ keep = []
 ```sh
 ./build/ninja-engine-release/asset_build_app --project projects/showcase --package
 ./build/ninja-engine-release/asset_build_app --project projects/showcase --package --target android
-./build/ninja-engine-release/asset_build_app --project projects/showcase --manifest settings/resource-build.toml
+./build/ninja-engine-release/asset_build_app --project projects/showcase --manifest settings/editor-resource-build.toml
 # 可重复 --item；省略时选择清单的全部构建项。
-./build/ninja-engine-release/asset_build_app --project projects/showcase --manifest settings/resource-build.toml --item game
+./build/ninja-engine-release/asset_build_app --project projects/showcase --manifest settings/editor-resource-build.toml --item game
 ```
 
 MCP 提供 `build_resources`，接受可选 `manifest`、`items` 和 `targetPlatform`；省略 manifest 使用上述统一项目配置。`sync_assets` 可传 `source`（例如 `cache/build/windows`）同步已构建目录；省略时先导入并同步完整编辑器目录。同步成功只表示候选部署可用，是否激活由运行宿主与热重载开关决定。
@@ -101,7 +101,7 @@ MCP 提供 `build_resources`，接受可选 `manifest`、`items` 和 `targetPlat
 命令行客户端使用同一工具协议：
 
 ```sh
-python3 scripts/mcp_client.py --server build/ninja-engine-release/mcp_app --project projects/showcase --runtime-dir build/minimal-runtime build --manifest settings/resource-build.toml --item game
+python3 scripts/mcp_client.py --server build/ninja-engine-release/mcp_app --project projects/showcase --runtime-dir build/minimal-runtime build --manifest settings/editor-resource-build.toml --item game
 python3 scripts/mcp_client.py --server build/ninja-engine-release/mcp_app --project projects/showcase --runtime-dir build/minimal-runtime sync --source cache/build/windows
 ```
 

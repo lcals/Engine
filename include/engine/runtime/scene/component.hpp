@@ -6,6 +6,10 @@
 
 namespace engine
 {
+namespace ecs_detail
+{
+template <class T> auto component_runtime(T component) noexcept;
+}
 class ComponentRegistry;
 struct ComponentState;
 template <class T, class Data, class Runtime> bool register_component_storage(ComponentRegistry&);

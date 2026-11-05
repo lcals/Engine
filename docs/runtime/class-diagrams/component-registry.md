@@ -11,7 +11,7 @@ classDiagram
         +find(ComponentType type, Node node) Component
         +remove(ComponentType type, Node node) bool
         +collect(Node node, vector~Component~& output) bool
-        +operations(ComponentType type) const Operations#42;
+        -operations(ComponentType type) const Operations#42;
         +register_type(ComponentType type, const Operations& operations) bool
         +native_world() ecs_world_t#42;
     }

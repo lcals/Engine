@@ -31,7 +31,7 @@ def metadata_guid(source):
 
 def check_compiler_inputs(root, project, temporary):
     builder = root / "scripts/build_scripts.mjs"
-    config_path = project / "settings/tsconfig.json"
+    config_path = project / "settings/typescript/tsconfig.json"
     config = json.loads(config_path.read_text(encoding="utf-8"))
     inherited = temporary / "shared-tsconfig.json"
     inherited.write_text('{"compilerOptions":{"noUnusedLocals":false}}', encoding="utf-8")
@@ -264,6 +264,8 @@ def test(
         "stop_animation",
         "seek_animation",
         "get_animation_state",
+        "get_animation_authoring",
+        "set_animation_authoring",
         "instantiate_model",
         "instantiate_prefab",
         "create_prefab",
@@ -495,8 +497,8 @@ def test(
     require("gen/" + helper_guid in manifest["deleted"], "deleted module was not recorded")
 
     (project / "settings/test-package.toml").write_text(
-        'output="cache/build/test-package"\n'
-        '[[items]]\nname="game"\nstorage="package"\n'
+        '[common]\noutput="cache/build/test-package"\n'
+        '[[common.items]]\nname="game"\nstorage="package"\n'
         'roots=["scripts/game.ts", "scenes/main.scene"]\n',
         encoding="utf-8",
     )

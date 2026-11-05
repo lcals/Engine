@@ -2,6 +2,8 @@
 
 资源管线按显式登记选择实现。[统一资源导入插件](../../plugins/editor/class-diagrams/asset-import.md)承载 FBX、USD、字体、UI 与 JSON 的逐类型实现；基础接口及登记表仍位于编辑器基础层。每种资源的识别、meta 默认值、依赖、类型指纹与转换保存在自己的文件；锁、GUID、SQLite、oneTBB 编排及原子发布留在 AssetPipelineSystem。
 
+规划入口：[MovieImporter（待实现）](../../plugins/editor/class-diagrams/movie-importer.md)生成一个主 Movie 与可选独立 AudioClip 子资源；[异步批次规划](asset-import-jobs.md)将既有 `discover()` 调度至后台任务，另列 ImportContext 合作取消/进度和共享工具函数契约。不新增前置虚方法，子描述仍由协调线程接受并维护 GUID/meta。以下类图仍描述当前接口，不提前加入规划字段或实现类型。
+
 ```mermaid
 classDiagram
     class AssetImporter {

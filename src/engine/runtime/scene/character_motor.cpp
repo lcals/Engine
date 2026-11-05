@@ -1,5 +1,7 @@
 #include "runtime/scene/character_motor.hpp"
 
+#include "runtime/scene/character_motor_runtime.hpp"
+
 #include "runtime/scene/ecs_storage.hpp"
 
 #include <cmath>

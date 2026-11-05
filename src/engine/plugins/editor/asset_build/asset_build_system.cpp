@@ -165,7 +165,15 @@ bool read_manifest(const std::filesystem::path& root, const std::filesystem::pat
         error = "invalid resource build manifest: " + std::string(parsed.error().description());
         return false;
     }
-    for (const auto& [key, value] : parsed.table())
+    const auto* settings = parsed["common"].as_table();
+    if (parsed.table().size() != (settings != nullptr ? 1u : 0u))
+    {
+        error = "resource build settings require a [common] table";
+        return false;
+    }
+    const toml::table empty;
+    const auto& common = settings != nullptr ? *settings : empty;
+    for (const auto& [key, value] : common)
     {
         (void)value;
         if (key != "output" && key != "items")
@@ -174,9 +182,9 @@ bool read_manifest(const std::filesystem::path& root, const std::filesystem::pat
             return false;
         }
     }
-    if (parsed.table().contains("output"))
+    if (common.contains("output"))
     {
-        const auto destination = parsed["output"].value<std::string>();
+        const auto destination = common["output"].value<std::string>();
         if (!destination)
         {
             error = "build output must be a string";
@@ -200,8 +208,8 @@ bool read_manifest(const std::filesystem::path& root, const std::filesystem::pat
             return false;
         }
     }
-    const auto* items = parsed["items"].as_array();
-    if (!parsed.table().contains("items") || (items != nullptr && items->empty()))
+    const auto* items = common["items"].as_array();
+    if (!common.contains("items") || (items != nullptr && items->empty()))
     {
         if (!selected.empty())
         {
@@ -523,8 +531,9 @@ bool AssetBuildSystem::build(const std::filesystem::path& project_root,
     BuildManifest manifest;
     if (code || !inspect_path(root, last_error_) ||
         !read_manifest(root,
-                       manifest_path.empty() ? std::filesystem::path("settings/resource-build.toml")
-                                             : manifest_path,
+                       manifest_path.empty()
+                           ? std::filesystem::path("settings/editor-resource-build.toml")
+                           : manifest_path,
                        selected, manifest, last_error_))
     {
         if (last_error_.empty())

@@ -6,12 +6,12 @@
     "strict": true,
     "noImplicitOverride": true,
     "noEmitOnError": true,
-    "rootDir": "../assets",
-    "outDir": "../cache/assets",
+    "rootDir": "../../assets",
+    "outDir": "../../cache/assets",
     "lib": ["ES2022"],
     "types": [],
     "sourceMap": true
   },
-  "files": ["../../../include/engine.d.ts"],
-  "include": ["../assets/**/*.ts"]
+  "files": ["../../../../include/engine.d.ts"],
+  "include": ["../../assets/**/*.ts"]
 }

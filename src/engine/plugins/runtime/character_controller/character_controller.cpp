@@ -1,5 +1,7 @@
 #include "plugins/runtime/character_controller/character_controller.hpp"
 
+#include "plugins/runtime/character_controller/character_controller_runtime.hpp"
+
 #include "runtime/scene/ecs_storage.hpp"
 
 #include "runtime/scene/character_motor.hpp"

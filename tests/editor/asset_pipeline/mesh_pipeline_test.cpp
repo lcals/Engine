@@ -60,8 +60,9 @@ struct Fixture
         {
             return false;
         }
-        root = temporary / ("engine-mesh-test-" +
-                            std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+        root = temporary /
+               ("engine-mesh-test-" +
+                std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
         for (const auto* directory : {"assets", "cache", "settings"})
         {
             std::filesystem::create_directories(root / directory, error);
@@ -70,7 +71,7 @@ struct Fixture
                 return false;
             }
         }
-        return true;
+        return write(root / "settings/editor-import.toml", "[common]\nimport_threads = 8\n");
     }
 
     ~Fixture() noexcept
@@ -119,9 +120,8 @@ bool mesh_tangent_tests()
         "[0.4,0,0,1],[0.5,0,0,1],[0.6,0,0,1]]\n";
     const std::string parts = "[[submeshes]]\nfirst_index=0\nindex_count=6\nmaterial_slot=0\n"
                               "[[submeshes]]\nfirst_index=6\nindex_count=3\nmaterial_slot=1\n";
-    const std::string authored =
-        "tangents=[[0,1,0,-1],[0,1,0,-1],[0,1,0,-1],[0,1,0,-1],"
-        "[0,1,0,-1],[0,1,0,-1],[0,1,0,-1]]\n";
+    const std::string authored = "tangents=[[0,1,0,-1],[0,1,0,-1],[0,1,0,-1],[0,1,0,-1],"
+                                 "[0,1,0,-1],[0,1,0,-1],[0,1,0,-1]]\n";
     // The long, narrow triangle is nondegenerate in both position and UV.
     // Its last projected corner angle rounds to acos(1) in single precision.
     const std::string thin =
@@ -131,8 +131,8 @@ bool mesh_tangent_tests()
         "indices=[0,1,2]\n"
         "texcoords=[[3.397445,-0.018111],[3.397445,-0.016195],"
         "[-3.397445,-0.018111]]\n";
-    const auto write_asset = [&](std::string_view name, std::string_view guid,
-                                 const std::string& content)
+    const auto write_asset =
+        [&](std::string_view name, std::string_view guid, const std::string& content)
     {
         const auto path = fixture.root / "assets" / name;
         return write(path, content) && write(path.string() + ".meta", meta(guid, "mesh"));
@@ -220,13 +220,14 @@ bool mesh_tangent_tests()
         return false;
     }
     const auto stable_catalog = read(fixture.root / "cache/catalog.bin");
-    return expect(write(fixture.root / "assets/generated.mesh", "vertices=[[0,0,0,0,0,0]]\nindices=[0,0,0]\n") &&
+    return expect(write(fixture.root / "assets/generated.mesh",
+                        "vertices=[[0,0,0,0,0,0]]\nindices=[0,0,0]\n") &&
                       !pipeline.build_assets(fixture.root) &&
                       read(fixture.root / "cache/catalog.bin") == stable_catalog,
                   "invalid mesh import leaves the previous published catalog intact");
 }
 
- } // namespace
+} // namespace
 
 int main()
 {

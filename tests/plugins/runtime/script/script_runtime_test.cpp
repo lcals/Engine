@@ -7,6 +7,10 @@
 #include "plugins/runtime/resource_graph/resource_graph_system.hpp"
 #endif
 #include "runtime/app/app.hpp"
+#include "runtime/audio/audio_system.hpp"
+#include "runtime/movie/movie_player.hpp"
+#include "runtime/task/task_system.hpp"
+#include "runtime/task/thread_system.hpp"
 #include "runtime/engine.hpp"
 #include "runtime/engine_config.hpp"
 #include "runtime/input/input_system.hpp"
@@ -113,7 +117,8 @@ std::string guid_for(std::string_view path)
 bool fixture(const fs::path& workspace, std::string_view revision,
              const std::map<std::string, std::string>& scripts, Fixture& output,
              std::string_view scene_bytes = {}, std::string_view audio_bytes = {},
-             const std::map<std::string, std::string>& json_resources = {})
+             const std::map<std::string, std::string>& json_resources = {},
+             std::string_view movie_bytes = {})
 {
     output = {};
     output.root = workspace / "versions" / engine::PathUtils::from_utf8(revision);
@@ -166,6 +171,11 @@ bool fixture(const fs::path& workspace, std::string_view revision,
     }
     if (!audio_bytes.empty() &&
         !add("sounds/test.wav", "", engine::schema::AssetKind::audio, audio_bytes))
+    {
+        return false;
+    }
+    if (!movie_bytes.empty() &&
+        !add("movies/test.mp4", "", engine::schema::AssetKind::movie, movie_bytes))
     {
         return false;
     }
@@ -679,6 +689,7 @@ export default class extends Gameplay {
 const std::string scene_source = R"js(
 import { App, Gameplay, Scene, Time, Debug, Component, Camera, Light, MeshRenderer, Transform } from 'engine';
 const topLevelBlocked = Scene.Create('top-level') === null && Time.deltaTime === 0;
+const gameLanguage = App.gameLanguage;
 export default class Game extends Gameplay {
     cube = null;
     scene = null;
@@ -690,7 +701,8 @@ export default class Game extends Gameplay {
     OnInitialize() {
         if (typeof App.assetsPath !== 'string' || App.assetsPath.length === 0 ||
             'builtinAssetsPath' in App || typeof App.persistentDataPath !== 'string' ||
-            typeof App.cachePath !== 'string') return false;
+            typeof App.cachePath !== 'string' || gameLanguage !== 'zh-CN' ||
+            App.gameLanguage !== 'zh-CN' || Reflect.set(App, 'gameLanguage', 'fr')) return false;
         if (!topLevelBlocked || !this.constructorBlocked || Time.deltaTime !== 0) return false;
         const discarded = Scene.Create('discarded');
         const oldNode = discarded?.CreateNode('old');
@@ -3054,6 +3066,58 @@ export default class extends Gameplay {
     return expect(script.status().last_error.empty(), "scene render bindings shut down cleanly");
 }
 
+bool run_movie_binding_cases(const fs::path& workspace)
+{
+    using namespace engine;
+    auto* resources = ResourceSystem::instance();
+    ThreadSystem threads({2});
+    TaskSystem tasks(threads, {"ScriptMovieTest", 2});
+    AudioSystem audio;
+    if (!resources || !threads.initialize({}) || !tasks.initialize({}) ||
+        !resources->configure_async(tasks) || !audio.initialize({}))
+    {
+        return expect(false, "prepare movie binding services");
+    }
+    MoviePlayer player(*resources, tasks, audio);
+    engine::plugins::script::ScriptSystem script(nullptr, nullptr, nullptr, nullptr, nullptr,
+                                                  nullptr, nullptr, nullptr, &player);
+    constexpr auto source = R"js(
+import { Gameplay, Movie, MovieState, MovieStopReason } from 'engine';
+const topBlocked = Movie.Play('movies/test.mp4') === null;
+export default class extends Gameplay {
+    OnInitialize() {
+        if (!topBlocked) return false;
+        const first = Movie.Play('movies/test.mp4');
+        if (!first || typeof first.id !== 'bigint' || typeof first.generation !== 'bigint') return false;
+        if (Movie.Status(first)?.state !== MovieState.preparing || Movie.SetPaused(first, true)) return false;
+        if (Movie.Status({id:first.id, generation:first.generation + 1n}) !== null) return false;
+        if (Movie.Play('movies/test.mp4') !== null || Movie.Release(first)) return false;
+        if (!Movie.Stop(first, MovieStopReason.skipped) || Movie.Status(first)?.stopReason !== MovieStopReason.skipped) return false;
+        if (!Movie.Release(first) || Movie.Status(first) !== null) return false;
+        this.movie = Movie.Play('movies/test.mp4');
+        return this.movie !== null;
+    }
+}
+)js";
+    Fixture candidate;
+    if (!script.initialize({}) ||
+        !fixture(workspace, "movie-binding", {{"scripts/game.js", source}}, candidate, {}, {}, {}, "placeholder") ||
+        !apply(script, candidate))
+    {
+        return expect(false, "run movie facade from active gameplay");
+    }
+    MoviePlaybackHandle current;
+    if (!expect(player.current_handle(current), "script owns accepted movie"))
+    {
+        return false;
+    }
+    script.stop_gameplay();
+    const bool cleaned = expect(!player.current_handle(current), "run shutdown cancels and releases its movie");
+    script.shutdown();
+    resources->shutdown_async();
+    return cleaned;
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -3079,10 +3143,11 @@ int main(int argc, char** argv)
     app.assets_path = workspace / fs::path(u8"builtin-资源");
     app.persistent_data_path = workspace / fs::path(u8"data-持久");
     app.cache_path = workspace / fs::path(u8"cache-缓存");
-    if (!engine::App::initialize(app))
+    if (!engine::App::initialize(app) || !engine::App::game_language().empty())
     {
         return 1;
     }
+    engine::App::set_game_language("zh-CN");
     const engine::EngineConfig config;
     if (!engine::LogSystem::instance().initialize(config))
     {
@@ -3102,6 +3167,7 @@ int main(int argc, char** argv)
         run_frame_rate_binding_cases(workspace) && run_json_binding_cases(workspace) &&
         run_storage_binding_cases(workspace) && run_input_binding_cases(workspace) &&
         run_runtime_control_cases(workspace) && run_step_loading_cases(workspace) &&
+        run_movie_binding_cases(workspace) &&
         run_shooting_query_cases(workspace) && run_physics_interaction_binding_cases(workspace) &&
         run_physics_subscription_cases(workspace) &&
         run_physics_subscription_scene_cases(workspace) &&

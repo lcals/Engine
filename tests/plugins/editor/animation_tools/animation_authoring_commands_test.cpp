@@ -77,6 +77,10 @@ bool exercise()
             return false;
         }
     }
+    if (!write(fixture.root / "settings/editor-import.toml", "[common]\nimport_threads = 8\n"))
+    {
+        return false;
+    }
     for (const auto* name : {"skeleton.fbx", "locomotions.fbx"})
     {
         fs::copy_file(fs::path(ENGINE_FBX_TEST_DATA_DIR) / name, fixture.root / "assets" / name,

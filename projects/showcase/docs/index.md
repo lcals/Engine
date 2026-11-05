@@ -23,5 +23,6 @@
 - [动画测试模型来源](models-source.md) · [模型 MIT 许可原文](models-license.md)
 - [字体来源](sources/fonts.md) · [特效来源](sources/effects.md)
 - [原创破坏特效导出](destruction-effects.md)
+- [lcals 标识影片来源与制作](sources/lcals-movie.md)
 
 `assets/fonts/ofl.txt`、`assets/effects/effekseer-license.txt` 和 `assets/effects/efkbgfx-license.txt` 保持在资源目录随分发保留；集中说明文档不替代这些版权与许可正文。

@@ -538,13 +538,14 @@ bool build_selection(editor::AssetPipelineSystem& pipeline, const Project& proje
                      const Guid& model_guid, const Guid& mesh_guid, const Guid& skeleton_guid)
 {
     constexpr auto manifest = "settings/fbx-selection.toml";
-    if (!write(project.root / manifest, "output = \"cache/build/selection\"\n"
-                                        "[[items]]\nname = \"model\"\nstorage = \"package\"\n"
-                                        "roots = [\"models/skeleton.fbx\"]\n"
-                                        "[[items]]\nname = \"walk\"\nstorage = \"package\"\n"
-                                        "roots = [\"models/locomotions.fbx/animations/walk\"]\n"
-                                        "[[items]]\nname = \"walk-files\"\nstorage = \"files\"\n"
-                                        "roots = [\"models/locomotions.fbx/animations/walk\"]\n"))
+    if (!write(project.root / manifest,
+               "[common]\noutput = \"cache/build/selection\"\n"
+               "[[common.items]]\nname = \"model\"\nstorage = \"package\"\n"
+               "roots = [\"models/skeleton.fbx\"]\n"
+               "[[common.items]]\nname = \"walk\"\nstorage = \"package\"\n"
+               "roots = [\"models/locomotions.fbx/animations/walk\"]\n"
+               "[[common.items]]\nname = \"walk-files\"\nstorage = \"files\"\n"
+               "roots = [\"models/locomotions.fbx/animations/walk\"]\n"))
     {
         return false;
     }
@@ -641,6 +642,10 @@ int main()
         {
             return 1;
         }
+    }
+    if (!write(project.root / "settings/editor-import.toml", "[common]\nimport_threads = 8\n"))
+    {
+        return 1;
     }
     for (const auto* filename : {"skeleton.fbx", "locomotions.fbx"})
     {

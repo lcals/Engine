@@ -1,4 +1,4 @@
-import { Debug, Gameplay, Scene, UiComponent } from "engine";
+import { Debug, Gameplay, Movie, MoviePlaybackHandle, MovieState, MovieStopReason, Scene, UiComponent } from "engine";
 import { LauncherController } from "../controllers/launcher_controller.js";
 import { LauncherChoice, LauncherModel } from "../models/launcher_model.js";
 import { ShowcaseGame } from "../models/showcase_cases.js";
@@ -7,6 +7,7 @@ export default class Game extends Gameplay {
     private controller: LauncherController | null = null;
     private active: ShowcaseGame | null = null;
     private readonly model = new LauncherModel();
+    private movie: MoviePlaybackHandle | null = null;
 
     override OnInitialize(): boolean {
         if (!this.open_menu()) return false;
@@ -15,6 +16,23 @@ export default class Game extends Gameplay {
     }
 
     override Update(): void {
+        if (this.model.movie_requested) {
+            this.model.movie_requested = false;
+            this.movie = Movie.Play("movies/lcals.mp4");
+            this.model.movie_playing = this.movie !== null;
+            this.model.error = this.movie ? null : `Cannot replay intro: ${Movie.lastError ?? "unavailable"}`;
+            this.controller?.Refresh();
+        }
+        if (this.movie) {
+            const status = Movie.Status(this.movie);
+            if (!status || status.state === MovieState.completed || status.state === MovieState.cancelled || status.state === MovieState.failed) {
+                if (status?.state === MovieState.failed) this.model.error = `Intro failed: ${status.error}`;
+                if (status) Movie.Release(this.movie);
+                this.movie = null;
+                this.model.movie_playing = false;
+                this.controller?.Refresh();
+            }
+        }
         const request = this.model.pending;
         if (request === null) {
             this.active?.Update();
@@ -87,6 +105,15 @@ export default class Game extends Gameplay {
     }
 
     override OnShutdown(): void {
+        if (this.movie) {
+            const status = Movie.Status(this.movie);
+            if (status && (status.state === MovieState.preparing || status.state === MovieState.playing || status.state === MovieState.paused))
+                Movie.Stop(this.movie, MovieStopReason.stopped);
+            Movie.Release(this.movie);
+            this.movie = null;
+        }
+        this.model.movie_requested = false;
+        this.model.movie_playing = false;
         const controller = this.controller;
         this.controller = null;
         try {

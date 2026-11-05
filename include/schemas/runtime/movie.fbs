@@ -1,0 +1,38 @@
+namespace engine.schema;
+
+enum MoviePixelFormat:ubyte { yuv420p8, nv12 }
+enum MovieColorPrimaries:ubyte { bt709 }
+enum MovieTransfer:ubyte { srgb, bt709 }
+enum MovieColorMatrix:ubyte { bt601, bt709 }
+enum MovieColorRange:ubyte { full, limited }
+enum MovieChromaLocation:ubyte { left, center }
+
+struct MovieColorInfo {
+    primaries:MovieColorPrimaries;
+    transfer:MovieTransfer;
+    matrix:MovieColorMatrix;
+    range:MovieColorRange;
+    chroma_location:MovieChromaLocation;
+}
+
+table MovieVideoData {
+    width:uint;
+    height:uint;
+    frame_rate_num:uint;
+    frame_rate_den:uint;
+    time_base_num:uint;
+    time_base_den:uint;
+    duration_ticks:ulong;
+    frame_count:uint;
+    color:MovieColorInfo;
+    payload:[ubyte] (required);
+}
+
+table MovieData {
+    schema_version:uint = 1;
+    encoding_version:uint = 1;
+    video:MovieVideoData (required);
+    audio_guid:string;
+}
+root_type MovieData;
+file_identifier "EMOV";

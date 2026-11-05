@@ -9,6 +9,30 @@ declare module "engine" {
         OnShutdown(): void;
     }
 
+    export enum MovieState { preparing, playing, paused, completed, cancelled, failed }
+    export enum MovieStopReason { none, stopped, skipped }
+    export interface MoviePlaybackHandle {
+        readonly id: bigint;
+        readonly generation: bigint;
+    }
+    export interface MoviePlaybackStatus {
+        readonly state: MovieState;
+        readonly stopReason: MovieStopReason;
+        readonly positionSeconds: number;
+        readonly durationSeconds: number;
+        readonly error: string;
+    }
+    /** Full-screen movie playback for active Run callbacks. */
+    export class Movie {
+        private constructor();
+        static Play(path: string): MoviePlaybackHandle | null;
+        static SetPaused(handle: MoviePlaybackHandle, paused: boolean): boolean;
+        static Stop(handle: MoviePlaybackHandle, reason?: MovieStopReason): boolean;
+        static Status(handle: MoviePlaybackHandle): MoviePlaybackStatus | null;
+        static Release(handle: MoviePlaybackHandle): boolean;
+        static readonly lastError: string | null;
+    }
+
     export class Debug {
         private constructor();
         static Log(message: string): void;
@@ -21,6 +45,7 @@ declare module "engine" {
         static readonly assetsPath: string;
         static readonly persistentDataPath: string;
         static readonly cachePath: string;
+        static readonly gameLanguage: string;
         /** Requests normal host shutdown at a frame boundary. Active callbacks only. */
         static RequestQuit(): boolean;
     }

@@ -14,8 +14,8 @@ const output = await mkdtemp(path.join(tmpdir(), "engine-showcase-persistent-ui-
 
 try {
     execFileSync(process.execPath, [
-        path.join(project, "settings/node_modules/typescript/lib/tsc.js"),
-        "--project", path.join(project, "settings/tsconfig.json"),
+        path.join(project, "settings/typescript/node_modules/typescript/lib/tsc.js"),
+        "--project", path.join(project, "settings/typescript/tsconfig.json"),
         "--outDir", output, "--sourceMap", "false",
     ], { stdio: "inherit" });
     await writeFile(path.join(output, "package.json"), '{"type":"module"}\n');

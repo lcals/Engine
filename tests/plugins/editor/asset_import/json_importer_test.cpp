@@ -78,7 +78,7 @@ struct Fixture
                 return false;
             }
         }
-        return true;
+        return write(root / "settings/editor-import.toml", "[common]\nimport_threads = 8\n");
     }
 
     ~Fixture() noexcept
@@ -98,7 +98,7 @@ bool conversion_tests(const Fixture& fixture)
     const std::map<Guid, schema::AssetKind> kinds;
     const editor::asset_pipeline::ImportContext context{
         identities, kinds, fixture.root, fixture.root / "assets", fixture.root / "stage", "macos",
-        nullptr, {}};
+        nullptr,    {}};
     editor::asset_pipeline::ImportAsset asset;
     asset.guid = "43fbdc92-4911-42ba-b8db-88d952cb31f6";
     asset.path = "config.json";
@@ -135,10 +135,10 @@ bool conversion_tests(const Fixture& fixture)
         }
     }
     constexpr std::string_view previous = "previous staged bytes";
-    for (const auto& text : std::array<std::string, 13>{
-             "", " ", "{", "{} {}", "{} trailing", "[1,]", "{\"a\":1,}",
-             "{/* comment */\"a\":1}", "// comment\n{}", "\xef\xbb\xbf{}",
-             "\"\xff\"", "\"\xc0\xaf\"", std::string("{}\0garbage", 10)})
+    for (const auto& text :
+         std::array<std::string, 13>{"", " ", "{", "{} {}", "{} trailing", "[1,]", "{\"a\":1,}",
+                                     "{/* comment */\"a\":1}", "// comment\n{}", "\xef\xbb\xbf{}",
+                                     "\"\xff\"", "\"\xc0\xaf\"", std::string("{}\0garbage", 10)})
     {
         if (!expect(write(output, previous) && write(asset.source, text) &&
                         !importer.convert(asset, context, error) && !error.empty() &&
@@ -222,11 +222,11 @@ bool pipeline_tests(const Fixture& fixture)
                     read(fixture.root / "cache/catalog.bin") == catalog &&
                     read(fixture.root / "cache/gen" / guid) == generated,
                 "invalid JSON preserves the published catalog, resource and revision") ||
-        !expect(write(source, changed) && pipeline.build_assets(fixture.root) &&
-                    pipeline.last_build().reused == 1 &&
-                    resources.update_catalog(pipeline.catalog(),
-                                             {{"content", fixture.root / "cache"}}),
-                "restoring valid JSON recovers the same resource identity and cache"))
+        !expect(
+            write(source, changed) && pipeline.build_assets(fixture.root) &&
+                pipeline.last_build().reused == 1 &&
+                resources.update_catalog(pipeline.catalog(), {{"content", fixture.root / "cache"}}),
+            "restoring valid JSON recovers the same resource identity and cache"))
     {
         return false;
     }

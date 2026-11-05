@@ -52,16 +52,17 @@ def test(builder, source_project, temporary):
     project = temporary / "configuration project 中文"
     for name in ("assets", "settings", "cache"):
         (project / name).mkdir(parents=True)
-    (project / "settings/import.toml").write_text("import_threads = 4\n", encoding="utf-8")
-    compiler = source_project / "settings/node_modules/typescript"
-    require(compiler.is_dir(), "Run npm ci --prefix projects/showcase/settings first")
-    copy_typescript_toolchain(compiler, project / "settings/node_modules")
-    write_json(project / "settings/package.json", {"private": True, "type": "module"})
+    (project / "settings/typescript").mkdir()
+    (project / "settings/editor-import.toml").write_text("[common]\nimport_threads = 4\n", encoding="utf-8")
+    compiler = source_project / "settings/typescript/node_modules/typescript"
+    require(compiler.is_dir(), "Run npm ci --prefix projects/showcase/settings/typescript first")
+    copy_typescript_toolchain(compiler, project / "settings/typescript/node_modules")
+    write_json(project / "settings/typescript/package.json", {"private": True, "type": "module"})
     write_json(
-        project / "settings/tsconfig.json",
+        project / "settings/typescript/tsconfig.json",
         {
             "extends": "./base.json",
-            "include": ["../assets/**/*.ts"],
+            "include": ["../../assets/**/*.ts"],
             "files": ["./custom.d.ts"],
         },
     )
@@ -77,8 +78,8 @@ def test(builder, source_project, temporary):
             "removeComments": False,
         }
     }
-    write_json(project / "settings/base.json", base)
-    declarations = project / "settings/custom.d.ts"
+    write_json(project / "settings/typescript/base.json", base)
+    declarations = project / "settings/typescript/custom.d.ts"
     declarations.write_text("interface Configuration { label: string; }\n", encoding="utf-8")
     source = project / "assets/game.ts"
     source.write_text(
@@ -95,7 +96,8 @@ def test(builder, source_project, temporary):
         not (project / "cache/assets").exists(), "compiler must not restore legacy asset output"
     )
     require(
-        not (project / "settings/custom.d.ts.meta").exists(), "settings declarations are not assets"
+        not (project / "settings/typescript/custom.d.ts.meta").exists(),
+        "settings declarations are not assets"
     )
     second = build(builder, project)
     require(
@@ -121,7 +123,7 @@ def test(builder, source_project, temporary):
         "settings declaration changes must invalidate the TS task",
     )
     base["compilerOptions"]["removeComments"] = True
-    write_json(project / "settings/base.json", base)
+    write_json(project / "settings/typescript/base.json", base)
     inherited = build(builder, project)
     require(
         inherited[:2] == (1, 0) and output.read_bytes() != original,
@@ -130,14 +132,14 @@ def test(builder, source_project, temporary):
     valid_output = output.read_bytes()
     valid_catalog = catalog.read_bytes()
     base["compilerOptions"]["noUnusedParameters"] = True
-    write_json(project / "settings/base.json", base)
+    write_json(project / "settings/typescript/base.json", base)
     build(builder, project, success=False)
     require(
         output.read_bytes() == valid_output and catalog.read_bytes() == valid_catalog,
         "new inherited checking rules must run and preserve prior publication on failure",
     )
     base["compilerOptions"]["noUnusedParameters"] = False
-    write_json(project / "settings/base.json", base)
+    write_json(project / "settings/typescript/base.json", base)
     require(build(builder, project)[:2] == (0, 1), "restoring known valid inputs reuses cache")
     declarations.write_text("interface Configuration { label: number; }\n", encoding="utf-8")
     build(builder, project, success=False)
@@ -282,7 +284,7 @@ def test_shader_tool_content(builder, source_project, shaderc, includes, tempora
     for name in ("assets", "settings", "cache"):
         (project / name).mkdir(parents=True)
     shutil.copytree(source_project / "assets/shaders", project / "assets/shaders")
-    (project / "settings/import.toml").write_text("import_threads = 2\n", encoding="utf-8")
+    (project / "settings/editor-import.toml").write_text("[common]\nimport_threads = 2\n", encoding="utf-8")
     asset_count = sum(
         1
         for source in (project / "assets").rglob("*")

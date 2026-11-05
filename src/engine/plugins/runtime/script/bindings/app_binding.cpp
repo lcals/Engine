@@ -15,6 +15,7 @@ export class App {
     static get assetsPath() { return native.assetsPath; }
     static get persistentDataPath() { return native.persistentDataPath; }
     static get cachePath() { return native.cachePath; }
+    static get gameLanguage() { return native.gameLanguage; }
     static RequestQuit() { return arguments.length === 0 && native.AppRequestQuit(); }
 }
 Object.freeze(App.prototype);
@@ -49,6 +50,7 @@ bool AppBinding::register_functions(vm::ScriptVm& vm) const
     return vm.string("assetsPath", PathUtils::to_utf8(App::assets_path())) &&
            vm.string("persistentDataPath", PathUtils::to_utf8(App::persistent_data_path())) &&
            vm.string("cachePath", PathUtils::to_utf8(App::cache_path())) &&
+           vm.string("gameLanguage", App::game_language()) &&
            vm.function("AppRequestQuit", request_quit);
 }
 

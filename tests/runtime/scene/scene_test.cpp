@@ -668,6 +668,58 @@ bool indexed_scene_restore()
                   "maximum local ID may precede other nodes; automatic allocation never wraps");
 }
 
+bool active_camera_lifecycle()
+{
+    using namespace engine;
+    WorldSystem world;
+    test_support::ResourceFixture fixture;
+    auto* resources = ResourceSystem::instance();
+    if (!resources || !world.initialize({}))
+    {
+        return false;
+    }
+    auto* scene = world.create_scene("Camera lifecycle");
+    auto node = scene ? scene->create_node("Camera") : Node{};
+    auto camera = node.add_component<Camera>();
+    schema::SceneDataT saved;
+    if (!camera || !scene->set_active_camera(camera) ||
+        !node.remove_component(Camera::component_type) ||
+        !expect(!camera && !scene->active_camera() && scene->build_data(saved) && saved.info &&
+                    saved.info->active_camera_node == 0,
+                "removing the selected Camera clears the saved selection"))
+    {
+        return false;
+    }
+    auto replacement = node.add_component<Camera>();
+    if (!expect(replacement && !scene->active_camera() && !scene->set_active_camera(camera),
+                "a replacement Camera neither revives the old handle nor selects itself") ||
+        !scene->set_active_camera(replacement) || !replacement.set_transient(true) ||
+        !expect(!scene->build_data(saved) && !saved.info && saved.nodes.empty(),
+                "an omitted active Camera rejects the complete snapshot") ||
+        !replacement.set_transient(false) || !scene->build_data(saved) ||
+        !add_scene_resource(fixture, "camera-lifecycle.scene", saved) ||
+        !fixture.publish(*resources))
+    {
+        return false;
+    }
+    auto* restored = world.load_scene("camera-lifecycle.scene");
+    if (!expect(restored && restored->active_camera() &&
+                    restored->active_camera().node().name() == "Camera",
+                "the surviving active Camera round-trips through resource restoration"))
+    {
+        return false;
+    }
+    node = restored->active_camera().node();
+    if (!node.remove_component(Camera::component_type) || !restored->build_data(saved) ||
+        !add_scene_resource(fixture, "removed-camera.scene", saved) || !fixture.publish(*resources))
+    {
+        return false;
+    }
+    restored = world.load_scene("removed-camera.scene");
+    return expect(restored && !restored->active_camera(),
+                  "a scene saved after Camera removal remains restorable");
+}
+
 bool incremental_scene_restore()
 {
     using namespace engine;
@@ -697,6 +749,10 @@ bool incremental_scene_restore()
     const auto cancelled = world.begin_restore_scene(resource);
     if (!expect(cancelled != 0 && world.begin_restore_scene(resource) == 0 &&
                     world.step_restore_scene(cancelled, 0) == SceneRestoreStatus::loading &&
+                    world.step_restore_scene(cancelled, 100, -1.0) == SceneRestoreStatus::failed &&
+                    world.step_restore_scene(cancelled, 100, std::numeric_limits<double>::quiet_NaN()) ==
+                        SceneRestoreStatus::failed &&
+                    world.step_restore_scene(cancelled, 0, 0.001) == SceneRestoreStatus::loading &&
                     !world.commit_restore_scene(cancelled) && world.scene() == active,
                 "zero budget and premature commit preserve active scene"))
     {
@@ -1655,10 +1711,10 @@ int main()
     engine::ResourceSystem resources;
     if (!missing_material_resources() || !resources.initialize(config) || !scene_lifecycle() ||
         !scene_node_queries() || !node_component_state() || !hierarchy_and_transforms() ||
-        !indexed_scene_restore() || !incremental_scene_restore() || !persistent_nodes() ||
-        !persistent_scene_loading() || !component_contracts() || !camera_rays() ||
-        !transient_nodes() || !material_contracts() || !baked_lighting_bindings() ||
-        !resource_namespaces())
+        !indexed_scene_restore() || !active_camera_lifecycle() || !incremental_scene_restore() ||
+        !persistent_nodes() || !persistent_scene_loading() || !component_contracts() ||
+        !camera_rays() || !transient_nodes() || !material_contracts() ||
+        !baked_lighting_bindings() || !resource_namespaces())
     {
         return 1;
     }

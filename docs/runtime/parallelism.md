@@ -2,69 +2,51 @@
 
 [运行设置](class-diagrams/runtime-settings.md) · [运行宿主类图](class-diagrams/runtime-host.md) · [线程与任务](class-diagrams/task-system.md) · [资源加载](class-diagrams/resource-loader.md) · [玩法会话](class-diagrams/gameplay-session.md)
 
-桌面和移动端共用同一套并行实现。平台宿主明确选择预算档位，项目只调额度，脚本不管理线程、线程池或跨线程场景状态。主线程继续负责平台事件、当前 UI/VM、场景生命周期和结果发布。
+桌面和移动端共用同一套并行实现。公共与平台预算完整保存在项目 TOML 中，脚本不管理线程、线程池或跨线程场景状态。主线程继续负责平台事件、当前 UI/VM、场景生命周期和结果发布。
 
 ## 配置来源
 
-项目源配置仅由编辑器和打包工具读取：`settings/runtime.toml` 汇总核心窗口和帧率设置，`settings/parallel.toml` 保存任务及领域预算。两份文件均可省略；存在时必须有效。它们最终合成一个 `RuntimeSettings`，由调用方把 `engine` 和 `parallel` 类型值交给 RuntimeHost。运行时不依赖 TOML、不读取项目目录。
+项目按模块保存 `settings/runtime-game.toml`、`runtime-engine.toml`、`runtime-parallel.toml`。编辑器读取源配置；独立 Python 打包脚本收集所有 `runtime-*.toml`，只合并 `[common]` 与 `[platform.<当前目标>]`，最终输出按模块组织的一份 `settings/runtime.json`。运行时不读取 TOML，不依赖项目目录。
 
-`runtime.toml` 示例：
-
-```toml
-version = 1
-[defaults.engine]
-width = 1280
-height = 720
-target_frame_rate = -1
-# window_title = "My game"
-
-[profiles.mobile.engine]
-target_frame_rate = 60
-```
-
-未填写的标题保留宿主默认；编辑器默认仍是 Engine Editor。宽高必须为正数且能安全传入 SDL 的 int 参数，帧率为 -1 或正 int32。其他编辑器设置、导入并发和打包入口继续留在各自已有文件，不进入核心配置。
-
-`parallel.toml` 示例：
+下列片段展示公共配置与平台覆盖的关系，完整参数见公开范例的 [runtime-parallel.toml](../../projects/showcase/settings/runtime-parallel.toml)。`runtime-engine.toml`：
 
 ```toml
-version = 1
+[common]
+window_title = "Engine"
+width = 1600
+height = 900
+target_frame_rate = 45
 
-[defaults.threads]
-worker_limit = 0
-worker_priority = "normal"
-
-[defaults.resources]
-max_in_flight = 4
-max_in_flight_bytes = 67108864
-
-[profiles.desktop.loading]
-max_concurrency = 4
-
-[profiles.mobile.threads]
-worker_limit = 3
-
-[profiles.mobile.loading]
-max_concurrency = 1
-
-[overrides]
+[platform.android]
+target_frame_rate = 30
 ```
 
-按调用方默认值 → `defaults` → 明确选择的 `profiles.desktop/mobile` → 项目 `overrides` 依次覆盖；显式 CLI `--width/--height`（编辑器）与 `--workers` 最后应用。`--runtime-profile desktop|mobile` 由宿主选择整个运行档位。未填写字段保留前层值，移动线程数是可调初值，实际设备调整以持续性能采样为依据。公开范例 showcase 已提供两份源配置。
+`runtime-parallel.toml`：
 
-编辑器 `load_project_runtime_settings()` 读取 TOML，按相同结构汇总并调用 `decode_runtime_settings()`；打包器输出同一模型的 JSON：
+```toml
+[common.threads]
+worker_priority = "low"
+
+[platform.android.threads]
+worker_limit = 2
+```
+
+Android 打包结果包含以下字段（其余必填项从完整 TOML 收集）：
 
 ```json
 {
-  "version": 1,
-  "defaults": {"engine": {"width": 1280}, "parallel": {"threads": {"worker_limit": 0}}},
-  "profiles": {"mobile": {"parallel": {"threads": {"worker_limit": 3}}}},
-  "overrides": {}
+  "engine": {"width": 1600, "target_frame_rate": 30},
+  "parallel": {"threads": {"worker_priority": "low", "worker_limit": 2}}
 }
 ```
 
-运行宿主只使用 `load_runtime_settings()` 读取这份 JSON，或直接传入已有类型值。公开普通函数与所有权见[运行设置类图](class-diagrams/runtime-settings.md)。JSON 接收上限 64 KiB；未知字段、错误类型、非法范围和其他档位中的无效配置都会被拒绝，失败不改变调用方输出。打包只做源结构汇总，完整字段语义由共用 C++ 解析器验证；实际导出 JSON 可作为 `engine_runtime_settings_test` 的路径参数检查。继续新增运行参数时，扩展相应类型及配置字段，不新增独立配置管理系统。
+游戏默认语言在 `runtime-game.toml` 的 `[common].game_language` 配置，汇总为 JSON 的 `game.game_language`。宿主读取后交给 `App`，TS 使用只读 `App.gameLanguage`；公开范例显式填写 `en`，业务自行决定如何使用。
 
-待补边界：独立打包工具尚未在发布前执行上述完整字段语义验证；绕过编辑器直接打包非法字段时，会在宿主启动读取配置时失败。本轮两项目源及实际导出的 JSON 已通过原生校验。后续应复用原生解析器增加发布前校验，同时保留 Android 从已构建资源目录打包的流程，避免在 Python 复制整套参数规则。
+项目文件完整保存参数，平台字段覆盖同名公共字段；配置读取链路不提供参数默认值，不复制默认值表。三个运行模块及当前支持的各字段均必填，缺少配置时明确失败。宿主分别向 App、RuntimeHost 和其他模块提交参数；CLI 的窗口尺寸及 worker 覆盖最后应用。RuntimeHost 调用者必须显式提交并行预算。
+
+品质分组统一约定为 `[quality.<档位>]`，由业务选择；目前项目未使用品质配置，本轮不添加品质自动选择或切换功能。填写非空品质表会明确报错，避免把未消费的参数静默丢掉。
+
+源配置与运行 JSON 接收上限均为 64 KiB。运行时拒绝未知模块、错误字段类型与非法范围，失败不改变调用方已有值。打包负责 TOML 结构检查、模块归组和目标平台筛选；字段语义由共用 C++ 解析器检查。实际输出可传给 `engine_runtime_settings_test` 验证，编辑器通过同一解析器校验源配置。独立打包当前尚未在发布前调用完整原生字段校验，非法字段会在运行宿主启动时失败；不在 Python 重写整套参数规则。
 
 ## 可调参数
 
@@ -87,10 +69,10 @@ max_concurrency = 1
 
 ## 部署位置
 
-- 编辑器只在明确项目根下读取 `settings/runtime.toml` 与 `settings/parallel.toml`，不把项目路径传给核心。
+- 编辑器只在明确项目根下读取 `settings/runtime-*.toml`，不把项目路径传给核心。
 - 原生桌面包为程序旁 `settings/runtime.json`；macOS 可选 `.app` 为 `Contents/Resources/settings/runtime.json`。
 - Android 为 APK `assets/settings/runtime.json`，宿主读取 `apk:/assets/settings/runtime.json`，使用 VFS 而非原生文件系统 exists 检查。这里的 assets 是平台容器，settings 与 catalog/gen/packs 并列。
-- 打包聚合生成唯一 runtime.json，不携带任何 TOML、editor/import 等工具设置或私有配置。无显式覆盖的项目部署 `{"version":1}`，由宿主提供默认值。文件不加入 GUID catalog、不计作资源项，也不改变持久资源版本完整性规则。
+- 打包聚合生成唯一 runtime.json，不携带任何 TOML、`editor-*.toml` 等工具设置或私有配置。JSON 只保留当前平台的完整结果；不携带 common/platform 分层。文件不加入 GUID catalog、不计作资源项，也不改变持久资源版本完整性规则。
 
 ## 执行和验证边界
 

@@ -22,10 +22,12 @@ project, runtime = work/'project', work/'runtime'
 for part in ('assets', 'cache', 'settings'):
     (project/part).mkdir(parents=True)
 runtime.mkdir()
+for name in ('runtime-game.toml', 'runtime-parallel.toml'):
+    shutil.copy2(ROOT/'projects/showcase/settings'/name, project/'settings'/name)
 for name, content in {
-    'import.toml': 'import_threads = 8\n',
-    'editor.toml': '[editor]\ntarget_frame_rate = 60\n',
-    'runtime.toml': 'version = 1\n[defaults.engine]\nwidth = 1280\nheight = 720\ntarget_frame_rate = 60\n[profiles.desktop]\n[profiles.mobile]\n[overrides]\n',
+    'editor-import.toml': '[common]\nimport_threads = 8\n',
+    'editor-settings.toml': '[common]\ntarget_frame_rate = 60\n',
+    'runtime-engine.toml': '[common]\nwindow_title = \"GPU normals\"\nwidth = 1280\nheight = 720\ntarget_frame_rate = 60\n',
 }.items():
     (project/'settings'/name).write_text(content)
 shutil.copytree(SOURCE/'shaders', project/'assets/shaders')

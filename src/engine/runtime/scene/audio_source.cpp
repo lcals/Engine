@@ -1,5 +1,7 @@
 #include "runtime/scene/audio_source.hpp"
 
+#include "runtime/scene/audio_source_runtime.hpp"
+
 #include "runtime/scene/ecs_storage.hpp"
 
 #include "runtime/core/guid_map.hpp"

@@ -110,7 +110,7 @@ def export(args):
         if source:
             resources.mkdir(exist_ok=True)
             count, carriers = copy_resources(source, resources, args.platform)
-            export_runtime_settings(args.project, base)
+            export_runtime_settings(args.project, base, args.platform)
         else:
             count, carriers = 0, 0
         if bundle:
@@ -160,7 +160,7 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--project", type=Path)
     parser.add_argument("--builder", type=Path)
-    parser.add_argument("--manifest", type=Path, default=Path("settings/resource-build.toml"))
+    parser.add_argument("--manifest", type=Path, default=Path("settings/editor-resource-build.toml"))
     parser.add_argument("--icu", type=Path)
     parser.add_argument("--cmake", default="cmake")
     parser.add_argument(

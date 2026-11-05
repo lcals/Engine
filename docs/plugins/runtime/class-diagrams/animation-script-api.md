@@ -2,10 +2,33 @@
 
 [绑定实现](script-bindings.md) · [运行时 Animator](../../../runtime/class-diagrams/animator.md)
 
+本页统一维护 Animator 的完整 TS 外观，与 `include/engine.d.ts` 一致；[状态机](animation-state-machine.md)维护共享定义和执行语义，[运行时事件图](../../../runtime/class-diagrams/animation-events.md)维护事件身份与分发边界。图中的 `OrNull` 表示对应 TS 联合空值类型。
+
 ```mermaid
 classDiagram
     class Component
     class Animator {
+        +PlayAnimation(AnimationPlayRequest request) boolean
+        +GetPlaybackInfo() AnimatorPlaybackInfoOrNull
+        +SetIkEnabled(boolean enabled) boolean
+        +GetBonePose(string path) AnimationPoseTransformOrNull
+        +GetSocketPose(string name) AnimationPoseTransformOrNull
+        +SetAimIkTarget(string name, AnimationIkTarget target) boolean
+        +SetTwoBoneIkTarget(string name, AnimationIkTarget target) boolean
+        +GetIkTarget(string name) AnimationIkTargetOrNull
+        +SetEventMarkers(readonly_array_AnimationEventMarker markers) boolean
+        +ClearEventMarkers() boolean
+        +SubscribeEvents(function callback) bigintOrNull
+        +UnsubscribeEvents(bigint token) boolean
+        +SetStateMachine(AnimationStateMachine definition, AnimationActionAliases actionAliases) boolean
+        +ClearStateMachine() boolean
+        +SetParameters(ParameterValues values) boolean
+        +Trigger(string name) boolean
+        +ResetTrigger(string name) boolean
+        +SetStateMachinePaused(boolean value) boolean
+        +stateMachineState stringOrNull
+        +stateMachinePaused booleanOrNull
+        +stateMachineTransitioning boolean
         +SetAnimation(string path) boolean
         +CrossFade(string path, number seconds) boolean
         +SetSpeed(number value) boolean
@@ -19,6 +42,24 @@ classDiagram
         +playback stringOrNull
         +time numberOrNull
     }
+    class AnimationPlayRequest
+    class AnimatorPlaybackInfo
+    class AnimationPoseTransform
+    class AnimationIkTarget
+    class AnimationEventMarker
+    class AnimationEvent
+    class AnimationStateMachine
+    class AnimationActionAliases
+    class ParameterValues
+    Animator ..> AnimationPlayRequest : 原子播放参数
+    Animator ..> AnimatorPlaybackInfo : 播放状态副本
+    Animator ..> AnimationPoseTransform : 骨与挂点姿态副本
+    Animator ..> AnimationIkTarget : 实例 IK 输入和输出
+    Animator ..> AnimationEventMarker : 标记覆层
+    Animator ..> AnimationEvent : 事件回调值
+    Animator ..> AnimationStateMachine : 定义借用和 Run 记录
+    Animator ..> AnimationActionAliases : 只读动作绑定快照
+    Animator ..> ParameterValues : 完整参数提交
     class AnimatorBinding
     class ScriptBinding
     class BindingContext

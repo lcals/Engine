@@ -34,6 +34,14 @@ bool keys(const Json& value, std::initializer_list<std::string_view> allowed, st
             return false;
         }
     }
+    for (const auto name : allowed)
+    {
+        if (!value.contains(name))
+        {
+            error = "Missing runtime configuration field: " + std::string(name);
+            return false;
+        }
+    }
     return true;
 }
 
@@ -41,34 +49,26 @@ template <typename T>
 bool integer(const Json& value, const char* key, T& output, std::uint64_t minimum,
              std::uint64_t maximum, std::string& error)
 {
-    const auto found = value.find(key);
-    if (found == value.end())
-    {
-        return true;
-    }
-    if (!found->is_number_unsigned() || found->get<std::uint64_t>() < minimum ||
-        found->get<std::uint64_t>() > maximum)
+    const auto& number = value[key];
+    if (!number.is_number_unsigned() || number.get<std::uint64_t>() < minimum ||
+        number.get<std::uint64_t>() > maximum)
     {
         error = std::string("Invalid parallel integer: ") + key;
         return false;
     }
-    output = static_cast<T>(found->get<std::uint64_t>());
+    output = static_cast<T>(number.get<std::uint64_t>());
     return true;
 }
 
 bool seconds(const Json& value, const char* key, double& output, std::string& error)
 {
-    const auto found = value.find(key);
-    if (found == value.end())
-    {
-        return true;
-    }
-    if (!found->is_number())
+    const auto& field = value[key];
+    if (!field.is_number())
     {
         error = std::string("Invalid parallel time budget: ") + key;
         return false;
     }
-    const auto number = found->get<double>();
+    const auto number = field.get<double>();
     if (!std::isfinite(number) || number <= 0.0 || number > 1.0)
     {
         error = std::string("Parallel time budget must be in (0, 1] seconds: ") + key;
@@ -81,14 +81,10 @@ bool seconds(const Json& value, const char* key, double& output, std::string& er
 template <typename T>
 bool priority(const Json& value, const char* key, T& output, std::string& error)
 {
-    const auto found = value.find(key);
-    if (found == value.end())
+    const auto& field = value[key];
+    if (field.is_string())
     {
-        return true;
-    }
-    if (found->is_string())
-    {
-        const auto name = found->get<std::string>();
+        const auto& name = field.get_ref<const std::string&>();
         if (name == "low")
         {
             output = T::low;
@@ -127,11 +123,11 @@ bool apply_parallel(const Json& value, RuntimeParallelConfig& output, std::strin
     {
         return false;
     }
-    if (const auto found = value.find("threads"); found != value.end())
     {
-        if (!keys(*found, {"worker_limit", "worker_priority"}, error) ||
-            !integer(*found, "worker_limit", output.threads.worker_limit, 0, 64, error) ||
-            !priority(*found, "worker_priority", output.threads.worker_priority, error))
+        const auto& threads = value["threads"];
+        if (!keys(threads, {"worker_limit", "worker_priority"}, error) ||
+            !integer(threads, "worker_limit", output.threads.worker_limit, 0, 64, error) ||
+            !priority(threads, "worker_priority", output.threads.worker_priority, error))
         {
             return false;
         }
@@ -142,67 +138,68 @@ bool apply_parallel(const Json& value, RuntimeParallelConfig& output, std::strin
         {"animation", &output.animation}, {"navigation", &output.navigation}};
     for (const auto& [name, config] : domains)
     {
-        if (const auto found = value.find(name);
-            found != value.end() && !domain(*found, *config, error))
+        if (!domain(value[name], *config, error))
         {
             return false;
         }
     }
-    if (const auto found = value.find("resources"); found != value.end())
     {
+        const auto& resources = value["resources"];
         auto& config = output.resources;
-        if (!keys(*found, {"max_in_flight", "max_in_flight_bytes", "completion_budget"}, error) ||
-            !integer(*found, "max_in_flight", config.max_in_flight, 1, 1024, error) ||
-            !integer(*found, "max_in_flight_bytes", config.max_in_flight_bytes, 1, maximum_bytes,
+        if (!keys(resources, {"max_in_flight", "max_in_flight_bytes", "completion_budget"},
+                  error) ||
+            !integer(resources, "max_in_flight", config.max_in_flight, 1, 1024, error) ||
+            !integer(resources, "max_in_flight_bytes", config.max_in_flight_bytes, 1, maximum_bytes,
                      error) ||
-            !integer(*found, "completion_budget", config.completion_budget, 1, 65536, error))
+            !integer(resources, "completion_budget", config.completion_budget, 1, 65536, error))
         {
             return false;
         }
     }
-    if (const auto found = value.find("animation_sampling"); found != value.end())
     {
+        const auto& sampling = value["animation_sampling"];
         auto& config = output.animation_sampling;
-        if (!keys(*found, {"min_parallel_count", "batch_size"}, error) ||
-            !integer(*found, "min_parallel_count", config.min_parallel_count, 1, 1000000, error) ||
-            !integer(*found, "batch_size", config.batch_size, 1, 1000000, error))
+        if (!keys(sampling, {"min_parallel_count", "batch_size"}, error) ||
+            !integer(sampling, "min_parallel_count", config.min_parallel_count, 1, 1000000,
+                     error) ||
+            !integer(sampling, "batch_size", config.batch_size, 1, 1000000, error))
         {
             return false;
         }
     }
-    if (const auto found = value.find("scene_restore"); found != value.end())
     {
+        const auto& restore = value["scene_restore"];
         auto& config = output.scene_restore;
-        if (!keys(*found, {"nodes_per_step", "max_seconds"}, error) ||
-            !integer(*found, "nodes_per_step", config.nodes_per_step, 1, 1000000, error) ||
-            !seconds(*found, "max_seconds", config.max_seconds, error))
+        if (!keys(restore, {"nodes_per_step", "max_seconds"}, error) ||
+            !integer(restore, "nodes_per_step", config.nodes_per_step, 1, 1000000, error) ||
+            !seconds(restore, "max_seconds", config.max_seconds, error))
         {
             return false;
         }
     }
-    if (const auto found = value.find("render"); found != value.end())
     {
+        const auto& render = value["render"];
         auto& config = output.render;
-        if (!keys(*found,
+        if (!keys(render,
                   {"texture_batch_size", "texture_staging_bytes", "cluster_tile_size",
                    "cluster_depth_slices", "maximum_lights", "maximum_cluster_lights",
                    "shadow_atlas_size", "local_shadow_tile_size", "maximum_local_shadow_faces",
                    "maximum_planar_reflections"},
                   error) ||
-            !integer(*found, "texture_batch_size", config.texture_batch_size, 1, 64, error) ||
-            !integer(*found, "texture_staging_bytes", config.texture_staging_bytes, 1,
+            !integer(render, "texture_batch_size", config.texture_batch_size, 1, 64, error) ||
+            !integer(render, "texture_staging_bytes", config.texture_staging_bytes, 1,
                      maximum_bytes, error) ||
-            !integer(*found, "cluster_tile_size", config.cluster_tile_size, 16, 256, error) ||
-            !integer(*found, "cluster_depth_slices", config.cluster_depth_slices, 1, 64, error) ||
-            !integer(*found, "maximum_lights", config.maximum_lights, 1, 4096, error) ||
-            !integer(*found, "maximum_cluster_lights", config.maximum_cluster_lights, 1, 256,
+            !integer(render, "cluster_tile_size", config.cluster_tile_size, 16, 256, error) ||
+            !integer(render, "cluster_depth_slices", config.cluster_depth_slices, 1, 64, error) ||
+            !integer(render, "maximum_lights", config.maximum_lights, 1, 4096, error) ||
+            !integer(render, "maximum_cluster_lights", config.maximum_cluster_lights, 1, 256,
                      error) ||
-            !integer(*found, "shadow_atlas_size", config.shadow_atlas_size, 512, 8192, error) ||
-            !integer(*found, "local_shadow_tile_size", config.local_shadow_tile_size, 64, 2048,
+            !integer(render, "shadow_atlas_size", config.shadow_atlas_size, 512, 8192, error) ||
+            !integer(render, "local_shadow_tile_size", config.local_shadow_tile_size, 64, 2048,
                      error) ||
-            !integer(*found, "maximum_local_shadow_faces", config.maximum_local_shadow_faces, 0, 24,
+            !integer(render, "maximum_local_shadow_faces", config.maximum_local_shadow_faces, 0, 24,
                      error) ||
-            !integer(*found, "maximum_planar_reflections", config.maximum_planar_reflections, 0, 2,
+            !integer(render, "maximum_planar_reflections", config.maximum_planar_reflections, 0, 2,
                      error))
         {
             return false;
@@ -229,117 +226,89 @@ bool apply_engine(const Json& value, EngineConfig& output, std::string& error)
     {
         return false;
     }
-    if (const auto title = value.find("window_title"); title != value.end())
+    const auto& title = value["window_title"];
+    if (!title.is_string())
     {
-        if (!title->is_string())
-        {
-            error = "Runtime window_title must be a string";
-            return false;
-        }
-        const auto& text = title->get_ref<const std::string&>();
-        if (text.empty() || text.size() > 256 || text.find('\0') != std::string::npos)
-        {
-            error = "Runtime window_title must contain 1..256 bytes without NUL";
-            return false;
-        }
-        output.window_title = text;
+        error = "Runtime window_title must be a string";
+        return false;
     }
-    if (const auto rate = value.find("target_frame_rate"); rate != value.end())
+    const auto& text = title.get_ref<const std::string&>();
+    if (text.empty() || text.size() > 256 || text.find('\0') != std::string::npos)
     {
-        if (!rate->is_number_integer() ||
-            (rate->is_number_unsigned() &&
-             rate->get<std::uint64_t>() >
-                 static_cast<std::uint64_t>(std::numeric_limits<std::int32_t>::max())))
-        {
-            error = "Runtime target_frame_rate must be -1 or a positive int32";
-            return false;
-        }
-        const auto number = rate->get<std::int64_t>();
-        if (number != -1 && (number < 1 || number > std::numeric_limits<std::int32_t>::max()))
-        {
-            error = "Runtime target_frame_rate must be -1 or a positive int32";
-            return false;
-        }
-        output.target_frame_rate = static_cast<std::int32_t>(number);
+        error = "Runtime window_title must contain 1..256 bytes without NUL";
+        return false;
     }
+    output.window_title = text;
+    const auto& rate = value["target_frame_rate"];
+    if (!rate.is_number_integer() ||
+        (rate.is_number_unsigned() &&
+         rate.get<std::uint64_t>() >
+             static_cast<std::uint64_t>(std::numeric_limits<std::int32_t>::max())))
+    {
+        error = "Runtime target_frame_rate must be -1 or a positive int32";
+        return false;
+    }
+    const auto number = rate.get<std::int64_t>();
+    if (number != -1 && (number < 1 || number > std::numeric_limits<std::int32_t>::max()))
+    {
+        error = "Runtime target_frame_rate must be -1 or a positive int32";
+        return false;
+    }
+    output.target_frame_rate = static_cast<std::int32_t>(number);
     return true;
 }
 
 bool apply(const Json& value, RuntimeSettings& output, std::string& error)
 {
-    if (!keys(value, {"engine", "parallel"}, error))
+    if (!keys(value, {"game", "engine", "parallel"}, error))
     {
         return false;
     }
-    if (const auto engine = value.find("engine");
-        engine != value.end() && !apply_engine(*engine, output.engine, error))
+    const auto& game = value["game"];
+    if (!game.is_object())
     {
+        error = "Runtime game must be an object";
         return false;
     }
-    if (const auto parallel = value.find("parallel");
-        parallel != value.end() && !apply_parallel(*parallel, output.parallel, error))
+    for (const auto& [name, item] : game.items())
     {
+        if (name != "game_language" && name != "startup_movie")
+        {
+            error = "Unknown runtime configuration field: " + name;
+            return false;
+        }
+    }
+    const auto language = game.find("game_language");
+    if (language == game.end() || !language->is_string())
+    {
+        error = "Runtime game_language must be a string";
         return false;
     }
-    return true;
+    output.game_language = language->get_ref<const std::string&>();
+    const auto movie = game.find("startup_movie");
+    if (movie != game.end() && !movie->is_string())
+    {
+        error = "Runtime startup_movie must be a string";
+        return false;
+    }
+    output.startup_movie = movie == game.end() ? std::string{} : movie->get<std::string>();
+    return apply_engine(value["engine"], output.engine, error) &&
+           apply_parallel(value["parallel"], output.parallel, error);
 }
 
 } // namespace
 
-bool decode_runtime_settings(std::string_view text, std::string_view profile,
-                             RuntimeSettings& output, std::string& error)
+bool decode_runtime_settings(std::string_view text, RuntimeSettings& output, std::string& error)
 {
     error.clear();
-    if (profile != "desktop" && profile != "mobile")
-    {
-        error = "Runtime profile must be desktop or mobile";
-        return false;
-    }
     if (text.size() > 65536)
     {
         error = "Runtime settings exceed 64 KiB";
         return false;
     }
     const auto document = Json::parse(text, nullptr, false);
-    if (!keys(document, {"version", "defaults", "profiles", "overrides"}, error))
-    {
-        return false;
-    }
-    if (!document.contains("version") || !document["version"].is_number_unsigned() ||
-        document["version"].get<std::uint64_t>() != 1)
-    {
-        error = "Runtime settings require version 1";
-        return false;
-    }
     auto candidate = output;
-    if (const auto defaults = document.find("defaults");
-        defaults != document.end() && !apply(*defaults, candidate, error))
-    {
-        return false;
-    }
-    if (const auto profiles = document.find("profiles"); profiles != document.end())
-    {
-        if (!keys(*profiles, {"desktop", "mobile"}, error))
-        {
-            return false;
-        }
-        const auto defaults = candidate;
-        for (const auto& [name, item] : profiles->items())
-        {
-            auto validated = defaults;
-            if (!apply(item, validated, error))
-            {
-                error = name + ": " + error;
-                return false;
-            }
-            if (name == profile)
-            {
-                candidate = std::move(validated);
-            }
-        }
-    }
-    if (const auto overrides = document.find("overrides");
-        overrides != document.end() && !apply(*overrides, candidate, error))
+    if (!apply(document, candidate, error))
     {
         return false;
     }
@@ -347,8 +316,8 @@ bool decode_runtime_settings(std::string_view text, std::string_view profile,
     return true;
 }
 
-bool load_runtime_settings(const std::filesystem::path& path, std::string_view profile,
-                           RuntimeSettings& output, std::string& error)
+bool load_runtime_settings(const std::filesystem::path& path, RuntimeSettings& output,
+                           std::string& error)
 {
     std::string text;
     if (!ResourceSystem::read_text(path, text))
@@ -356,7 +325,7 @@ bool load_runtime_settings(const std::filesystem::path& path, std::string_view p
         error = "Cannot read runtime settings";
         return false;
     }
-    return decode_runtime_settings(text, profile, output, error);
+    return decode_runtime_settings(text, output, error);
 }
 
 } // namespace engine

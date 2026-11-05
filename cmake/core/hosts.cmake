@@ -78,6 +78,7 @@ if(ENGINE_BUILD_APP AND ENGINE_ENABLE_RUNTIME_DEPS)
         add_executable(engine_app src/main.cpp)
     endif()
     target_link_libraries(engine_app PRIVATE engine::runtime SDL3::SDL3 fmt::fmt)
+    target_include_directories(engine_app PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
     if(TARGET engine_platform)
         target_link_libraries(engine_app PRIVATE engine::app engine::log)
         target_compile_definitions(engine_app PRIVATE ENGINE_HAS_APP_SERVICES=1)
@@ -103,17 +104,11 @@ endif()
 
 function(engine_configure_runtime_settings target)
     if(ANDROID)
-        target_compile_definitions(${target} PRIVATE ENGINE_RUNTIME_PROFILE="mobile"
-            ENGINE_RUNTIME_SETTINGS_PATH="settings/runtime.json"
-            ENGINE_RUNTIME_SETTINGS_REQUIRED=1)
-    elseif(IOS)
-        target_compile_definitions(${target} PRIVATE ENGINE_RUNTIME_PROFILE="mobile"
-            ENGINE_RUNTIME_SETTINGS_PATH="../settings/runtime.json"
-            ENGINE_RUNTIME_SETTINGS_REQUIRED=0)
+        target_compile_definitions(${target} PRIVATE
+            ENGINE_RUNTIME_SETTINGS_PATH="settings/runtime.json")
     else()
-        target_compile_definitions(${target} PRIVATE ENGINE_RUNTIME_PROFILE="desktop"
-            ENGINE_RUNTIME_SETTINGS_PATH="../settings/runtime.json"
-            ENGINE_RUNTIME_SETTINGS_REQUIRED=0)
+        target_compile_definitions(${target} PRIVATE
+            ENGINE_RUNTIME_SETTINGS_PATH="../settings/runtime.json")
     endif()
 endfunction()
 if(TARGET engine_app)

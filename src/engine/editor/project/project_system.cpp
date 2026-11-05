@@ -3,12 +3,9 @@
 #include "runtime/log/log_system.hpp"
 #include "runtime/utils/path_utils.hpp"
 
-#include <toml++/toml.hpp>
-
 #include <cstdio>
 #include <filesystem>
 #include <string>
-#include <string_view>
 #include <system_error>
 #include <utility>
 
@@ -69,11 +66,7 @@ bool ProjectSystem::on_initialize(const EngineConfig&)
         }
     }
 
-    // 目录校验后验证 TOML 配置依赖，项目文件由各功能模块按职责读取。
-    toml::table project;
-    project.insert("project", project_root_);
-    const auto identifier = project["project"].value<std::string_view>();
-    return identifier && *identifier == project_root_;
+    return true;
 }
 
 void ProjectSystem::on_shutdown() noexcept

@@ -1,4 +1,6 @@
 #include "plugins/runtime/effects/effect_system.hpp"
+
+#include "plugins/runtime/effects/effect_component_runtime.hpp"
 #include "runtime/scene/ecs_scene.hpp"
 #include "runtime/scene/ecs_storage.hpp"
 
@@ -284,7 +286,7 @@ struct EffectSystem::State
     {
         if (!instance.compiled)
         {
-            instance.compiled = compile(component.runtime()->effect_);
+            instance.compiled = compile(engine::ecs_detail::component_runtime(component)->effect_);
             if (!instance.compiled)
             {
                 return false;
@@ -316,12 +318,14 @@ struct EffectSystem::State
                 (void)stored;
 
                 auto component = node.get_component<EffectComponent>();
-                if (!component || !component.runtime()->effect_)
+                if (!component || !engine::ecs_detail::component_runtime(component)->effect_)
                 {
                     return true;
                 }
                 auto* source = ResourceSystem::instance();
-                if (source && component.runtime()->effect_->generation() != source->generation())
+                if (source &&
+                    engine::ecs_detail::component_runtime(component)->effect_->generation() !=
+                        source->generation())
                 {
                     const auto settings = stored.data;
                     if (!component.set_settings(settings))
@@ -341,29 +345,32 @@ struct EffectSystem::State
                         manager->SetPaused(instance.handle, true);
                         manager->SetShown(instance.handle, false);
                     }
-                    component.runtime()->playing_ = false;
+                    engine::ecs_detail::component_runtime(component)->playing_ = false;
                     return true;
                 }
-                if (instance.revision != component.runtime()->revision_)
+                if (instance.revision !=
+                    engine::ecs_detail::component_runtime(component)->revision_)
                 {
                     stop(instance);
                     instance.compiled.reset();
-                    instance.revision = component.runtime()->revision_;
+                    instance.revision = engine::ecs_detail::component_runtime(component)->revision_;
                 }
-                if (component.runtime()->awake_pending_)
+                if (engine::ecs_detail::component_runtime(component)->awake_pending_)
                 {
                     if (world_paused)
                     {
                         return true;
                     }
-                    component.runtime()->requested_ = EffectComponent::Playback::playing;
-                    component.runtime()->awake_pending_ = false;
+                    engine::ecs_detail::component_runtime(component)->requested_ =
+                        EffectComponent::Playback::playing;
+                    engine::ecs_detail::component_runtime(component)->awake_pending_ = false;
                 }
-                if (component.runtime()->requested_ == EffectComponent::Playback::stopped)
+                if (engine::ecs_detail::component_runtime(component)->requested_ ==
+                    EffectComponent::Playback::stopped)
                 {
                     stop(instance);
                     instance.compiled.reset();
-                    component.runtime()->playing_ = false;
+                    engine::ecs_detail::component_runtime(component)->playing_ = false;
                     return true;
                 }
                 if (instance.handle < 0 && world_paused)
@@ -383,9 +390,10 @@ struct EffectSystem::State
                 manager->SetMatrix(instance.handle, transform);
                 manager->SetShown(instance.handle, component.visible_in_hierarchy());
                 manager->SetSpeed(instance.handle, stored.data.speed);
-                manager->SetPaused(instance.handle,
-                                   world_paused || component.runtime()->requested_ ==
-                                                       EffectComponent::Playback::paused);
+                manager->SetPaused(
+                    instance.handle,
+                    world_paused || engine::ecs_detail::component_runtime(component)->requested_ ==
+                                        EffectComponent::Playback::paused);
                 active.emplace_back(component, &instance);
 
                 return true;
@@ -436,7 +444,8 @@ struct EffectSystem::State
             {
                 instance.handle = -1;
                 if (!world_paused &&
-                    component.runtime()->requested_ == EffectComponent::Playback::playing &&
+                    engine::ecs_detail::component_runtime(component)->requested_ ==
+                        EffectComponent::Playback::playing &&
                     component.settings().loop)
                 {
                     Effekseer::Matrix43 transform;
@@ -452,13 +461,15 @@ struct EffectSystem::State
                 }
                 else
                 {
-                    component.runtime()->requested_ = EffectComponent::Playback::stopped;
+                    engine::ecs_detail::component_runtime(component)->requested_ =
+                        EffectComponent::Playback::stopped;
                     instance.compiled.reset();
                 }
             }
-            component.runtime()->playing_ =
+            engine::ecs_detail::component_runtime(component)->playing_ =
                 instance.handle >= 0 && manager->Exists(instance.handle) &&
-                component.runtime()->requested_ == EffectComponent::Playback::playing;
+                engine::ecs_detail::component_runtime(component)->requested_ ==
+                    EffectComponent::Playback::playing;
         }
         if (restarted && !world_paused)
         {
@@ -607,7 +618,7 @@ void EffectSystem::release_scene() noexcept
 
             if (auto effect = node.get_component<EffectComponent>())
             {
-                effect.runtime()->playing_ = false;
+                engine::ecs_detail::component_runtime(effect)->playing_ = false;
             }
 
             return true;

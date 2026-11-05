@@ -1,5 +1,8 @@
 #include "runtime/animation/animation_system.hpp"
 
+#include "runtime/scene/animator_runtime.hpp"
+#include "runtime/scene/bone_attachment_runtime.hpp"
+
 #include "runtime/animation/animation_attachment.hpp"
 #include "runtime/animation/animation_clip.hpp"
 #include "runtime/animation/animation_event_interval.hpp"
@@ -245,7 +248,7 @@ bool sample_range(std::vector<AnimationSample>& samples, std::size_t begin, std:
 bool stage_time(AnimationSample& sample, double delta_time, const Animator::Data& settings,
                 std::size_t& event_count, bool tick_enabled)
 {
-    const auto* state = sample.animator.runtime();
+    const auto* state = engine::ecs_detail::component_runtime(sample.animator);
     const auto* animation = state->animation_->animation();
     const double duration = animation->duration;
     sample.seconds = state->time_;
@@ -377,11 +380,11 @@ void resolve_pending_attachments(WorldSystem& world)
         [&](flecs::entity entity, const auto& stored)
         {
             auto attachment = world.find_node(entity.id()).get_component<BoneAttachment>();
-            if (!attachment || !attachment.runtime()->binding_pending)
+            if (!attachment || !engine::ecs_detail::component_runtime(attachment)->binding_pending)
             {
                 return;
             }
-            auto* runtime = attachment.runtime();
+            auto* runtime = engine::ecs_detail::component_runtime(attachment);
             runtime->binding_pending = false;
             (void)animation_detail::resolve_attachment_source(
                 attachment, stored.data, runtime->source, runtime->resolved_socket_index,
@@ -449,7 +452,7 @@ bool publish_attachments(WorldSystem& world)
         AttachmentCommit commit;
         commit.attachment = attachment;
         const auto data = attachment.settings();
-        const auto source = attachment.runtime()->source;
+        const auto source = engine::ecs_detail::component_runtime(attachment)->source;
         AnimationPoseTransform socket;
         if (attachment.active() && data.follow_enabled && source && source.active() &&
             animation_detail::attachment_can_drive(attachment.node()) &&
@@ -472,7 +475,8 @@ bool publish_attachments(WorldSystem& world)
             animation_detail::store_matrix(local, commit.local);
             commit.following = true;
             commit.revision = socket.pose_revision;
-            commit.generation = source.runtime()->target_skeleton_->generation();
+            commit.generation =
+                engine::ecs_detail::component_runtime(source)->target_skeleton_->generation();
             overrides.emplace(attachment.node().id(), desired);
         }
         commits.push_back(commit);
@@ -492,11 +496,14 @@ bool publish_attachments(WorldSystem& world)
             auto* drive = entity.try_get_mut<ecs_detail::TransformDrive>();
             drive->owner_type = BoneAttachment::component_type;
             drive->owner_instance_id = attachment.instance_id();
+            drive->validate = animation_detail::attachment_drive_valid;
             drive->local = commit.local;
             drive->active = true;
-            attachment.runtime()->following = true;
-            attachment.runtime()->source_pose_revision = commit.revision;
-            attachment.runtime()->skeleton_generation = commit.generation;
+            engine::ecs_detail::component_runtime(attachment)->following = true;
+            engine::ecs_detail::component_runtime(attachment)->source_pose_revision =
+                commit.revision;
+            engine::ecs_detail::component_runtime(attachment)->skeleton_generation =
+                commit.generation;
         }
         else
         {
@@ -638,9 +645,9 @@ void AnimationSystem::clear() noexcept
             }
             if (animator && animator.instance_id() == entry->animator_instance)
             {
-                animator.runtime()->prepared_revision_ = 0;
-                animator.runtime()->committed_models_.clear();
-                animator.runtime()->pose_revision_ = 0;
+                engine::ecs_detail::component_runtime(animator)->prepared_revision_ = 0;
+                engine::ecs_detail::component_runtime(animator)->committed_models_.clear();
+                engine::ecs_detail::component_runtime(animator)->pose_revision_ = 0;
             }
         }
         if (world_->native_world())
@@ -702,7 +709,8 @@ bool AnimationSystem::on_tick(double delta_time)
                 auto animator = node.get_component<Animator>();
                 auto renderer = node.get_component<MeshRenderer>();
                 if (!animator || !renderer || !animator.active() || !renderer.active() ||
-                    !animator.runtime()->animation_ || !active_transform_chain(node))
+                    !engine::ecs_detail::component_runtime(animator)->animation_ ||
+                    !active_transform_chain(node))
                 {
                     if (renderer && state_->entries.contains(node.id()))
                     {
@@ -710,14 +718,14 @@ bool AnimationSystem::on_tick(double delta_time)
                     }
                     if (animator)
                     {
-                        animator.runtime()->prepared_revision_ = 0;
-                        animator.runtime()->pose_revision_ = 0;
-                        animator.runtime()->committed_models_.clear();
+                        engine::ecs_detail::component_runtime(animator)->prepared_revision_ = 0;
+                        engine::ecs_detail::component_runtime(animator)->pose_revision_ = 0;
+                        engine::ecs_detail::component_runtime(animator)->committed_models_.clear();
                     }
                     return;
                 }
                 retained.insert(node.id());
-                auto* runtime = animator.runtime();
+                auto* runtime = engine::ecs_detail::component_runtime(animator);
                 const auto* mesh = renderer.mesh_data();
                 const auto* clip = runtime->animation_->animation();
                 auto found = state_->entries.find(node.id());
@@ -892,7 +900,7 @@ bool AnimationSystem::on_tick(double delta_time)
         {
             renderer.clear_deformation();
         }
-        auto* runtime = animator.runtime();
+        auto* runtime = engine::ecs_detail::component_runtime(animator);
         if (runtime->pose_sequence_ == std::numeric_limits<std::uint64_t>::max())
         {
             return false;

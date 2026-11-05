@@ -5,7 +5,7 @@ Android 平台工程位于 `platforms/android/`，沿用 [SDL3 的 Activity / JN
 准备 Python 3、JDK 17、Android SDK Platform 35、Build Tools 37.0.0、NDK 30.0.16248370，以及[构建指南](../building.md)要求的 CMake / Ninja / 编译缓存 / vcpkg。设置 `ANDROID_HOME`、`ANDROID_NDK_HOME`、`JAVA_HOME` 和 `VCPKG_ROOT` 指向已有安装；可复用其他工程的安装目录。Android Gradle Plugin 固定 9.5.0，wrapper 固定 Gradle 9.8.2 并核对官方 SHA-256；也可通过 `GRADLE_HOME` 复用相同版本，脚本会检查版本。
 
 ```sh
-npm ci --prefix projects/showcase/settings
+npm ci --prefix projects/showcase/settings/typescript
 python3 scripts/build_android.py --config debug --project projects/showcase --asset-builder build/ninja-engine-release/asset_build_app
 python3 scripts/build_android.py --config release --project projects/showcase --asset-builder build/ninja-engine-release/asset_build_app
 ```
@@ -18,7 +18,7 @@ wrapper 的分发 SHA-256 为 `21bd5da2de49b642904077f38c0efdc7778e92b3ed0889392
 
 两种 APK 内均只有 `lib/arm64-v8a/libmain.so`，SDL3、所选 QuickJS 或 V8、引擎及 NDK C++ 运行库静态链接在其中；Java 只加载 `main`，链接器显式保留 SDL 的 `JNI_OnLoad`。Gradle 去除原生库调试符号以控制安装体积；Debug 保留断言与可调试属性。完整的 Debug 原生符号保存在对应构建目录的 `libmain.so`（默认 `build/android-arm64-debug/libmain.so`），可用 APK 原生库的 ELF Build ID 与之对应，无需把符号放进设备。
 
-脚本检查 NDK 版本，并在打包前仅移除该配置的旧 APK，避免增量 ZIP 更新留下旧原生库空洞导致安装包膨胀；原生库、Java、Gradle 和依赖编译缓存继续复用。`--project` 指定打包项目，默认 `projects/showcase`，必须具有 `settings`、`assets`、`cache` 三个目录并安装 settings 中锁定的 TypeScript。根 CMake 的 bundle 目标通过指定的宿主 asset_build_app 增量构建资源：使用与桌面相同的 `settings/resource-build.toml`，通过 `--package --target android` 构建运行包并读取构建回执输出目录；未配置清单默认全量。随后只校验并打包运行 catalog 引用的散文件或合并包；不复制 SQLite、TS/meta 或陈旧产物。`--asset-builder` 必须是已构建的桌面工具（Windows 文件名加 `.exe`），路径经 `ENGINE_ANDROID_ASSET_BUILDER` 传给 CMake；省略时只接受已有的 Android 目标运行包 catalog，拒绝桌面 Metal 缓存和旧 `cache/assets`。原生库与上游缓存继续复用。`--skip-native` 仅重打包已生成的原生库及资源，不能同时指定 `--project` 或 `--asset-builder`。
+脚本检查 NDK 版本，并在打包前仅移除该配置的旧 APK，避免增量 ZIP 更新留下旧原生库空洞导致安装包膨胀；原生库、Java、Gradle 和依赖编译缓存继续复用。`--project` 指定打包项目，默认 `projects/showcase`，必须具有 `settings`、`assets`、`cache` 三个目录并安装 settings 中锁定的 TypeScript。根 CMake 的 bundle 目标通过指定的宿主 asset_build_app 增量构建资源：使用与桌面相同的 `settings/editor-resource-build.toml`，通过 `--package --target android` 构建运行包并读取构建回执输出目录；未配置清单默认全量。随后只校验并打包运行 catalog 引用的散文件或合并包；不复制 SQLite、TS/meta 或陈旧产物。`--asset-builder` 必须是已构建的桌面工具（Windows 文件名加 `.exe`），路径经 `ENGINE_ANDROID_ASSET_BUILDER` 传给 CMake；省略时只接受已有的 Android 目标运行包 catalog，拒绝桌面 Metal 缓存和旧 `cache/assets`。原生库与上游缓存继续复用。`--skip-native` 仅重打包已生成的原生库及资源，不能同时指定 `--project` 或 `--asset-builder`。
 
 Android 运行时包含 SDL3、bgfx、FlatBuffers、Basis Universal、flecs、Jolt、Recast / Detour、ozz、RmlUi 和所选脚本后端的实际编译与链接。编辑器、toml++ 项目模块和离线资源管线不进入 APK。依赖共享安装在 `build/dependencies/android/`，与桌面安装目录隔离，并保留 vcpkg 二进制缓存。BasisU 的 Android overlay 只关闭宿主命令行工具，保留完整编码 / 转码库。
 

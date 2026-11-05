@@ -5,7 +5,9 @@
 #include "runtime/app/runtime_settings.hpp"
 #include "runtime/engine.hpp"
 #include "runtime/engine_config.hpp"
+#include "runtime/gameplay/deployment_selection.hpp"
 #include "runtime/gameplay/gameplay_session.hpp"
+#include "runtime/movie/movie_player.hpp"
 #include "runtime/performance/profiling.hpp"
 #include "runtime_plugins.hpp"
 
@@ -31,6 +33,8 @@
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
+#include <future>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -38,16 +42,9 @@
 
 namespace
 {
-#if ENGINE_START_PACKAGED_GAMEPLAY
-constexpr bool packaged_gameplay = true;
-#else
-constexpr bool packaged_gameplay = false;
-#endif
-
 void print_usage()
 {
-    fmt::print("Usage: engine_app [--frames <positive-count>] [--workers <0..64>] "
-               "[--runtime-profile <desktop|mobile>]\n");
+    fmt::print("Usage: engine_app [--frames <positive-count>] [--workers <0..64>]\n");
 }
 
 } // namespace
@@ -58,7 +55,6 @@ int main(int argc, char* argv[])
     auto& config = settings.engine;
     auto& parallel = settings.parallel;
     std::optional<std::size_t> worker_override;
-    std::string runtime_profile = ENGINE_RUNTIME_PROFILE;
     std::uint64_t frame_limit = 0;
     for (int index = 1; index < argc; ++index)
     {
@@ -74,16 +70,6 @@ int main(int argc, char* argv[])
                 return 2;
             }
             worker_override = count;
-            continue;
-        }
-        if (argument == "--runtime-profile" && index + 1 < argc)
-        {
-            runtime_profile = argv[++index];
-            if (runtime_profile != "desktop" && runtime_profile != "mobile")
-            {
-                print_usage();
-                return 2;
-            }
             continue;
         }
         if (argument == "--help" && argc == 2)
@@ -121,20 +107,13 @@ int main(int argc, char* argv[])
     }
     const auto settings_path = engine::App::assets_path() / ENGINE_RUNTIME_SETTINGS_PATH;
     std::string settings_error;
-    // APK settings are required by the platform package; native filesystem probes cannot see them.
-    bool read_settings = packaged_gameplay || ENGINE_RUNTIME_SETTINGS_REQUIRED;
-    if (!read_settings)
-    {
-        std::error_code status;
-        read_settings = std::filesystem::exists(settings_path, status) || status;
-    }
-    if (read_settings &&
-        !engine::load_runtime_settings(settings_path, runtime_profile, settings, settings_error))
+    if (!engine::load_runtime_settings(settings_path, settings, settings_error))
     {
         engine::LogSystem::write(engine::LogLevel::error, settings_error);
         engine::App::shutdown();
         return 1;
     }
+    engine::App::set_game_language(settings.game_language);
     auto& log = engine::LogSystem::instance();
     if (!log.initialize(config))
     {
@@ -181,21 +160,27 @@ int main(int argc, char* argv[])
     script_factory = [](engine::WorldSystem& world, engine::RenderSystem& renderer,
                         engine::UiSystem& ui, engine::PhysicsSystem& physics,
                         engine::NavigationSystem& navigation, engine::InputSystem& input,
-                        engine::WindowSystem& window,
-                        engine::AnimationSystem& animation) -> std::unique_ptr<engine::ScriptRuntime>
+                        engine::WindowSystem& window, engine::AnimationSystem& animation,
+                        engine::MoviePlayer* movies) -> std::unique_ptr<engine::ScriptRuntime>
     {
         return std::make_unique<engine::plugins::script::ScriptSystem>(
-            &world, &renderer, &ui, &physics, &navigation, &input, &window, &animation);
+            &world, &renderer, &ui, &physics, &navigation, &input, &window, &animation, movies);
     };
 #endif
-#if ENGINE_HAS_RESOURCE_GRAPH_PLUGIN
-    const bool engine_ready = engine.initialize(config, &resources, script_factory,
-                                                configure_runtime_plugins, nullptr, parallel,
-                                                retargeter_factory);
+#if ENGINE_START_PACKAGED_GAMEPLAY && ENGINE_HAS_RESOURCE_GRAPH_PLUGIN && ENGINE_HAS_APP_SERVICES
+    const bool has_intro = !settings.startup_movie.empty();
 #else
-    const bool engine_ready = engine.initialize(config, nullptr, script_factory,
-                                                configure_runtime_plugins, nullptr, parallel,
-                                                retargeter_factory);
+    [[maybe_unused]] constexpr bool has_intro = false;
+#endif
+#if ENGINE_HAS_RESOURCE_GRAPH_PLUGIN
+    const bool engine_ready =
+        has_intro ? engine.initialize_presentation(config, &resources, nullptr, parallel)
+                  : engine.initialize(config, &resources, script_factory, configure_runtime_plugins,
+                                      nullptr, parallel, retargeter_factory);
+#else
+    const bool engine_ready =
+        engine.initialize(config, nullptr, script_factory, configure_runtime_plugins, nullptr,
+                          parallel, retargeter_factory);
 #endif
     if (!engine_ready)
     {
@@ -211,8 +196,60 @@ int main(int argc, char* argv[])
 #endif
         return 1;
     }
+#if ENGINE_START_PACKAGED_GAMEPLAY && ENGINE_HAS_RESOURCE_GRAPH_PLUGIN && ENGINE_HAS_APP_SERVICES
+    struct StartupDirectory
+    {
+        engine::ResourceCatalog catalog;
+        engine::MountList mounts;
+        std::string entry;
+        std::string error;
+    };
+    auto startup_catalog = std::make_shared<engine::ResourceCatalog>();
+    auto startup_mounts = std::make_shared<engine::MountList>();
+    auto published = std::make_shared<StartupDirectory>();
+    std::future<bool> published_result;
+    engine::MoviePlaybackHandle intro_handle;
+    bool intro_active = false;
+    bool first_frame = false;
+    bool preparing_gameplay = false;
+    bool gameplay_ready = false;
+    bool directory_started = false;
+    bool starting = has_intro;
+    std::string startup_entry;
+    std::filesystem::path persistent;
+    std::string platform;
+    if (starting)
+    {
+        if (!engine::ResourceSystem::read_catalog(engine::App::assets_path(), *startup_catalog))
+        {
+            engine::LogSystem::write(engine::LogLevel::error, "Cannot read startup catalog");
+            engine.shutdown();
+            shutdown_resources();
+            log.shutdown();
+            engine::App::shutdown();
+            return 1;
+        }
+        *startup_mounts = {{"content", engine::App::assets_path()}};
+        if (!resources.update_catalog(startup_catalog->data(), *startup_mounts))
+        {
+            engine::LogSystem::write(engine::LogLevel::error, resources.last_error());
+            engine.shutdown();
+            shutdown_resources();
+            log.shutdown();
+            engine::App::shutdown();
+            return 1;
+        }
+        intro_active = engine.movie_player()->play(settings.startup_movie, intro_handle);
+        if (!intro_active)
+        {
+            engine::LogSystem::write(engine::LogLevel::error, engine.movie_player()->last_error());
+        }
+        persistent = engine::App::persistent_data_path();
+        platform = startup_catalog->data().target_platform;
+    }
+#endif
 #if ENGINE_START_PACKAGED_GAMEPLAY
-    if (!engine.gameplay()->start())
+    if (!has_intro && !engine.gameplay()->start())
     {
         const std::string detail(engine.gameplay()->last_error());
         engine::LogSystem::write(engine::LogLevel::error, "Gameplay startup failed: " + detail);
@@ -224,7 +261,10 @@ int main(int argc, char* argv[])
         engine::App::shutdown();
         return 1;
     }
-    engine::LogSystem::write(engine::LogLevel::info, "Packaged gameplay started");
+    if (!has_intro)
+    {
+        engine::LogSystem::write(engine::LogLevel::info, "Packaged gameplay started");
+    }
 #endif
     auto previous_time = std::chrono::steady_clock::now();
     std::uint64_t frames = 0;
@@ -261,6 +301,109 @@ int main(int argc, char* argv[])
             previous_time = std::chrono::steady_clock::now();
             continue;
         }
+#if ENGINE_START_PACKAGED_GAMEPLAY && ENGINE_HAS_RESOURCE_GRAPH_PLUGIN && ENGINE_HAS_APP_SERVICES
+        if (starting)
+        {
+            engine::MoviePlaybackStatus movie_status;
+            if (intro_active && engine.movie_player()->status(intro_handle, movie_status))
+            {
+                if (movie_status.state == engine::MovieState::playing ||
+                    movie_status.state == engine::MovieState::paused ||
+                    movie_status.state == engine::MovieState::completed)
+                {
+                    first_frame = true;
+                }
+                if (movie_status.state == engine::MovieState::failed ||
+                    movie_status.state == engine::MovieState::cancelled)
+                {
+                    engine::LogSystem::write(engine::LogLevel::error, movie_status.error);
+                    (void)engine.movie_player()->release(intro_handle);
+                    intro_active = false;
+                }
+            }
+            if (!directory_started && (!intro_active || first_frame))
+            {
+                published_result = engine.tasks()->submit(
+                    "Startup deployment selection",
+                    [published, persistent, platform]()
+                    {
+                        return engine::gameplay_detail::select_published_deployment(
+                            persistent, platform, published->catalog, published->mounts,
+                            published->entry, published->error);
+                    });
+                directory_started = true;
+            }
+            const bool directory_ready =
+                directory_started &&
+                (!published_result.valid() ||
+                 published_result.wait_for(std::chrono::seconds(0)) == std::future_status::ready);
+            if (!preparing_gameplay && directory_ready && (!intro_active || first_frame))
+            {
+                if (published_result.valid())
+                {
+                    if (!published_result.get())
+                    {
+                        engine::LogSystem::write(engine::LogLevel::warning, published->error);
+                    }
+                    else if (!published->catalog.revision().empty())
+                    {
+                        *startup_catalog = std::move(published->catalog);
+                        *startup_mounts = std::move(published->mounts);
+                        startup_entry = std::move(published->entry);
+                        if (!resources.update_catalog(startup_catalog->data(), *startup_mounts))
+                        {
+                            engine::LogSystem::write(engine::LogLevel::error,
+                                                     resources.last_error());
+                            result = 1;
+                            break;
+                        }
+                    }
+                }
+                if (!engine.begin_gameplay(script_factory, configure_runtime_plugins,
+                                           retargeter_factory, startup_catalog, startup_mounts,
+                                           startup_entry))
+                {
+                    engine::LogSystem::write(engine::LogLevel::error,
+                                             "Cannot begin gameplay preparation");
+                    result = 1;
+                    break;
+                }
+                preparing_gameplay = true;
+            }
+            if (preparing_gameplay && !gameplay_ready)
+            {
+                const auto ready = engine.step_gameplay(0.002);
+                if (ready == engine::RuntimeStartupStatus::failed)
+                {
+                    engine::LogSystem::write(engine::LogLevel::error,
+                                             "Gameplay preparation failed");
+                    result = 1;
+                    break;
+                }
+                gameplay_ready = ready == engine::RuntimeStartupStatus::ready;
+            }
+            if (gameplay_ready && intro_active &&
+                movie_status.state == engine::MovieState::completed)
+            {
+                if (!engine.movie_player()->release(intro_handle))
+                {
+                    result = 1;
+                    break;
+                }
+                intro_active = false;
+            }
+            if (gameplay_ready && !intro_active)
+            {
+                if (!engine.activate_gameplay())
+                {
+                    result = 1;
+                    break;
+                }
+                starting = false;
+                engine::LogSystem::write(engine::LogLevel::info, "Packaged gameplay started");
+            }
+        }
+#endif
         ++frames;
         if (frame_limit != 0 && frames >= frame_limit)
         {

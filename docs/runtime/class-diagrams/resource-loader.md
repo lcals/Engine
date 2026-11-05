@@ -64,7 +64,7 @@ classDiagram
 
 - `ResourceLoad`、`ResourceLoadStatus`、`ResourceLoadProgress` 归核心 `engine` 命名空间。核心声明操作与计数结构；具体依赖遍历和缓存策略归所选加载器。
 - `begin_load(guid, output)` 先清空输出，成功后转交尚未推进的操作，由调用方用 `unique_ptr` 独占。准备阶段只读取目标及依赖的目录元数据，不读取实体载荷。基础接口默认返回 false，表示不支持该能力；同步加载不要求启用依赖图插件。
-- 操作固定目标 GUID 和创建时的目录 generation。loading 期间目录换代、加载器变化或读取/校验失败，进入 `failed` 并释放候选引用。ready 后保留完整旧代快照，终态重复 step 不改变状态、计数或缓存；提交方仍须核对 generation。
+- 操作固定目标 GUID、创建时的目录 generation 和所选加载器身份；核心单项操作与依赖图操作遵循相同失效条件。loading 期间目录换代、所选加载器变化或读取/校验失败，进入 `failed` 并释放候选引用。ready 后保留完整旧代快照，终态重复 step 不改变状态、计数或缓存；提交方仍须核对 generation。
 - `step(resource_budget, output)` 每次最多完成预算数量的唯一资源；异步模式同时限制本次推进的候选窗口，完成前返回 loading，绝不等待 future；缓存命中或通过读取、解码和依赖校验均计一个完成项。预算 0 检查当前状态但不读取实体。返回时总是填写 `completed/total`；total 创建后固定，completed 单调且不超过 total。
 - `resource()` 为 `const noexcept`，只在 ready 时返回完整根 ResourcePtr 的共享副本，其引用保持必要依赖闭包；loading/failed 返回空。`last_error()` 为 `const noexcept`，借用本操作独立保存的错误，ready 时为空。
 - 析构为公共虚析构且 `noexcept`；未完成时取消，完成后释放本操作的根引用，不强制卸载其他使用者持有的资源。操作不可复制或移动，方法和销毁均在同一运行线程调用；借用的加载器与资源核心必须覆盖操作生命周期。状态和查询标注 `[[nodiscard]]`。

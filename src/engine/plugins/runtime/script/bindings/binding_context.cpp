@@ -1,5 +1,7 @@
 #include "plugins/runtime/script/bindings/binding_context.hpp"
 
+#include "runtime/scene/animator_runtime.hpp"
+
 #include "runtime/app/app.hpp"
 #include "runtime/input/input_system.hpp"
 #include "runtime/log/log_system.hpp"
@@ -17,9 +19,9 @@ namespace engine::plugins::script::bindings
 {
 BindingContext::BindingContext(WorldSystem* world, RenderSystem* renderer, UiSystem* ui,
                                PhysicsSystem* physics, NavigationSystem* navigation,
-                               InputSystem* input, WindowSystem* window) noexcept
+                               InputSystem* input, WindowSystem* window, MoviePlayer* movies) noexcept
     : world_(world), renderer_(renderer), ui_(ui), physics_(physics), navigation_(navigation),
-      input_(input), window_(window)
+      input_(input), window_(window), movies_(movies)
 {
 }
 
@@ -45,8 +47,50 @@ void BindingContext::end_call() noexcept
     delta_time_ = 0.0;
 }
 
+void BindingContext::cancel_movies() noexcept
+{
+    if (movies_ && movie_handle_.id)
+    {
+        MoviePlaybackStatus status;
+        if (movies_->status(movie_handle_, status))
+        {
+            if (status.state == MovieState::preparing || status.state == MovieState::playing ||
+                status.state == MovieState::paused)
+            {
+                (void)movies_->stop(movie_handle_, MovieStopReason::stopped);
+            }
+            (void)movies_->release(movie_handle_);
+        }
+    }
+    movie_handle_ = {};
+}
+
+MoviePlayer* BindingContext::movies() const noexcept { return movies_; }
+bool BindingContext::remember_movie(MoviePlaybackHandle handle) noexcept
+{
+    if (movie_handle_.id || !handle.id)
+    {
+        return false;
+    }
+    movie_handle_ = handle;
+    return true;
+}
+bool BindingContext::owns_movie(MoviePlaybackHandle handle) const noexcept
+{
+    return handle.id && movie_handle_.id == handle.id &&
+           movie_handle_.generation == handle.generation;
+}
+void BindingContext::forget_movie(MoviePlaybackHandle handle) noexcept
+{
+    if (owns_movie(handle))
+    {
+        movie_handle_ = {};
+    }
+}
+
 void BindingContext::shutdown() noexcept
 {
+    cancel_movies();
     cancel_scene_load();
     async_results_.clear();
     animation_events_.clear();
@@ -498,7 +542,7 @@ bool BindingContext::take_animation_event(AnimationEvent& output)
         const auto& event = animation_events_[animation_event_cursor_++];
         const auto node = find_node(event.scene_id, event.node_id);
         const auto animator = node ? node.get_component<Animator>() : Animator{};
-        const auto* runtime = animator ? animator.runtime() : nullptr;
+        const auto* runtime = animator ? engine::ecs_detail::component_runtime(animator) : nullptr;
         if (animator && animator.active() &&
             animator.instance_id() == event.component_instance_id && runtime &&
             runtime->playback_id_ == event.playback_id &&

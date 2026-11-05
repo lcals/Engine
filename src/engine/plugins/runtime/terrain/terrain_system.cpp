@@ -1,4 +1,6 @@
 #include "plugins/runtime/terrain/terrain_system.hpp"
+
+#include "plugins/runtime/terrain/terrain_component_runtime.hpp"
 #include "runtime/scene/ecs_scene.hpp"
 #include "runtime/scene/ecs_storage.hpp"
 
@@ -180,7 +182,7 @@ bool TerrainSystem::commit(TerrainComponent component, TerrainVolume candidate)
     }
     ENGINE_PROFILE_ZONE("Terrain.commit");
     schema::MeshDataT mesh;
-    if (!candidate.build_mesh(mesh, component.runtime()->last_error_))
+    if (!candidate.build_mesh(mesh, engine::ecs_detail::component_runtime(component)->last_error_))
     {
         return false;
     }
@@ -198,9 +200,11 @@ bool TerrainSystem::commit_prepared(TerrainComponent component, TerrainVolume ca
     ENGINE_PROFILE_ZONE("Terrain.publish");
     auto node = component.node();
     if (world_.find_node(node.id()) != node ||
-        component.runtime()->revision_ == std::numeric_limits<std::uint64_t>::max())
+        engine::ecs_detail::component_runtime(component)->revision_ ==
+            std::numeric_limits<std::uint64_t>::max())
     {
-        component.runtime()->last_error_ = "Terrain is not in the active world";
+        engine::ecs_detail::component_runtime(component)->last_error_ =
+            "Terrain is not in the active world";
         return false;
     }
     auto renderer = node.get_component<MeshRenderer>();
@@ -208,13 +212,14 @@ bool TerrainSystem::commit_prepared(TerrainComponent component, TerrainVolume ca
     const bool owns = generated_.contains(node.id());
     if ((renderer || collider) && !owns)
     {
-        component.runtime()->last_error_ =
+        engine::ecs_detail::component_runtime(component)->last_error_ =
             "Terrain requires its own generated renderer and collider";
         return false;
     }
     if ((renderer && !renderer.transient()) || (collider && !collider.transient()))
     {
-        component.runtime()->last_error_ = "Terrain generated components were replaced";
+        engine::ecs_detail::component_runtime(component)->last_error_ =
+            "Terrain generated components were replaced";
         return false;
     }
     const bool new_renderer = !renderer;
@@ -241,7 +246,8 @@ bool TerrainSystem::commit_prepared(TerrainComponent component, TerrainVolume ca
     if (!renderer || !collider)
     {
         remove_new();
-        component.runtime()->last_error_ = "Cannot create terrain output components";
+        engine::ecs_detail::component_runtime(component)->last_error_ =
+            "Cannot create terrain output components";
         return false;
     }
     if (!renderer.set_transient(true) || !collider.set_transient(true))
@@ -257,7 +263,8 @@ bool TerrainSystem::commit_prepared(TerrainComponent component, TerrainVolume ca
         !renderer.material().set_type(material))
     {
         remove_new();
-        component.runtime()->last_error_ = "Cannot apply terrain material";
+        engine::ecs_detail::component_runtime(component)->last_error_ =
+            "Cannot apply terrain material";
         return false;
     }
     const bool empty = mesh.indices.empty();
@@ -265,7 +272,8 @@ bool TerrainSystem::commit_prepared(TerrainComponent component, TerrainVolume ca
     {
         (void)renderer.material().set_type(previous_material);
         remove_new();
-        component.runtime()->last_error_ = "Cannot prepare terrain rendering mesh";
+        engine::ecs_detail::component_runtime(component)->last_error_ =
+            "Cannot prepare terrain rendering mesh";
         return false;
     }
     const MeshCollisionData no_collision;
@@ -278,8 +286,9 @@ bool TerrainSystem::commit_prepared(TerrainComponent component, TerrainVolume ca
         const bool restored = renderer.set_mesh_data(previous_mesh) &&
                               renderer.material().set_type(previous_material);
         remove_new();
-        component.runtime()->last_error_ = restored ? "Cannot prepare terrain collision mesh"
-                                                    : "Cannot restore terrain rendering mesh";
+        engine::ecs_detail::component_runtime(component)->last_error_ =
+            restored ? "Cannot prepare terrain collision mesh"
+                     : "Cannot restore terrain rendering mesh";
         return false;
     }
     if (!renderer.set_visible(component.visible() && !empty) ||
@@ -287,16 +296,16 @@ bool TerrainSystem::commit_prepared(TerrainComponent component, TerrainVolume ca
     {
         return false;
     }
-    component.runtime()->triangles_ = mesh.indices.size() / 3;
+    engine::ecs_detail::component_runtime(component)->triangles_ = mesh.indices.size() / 3;
     {
         // 包含旧碰撞几何最后引用的释放，不将其析构成本藏到提交计时之外。
         ENGINE_PROFILE_ZONE("Terrain.release_previous_volume");
-        component.runtime()->volume_ = std::move(candidate);
+        engine::ecs_detail::component_runtime(component)->volume_ = std::move(candidate);
     }
-    component.runtime()->pending_ = false;
-    component.runtime()->ready_ = true;
-    component.runtime()->last_error_.clear();
-    ++component.runtime()->revision_;
+    engine::ecs_detail::component_runtime(component)->pending_ = false;
+    engine::ecs_detail::component_runtime(component)->ready_ = true;
+    engine::ecs_detail::component_runtime(component)->last_error_.clear();
+    ++engine::ecs_detail::component_runtime(component)->revision_;
     generated_.insert(node.id());
     return true;
 }
@@ -310,37 +319,40 @@ bool TerrainSystem::request_apply_sphere(TerrainComponent component, const Vec3&
         return false;
     }
     if (!async_ || !is_initialized() || tasks_ == nullptr || !tasks_->is_initialized() ||
-        !completed || !component.runtime()->ready_ || !component.active() ||
-        world_.find_node(component.node().id()) != component.node() || !std::isfinite(center.x()) ||
-        !std::isfinite(center.y()) || !std::isfinite(center.z()) || !std::isfinite(radius) ||
-        radius <= 0 || radius > 10000)
+        !completed || !engine::ecs_detail::component_runtime(component)->ready_ ||
+        !component.active() || world_.find_node(component.node().id()) != component.node() ||
+        !std::isfinite(center.x()) || !std::isfinite(center.y()) || !std::isfinite(center.z()) ||
+        !std::isfinite(radius) || radius <= 0 || radius > 10000)
     {
-        component.runtime()->last_error_ = "Invalid asynchronous terrain request or task domain";
+        engine::ecs_detail::component_runtime(component)->last_error_ =
+            "Invalid asynchronous terrain request or task domain";
         return false;
     }
     const auto id = component.node().id();
     auto found = async_->owners.find(id);
     if (found != async_->owners.end() &&
         (found->second.scene != component.node().scene()->id() ||
-         found->second.lifetime.lock() != component.runtime()->lifetime_ ||
-         found->second.revision != component.runtime()->revision_))
+         found->second.lifetime.lock() !=
+             engine::ecs_detail::component_runtime(component)->lifetime_ ||
+         found->second.revision != engine::ecs_detail::component_runtime(component)->revision_))
     {
         async_->cancel(id, found->second);
         async_->owners.erase(found);
     }
     if (async_->pending >= max_pending_requests_)
     {
-        component.runtime()->last_error_ = "Terrain asynchronous request budget is full";
+        engine::ecs_detail::component_runtime(component)->last_error_ =
+            "Terrain asynchronous request budget is full";
         return false;
     }
     auto& owner = async_->owners[id];
     owner.scene = component.node().scene()->id();
-    owner.revision = component.runtime()->revision_;
-    owner.lifetime = component.runtime()->lifetime_;
+    owner.revision = engine::ecs_detail::component_runtime(component)->revision_;
+    owner.lifetime = engine::ecs_detail::component_runtime(component)->lifetime_;
     owner.requests.push_back({center, radius, fill, std::move(completed)});
     ++async_->pending;
     ++async_->pending_owners[id];
-    component.runtime()->last_error_.clear();
+    engine::ecs_detail::component_runtime(component)->last_error_.clear();
     return true;
 }
 
@@ -367,9 +379,10 @@ void TerrainSystem::process_requests()
             node = {};
         }
         auto component = node ? node.get_component<TerrainComponent>() : TerrainComponent{};
-        if (!component || !component.runtime()->ready_ || !component.active() ||
-            owner.lifetime.lock() != component.runtime()->lifetime_ ||
-            owner.revision != component.runtime()->revision_)
+        if (!component || !engine::ecs_detail::component_runtime(component)->ready_ ||
+            !component.active() ||
+            owner.lifetime.lock() != engine::ecs_detail::component_runtime(component)->lifetime_ ||
+            owner.revision != engine::ecs_detail::component_runtime(component)->revision_)
         {
             async_->cancel(current->first, owner);
             async_->owners.erase(current);
@@ -385,13 +398,13 @@ void TerrainSystem::process_requests()
             {
                 success = commit_prepared(component, std::move(owner.prepared->volume),
                                           std::move(owner.prepared->mesh));
-                owner.revision = component.runtime()->revision_;
+                owner.revision = engine::ecs_detail::component_runtime(component)->revision_;
             }
             else
             {
-                component.runtime()->last_error_ = owner.prepared->error.empty()
-                                                       ? "Terrain asynchronous preparation failed"
-                                                       : owner.prepared->error;
+                engine::ecs_detail::component_runtime(component)->last_error_ =
+                    owner.prepared->error.empty() ? "Terrain asynchronous preparation failed"
+                                                  : owner.prepared->error;
             }
             owner.prepared.reset();
             async_->ready.push_back(
@@ -429,7 +442,7 @@ void TerrainSystem::process_requests()
         if (!owner.prepared)
         {
             owner.prepared = std::make_shared<AsyncState::Prepared>();
-            owner.prepared->volume = component.runtime()->volume_;
+            owner.prepared->volume = engine::ecs_detail::component_runtime(component)->volume_;
         }
         const auto& request = owner.requests.front();
         owner.completion = tasks_->submit(
@@ -503,7 +516,7 @@ std::size_t TerrainSystem::fragment_count(TerrainComponent component) const noex
     {
         return 0;
     }
-    if (found->second.owner.lock() != component.runtime()->lifetime_)
+    if (found->second.owner.lock() != engine::ecs_detail::component_runtime(component)->lifetime_)
     {
         return 0;
     }
@@ -544,18 +557,22 @@ bool TerrainSystem::retire_fragments(TerrainComponent component, std::uint32_t m
     ENGINE_PROFILE_ZONE("Terrain.retire_fragments");
     retired_count = 0;
     auto source = component.node();
-    if (!is_initialized() || !physics_.is_initialized() || !component.runtime()->ready_ ||
-        component.runtime()->pending_ || !component.runtime()->resource_ ||
+    if (!is_initialized() || !physics_.is_initialized() ||
+        !engine::ecs_detail::component_runtime(component)->ready_ ||
+        engine::ecs_detail::component_runtime(component)->pending_ ||
+        !engine::ecs_detail::component_runtime(component)->resource_ ||
         world_.find_node(source.id()) != source ||
         source.get_component<TerrainComponent>() != component || !std::isfinite(max_age_seconds) ||
         max_age_seconds < 0)
     {
-        component.runtime()->last_error_ = "Invalid terrain retirement request or owner";
+        engine::ecs_detail::component_runtime(component)->last_error_ =
+            "Invalid terrain retirement request or owner";
         return false;
     }
     if (async_->pending_owners.contains(source.id()))
     {
-        component.runtime()->last_error_ = "Terrain has an unfinished asynchronous request";
+        engine::ecs_detail::component_runtime(component)->last_error_ =
+            "Terrain has an unfinished asynchronous request";
         return false;
     }
     const auto source_renderer = source.get_component<MeshRenderer>();
@@ -563,18 +580,20 @@ bool TerrainSystem::retire_fragments(TerrainComponent component, std::uint32_t m
     if (!generated_.contains(source.id()) || !source_renderer || !source_collider ||
         !source_renderer.transient() || !source_collider.transient())
     {
-        component.runtime()->last_error_ = "Terrain generated components are missing or replaced";
+        engine::ecs_detail::component_runtime(component)->last_error_ =
+            "Terrain generated components are missing or replaced";
         return false;
     }
     const auto found = fragments_.find(source.id());
     if (found == fragments_.end())
     {
-        component.runtime()->last_error_.clear();
+        engine::ecs_detail::component_runtime(component)->last_error_.clear();
         return true;
     }
-    if (found->second.owner.lock() != component.runtime()->lifetime_)
+    if (found->second.owner.lock() != engine::ecs_detail::component_runtime(component)->lifetime_)
     {
-        component.runtime()->last_error_ = "Terrain fragments belong to a replaced component";
+        engine::ecs_detail::component_runtime(component)->last_error_ =
+            "Terrain fragments belong to a replaced component";
         return false;
     }
     auto& items = found->second.items;
@@ -594,7 +613,7 @@ bool TerrainSystem::retire_fragments(TerrainComponent component, std::uint32_t m
             !collider.transient() || collider.instance_id() != fragment.collider_instance ||
             !body || !body.transient() || body.settings().motion != schema::BodyMotion::dynamic)
         {
-            component.runtime()->last_error_ =
+            engine::ecs_detail::component_runtime(component)->last_error_ =
                 "Terrain fragment components are missing or replaced";
             return false;
         }
@@ -618,12 +637,14 @@ bool TerrainSystem::retire_fragments(TerrainComponent component, std::uint32_t m
     const auto count = std::max(expired, excess);
     if (count == 0)
     {
-        component.runtime()->last_error_.clear();
+        engine::ecs_detail::component_runtime(component)->last_error_.clear();
         return true;
     }
-    if (component.runtime()->revision_ == std::numeric_limits<std::uint64_t>::max())
+    if (engine::ecs_detail::component_runtime(component)->revision_ ==
+        std::numeric_limits<std::uint64_t>::max())
     {
-        component.runtime()->last_error_ = "Terrain revision is exhausted";
+        engine::ecs_detail::component_runtime(component)->last_error_ =
+            "Terrain revision is exhausted";
         return false;
     }
     std::vector<std::uint64_t> selected;
@@ -641,7 +662,8 @@ bool TerrainSystem::retire_fragments(TerrainComponent component, std::uint32_t m
             .children([&](flecs::entity) { has_children = true; });
         if (has_children)
         {
-            component.runtime()->last_error_ = "Terrain fragment owns an unexpected child node";
+            engine::ecs_detail::component_runtime(component)->last_error_ =
+                "Terrain fragment owns an unexpected child node";
             return false;
         }
     }
@@ -653,8 +675,8 @@ bool TerrainSystem::retire_fragments(TerrainComponent component, std::uint32_t m
     }
     std::erase_if(items, [&](const Fragment& fragment)
                   { return std::binary_search(selected.begin(), selected.end(), fragment.node); });
-    ++component.runtime()->revision_;
-    component.runtime()->last_error_.clear();
+    ++engine::ecs_detail::component_runtime(component)->revision_;
+    engine::ecs_detail::component_runtime(component)->last_error_.clear();
     retired_count = static_cast<std::uint32_t>(count);
     return true;
 }
@@ -671,11 +693,12 @@ bool TerrainSystem::collapse_detached(TerrainComponent component, std::uint32_t 
     auto* scene = component.node().scene();
     TransformSettings pose;
     if (!is_initialized() || world_.find_node(component.node().id()) != component.node() ||
-        !component.runtime()->ready_ || !component.active() || !component.settings().collision ||
-        !collapse_pose(component.node(), pose) || !std::isfinite(density) || density <= 0 ||
-        density > 100000 || max_fragments == 0 || max_fragments > 128)
+        !engine::ecs_detail::component_runtime(component)->ready_ || !component.active() ||
+        !component.settings().collision || !collapse_pose(component.node(), pose) ||
+        !std::isfinite(density) || density <= 0 || density > 100000 || max_fragments == 0 ||
+        max_fragments > 128)
     {
-        component.runtime()->last_error_ =
+        engine::ecs_detail::component_runtime(component)->last_error_ =
             "Terrain collapse requires an active root, positive uniform scale, "
             "collision, valid density and a 1..128 fragment budget";
         return false;
@@ -683,27 +706,29 @@ bool TerrainSystem::collapse_detached(TerrainComponent component, std::uint32_t 
     const auto current = fragment_count(component);
     if (current >= max_fragments)
     {
-        component.runtime()->last_error_ = "Terrain has reached its total active fragment budget";
+        engine::ecs_detail::component_runtime(component)->last_error_ =
+            "Terrain has reached its total active fragment budget";
         return false;
     }
-    auto candidate = component.runtime()->volume_;
+    auto candidate = engine::ecs_detail::component_runtime(component)->volume_;
     std::vector<TerrainFragment> fragments;
-    if (!candidate.extract_detached(min_samples,
-                                    max_fragments - static_cast<std::uint32_t>(current),
-                                    fragment_cells, fragments, component.runtime()->last_error_))
+    if (!candidate.extract_detached(
+            min_samples, max_fragments - static_cast<std::uint32_t>(current), fragment_cells,
+            fragments, engine::ecs_detail::component_runtime(component)->last_error_))
     {
         return false;
     }
     if (fragments.empty())
     {
-        component.runtime()->last_error_.clear();
+        engine::ecs_detail::component_runtime(component)->last_error_.clear();
         return true;
     }
     std::string material = "builtin://materials/default-pbr";
     if (!component.settings().material_guid.empty() &&
         !ResourceSystem::guid_to_path(component.settings().material_guid, material))
     {
-        component.runtime()->last_error_ = "Cannot resolve terrain fragment material";
+        engine::ecs_detail::component_runtime(component)->last_error_ =
+            "Cannot resolve terrain fragment material";
         return false;
     }
     std::vector<std::uint64_t> created;
@@ -713,7 +738,7 @@ bool TerrainSystem::collapse_detached(TerrainComponent component, std::uint32_t 
         {
             release_fragment(world_, physics_, id);
         }
-        component.runtime()->last_error_ = message;
+        engine::ecs_detail::component_runtime(component)->last_error_ = message;
         return false;
     };
     {
@@ -770,7 +795,7 @@ bool TerrainSystem::collapse_detached(TerrainComponent component, std::uint32_t 
         return false;
     }
     auto& owned = fragments_[component.node().id()];
-    owned.owner = component.runtime()->lifetime_;
+    owned.owner = engine::ecs_detail::component_runtime(component)->lifetime_;
     std::erase_if(owned.items,
                   [&](const Fragment& fragment) { return !world_.find_node(fragment.node); });
     for (auto id : created)
@@ -778,7 +803,7 @@ bool TerrainSystem::collapse_detached(TerrainComponent component, std::uint32_t 
         owned.items.push_back(
             {id, world_.find_node(id).get_component<Collider>().instance_id(), simulation_time_});
     }
-    component.runtime()->detached_ = true;
+    engine::ecs_detail::component_runtime(component)->detached_ = true;
     return true;
 }
 
@@ -793,8 +818,9 @@ bool TerrainSystem::synchronize()
     {
         auto node = world_.find_node(item->first);
         auto component = node ? node.get_component<TerrainComponent>() : TerrainComponent{};
-        if (!component || !component.runtime()->resource_ ||
-            item->second.owner.lock() != component.runtime()->lifetime_)
+        if (!component || !engine::ecs_detail::component_runtime(component)->resource_ ||
+            item->second.owner.lock() !=
+                engine::ecs_detail::component_runtime(component)->lifetime_)
         {
             for (const auto& fragment : item->second.items)
             {
@@ -830,7 +856,7 @@ bool TerrainSystem::synchronize()
                     if (!physics_.set_collider_data(collider, collider.settings()))
                     {
                         (void)collider.set_enabled(previous);
-                        component.runtime()->last_error_ =
+                        engine::ecs_detail::component_runtime(component)->last_error_ =
                             "Cannot synchronize terrain fragment collision";
                         return false;
                     }
@@ -843,7 +869,7 @@ bool TerrainSystem::synchronize()
     {
         auto node = world_.find_node(*item);
         auto component = node ? node.get_component<TerrainComponent>() : TerrainComponent{};
-        if (!component || !component.runtime()->resource_)
+        if (!component || !engine::ecs_detail::component_runtime(component)->resource_)
         {
             if (node)
             {
@@ -881,8 +907,9 @@ bool TerrainSystem::synchronize()
         {
             continue;
         }
-        if (!world_.paused() && component.runtime()->pending_ && component.active() &&
-            !commit(component, component.runtime()->volume_))
+        if (!world_.paused() && engine::ecs_detail::component_runtime(component)->pending_ &&
+            component.active() &&
+            !commit(component, engine::ecs_detail::component_runtime(component)->volume_))
         {
             return false;
         }
@@ -891,16 +918,18 @@ bool TerrainSystem::synchronize()
             if (auto renderer = node.get_component<MeshRenderer>())
             {
                 if (!renderer.set_enabled(component.enabled()) ||
-                    !renderer.set_visible(component.visible() &&
-                                          component.runtime()->triangles_ != 0))
+                    !renderer.set_visible(
+                        component.visible() &&
+                        engine::ecs_detail::component_runtime(component)->triangles_ != 0))
                 {
                     return false;
                 }
             }
             if (auto collider = node.get_component<Collider>())
             {
-                if (!collider.set_enabled(component.enabled() && component.settings().collision &&
-                                          component.runtime()->triangles_ != 0))
+                if (!collider.set_enabled(
+                        component.enabled() && component.settings().collision &&
+                        engine::ecs_detail::component_runtime(component)->triangles_ != 0))
                 {
                     return false;
                 }
@@ -938,8 +967,9 @@ void TerrainSystem::on_shutdown() noexcept
         }
         if (auto component = node.get_component<TerrainComponent>())
         {
-            component.runtime()->ready_ = false;
-            component.runtime()->pending_ = component.runtime()->resource_ != nullptr;
+            engine::ecs_detail::component_runtime(component)->ready_ = false;
+            engine::ecs_detail::component_runtime(component)->pending_ =
+                engine::ecs_detail::component_runtime(component)->resource_ != nullptr;
         }
         if (auto renderer = node.get_component<MeshRenderer>(); renderer && renderer.transient())
         {

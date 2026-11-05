@@ -155,7 +155,9 @@ endif()
 
 if(TARGET engine_asset_sync)
     add_executable(engine_asset_sync_test plugins/editor/asset_sync/asset_sync_test.cpp)
+    target_include_directories(engine_asset_sync_test PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
     target_link_libraries(engine_asset_sync_test PRIVATE engine::asset_sync engine::resource
+                                                         engine_editor_lock SDL3::SDL3
                                                          nlohmann_json::nlohmann_json)
     target_compile_definitions(engine_asset_sync_test PRIVATE JSON_NOEXCEPTION=1)
     engine_apply_options(engine_asset_sync_test)
@@ -514,6 +516,8 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
                 bgfx::bimg
                 basisu::basisu_encoder)
     engine_apply_options(engine_window_render_test)
+    target_compile_definitions(engine_window_render_test PRIVATE
+                               ENGINE_TEST_RUNTIME_SETTINGS="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/runtime-settings.json")
     if(TARGET engine_resource_graph)
         target_link_libraries(engine_window_render_test PRIVATE engine::resource_graph)
         target_compile_definitions(engine_window_render_test PRIVATE ENGINE_TEST_RESOURCE_GRAPH=1)
@@ -853,6 +857,11 @@ if(TARGET engine_world)
 endif()
 
 if(TARGET engine_resource)
+    add_executable(engine_movie_player_test runtime/movie/movie_player_test.cpp)
+    target_link_libraries(engine_movie_player_test PRIVATE engine::movie engine::resource engine::task engine::audio unofficial::libvpx::libvpx)
+    engine_apply_options(engine_movie_player_test)
+    add_test(NAME resource.movie_player COMMAND engine_movie_player_test)
+    set_tests_properties(resource.movie_player PROPERTIES TIMEOUT 30)
     add_executable(engine_resource_codecs_test runtime/resource/resource_codecs_test.cpp)
     target_link_libraries(engine_resource_codecs_test PRIVATE engine::resource)
     engine_apply_options(engine_resource_codecs_test)
@@ -923,6 +932,17 @@ if(TARGET engine_asset_import)
 endif()
 
 if(TARGET engine_asset_import)
+    add_executable(engine_import_tool_test editor/asset_pipeline/import_tool_test.cpp)
+    target_link_libraries(engine_import_tool_test PRIVATE engine::asset_pipeline)
+    engine_apply_options(engine_import_tool_test)
+    add_test(NAME editor.import_tool COMMAND engine_import_tool_test)
+
+    add_executable(engine_movie_pipeline_test plugins/editor/asset_import/movie_pipeline_test.cpp)
+    target_link_libraries(engine_movie_pipeline_test PRIVATE engine::asset_import engine::resource)
+    engine_apply_options(engine_movie_pipeline_test)
+    add_test(NAME editor.movie_pipeline COMMAND engine_movie_pipeline_test
+             "${PROJECT_SOURCE_DIR}/projects/showcase/assets/movies/lcals.mp4")
+
     add_executable(engine_json_importer_test plugins/editor/asset_import/json_importer_test.cpp)
     target_link_libraries(engine_json_importer_test PRIVATE engine::asset_import engine::resource)
     engine_apply_options(engine_json_importer_test)
@@ -992,7 +1012,8 @@ if(TARGET engine_character_controller)
                                                engine::resource engine::render SDL3::SDL3)
         target_include_directories(engine_character_host_test PRIVATE "${PROJECT_SOURCE_DIR}/src")
         target_compile_definitions(engine_character_host_test
-                                   PRIVATE ENGINE_HAS_CHARACTER_CONTROLLER=1)
+                                   PRIVATE ENGINE_HAS_CHARACTER_CONTROLLER=1
+                                   ENGINE_TEST_RUNTIME_SETTINGS="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/runtime-settings.json")
         engine_apply_options(engine_character_host_test)
         if(ENGINE_ENABLE_GPU_TESTS)
             add_test(NAME engine.character_host COMMAND engine_character_host_test)
@@ -1225,6 +1246,19 @@ if(TARGET engine_navigation_crowd_editor)
 endif()
 
 if(TARGET engine_runtime)
+    add_executable(engine_runtime_host_test runtime/app/runtime_host_test.cpp)
+    target_link_libraries(engine_runtime_host_test PRIVATE engine::runtime engine::app
+                                                          engine::resource engine::task
+                                                          nlohmann_json::nlohmann_json SDL3::SDL3)
+    target_compile_definitions(engine_runtime_host_test PRIVATE
+                               JSON_NOEXCEPTION=1
+                               ENGINE_TEST_RUNTIME_SETTINGS="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/runtime-settings.json")
+    engine_apply_options(engine_runtime_host_test)
+    if(ENGINE_ENABLE_GPU_TESTS)
+        add_test(NAME engine.runtime_host COMMAND engine_runtime_host_test)
+        set_tests_properties(engine.runtime_host PROPERTIES TIMEOUT 60 RUN_SERIAL TRUE)
+    endif()
+
     add_executable(engine_gameplay_session_test runtime/gameplay/gameplay_session_test.cpp)
     target_link_libraries(engine_gameplay_session_test PRIVATE engine::runtime)
     engine_apply_options(engine_gameplay_session_test)
@@ -1232,9 +1266,11 @@ if(TARGET engine_runtime)
     set_tests_properties(engine.gameplay_session PROPERTIES TIMEOUT 60)
 
     add_executable(engine_runtime_settings_test runtime/app/runtime_settings_test.cpp)
-    target_link_libraries(engine_runtime_settings_test PRIVATE engine::runtime)
+    target_link_libraries(engine_runtime_settings_test PRIVATE engine::runtime
+                                                             nlohmann_json::nlohmann_json)
     engine_apply_options(engine_runtime_settings_test)
-    add_test(NAME engine.runtime_settings COMMAND engine_runtime_settings_test)
+    add_test(NAME engine.runtime_settings COMMAND engine_runtime_settings_test
+        "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/runtime-settings.json")
     set_tests_properties(engine.runtime_settings PROPERTIES TIMEOUT 30)
 endif()
 
@@ -1307,7 +1343,10 @@ endif()
 # Shared fixtures are private to test targets.
 get_property(_engine_test_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
 foreach(_target IN LISTS _engine_test_targets)
-    target_include_directories(${_target} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/support")
+    get_target_property(_target_type ${_target} TYPE)
+    if(NOT _target_type STREQUAL "UTILITY" AND NOT _target_type STREQUAL "INTERFACE_LIBRARY")
+        target_include_directories(${_target} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/support")
+    endif()
 endforeach()
 
 if(TARGET engine_editor AND TARGET engine_asset_pipeline)

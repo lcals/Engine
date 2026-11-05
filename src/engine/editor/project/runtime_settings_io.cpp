@@ -29,20 +29,6 @@ bool convert(const toml::node& source, Json& output)
         }
         return true;
     }
-    if (const auto* array = source.as_array())
-    {
-        output = Json::array();
-        for (const auto& value : *array)
-        {
-            Json item;
-            if (!convert(value, item))
-            {
-                return false;
-            }
-            output.push_back(std::move(item));
-        }
-        return true;
-    }
     if (source.is_string())
     {
         output = *source.value<std::string>();
@@ -71,16 +57,11 @@ bool convert(const toml::node& source, Json& output)
     return false;
 }
 
-bool read_source(const std::filesystem::path& path, Json& output, std::string& error)
+bool read_source(const std::filesystem::path& path, std::string_view platform, Json& output,
+                 std::string& error)
 {
-    std::error_code status;
-    if (!std::filesystem::exists(path, status) && !status)
-    {
-        output = {{"version", 1}};
-        return true;
-    }
     std::string text;
-    if (status || !ResourceSystem::read_text(path, text) || text.size() > 65536)
+    if (!ResourceSystem::read_text(path, text) || text.size() > 65536)
     {
         error = "Cannot read project runtime settings (maximum 64 KiB per file)";
         return false;
@@ -91,92 +72,87 @@ bool read_source(const std::filesystem::path& path, Json& output, std::string& e
         error = "Invalid project runtime settings TOML or unsupported value type";
         return false;
     }
-    if (!output.contains("version") || !output["version"].is_number_integer() ||
-        output["version"].get<std::int64_t>() != 1)
-    {
-        error = "Project runtime settings require version 1";
-        return false;
-    }
     for (const auto& [name, value] : output.items())
     {
-        if (name != "version" && name != "defaults" && name != "profiles" && name != "overrides")
+        if ((name != "common" && name != "quality" && name != "platform") || !value.is_object())
         {
             error = "Unknown project runtime settings field: " + name;
             return false;
         }
     }
-    return true;
-}
-
-bool attach_parallel(Json& layer, const Json& parallel, std::string& error)
-{
-    if (!layer.is_object() || !parallel.is_object() || layer.contains("parallel"))
+    if (output.contains("quality") && !output["quality"].empty())
     {
-        error = "Invalid or duplicate parallel settings layer";
+        error = "Quality settings require business selection and are not enabled yet";
         return false;
     }
-    layer["parallel"] = parallel;
+    auto selected = output.value("common", Json::object());
+    if (const auto platforms = output.find("platform"); platforms != output.end())
+    {
+        for (const auto& [name, value] : platforms->items())
+        {
+            if ((name != "windows" && name != "macos" && name != "linux" && name != "android" &&
+                 name != "ios") ||
+                !value.is_object())
+            {
+                error = "Invalid runtime settings platform table: " + name;
+                return false;
+            }
+            if (name == platform)
+            {
+                selected.merge_patch(value);
+            }
+        }
+    }
+    output = std::move(selected);
     return true;
 }
 
 } // namespace
 
 bool load_project_runtime_settings(const std::filesystem::path& project_root,
-                                   std::string_view profile, RuntimeSettings& output,
+                                   std::string_view platform, RuntimeSettings& output,
                                    std::string& error)
 {
     error.clear();
-    Json document;
-    Json parallel;
-    if (!read_source(project_root / "settings/runtime.toml", document, error) ||
-        !read_source(project_root / "settings/parallel.toml", parallel, error))
+    if (platform != "windows" && platform != "macos" && platform != "linux" &&
+        platform != "android" && platform != "ios")
     {
+        error = "Unknown runtime settings platform";
         return false;
     }
-    for (const auto* name : {"defaults", "overrides"})
+    Json document = Json::object();
+    std::error_code status;
+    auto entries = std::filesystem::directory_iterator(project_root / "settings", status);
+    if (status == std::errc::no_such_file_or_directory)
     {
-        if (parallel.contains(name))
-        {
-            if (!document.contains(name))
-            {
-                document[name] = Json::object();
-            }
-            if (!attach_parallel(document[name], parallel[name], error))
-            {
-                return false;
-            }
-        }
+        error = "Project runtime settings directory is missing";
+        return false;
     }
-    if (const auto profiles = parallel.find("profiles"); profiles != parallel.end())
+    for (; !status && entries != std::filesystem::directory_iterator{}; entries.increment(status))
     {
-        if (!profiles->is_object())
+        const auto& path = entries->path();
+        const auto name = path.stem().string();
+        if (path.extension() != ".toml" || !name.starts_with("runtime-"))
         {
-            error = "Project parallel profiles must be a table";
+            continue;
+        }
+        Json module;
+        if (name.size() == 8 || !read_source(path, platform, module, error))
+        {
+            error = name + ": " + error;
             return false;
         }
-        if (!document.contains("profiles"))
+        if (!module.empty())
         {
-            document["profiles"] = Json::object();
-        }
-        if (!document["profiles"].is_object())
-        {
-            error = "Project runtime profiles must be a table";
-            return false;
-        }
-        for (const auto& [name, layer] : profiles->items())
-        {
-            auto& target = document["profiles"];
-            if (!target.contains(name))
-            {
-                target[name] = Json::object();
-            }
-            if (!attach_parallel(target[name], layer, error))
-            {
-                return false;
-            }
+            document[name.substr(8)] = std::move(module);
         }
     }
-    return decode_runtime_settings(document.dump(), profile, output, error);
+    if (status)
+    {
+        error = "Cannot enumerate project runtime settings: " + status.message();
+        return false;
+    }
+    return decode_runtime_settings(document.dump(), output, error);
 }
 
 } // namespace engine::editor

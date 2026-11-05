@@ -1,11 +1,13 @@
 #include "runtime/engine_config.hpp"
 #include "runtime/resource/resource_system.hpp"
+#include "runtime/scene/animator.hpp"
 #include "runtime/scene/camera.hpp"
 #include "runtime/scene/component_registry.hpp"
 #include "runtime/scene/ecs_storage.hpp"
 #include "runtime/scene/light.hpp"
 #include "runtime/scene/mesh_renderer.hpp"
 #include "runtime/scene/scene.hpp"
+#include "runtime/scene/ui_component.hpp"
 #include "runtime/world/world_system.hpp"
 #include "scene_snapshot.hpp"
 
@@ -14,6 +16,24 @@
 
 namespace
 {
+
+template <class T>
+concept PublicRuntimeAccess = requires(T component) { component.runtime(); };
+template <class T>
+concept PublicRuntimeDefinition = requires { sizeof(typename T::Runtime); };
+template <class T>
+concept PublicOperationsAccess =
+    requires(T registry) { registry.operations(engine::ComponentType::CameraData); };
+
+static_assert(!PublicRuntimeAccess<engine::Camera>);
+static_assert(!PublicRuntimeAccess<engine::MeshRenderer>);
+static_assert(!PublicRuntimeAccess<engine::Animator>);
+static_assert(!PublicRuntimeAccess<engine::UiComponent>);
+static_assert(!PublicRuntimeDefinition<engine::Camera>);
+static_assert(!PublicRuntimeDefinition<engine::MeshRenderer>);
+static_assert(!PublicRuntimeDefinition<engine::Animator>);
+static_assert(!PublicRuntimeDefinition<engine::UiComponent>);
+static_assert(!PublicOperationsAccess<engine::ComponentRegistry>);
 
 bool expect(bool value, const char* message)
 {

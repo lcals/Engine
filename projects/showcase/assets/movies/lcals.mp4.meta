@@ -1,0 +1,16 @@
+guid = 'd9664a8b-084a-417c-aebd-716379087362'
+importer = 'movie'
+meta_version = 1
+
+[audio]
+channels = 2
+gain = 1.0
+sample_rate = 48000
+
+[movie]
+audio = true
+
+[[subresources]]
+guid = 'f2d0aa5b-306c-4ec7-af73-80738aeb693d'
+key = 'audio'
+kind = 'audio'

@@ -7,6 +7,8 @@
 #include "runtime/gameplay/gameplay_session.hpp"
 #include "runtime/gameplay/script_runtime.hpp"
 #include "runtime/input/input_system.hpp"
+#include "runtime/log/log_system.hpp"
+#include "runtime/movie/movie_player.hpp"
 #include "runtime/navigation/navigation_system.hpp"
 #include "runtime/performance/profiling.hpp"
 #include "runtime/physics/physics_system.hpp"
@@ -19,12 +21,34 @@
 #include "runtime/window/window_system.hpp"
 #include "runtime/world/world_system.hpp"
 
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <utility>
 
 namespace engine
 {
+namespace
+{
+// 无可显示影片时仍提交黑帧，直至候选场景被正式激活。
+MovieFrame startup_black_frame()
+{
+    static constexpr std::array<std::uint8_t, 4> luma{16, 16, 16, 16};
+    static constexpr std::array<std::uint8_t, 2> chroma{128, 128};
+    MovieFrame frame;
+    frame.width = 2;
+    frame.height = 2;
+    frame.format = schema::MoviePixelFormat::nv12;
+    frame.color = schema::MovieColorInfo(schema::MovieColorPrimaries::bt709,
+                                         schema::MovieTransfer::srgb,
+                                         schema::MovieColorMatrix::bt709,
+                                         schema::MovieColorRange::limited,
+                                         schema::MovieChromaLocation::center);
+    frame.planes[0] = {luma, 2, 2, 2};
+    frame.planes[1] = {chroma, 1, 1, 2};
+    return frame;
+}
+} // namespace
 
 RuntimeHost::RuntimeHost() noexcept : engine_(Engine::instance())
 {
@@ -40,6 +64,24 @@ bool RuntimeHost::initialize(const EngineConfig& config, ResourceSystem* resourc
                              ThreadSystem* threads, const RuntimeParallelConfig& parallel,
                              AnimationRetargeterFactory retargeter_factory)
 {
+    if (!initialize_presentation(config, resources, threads, parallel))
+    {
+        return false;
+    }
+    if (!initialize_gameplay(config, script_factory, setup, retargeter_factory) ||
+        !audio_->set_world(world_))
+    {
+        shutdown();
+        return false;
+    }
+    gameplay_active_ = true;
+    return true;
+}
+
+bool RuntimeHost::initialize_presentation(const EngineConfig& config, ResourceSystem* resources,
+                                          ThreadSystem* threads,
+                                          const RuntimeParallelConfig& parallel)
+{
     if (initialized_ || owns_engine_ || engine_.is_initialized() || engine_.system_count() != 0 ||
         (resources != nullptr &&
          (!resources->is_initialized() || ResourceSystem::instance() != resources)) ||
@@ -52,6 +94,7 @@ bool RuntimeHost::initialize(const EngineConfig& config, ResourceSystem* resourc
     }
     owns_engine_ = true;
     parallel_ = parallel;
+    presentation_config_ = config;
     if (threads == nullptr)
     {
         owned_threads_ = std::make_unique<ThreadSystem>(parallel.threads);
@@ -95,37 +138,85 @@ bool RuntimeHost::initialize(const EngineConfig& config, ResourceSystem* resourc
     }
     if (resources == nullptr)
     {
-        std::unique_ptr<System> owned_resources = std::make_unique<ResourceSystem>();
-        if (!engine_.add_system(owned_resources))
+        owned_resources_ = std::make_unique<ResourceSystem>();
+        if (!owned_resources_->initialize(config))
         {
             shutdown();
             return false;
         }
+        resources = owned_resources_.get();
     }
 
+    owned_renderer_ = std::make_unique<RenderSystem>(*window_, nullptr, nullptr, nullptr,
+                                                     loading_tasks_.get(), parallel.render);
+    renderer_ = owned_renderer_.get();
+    owned_audio_ = std::make_unique<AudioSystem>();
+    audio_ = owned_audio_.get();
+    if (!owned_renderer_->initialize(config) || !owned_audio_->initialize(config))
+    {
+        shutdown();
+        return false;
+    }
+    resources_ = resources;
+    if (!resources_->configure_async(*loading_tasks_, parallel.resources))
+    {
+        resources_ = nullptr;
+        shutdown();
+        return false;
+    }
+    movie_player_ = std::make_unique<MoviePlayer>(*resources_, *loading_tasks_, *audio_);
+
+    window_->set_event_handler(
+        [](void* context, const SDL_Event& event)
+        {
+            auto& host = *static_cast<RuntimeHost*>(context);
+            if (host.event_observer_ != nullptr)
+            {
+                host.event_observer_(host.event_observer_context_, event);
+            }
+            const bool owned = host.input_->owns_pointer(event);
+            const bool claimed =
+                !owned && host.gameplay_active_ && host.ui_ && host.ui_->process_event(event);
+            schema::InputRoutingDataT routing;
+            routing.keyboard_claimed =
+                host.gameplay_active_ && host.ui_ && host.ui_->keyboard_claimed();
+            routing.pointer_claimed =
+                host.gameplay_active_ && host.ui_ && host.ui_->pointer_claimed();
+            if (!host.input_->set_routing_state(routing) ||
+                !host.input_->process_event(event, claimed))
+            {
+                host.failed_ = true;
+            }
+        },
+        this);
+    initialized_ = true;
+    return true;
+}
+
+bool RuntimeHost::initialize_gameplay(const EngineConfig& config,
+                                      ScriptRuntimeFactory script_factory, RuntimeSetup setup,
+                                      AnimationRetargeterFactory retargeter_factory)
+{
 #if defined(ENGINE_ENABLE_TRACY)
     tracy::SetThreadName("Engine main");
 #endif
 
-    auto world = std::make_unique<WorldSystem>(parallel.scene_restore);
+    auto world = std::make_unique<WorldSystem>(parallel_.scene_restore);
     auto physics_system = std::make_unique<PhysicsSystem>(world.get(), physics_tasks_.get());
     physics_ = physics_system.get();
     std::unique_ptr<System> physics = std::move(physics_system);
-    auto audio_system = std::make_unique<AudioSystem>(world.get());
-    audio_ = audio_system.get();
-    std::unique_ptr<System> audio = std::move(audio_system);
-    auto navigation_system = std::make_unique<NavigationSystem>(navigation_tasks_.get(),
-                                                                parallel.navigation_tile_threshold);
+    auto navigation_system = std::make_unique<NavigationSystem>(
+        navigation_tasks_.get(), parallel_.navigation_tile_threshold);
     auto* navigation_ptr = navigation_system.get();
     std::unique_ptr<System> navigation = std::move(navigation_system);
     auto retargeter = retargeter_factory ? retargeter_factory() : nullptr;
     if (retargeter_factory && !retargeter)
     {
-        shutdown();
+        reset_gameplay();
         return false;
     }
     auto animation_system = std::make_unique<AnimationSystem>(
-        world.get(), animation_tasks_.get(), parallel.animation_sampling, std::move(retargeter));
+        world.get(), animation_tasks_.get(), parallel_.animation_sampling, std::move(retargeter));
     animation_ = animation_system.get();
     std::unique_ptr<System> animation = std::move(animation_system);
     auto font_system = std::make_unique<FontSystem>();
@@ -138,78 +229,130 @@ bool RuntimeHost::initialize(const EngineConfig& config, ResourceSystem* resourc
     if (!world->add_subsystem(fonts) || !world->add_subsystem(ui) ||
         !world->add_subsystem(navigation))
     {
-        shutdown();
+        reset_gameplay();
         return false;
     }
-    auto renderer = std::make_unique<RenderSystem>(*window_, world.get(), fonts_, ui_,
-                                                   loading_tasks_.get(), parallel.render);
     ScriptRuntime* script = nullptr;
     if (script_factory != nullptr)
     {
-        auto script_system = script_factory(*world, *renderer, *ui_, *physics_, *navigation_ptr,
-                                            *input_, *window_, *animation_);
+        auto script_system = script_factory(*world, *renderer_, *ui_, *physics_, *navigation_ptr,
+                                            *input_, *window_, *animation_, movie_player_.get());
         script = script_system.get();
         std::unique_ptr<System> script_base = std::move(script_system);
         if (!world->add_subsystem(script_base))
         {
-            shutdown();
+            reset_gameplay();
             return false;
         }
     }
     if ((setup != nullptr && !setup(RuntimeStage::before_physics, *world, *window_, *physics_,
-                                    *navigation_ptr, *renderer, *background_tasks_)) ||
+                                    *navigation_ptr, *renderer_, *background_tasks_)) ||
         !world->add_subsystem(physics) || !world->add_subsystem(animation) ||
         (setup != nullptr && !setup(RuntimeStage::after_physics, *world, *window_, *physics_,
-                                    *navigation_ptr, *renderer, *background_tasks_)) ||
-        !world->add_subsystem(audio))
+                                    *navigation_ptr, *renderer_, *background_tasks_)))
     {
-        shutdown();
+        reset_gameplay();
         return false;
     }
     world_ = world.get();
     std::unique_ptr<System> world_base = std::move(world);
     if (!engine_.add_system(world_base))
     {
-        shutdown();
+        reset_gameplay();
         return false;
     }
-    renderer_ = renderer.get();
-    std::unique_ptr<System> renderer_base = std::move(renderer);
-    if (!engine_.add_system(renderer_base) || !engine_.initialize(config))
+    if (!engine_.initialize(config) || !renderer_->bind_world(world_, fonts_, ui_))
     {
-        shutdown();
-        return false;
-    }
-    resources_ = resources != nullptr ? resources : ResourceSystem::instance();
-    if (resources_ == nullptr || !resources_->configure_async(*loading_tasks_, parallel.resources))
-    {
-        resources_ = nullptr;
-        shutdown();
+        reset_gameplay();
         return false;
     }
     gameplay_ = std::make_unique<GameplaySession>(*world_, *renderer_, script, physics_, audio_,
                                                   animation_, fonts_, ui_, background_tasks_.get());
-    window_->set_event_handler(
-        [](void* context, const SDL_Event& event)
+    return true;
+}
+
+bool RuntimeHost::begin_gameplay(ScriptRuntimeFactory script_factory, RuntimeSetup setup,
+                                 AnimationRetargeterFactory retargeter_factory,
+                                 std::shared_ptr<const ResourceCatalog> catalog,
+                                 std::shared_ptr<const MountList> mounts, std::string_view entry,
+                                 std::string_view scene)
+{
+    if (!initialized_ || startup_requested_ || gameplay_ || !catalog || !mounts || !resources_ ||
+        catalog->revision().empty() || catalog->revision() != resources_->catalog().revision() ||
+        catalog->data().target_platform != resources_->catalog().data().target_platform)
+    {
+        return false;
+    }
+    startup_script_factory_ = script_factory;
+    startup_setup_ = setup;
+    startup_retargeter_factory_ = retargeter_factory;
+    startup_catalog_ = std::move(catalog);
+    startup_mounts_ = std::move(mounts);
+    startup_entry_ = entry;
+    startup_scene_ = scene;
+    startup_status_ = RuntimeStartupStatus::preparing;
+    startup_requested_ = true;
+    return true;
+}
+
+RuntimeStartupStatus RuntimeHost::step_gameplay(double max_seconds)
+{
+    if (!initialized_ || !startup_requested_ || !std::isfinite(max_seconds) || max_seconds <= 0)
+    {
+        return RuntimeStartupStatus::failed;
+    }
+    if (startup_status_ != RuntimeStartupStatus::preparing)
+    {
+        return startup_status_;
+    }
+    if (!gameplay_)
+    {
+        MoviePlaybackHandle current;
+        if (movie_player_->current_handle(current) &&
+            (current.id != presented_movie_id_ ||
+             current.generation != presented_movie_generation_))
         {
-            auto& host = *static_cast<RuntimeHost*>(context);
-            if (host.event_observer_ != nullptr)
-            {
-                host.event_observer_(host.event_observer_context_, event);
-            }
-            const bool owned = host.input_->owns_pointer(event);
-            const bool claimed = !owned && host.ui_->process_event(event);
-            schema::InputRoutingDataT routing;
-            routing.keyboard_claimed = host.ui_->keyboard_claimed();
-            routing.pointer_claimed = host.ui_->pointer_claimed();
-            if (!host.input_->set_routing_state(routing) ||
-                !host.input_->process_event(event, claimed))
-            {
-                host.failed_ = true;
-            }
-        },
-        this);
-    initialized_ = true;
+            return RuntimeStartupStatus::preparing;
+        }
+        const auto started = std::chrono::steady_clock::now();
+        const bool ready = initialize_gameplay(presentation_config_, startup_script_factory_,
+                                               startup_setup_, startup_retargeter_factory_);
+        LogSystem::write(LogLevel::info,
+                         "Startup world initialization seconds: " +
+                             std::to_string(std::chrono::duration<double>(
+                                                std::chrono::steady_clock::now() - started)
+                                                .count()));
+        if (!ready || !gameplay_->begin_prepare(*startup_catalog_, *startup_mounts_, startup_entry_,
+                                                startup_scene_))
+        {
+            reset_gameplay();
+            startup_status_ = RuntimeStartupStatus::failed;
+        }
+        return startup_status_;
+    }
+    const auto result = gameplay_->step_prepare(parallel_.resources.completion_budget, max_seconds);
+    if (result == GameplayPrepareStatus::ready)
+    {
+        startup_status_ = RuntimeStartupStatus::ready;
+    }
+    else if (result == GameplayPrepareStatus::failed)
+    {
+        reset_gameplay();
+        startup_status_ = RuntimeStartupStatus::failed;
+    }
+    return startup_status_;
+}
+
+bool RuntimeHost::activate_gameplay()
+{
+    if (!initialized_ || startup_status_ != RuntimeStartupStatus::ready || !gameplay_ ||
+        !gameplay_->activate_prepared() || !audio_->set_world(world_))
+    {
+        return false;
+    }
+    gameplay_active_ = true;
+    startup_catalog_.reset();
+    startup_mounts_.reset();
     return true;
 }
 
@@ -221,30 +364,54 @@ FrameStatus RuntimeHost::tick(double delta_time)
     {
         return events;
     }
-    if (!engine_.tick(delta_time))
+    if (gameplay_active_ && !engine_.tick(delta_time))
     {
         failed_ = true;
         return FrameStatus::failed;
     }
-    if (!gameplay_->tick())
+    if (!audio_->tick(delta_time))
     {
         failed_ = true;
         return FrameStatus::failed;
     }
-    // Gameplay 可在本帧切换世界暂停；窗口不可绘制仍是独立的暂停原因。
-    if (!audio_->set_paused(!window_->can_render() || world_->paused()))
+    if (gameplay_active_ && gameplay_ && !gameplay_->tick())
     {
         failed_ = true;
         return FrameStatus::failed;
     }
-    if (!renderer_->render())
+    // 窗口不可绘制时暂停整个设备；世界暂停由音频系统只作用于场景声部。
+    if (!audio_->set_paused(!window_->can_render()))
+    {
+        failed_ = true;
+        return FrameStatus::failed;
+    }
+    if (!movie_player_->update(delta_time))
+    {
+        failed_ = true;
+        return FrameStatus::failed;
+    }
+    MoviePlaybackHandle movie_handle;
+    MoviePlaybackStatus movie_status;
+    MovieFrame movie_frame;
+    const bool showing_movie =
+        movie_player_->current_handle(movie_handle) &&
+        movie_player_->status(movie_handle, movie_status) &&
+        (movie_status.state == MovieState::playing || movie_status.state == MovieState::paused ||
+         movie_status.state == MovieState::completed) &&
+        movie_player_->frame(movie_handle, movie_frame);
+    const bool rendered = showing_movie ? renderer_->present_movie_frame(movie_frame)
+                          : !gameplay_active_
+                              ? renderer_->present_movie_frame(startup_black_frame())
+                              : renderer_->render();
+    if (!rendered)
     {
         // 平台暂停可以在本帧检查之后到达，等待恢复而不锁定为失败。
         if (!window_->can_render())
         {
             return FrameStatus::paused;
         }
-        if (!world_->scenes().empty())
+        if (!showing_movie && gameplay_active_ && world_ && gameplay_ &&
+            !world_->scenes().empty())
         {
             gameplay_->stop("Project rendering failed; the project was stopped");
             if (renderer_->render())
@@ -254,6 +421,11 @@ FrameStatus RuntimeHost::tick(double delta_time)
         }
         failed_ = true;
         return FrameStatus::failed;
+    }
+    if (showing_movie)
+    {
+        presented_movie_id_ = movie_handle.id;
+        presented_movie_generation_ = movie_handle.generation;
     }
     return FrameStatus::running;
 }
@@ -270,8 +442,14 @@ FrameStatus RuntimeHost::poll_events(double delta_time)
     }
     const auto completions_started = std::chrono::steady_clock::now();
     std::size_t remaining = parallel_.completions_per_frame;
-    for (auto* domain : {tasks_.get(), physics_tasks_.get(), animation_tasks_.get(),
-                         navigation_tasks_.get(), background_tasks_.get(), loading_tasks_.get()})
+    const std::array domains{tasks_.get(),
+                             physics_tasks_.get(),
+                             animation_tasks_.get(),
+                             navigation_tasks_.get(),
+                             background_tasks_.get(),
+                             loading_tasks_.get()};
+    std::size_t idle_domains = 0;
+    while (remaining != 0 && idle_domains < domains.size())
     {
         const double elapsed =
             std::chrono::duration<double>(std::chrono::steady_clock::now() - completions_started)
@@ -280,19 +458,23 @@ FrameStatus RuntimeHost::poll_events(double delta_time)
         {
             break;
         }
-        remaining -=
-            domain->dispatch_completions(remaining, parallel_.completion_budget_seconds - elapsed);
+        auto* domain = domains[completion_domain_];
+        completion_domain_ = (completion_domain_ + 1) % domains.size();
+        const auto completed =
+            domain->dispatch_completions(1, parallel_.completion_budget_seconds - elapsed);
+        remaining -= completed;
+        idle_domains = completed == 0 ? idle_domains + 1 : 0;
     }
     resources_->poll_async();
     // 上一回调可能改变文档 / 可见性；没有 SDL 事件也必须刷新持续占用事实。
-    if (window_->can_render() && !ui_->synchronize())
+    if (window_->can_render() && gameplay_active_ && ui_ && !ui_->synchronize())
     {
         failed_ = true;
         return FrameStatus::failed;
     }
     schema::InputRoutingDataT routing;
-    routing.keyboard_claimed = ui_->keyboard_claimed();
-    routing.pointer_claimed = ui_->pointer_claimed();
+    routing.keyboard_claimed = gameplay_active_ && ui_ && ui_->keyboard_claimed();
+    routing.pointer_claimed = gameplay_active_ && ui_ && ui_->pointer_claimed();
     if (!input_->begin_frame() || !input_->set_routing_state(routing) ||
         !window_->tick(delta_time) || failed_ || !input_->tick(delta_time))
     {
@@ -304,7 +486,7 @@ FrameStatus RuntimeHost::poll_events(double delta_time)
         request_exit();
         return FrameStatus::exit_requested;
     }
-    if (!audio_->set_paused(!window_->can_render() || world_->paused()))
+    if (!audio_->set_paused(!window_->can_render()))
     {
         failed_ = true;
         return FrameStatus::failed;
@@ -358,6 +540,34 @@ TaskSystem* RuntimeHost::tasks() noexcept
     return initialized_ ? tasks_.get() : nullptr;
 }
 
+MoviePlayer* RuntimeHost::movie_player() noexcept
+{
+    return initialized_ ? movie_player_.get() : nullptr;
+}
+
+void RuntimeHost::reset_gameplay() noexcept
+{
+    gameplay_active_ = false;
+    gameplay_.reset();
+    if (renderer_ != nullptr && renderer_->is_initialized())
+    {
+        (void)renderer_->bind_world(nullptr, nullptr, nullptr);
+    }
+    if (audio_ != nullptr && audio_->is_initialized())
+    {
+        (void)audio_->set_world(nullptr);
+    }
+    fonts_ = nullptr;
+    ui_ = nullptr;
+    animation_ = nullptr;
+    physics_ = nullptr;
+    world_ = nullptr;
+    if (owns_engine_)
+    {
+        engine_.shutdown();
+    }
+}
+
 void RuntimeHost::shutdown() noexcept
 {
     set_event_observer(nullptr, nullptr);
@@ -366,24 +576,19 @@ void RuntimeHost::shutdown() noexcept
     {
         window_->set_event_handler(nullptr, nullptr);
     }
-    gameplay_.reset();
+    reset_gameplay();
+    owns_engine_ = false;
+    movie_player_.reset();
     if (resources_ != nullptr)
     {
         resources_->shutdown_async();
         resources_ = nullptr;
     }
-    fonts_ = nullptr;
-    ui_ = nullptr;
-    animation_ = nullptr;
+    owned_audio_.reset();
+    owned_renderer_.reset();
     audio_ = nullptr;
-    physics_ = nullptr;
     renderer_ = nullptr;
-    world_ = nullptr;
-    if (owns_engine_)
-    {
-        engine_.shutdown();
-        owns_engine_ = false;
-    }
+    owned_resources_.reset();
     input_.reset();
     window_.reset();
     navigation_tasks_.reset();
@@ -396,6 +601,15 @@ void RuntimeHost::shutdown() noexcept
     initialized_ = false;
     exit_requested_ = false;
     failed_ = false;
+    completion_domain_ = 0;
+    startup_requested_ = false;
+    startup_status_ = RuntimeStartupStatus::failed;
+    startup_catalog_.reset();
+    startup_mounts_.reset();
+    startup_entry_.clear();
+    startup_scene_.clear();
+    presented_movie_id_ = 0;
+    presented_movie_generation_ = 0;
 }
 
 } // namespace engine

@@ -5,7 +5,7 @@
 桌面编辑器与 Android 共用运行时脚本和热重载实现。宿主需有可执行的 Node.js、npm 和 Python 3；Node.js 仅用于编译工具，不进入玩法虚拟机。先安装项目锁定的 TypeScript，再构建完整引擎预设：
 
 ```sh
-npm ci --prefix projects/showcase/settings
+npm ci --prefix projects/showcase/settings/typescript
 cmake --workflow --preset ninja-engine-release
 ```
 

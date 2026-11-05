@@ -20,7 +20,7 @@ set(ENGINE_EXPORT_PROJECT
     "${PROJECT_SOURCE_DIR}/projects/showcase"
     CACHE PATH "Exported project")
 set(ENGINE_EXPORT_MANIFEST
-    "settings/resource-build.toml"
+    "settings/editor-resource-build.toml"
     CACHE STRING "Project build manifest")
 set(ENGINE_EXPORT_PRODUCT
     "engine-showcase"
@@ -31,6 +31,7 @@ endif()
 
 # 项目宿主只装配运行时插件，资源从 App 的内置目录独立读取。
 add_executable(engine_project_app EXCLUDE_FROM_ALL "${PROJECT_SOURCE_DIR}/src/main.cpp")
+target_include_directories(engine_project_app PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
 set_target_properties(engine_project_app PROPERTIES OUTPUT_NAME "${ENGINE_EXPORT_PRODUCT}")
 target_link_libraries(engine_project_app PRIVATE engine::runtime engine::app engine::log SDL3::SDL3
                                                  fmt::fmt)

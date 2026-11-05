@@ -131,7 +131,7 @@ struct Fixture
                 return false;
             }
         }
-        return true;
+        return write(root / "settings/editor-import.toml", "[common]\nimport_threads = 8\n");
     }
 
     ~Fixture() noexcept
@@ -619,15 +619,29 @@ bool tests()
                     pipeline.last_build().imported == 1 &&
                     read_payload(fixture, source_guid) == "second",
                 "cache hit verifies bytes and rebuilds corrupted artifact") ||
-        !expect(write(fixture.root / "settings/import.toml", "import_threads = 2\n") &&
-                    build(pipeline, fixture) && pipeline.last_build().import_threads == 2 &&
-                    pipeline.last_build().imported == 0,
-                "project setting safely changes editor task concurrency") ||
-        !expect(write(fixture.root / "settings/import.toml", "import_threads = 0\n") &&
-                    !pipeline.build_assets(fixture.root),
-                "invalid worker configuration fails") ||
-        !expect(write(fixture.root / "settings/import.toml", "import_threads = 8\n"),
-                "restore workers"))
+        !expect(
+            write(fixture.root / "settings/editor-import.toml", "[common]\nimport_threads = 2\n") &&
+                build(pipeline, fixture) && pipeline.last_build().import_threads == 2 &&
+                pipeline.last_build().imported == 0,
+            "project setting safely changes editor task concurrency") ||
+        !expect(
+            write(fixture.root / "settings/editor-import.toml", "[common]\nimport_threads = 8\n"),
+            "restore workers"))
+    {
+        return false;
+    }
+    for (const char* invalid :
+         {"", "[common]\n", "import_threads = 2\n", "common = 2\n", "[common]\nunknown = 2\n",
+          "[common]\nimport_threads = 0\n", "[common]\nimport_threads = 2.0\n"})
+    {
+        if (!expect(write(fixture.root / "settings/editor-import.toml", invalid) &&
+                        !pipeline.build_assets(fixture.root),
+                    "reject ungrouped, unknown, or invalid import settings"))
+        {
+            return false;
+        }
+    }
+    if (!write(fixture.root / "settings/editor-import.toml", "[common]\nimport_threads = 8\n"))
     {
         return false;
     }

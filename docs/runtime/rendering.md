@@ -193,13 +193,13 @@ CSM 参考引入时固定的 [bgfx `16-shadowmaps`](https://github.com/bkaradzic
 
 例如 `set_render_settings {"directionalShadows":true,"shadowResolution":4096,"shadowCascades":4,"shadowDistance":150,"shadowSplitLambda":0.6,"shadowCascadeBlend":0.1}`。数量和距离等配置可独立修改，保持阴影启用状态。脚本对指定方向灯调用 `Light.SetShadowCascades(count, distance, splitLambda?, blend?)`；`Light.SetShadows` 保留已有级联配置。
 
-`shadowResolution` 是方向光级联区域边长；完整 atlas 预算来自项目 `settings/parallel.toml` 的 `[defaults.render].shadow_atlas_size`，平台档可覆盖。点光六面和聚光单面通过原有 `Light.SetShadows` 申请同一 atlas；只有实际分配成功的灯启用阴影，空间或面数不足会报告预算诊断。非不透明材质不投实体阴影。
+`shadowResolution` 是方向光级联区域边长；完整 atlas 预算来自项目 `settings/runtime-parallel.toml` 的 `[common.render].shadow_atlas_size`，平台档可覆盖。点光六面和聚光单面通过原有 `Light.SetShadows` 申请同一 atlas；只有实际分配成功的灯启用阴影，空间或面数不足会报告预算诊断。非不透明材质不投实体阴影。
 
 ## 分簇光照、反射、水面与静态间接光
 
 实现沿用 RenderSystem、普通组件、材质资源与 scene_bake 插件；来源、固定版本和限制见[上游适配记录](rendering-sources.md)。
 
-- 灯光使用全视锥深度分簇，透明面按自身深度取灯；局部簇超预算时遍历完整灯列表，保持照明正确。项目 `settings/parallel.toml` 的 `[defaults.render]` 配置预算，移动端覆盖使用 `[profiles.mobile.render]`，运行包读取汇总设置中的 `parallel.render`。
+- 灯光使用全视锥深度分簇，透明面按自身深度取灯；局部簇超预算时遍历完整灯列表，保持照明正确。项目 `settings/runtime-parallel.toml` 的 `[common.render]` 配置预算，移动端覆盖使用 `[platform.android.render]`，运行包读取汇总设置中的 `parallel.render`。
 - 相机 `PostProcessComponent.SetScreenSpaceReflections(enabled, resolutionScale?, maxSteps?, maxDistance?, thickness?, roughnessCutoff?)` 开启 SSR；材质法线、粗糙度与 F0 来自共享表面 Shader。SSR 命中时替换 IBL 镜面的线性 split-sum 子项，其余环境反射近似保留；未命中保留原环境反射。没有启用 IBL 时，SSR 使用 DFG 拟合计算屏幕反射，不依赖残留的烘焙 LUT。首版没有时序降噪，屏幕外对象使用平面捕获或 IBL。
 - 反射面所在普通 Node 添加 `PlanarReflectionComponent`，局部 XZ 为平面；`SetSettings(resolutionScale, clipBias)` 设置捕获。独立镜像相机绘制建筑、裁切材质和蒙皮角色，不递归捕获透明面。超预算的面使用环境回退。
 - `builtin://shaders/water` 和 `builtin://materials/default-water` 提供双层流动法线、Fresnel、实时平面倒影、深度约束的屏幕折射及吸收。水仍是普通材质，参数由 `SetFloat/SetV*` 设置，常用参数为 `waterIor`（默认 1.333）、`waterFlow`、`refractionStrength`（0..1，默认 1，按折射率投影到背景）、`absorptionDistance`、`absorptionColor`、`shoreFadeDistance`、`reflectionStrength`。冻结的不透明颜色和透明输出、采样深度与深度附件分别保存，避免读写同一纹理。

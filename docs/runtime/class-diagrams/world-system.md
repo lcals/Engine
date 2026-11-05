@@ -17,7 +17,7 @@ classDiagram
         +create_scene(string_view name) Scene#42;
         +load_scene(string_view path) Scene#42;
         +begin_restore_scene(shared_ptr~const Resource~ resource) uint64_t
-        +step_restore_scene(uint64_t request, size_t node_budget) SceneRestoreStatus
+        +step_restore_scene(uint64_t request, size_t node_budget, double max_seconds) SceneRestoreStatus
         +commit_restore_scene(uint64_t request) Scene#42;
         +cancel_restore_scene(uint64_t request) void
         +unload_scene() void
@@ -82,6 +82,8 @@ classDiagram
     class Node
     WorldSystem ..> Node : 按完整实体ID返回值句柄
     WorldSystem ..> Scene : 创建和查询返回借用
+    class TransformDrive
+    WorldSystem ..> TransformDrive : 消费生产者验证的通用派生矩阵
     class PhysicsSystem
     WorldSystem "1" *-- "0..1" PhysicsSystem : 独占子系统
     class NavigationSystem
@@ -107,7 +109,7 @@ C++ 限定符：构造、析构及 `on_shutdown()` 为 `noexcept`；析构和受
 
 `load_scene(string_view path)` 从当前 ResourceCatalog 读取场景，建立候选 Scene 并校验全部节点/组件/父子和资源引用；成功替换活动场景并保留旧场景常驻子树，失败保留当前场景。
 
-`begin_restore_scene` 只接受已加载的场景资源并返回非零请求身份；每个世界最多一个候选。`step_restore_scene` 在主线程按节点数和时间预算创建节点/组件、恢复父子，预算默认每步最多 64 项、1 ms；单个组件恢复不可抢占。资源读取和解码已在前一阶段完成，候选不作为活动场景更新。ready 后由调用方显式 commit；失败/取消保持旧场景。代际、请求身份和世界生命周期均在提交时重新校验。新场景创建/切换及世界关闭取消候选，过期请求不能取消新请求。同步 load_scene 保留原语义。脚本既有 BeginLoadScene/StepSceneLoad/CommitSceneLoad 共用此链路，玩法无需管理线程。
+`begin_restore_scene` 只接受已加载的场景资源并返回非零请求身份；每个世界最多一个候选。`step_restore_scene` 在主线程按节点数和时间预算创建节点/组件、恢复父子，预算默认每步最多 64 项、1 ms；第三参数默认 0 表示使用系统配置上限；显式正数与系统时间预算取较小值，负数和非有限值拒绝。单个组件恢复不可抢占。资源读取和解码已在前一阶段完成，候选不作为活动场景更新。ready 后由调用方显式 commit；失败/取消保持旧场景。代际、请求身份和世界生命周期均在提交时重新校验。新场景创建/切换及世界关闭取消候选，过期请求不能取消新请求。同步 load_scene 保留原语义。脚本既有 BeginLoadScene/StepSceneLoad/CommitSceneLoad 共用此链路，玩法无需管理线程。
 
 宿主在加载场景前通过 `component_registry()` 登记插件组件；WorldSystem 拥有登记表，Scene 在恢复时借用，不引用具体插件。登记函数地址须保持有效直到世界关闭。
 
@@ -130,3 +132,5 @@ C++ 限定符：构造、析构及 `on_shutdown()` 为 `noexcept`；析构和受
 - 上述查询及清理均为 `noexcept`，返回值标记 `[[nodiscard]]`；列表查询为 `const`。详见[常驻节点与场景切换](persistent-nodes.md)。
 
 `native_world()` 返回初始化期有效的 Flecs 借用，未初始化为 nullptr；核心通用框架不包含第三方类型定义。`refresh_scene_state()` 在无在途列借用的协调安全点按 ChildOf 层级更新有效标记和世界矩阵，无修改快速返回；调用失败不继续消费旧状态。`can_modify()` 检查当前 ECS 写入阶段，`invalidate_scene_state()` 标记派生缓存需刷新。epoch 在世界重新初始化时变化，旧句柄不能复活；对象借用寿命见 [ECS 场景](ecs-scene.md)。
+
+World 只消费 `TransformDrive` 的矩阵和生产者提供的只读有效性函数，不解释 BoneAttachment、Animator、骨架或播放状态。函数指针借用的代码须覆盖 drive 的存活期，签名为 `bool(Node owner, uint64_t owner_instance_id) noexcept`；必须先检查所属组件实例仍有效，失效时返回 false，不解引用旧运行列。该函数不得修改 ECS、刷新世界缓存或重入 `refresh_scene_state()`。节点及 Transform 的启用检查仍由通用层级刷新负责；生产者负责本领域来源校验、发布/撤销，以及相关状态变化时使派生缓存失效。

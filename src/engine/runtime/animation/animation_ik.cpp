@@ -1,5 +1,7 @@
 #include "runtime/animation/animation_ik.hpp"
 
+#include "runtime/scene/animator_runtime.hpp"
+
 #include "runtime/animation/animation_clip.hpp"
 #include "runtime/animation/animation_ik_target.hpp"
 #include "runtime/animation/animation_math.hpp"
@@ -71,9 +73,10 @@ bool collect_ik_operations(Animator actor, const CompiledSkeleton& skeleton,
     for (std::size_t index = 0; index < resolved.size(); ++index)
     {
         const auto& definition = resolved[index];
-        const auto found = actor.runtime()->ik_targets_.find(definition.name);
-        if (found == actor.runtime()->ik_targets_.end() || !found->second.enabled ||
-            found->second.weight == 0)
+        const auto found =
+            engine::ecs_detail::component_runtime(actor)->ik_targets_.find(definition.name);
+        if (found == engine::ecs_detail::component_runtime(actor)->ik_targets_.end() ||
+            !found->second.enabled || found->second.weight == 0)
         {
             continue;
         }

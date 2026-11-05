@@ -1,5 +1,7 @@
 #include "runtime/scene/light_probe_volume_component.hpp"
 
+#include "runtime/scene/light_probe_volume_component_runtime.hpp"
+
 #include "runtime/scene/ecs_storage.hpp"
 
 #include "runtime/resource/resource_system.hpp"

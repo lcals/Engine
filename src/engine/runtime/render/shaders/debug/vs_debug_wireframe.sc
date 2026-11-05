@@ -35,31 +35,33 @@ void main()
     {
         gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
         v_color = vec4_splat(0.0);
-        return;
     }
-    if (p0.w < nearEpsilon)
+    else
     {
-        p0 = mix(p0, p1, (nearEpsilon - p0.w) / (p1.w - p0.w));
+        if (p0.w < nearEpsilon)
+        {
+            p0 = mix(p0, p1, (nearEpsilon - p0.w) / (p1.w - p0.w));
+        }
+        if (p1.w < nearEpsilon)
+        {
+            p1 = mix(p1, p0, (nearEpsilon - p1.w) / (p0.w - p1.w));
+        }
+        const vec2 offsets[6] =
+        {
+            vec2(-1.0, -1.0), vec2(-1.0, 1.0), vec2(1.0, -1.0),
+            vec2(1.0, -1.0), vec2(-1.0, 1.0), vec2(1.0, 1.0)
+        };
+        vec2 offset = offsets[gl_VertexID % 6u];
+        vec4 p = mix(p0, p1, offset.x * 0.5 + 0.5);
+        vec2 direction = p1.xy / p1.w - p0.xy / p0.w;
+        float magnitude = length(direction);
+        if (magnitude > 0.0001)
+        {
+            vec2 normal = vec2(-direction.y, direction.x) / magnitude;
+            p.xy += normal * (0.5 * u_debug_wire_parameters.y) * offset.y *
+                    (2.0 / u_viewRect.zw) * p.w;
+        }
+        gl_Position = p;
+        v_color = u_debug_wire_color;
     }
-    if (p1.w < nearEpsilon)
-    {
-        p1 = mix(p1, p0, (nearEpsilon - p1.w) / (p0.w - p1.w));
-    }
-    const vec2 offsets[6] =
-    {
-        vec2(-1.0, -1.0), vec2(-1.0, 1.0), vec2(1.0, -1.0),
-        vec2(1.0, -1.0), vec2(-1.0, 1.0), vec2(1.0, 1.0)
-    };
-    vec2 offset = offsets[gl_VertexID % 6u];
-    vec4 p = mix(p0, p1, offset.x * 0.5 + 0.5);
-    vec2 direction = p1.xy / p1.w - p0.xy / p0.w;
-    float magnitude = length(direction);
-    if (magnitude > 0.0001)
-    {
-        vec2 normal = vec2(-direction.y, direction.x) / magnitude;
-        p.xy += normal * (0.5 * u_debug_wire_parameters.y) * offset.y *
-                (2.0 / u_viewRect.zw) * p.w;
-    }
-    gl_Position = p;
-    v_color = u_debug_wire_color;
 }

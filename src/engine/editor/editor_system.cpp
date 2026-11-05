@@ -71,19 +71,7 @@ bool plain_path(const fs::path& path)
 
 bool read_frame_rate(const fs::path& project_root, std::int32_t& target)
 {
-    target = 60;
-    const auto path = project_root / "settings" / "editor.toml";
-    std::error_code error;
-    const bool exists = fs::exists(path, error);
-    if (error)
-    {
-        LogSystem::write(LogLevel::error, "Cannot inspect editor settings: " + error.message());
-        return false;
-    }
-    if (!exists)
-    {
-        return true;
-    }
+    const auto path = project_root / "settings" / "editor-settings.toml";
     std::string source;
     if (!ResourceSystem::read_text(path, source))
     {
@@ -98,20 +86,13 @@ bool read_frame_rate(const fs::path& project_root, std::int32_t& target)
                          "Invalid editor settings: " + std::string(document.error().description()));
         return false;
     }
-    const auto editor = document["editor"];
-    if (!editor)
+    const auto common = document["common"];
+    const auto setting = common["target_frame_rate"];
+    if (document.table().size() != (common.is_table() ? 1u : 0u) ||
+        (common.is_table() && common.as_table()->size() != (setting ? 1u : 0u)))
     {
-        return true;
-    }
-    if (!editor.is_table())
-    {
-        LogSystem::write(LogLevel::error, "Editor settings require an [editor] table");
+        LogSystem::write(LogLevel::error, "Editor settings only accept [common].target_frame_rate");
         return false;
-    }
-    const auto setting = editor["target_frame_rate"];
-    if (!setting)
-    {
-        return true;
     }
     const auto value = setting.value_exact<std::int64_t>();
     if (!value || (*value != -1 && *value <= 0) ||
@@ -461,7 +442,7 @@ bool EditorSystem::on_initialize(const EngineConfig&)
     {
         return false;
     }
-    std::int32_t target_frame_rate = 60;
+    std::int32_t target_frame_rate = 0;
     if (!read_frame_rate(PathUtils::from_utf8(environment_.project_identity_), target_frame_rate) ||
         !Engine::instance().set_target_frame_rate(target_frame_rate))
     {

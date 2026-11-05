@@ -40,7 +40,7 @@
 准备项目 TypeScript 依赖后可从仓库根直接运行，例如：
 
 ```sh
-npm ci --prefix projects/showcase/settings
+npm ci --prefix projects/showcase/settings/typescript
 node projects/showcase/tests/case_contract_test.mjs .
 node projects/showcase/tests/persistent_ui_test.mjs .
 ctest --preset ninja-engine-release -R '^editor\.showcase_' --output-on-failure

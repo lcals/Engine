@@ -1,5 +1,7 @@
 #include "runtime/scene/text_component.hpp"
 
+#include "runtime/scene/text_component_runtime.hpp"
+
 #include "runtime/scene/ecs_storage.hpp"
 
 #include "runtime/core/guid_map.hpp"

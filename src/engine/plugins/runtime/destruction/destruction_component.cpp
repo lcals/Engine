@@ -1,5 +1,7 @@
 #include "plugins/runtime/destruction/destruction_component.hpp"
 
+#include "plugins/runtime/destruction/destruction_component_runtime.hpp"
+
 #include "runtime/scene/collider.hpp"
 #include "runtime/scene/ecs_storage.hpp"
 

@@ -53,7 +53,7 @@ classDiagram
 
 JSON 实现依赖编辑器基础的 `AssetImporter`，私有复用仓库已选的 `nlohmann_json::nlohmann_json`；通用管线仍不依赖具体插件。统一 `cmake/plugins/editor/asset_import.cmake` 管理五种导入器的源码与离线依赖，目标为 `engine_asset_import`（`engine::asset_import`）。插件默认随资源管线选择，也可整体关闭；关闭时不创建目标或宿主装配分支。运行包只包含资源载荷和运行时绑定，不包含导入插件。
 
-项目 `settings/resource-build.toml` 在显式精简清单中列出 JSON 配置和实际使用的场景、武器等入口，再由现有依赖收集器闭包构建。UI 贴图继续通过 `.rml.meta` 声明依赖。JSON 字符串不会把未列入入口、也未被其他标准资源引用的场景或武器带入包中。
+项目 `settings/editor-resource-build.toml` 在显式精简清单中列出 JSON 配置和实际使用的场景、武器等入口，再由现有依赖收集器闭包构建。UI 贴图继续通过 `.rml.meta` 声明依赖。JSON 字符串不会把未列入入口、也未被其他标准资源引用的场景或武器带入包中。
 
 ## 实现位置与验证
 

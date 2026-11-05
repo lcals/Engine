@@ -45,6 +45,8 @@ vec3 water_world_position(vec2 uv, float depth)
 
 void main()
 {
+    vec3 world_dx = dFdx(v_world_position);
+    vec3 world_dy = dFdy(v_world_position);
     vec3 view_offset = u_camera_position.xyz - v_world_position;
     vec3 view_dir = pbr_view_direction(u_camera_position.xyz, v_world_position);
     PbrSurface surface = sample_pbr_surface(v_texcoord0, v_color0, v_world_normal,
@@ -135,9 +137,9 @@ void main()
     {
         if (load_cluster_light(index).kind_inner.x < 0.5)
         {
-            color += direct_light(index, v_world_position, normal, v_world_normal, view_dir, vec3_splat(0.0),
-                                  surface.metallic, surface.roughness, vec3_splat(f0),
-                                  surface.smoothness);
+            color += direct_light(index, v_world_position, world_dx, world_dy, normal,
+                                  v_world_normal, view_dir, vec3_splat(0.0), surface.metallic,
+                                  surface.roughness, vec3_splat(f0), surface.smoothness);
         }
     }
     uint offset; uint count; bool overflow;
@@ -147,9 +149,9 @@ void main()
         uint index = cluster_light_index(offset, item, overflow);
         if (load_cluster_light(index).kind_inner.x > 0.5)
         {
-            color += direct_light(index, v_world_position, normal, v_world_normal, view_dir, vec3_splat(0.0),
-                                  surface.metallic, surface.roughness, vec3_splat(f0),
-                                  surface.smoothness);
+            color += direct_light(index, v_world_position, world_dx, world_dy, normal,
+                                  v_world_normal, view_dir, vec3_splat(0.0), surface.metallic,
+                                  surface.roughness, vec3_splat(f0), surface.smoothness);
         }
     }
     color += surface.emission;

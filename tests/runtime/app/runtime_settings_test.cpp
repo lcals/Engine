@@ -1,9 +1,11 @@
 #include "resource_fixture.hpp"
 
 #include "runtime/app/runtime_settings.hpp"
+#include "runtime/resource/resource_system.hpp"
+
+#include <nlohmann/json.hpp>
 
 #include <cstdio>
-#include <fstream>
 #include <string>
 
 namespace
@@ -22,139 +24,138 @@ bool expect(bool success, const char* message)
 
 int main(int argc, char* argv[])
 {
-    test_support::ResourceFixture directory;
-    const auto path = directory.root / "runtime.json";
-    const std::string text = R"json({
-        "version": 1,
-        "defaults": {
-            "engine": {"width":1440,"target_frame_rate":45},
-            "parallel": {"threads":{"worker_limit":6},"resources":{"max_in_flight":4}}
-        },
-        "profiles": {
-            "desktop": {"parallel":{"loading":{"max_concurrency":4}}},
-            "mobile": {"engine":{"target_frame_rate":30},"parallel":{"threads":{"worker_limit":2}}}
-        },
-        "overrides": {"parallel":{"resources":{"max_in_flight":3},"render":{"texture_batch_size":2}}}
-    })json";
-    std::ofstream file(path, std::ios::binary | std::ios::trunc);
-    file << text;
-    file.close();
-    if (directory.root.empty() || !file)
+    using Json = nlohmann::json;
+    std::string text;
+    std::string error;
+    engine::RuntimeSettings settings;
+    if (argc < 2 || !engine::ResourceSystem::read_text(argv[1], text))
     {
+        std::fprintf(stderr, "runtime settings: a complete fixture JSON path is required\n");
         return 1;
     }
-    engine::RuntimeSettings settings;
-    settings.engine.window_title = "Engine Editor";
-    std::string error;
-    if (!expect(engine::load_runtime_settings(path, "desktop", settings, error) && error.empty() &&
-                    settings.engine.window_title == "Engine Editor" &&
-                    settings.engine.width == 1440 && settings.engine.target_frame_rate == 45 &&
-                    settings.parallel.threads.worker_limit == 6 &&
+    const auto source = Json::parse(text, nullptr, false);
+    if (!expect(source.is_object() && engine::load_runtime_settings(argv[1], settings, error) &&
+                    error.empty() && settings.game_language == "zh-CN" &&
+                    settings.startup_movie.empty() &&
+                    settings.engine.window_title == "Runtime settings fixture" &&
+                    settings.engine.width == 1440 && settings.engine.height == 900 &&
+                    settings.engine.target_frame_rate == 30 &&
+                    settings.parallel.threads.worker_limit == 2 &&
                     settings.parallel.loading.max_concurrency == 4 &&
                     settings.parallel.resources.max_in_flight == 3 &&
                     settings.parallel.render.texture_batch_size == 2,
-                "aggregate engine and parallel settings override caller defaults in order"))
+                "complete grouped settings supply the game, engine and runtime budgets"))
     {
         return 1;
     }
-    settings = {};
-    if (!expect(engine::decode_runtime_settings(text, "mobile", settings, error) &&
-                    settings.parallel.threads.worker_limit == 2 &&
-                    settings.parallel.loading.max_concurrency == 2 &&
-                    settings.engine.target_frame_rate == 30,
-                "host explicitly selects mobile and retains fields absent from its layer"))
+    const auto rejects = [&](const std::string& candidate)
     {
-        return 1;
-    }
-    const char* invalid[] = {
-        "version = 1",
-        R"({"version":2})",
-        R"({"version":true})",
-        R"({"version":1,"defaults":{"thread":{}}})",
-        R"({"version":1,"defaults":{"parallel":{"threads":{"worker_limit":65}}}})",
-        R"({"version":1,"defaults":{"parallel":{"threads":{"worker_limit":-1}}}})",
-        R"({"version":1,"defaults":{"parallel":{"threads":{"worker_limit":2.5}}}})",
-        R"({"version":1,"defaults":{"parallel":{"runtime":{"priority":"urgent"}}}})",
-        R"({"version":1,"defaults":{"parallel":{"resources":{"max_in_flight":0}}}})",
-        R"({"version":1,"defaults":{"parallel":{"scene_restore":{"max_seconds":0}}}})",
-        R"({"version":1,"defaults":{"parallel":{"completion_budget_seconds":2}}})",
-        R"({"version":1,"defaults":{"parallel":{"navigation_tile_threshold":1025}}})",
-        R"({"version":1,"defaults":{"parallel":{"render":{"texture_batch_size":65}}}})",
-        R"({"version":1,"defaults":{"parallel":{"render":{"cluster_tile_size":15}}}})",
-        R"({"version":1,"defaults":{"parallel":{"render":{"cluster_depth_slices":65}}}})",
-        R"({"version":1,"defaults":{"parallel":{"render":{"maximum_lights":4097}}}})",
-        R"({"version":1,"defaults":{"parallel":{"render":{"maximum_cluster_lights":0}}}})",
-        R"({"version":1,"defaults":{"parallel":{"render":{"shadow_atlas_size":3000}}}})",
-        R"({"version":1,"defaults":{"parallel":{"render":{"local_shadow_tile_size":768}}}})",
-        R"({"version":1,"defaults":{"parallel":{"render":{"shadow_atlas_size":512,"local_shadow_tile_size":1024}}}})",
-        R"({"version":1,"defaults":{"parallel":{"render":{"maximum_local_shadow_faces":25}}}})",
-        R"({"version":1,"defaults":{"parallel":{"render":{"maximum_planar_reflections":3}}}})",
-        R"({"version":1,"defaults":{"engine":{"width":0}}})",
-        R"({"version":1,"defaults":{"engine":{"window_title":""}}})",
-        R"({"version":1,"defaults":{"engine":{"target_frame_rate":0}}})",
-        R"({"version":1,"defaults":{"engine":{"target_frame_rate":18446744073709551615}}})",
-        R"({"version":1,"profiles":{"other":{}}})",
-        R"({"version":1,"profiles":{"mobile":{"parallel":{"physics":{"max_concurrency":99}}}}})",
-        R"({"version":1,"profiles":{"mobile":{"parallel":{"navigation_tile_threshold":1025}}}})",
-        R"({"version":1,"profiles":[]})"};
-    for (const auto value : invalid)
+        return expect(!engine::decode_runtime_settings(candidate, settings, error) &&
+                          !error.empty() && settings.game_language == "zh-CN" &&
+                          settings.engine.width == 1440 &&
+                          settings.engine.target_frame_rate == 30 &&
+                          settings.parallel.threads.worker_limit == 2,
+                      "invalid or incomplete settings fail without publishing partial values");
+    };
+    for (const auto invalid : {"not JSON", "[]", "{}", "{\"game\":{}}"})
     {
-        if (!expect(!engine::decode_runtime_settings(value, "desktop", settings, error) &&
-                        !error.empty() && settings.parallel.threads.worker_limit == 2 &&
-                        settings.engine.target_frame_rate == 30,
-                    "invalid source, unselected profile and ranges reject without partial output"))
+        if (!rejects(invalid))
         {
             return 1;
         }
     }
-    if (!expect(
-            engine::decode_runtime_settings(
-                R"({"version":1,"defaults":{"parallel":{"navigation_tile_threshold":1024,"render":{"texture_batch_size":64}},"engine":{"target_frame_rate":-1}}})",
-                "desktop", settings, error) &&
-                settings.parallel.navigation_tile_threshold == 1024 &&
-                settings.parallel.render.texture_batch_size == 64 &&
-                settings.engine.target_frame_rate == -1,
-            "upper tile/texture bounds and unlimited frame rate are accepted") ||
-        !expect(!engine::decode_runtime_settings(text, "automatic", settings, error),
-                "the parser never guesses the platform profile") ||
-        !expect(
-            !engine::load_runtime_settings(directory.root / "missing", "mobile", settings, error),
-            "an explicitly supplied missing file reports failure"))
+    // 每个补丁应用到同一完整夹具，确保失败来自指定字段而非其他缺失参数。
+    const char* invalid_patches[] = {
+        R"({"version":1})",
+        R"({"defaults":{}})",
+        R"({"profiles":{"desktop":{}}})",
+        R"({"overrides":{}})",
+        R"({"game_language":"en"})",
+        R"({"game":null})",
+        R"({"engine":null})",
+        R"({"parallel":null})",
+        R"({"game":{"game_language":null}})",
+        R"({"engine":{"height":null}})",
+        R"({"parallel":{"runtime":{"max_pending":null}}})",
+        R"({"parallel":{"render":{"maximum_lights":null}}})",
+        R"({"parallel":{"completion_budget_seconds":null}})",
+        R"({"game":{"game_language":42}})",
+        R"({"game":{"startup_movie":42}})",
+        R"({"game":{"quality":"high"}})",
+        R"({"game":[]})",
+        R"({"parallel":{"threads":{"worker_limit":65}}})",
+        R"({"parallel":{"threads":{"worker_limit":-1}}})",
+        R"({"parallel":{"threads":{"worker_limit":2.5}}})",
+        R"({"parallel":{"runtime":{"priority":"urgent"}}})",
+        R"({"parallel":{"resources":{"max_in_flight":0}}})",
+        R"({"parallel":{"scene_restore":{"max_seconds":0}}})",
+        R"({"parallel":{"completion_budget_seconds":2}})",
+        R"({"parallel":{"navigation_tile_threshold":1025}})",
+        R"({"parallel":{"render":{"texture_batch_size":65}}})",
+        R"({"parallel":{"render":{"cluster_tile_size":15}}})",
+        R"({"parallel":{"render":{"cluster_depth_slices":65}}})",
+        R"({"parallel":{"render":{"maximum_lights":4097}}})",
+        R"({"parallel":{"render":{"maximum_cluster_lights":0}}})",
+        R"({"parallel":{"render":{"shadow_atlas_size":3000}}})",
+        R"({"parallel":{"render":{"local_shadow_tile_size":768}}})",
+        R"({"parallel":{"render":{"shadow_atlas_size":512,"local_shadow_tile_size":1024}}})",
+        R"({"parallel":{"render":{"maximum_local_shadow_faces":25}}})",
+        R"({"parallel":{"render":{"maximum_planar_reflections":3}}})",
+        R"({"engine":{"width":0}})",
+        R"({"engine":{"window_title":""}})",
+        R"({"engine":{"target_frame_rate":0}})",
+        R"({"engine":{"target_frame_rate":18446744073709551615}})",
+        R"({"game":{"game_language":"changed"},"engine":{"width":800},"parallel":{"physics":{"max_concurrency":99}}})"};
+    for (const auto patch : invalid_patches)
     {
-        return 1;
-    }
-    settings.engine.window_title = "Host default";
-    if (!expect(
-            engine::decode_runtime_settings(
-                R"({"version":1,"defaults":{"parallel":{"render":{"maximum_lights":512,"maximum_cluster_lights":96,"shadow_atlas_size":8192,"local_shadow_tile_size":1024}}},"profiles":{"mobile":{"parallel":{"render":{"maximum_lights":128,"shadow_atlas_size":4096,"local_shadow_tile_size":256,"maximum_local_shadow_faces":0,"maximum_planar_reflections":0}}}}})",
-                "mobile", settings, error) &&
-                settings.parallel.render.maximum_lights == 128 &&
-                settings.parallel.render.maximum_cluster_lights == 96 &&
-                settings.parallel.render.shadow_atlas_size == 4096 &&
-                settings.parallel.render.local_shadow_tile_size == 256 &&
-                settings.parallel.render.maximum_local_shadow_faces == 0 &&
-                settings.parallel.render.maximum_planar_reflections == 0,
-            "mobile rendering overrides retain absent defaults and can disable optional captures"))
-    {
-        return 1;
-    }
-    if (!expect(engine::decode_runtime_settings(R"({"version":1})", "desktop", settings, error) &&
-                    settings.engine.window_title == "Host default",
-                "an empty versioned file preserves explicit caller defaults"))
-    {
-        return 1;
-    }
-    // 可直接核对打包器生成的真实 JSON；常规 CTest 不依赖私有项目或导出目录。
-    for (int index = 1; index < argc; ++index)
-    {
-        for (const auto profile : {"desktop", "mobile"})
+        auto candidate = source;
+        const auto parsed = Json::parse(patch, nullptr, false);
+        if (!parsed.is_object())
         {
-            settings = {};
-            if (!engine::load_runtime_settings(argv[index], profile, settings, error))
-            {
-                std::fprintf(stderr, "%s: %s\n", argv[index], error.c_str());
-                return 1;
-            }
+            return 1;
+        }
+        candidate.merge_patch(parsed);
+        if (!rejects(candidate.dump()))
+        {
+            return 1;
+        }
+    }
+    auto candidate = source;
+    candidate["game"]["startup_movie"] = "movies/intro.movie";
+    if (!expect(engine::decode_runtime_settings(candidate.dump(), settings, error) &&
+                    settings.startup_movie == "movies/intro.movie" &&
+                    engine::decode_runtime_settings(source.dump(), settings, error) &&
+                    settings.startup_movie.empty(),
+                "optional startup movie is copied and missing value clears previous selection"))
+    {
+        return 1;
+    }
+    candidate.merge_patch(Json::parse(
+        R"({"engine":{"target_frame_rate":-1},"parallel":{"navigation_tile_threshold":1024,"render":{"texture_batch_size":64,"maximum_local_shadow_faces":0,"maximum_planar_reflections":0}}})",
+        nullptr, false));
+    if (!expect(engine::decode_runtime_settings(candidate.dump(), settings, error) &&
+                    settings.engine.target_frame_rate == -1 &&
+                    settings.parallel.navigation_tile_threshold == 1024 &&
+                    settings.parallel.render.texture_batch_size == 64 &&
+                    settings.parallel.render.maximum_local_shadow_faces == 0 &&
+                    settings.parallel.render.maximum_planar_reflections == 0,
+                "explicit upper bounds and disabled optional captures are accepted"))
+    {
+        return 1;
+    }
+    test_support::ResourceFixture directory;
+    if (!expect(!engine::load_runtime_settings(directory.root / "missing", settings, error),
+                "an explicitly supplied missing file reports failure"))
+    {
+        return 1;
+    }
+    // 附加参数可直接核对打包器生成的真实 JSON。
+    for (int index = 2; index < argc; ++index)
+    {
+        if (!engine::load_runtime_settings(argv[index], settings, error))
+        {
+            std::fprintf(stderr, "%s: %s\n", argv[index], error.c_str());
+            return 1;
         }
     }
     return 0;

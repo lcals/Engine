@@ -1,5 +1,7 @@
 #include "runtime/scene/rigid_body.hpp"
 
+#include "runtime/scene/rigid_body_runtime.hpp"
+
 #include "runtime/scene/ecs_storage.hpp"
 
 #include "runtime/scene/collider.hpp"

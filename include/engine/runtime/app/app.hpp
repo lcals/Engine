@@ -2,6 +2,7 @@
 
 #include <filesystem>
 #include <string>
+#include <string_view>
 
 namespace engine
 {
@@ -26,6 +27,8 @@ public:
     [[nodiscard]] static const std::filesystem::path& assets_path() noexcept;
     [[nodiscard]] static const std::filesystem::path& persistent_data_path() noexcept;
     [[nodiscard]] static const std::filesystem::path& cache_path() noexcept;
+    static void set_game_language(std::string_view language);
+    [[nodiscard]] static const std::string& game_language() noexcept;
 
 private:
     App() = delete;

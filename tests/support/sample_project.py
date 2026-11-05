@@ -11,9 +11,9 @@ def prepare_minimal_project(root, project):
     root = Path(root).resolve()
     project = Path(project)
     source = root / "projects/showcase"
-    compiler = source / "settings/node_modules/typescript"
+    compiler = source / "settings/typescript/node_modules/typescript"
     if not compiler.is_dir():
-        raise AssertionError("Run npm ci --prefix projects/showcase/settings first")
+        raise AssertionError("Run npm ci --prefix projects/showcase/settings/typescript first")
     project.mkdir(parents=True)
     for directory in ("assets", "settings", "cache"):
         (project / directory).mkdir()
@@ -50,15 +50,20 @@ def prepare_minimal_project(root, project):
             source / ("assets/scripts/modules/minimal.ts" + suffix),
             project / ("assets/scripts/game.ts" + suffix),
         )
-    for filename in ("import.toml", "package.json", "package-lock.json", "tsconfig.json"):
+    for filename in ("editor-import.toml", "editor-settings.toml", "runtime-game.toml",
+                     "runtime-engine.toml", "runtime-parallel.toml"):
         shutil.copy2(source / "settings" / filename, project / "settings" / filename)
-    configuration = project / "settings/tsconfig.json"
+    (project / "settings/typescript").mkdir()
+    for filename in ("package.json", "package-lock.json", "tsconfig.json"):
+        shutil.copy2(source / "settings/typescript" / filename,
+                     project / "settings/typescript" / filename)
+    configuration = project / "settings/typescript/tsconfig.json"
     value = json.loads(configuration.read_text(encoding="utf-8"))
     value["files"] = [str(root / "include/engine.d.ts")]
     configuration.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
-    copy_typescript_toolchain(compiler, project / "settings/node_modules")
-    (project / "settings/resource-build.toml").write_text(
-        '[[items]]\nname = "game"\nstorage = "package"\n'
+    copy_typescript_toolchain(compiler, project / "settings/typescript/node_modules")
+    (project / "settings/editor-resource-build.toml").write_text(
+        '[[common.items]]\nname = "game"\nstorage = "package"\n'
         'roots = ["scripts/game.ts", "scenes/main.scene"]\nkeep = []\n',
         encoding="utf-8",
     )

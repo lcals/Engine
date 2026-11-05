@@ -51,7 +51,8 @@ void main()
             vec2 source_hi = 2.0 * (vec2(pixel) + 1.0) / float(previous_size) - 1.0;
             float weight = solid_angle(max(source_lo, destination_lo),
                                        min(source_hi, destination_hi));
-            sum += textureCubeLod(s_source, bake_direction(pixel, ivec2(previous_size)),
+            sum += textureCubeLod(s_source,
+                                  bake_direction(pixel, ivec2(previous_size, previous_size)),
                                   u_bake_face.y - 1.0).rgb * weight;
             weight_sum += weight;
         }

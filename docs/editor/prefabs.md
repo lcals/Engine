@@ -13,7 +13,7 @@
 3. 用 `instantiate_prefab` 放入场景。编辑和保存场景时保留来源及属性覆盖，不把展开结果写成脱离模板的副本。
 4. TS 动态生成角色、道具时调用 `scene.InstantiatePrefab("prefabs/characters/player.prefab", "Player")`；场景持有返回的节点，销毁根节点同时释放其子树。
 
-源文件使用 TOML，`.meta` 保留独立 GUID；运行包使用编译后的 FlatBuffers，不读取 TOML。预制体模板是构建依赖；已展开场景的运行依赖只包含其实际使用的资源。脚本动态实例化的预制体需加入项目 `resource-build.toml` 的入口，之后 Mesh/Material 等依赖自动收集。
+源文件使用 TOML，`.meta` 保留独立 GUID；运行包使用编译后的 FlatBuffers，不读取 TOML。预制体模板是构建依赖；已展开场景的运行依赖只包含其实际使用的资源。脚本动态实例化的预制体需加入项目 `editor-resource-build.toml` 的入口，之后 Mesh/Material 等依赖自动收集。
 
 ## 编辑器与 MCP
 

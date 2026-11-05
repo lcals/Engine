@@ -48,11 +48,10 @@ bool ScriptImporter::inspect_batch(const ImportContext& context, std::string& fi
         }
         return false;
     }
+    const auto settings = context.project / "settings" / "typescript";
     for (const auto& path :
-         {context.project / "settings" / "package.json",
-          context.project / "settings" / "package-lock.json",
-          context.project / "settings" / "tsconfig.json",
-          context.project / "settings" / "node_modules" / "typescript" / "package.json", builder,
+         {settings / "package.json", settings / "package-lock.json", settings / "tsconfig.json",
+          settings / "node_modules" / "typescript" / "package.json", builder,
           builder.parent_path().parent_path() / "include" / "engine.d.ts"})
     {
         std::string hash;

@@ -41,22 +41,17 @@ classDiagram
 
 生成数据是唯一持久模型。载荷只支持本次需要的有限标量，不序列化函数、任意脚本对象或 VM 句柄。资源中 marker_id 非零且唯一；时间为动作秒数，范围 `[0,duration]`，同名或同时间的不同 marker_id 合法。完整事件身份包含播放、资源/轨代际、标记与周期，不能仅按事件名或时间去重。
 
+Animator 完整公开方法见[动画组件](animator.md)，AnimationSystem 完整公开方法见[动画系统](animation-system.md)。本页维护事件数据、依赖和分发时序。
+
 ## 组件与执行出口
 
 ```mermaid
 classDiagram
-    class Animator {
-        <<cross-diagram value handle>>
-        +set_event_markers(span~const AnimationEventMarkerDataT~ markers) bool
-        +clear_event_markers() void
-    }
+    class Animator
     class AnimatorRuntime {
         <<ECS runtime column>>
     }
-    class AnimationSystem {
-        <<cross-diagram>>
-        +set_event_sink(AnimationEventSink sink) void
-    }
+    class AnimationSystem
     class AnimationEventSink {
         <<callback>>
         bool(span~const AnimationEvent~ events)

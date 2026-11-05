@@ -2,6 +2,7 @@
 
 #include "plugins/runtime/script/vm/script_vm.hpp"
 #include "runtime/animation/animation_events.hpp"
+#include "runtime/movie/movie_player.hpp"
 #include "runtime/resource/resource_load.hpp"
 #include "runtime/schema/input_generated.h"
 #include "runtime/storage/key_value_store.hpp"
@@ -42,7 +43,7 @@ public:
     explicit BindingContext(WorldSystem* world, RenderSystem* renderer = nullptr,
                             UiSystem* ui = nullptr, PhysicsSystem* physics = nullptr,
                             NavigationSystem* navigation = nullptr, InputSystem* input = nullptr,
-                            WindowSystem* window = nullptr) noexcept;
+                            WindowSystem* window = nullptr, MoviePlayer* movies = nullptr) noexcept;
     ~BindingContext() noexcept;
     BindingContext(const BindingContext&) = delete;
     BindingContext& operator=(const BindingContext&) = delete;
@@ -53,6 +54,11 @@ public:
     void begin_call(double delta_time) noexcept;
     void end_call() noexcept;
     void shutdown() noexcept;
+    void cancel_movies() noexcept;
+    [[nodiscard]] MoviePlayer* movies() const noexcept;
+    [[nodiscard]] bool remember_movie(MoviePlaybackHandle handle) noexcept;
+    [[nodiscard]] bool owns_movie(MoviePlaybackHandle handle) const noexcept;
+    void forget_movie(MoviePlaybackHandle handle) noexcept;
     [[nodiscard]] WorldSystem* world() const noexcept;
     [[nodiscard]] RenderSystem* renderer() const noexcept;
     [[nodiscard]] UiSystem* ui() const noexcept;
@@ -122,6 +128,8 @@ private:
     NavigationSystem* navigation_ = nullptr;
     InputSystem* input_ = nullptr;
     WindowSystem* window_ = nullptr;
+    MoviePlayer* movies_ = nullptr;
+    MoviePlaybackHandle movie_handle_{};
     MouseMode previous_mouse_mode_ = MouseMode::normal;
     bool restore_mouse_mode_ = false;
     std::unique_ptr<ResourceLoad> scene_load_;

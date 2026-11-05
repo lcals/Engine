@@ -142,6 +142,10 @@ struct Project
                 return false;
             }
         }
+        if (!write_text(root / "settings/editor-import.toml", "[common]\nimport_threads = 8\n"))
+        {
+            return false;
+        }
         for (const auto* name : {"lato-regular.ttf", "lato-regular.ttf.meta"})
         {
             if (!fs::copy_file(showcase / "assets/fonts" / name, root / "assets/fonts" / name,

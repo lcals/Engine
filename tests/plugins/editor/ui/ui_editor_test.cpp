@@ -5,9 +5,9 @@
 #include "editor/project/project_system.hpp"
 #include "editor/scene/scene_preview.hpp"
 #include "plugins/editor/asset_import/font_importer.hpp"
+#include "plugins/editor/asset_import/ui_importer.hpp"
 #include "plugins/editor/ui/ui_editor_commands.hpp"
 #include "plugins/editor/ui/ui_editor_state.hpp"
-#include "plugins/editor/asset_import/ui_importer.hpp"
 #include "runtime/engine_config.hpp"
 #include "runtime/font/font_system.hpp"
 #include "runtime/gameplay/gameplay_session.hpp"
@@ -115,6 +115,10 @@ struct Fixture
             fs::create_directories(root / directory, error);
         }
         if (error)
+        {
+            return false;
+        }
+        if (!write(root / "settings/editor-import.toml", "[common]\nimport_threads = 8\n"))
         {
             return false;
         }

@@ -15,7 +15,8 @@ function(engine_configure_asset_import_plugin)
         src/engine/plugins/editor/asset_import/usd_importer.cpp
         src/engine/plugins/editor/asset_import/font_importer.cpp
         src/engine/plugins/editor/asset_import/ui_importer.cpp
-        src/engine/plugins/editor/asset_import/json_importer.cpp)
+        src/engine/plugins/editor/asset_import/json_importer.cpp
+        src/engine/plugins/editor/asset_import/movie_importer.cpp)
     add_library(engine::asset_import ALIAS engine_asset_import)
     target_include_directories(engine_asset_import PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
     get_target_property(_import_toml_includes tomlplusplus::tomlplusplus INTERFACE_INCLUDE_DIRECTORIES)
@@ -34,4 +35,4 @@ endfunction()
 
 engine_register_plugin(NAME editor/asset_import CONFIGURE engine_configure_asset_import_plugin
     OPTIONS ENGINE_ENABLE_RUNTIME_DEPS ENGINE_ENABLE_ASSET_PIPELINE_DEPS
-    VCPKG_FEATURES font-import usd-import)
+    VCPKG_FEATURES font-import usd-import movie-import)

@@ -49,7 +49,7 @@ try {
             "Usage: node build_scripts.mjs --project <project-directory> (--inputs | --output <staging-directory> | --snippet <request.json>)",
         );
     const project = path.resolve(args[1]);
-    const settings = path.join(project, "settings");
+    const settings = path.join(project, "settings/typescript");
     const assets = path.join(project, "assets");
     const cache = path.join(project, "cache");
     for (const name of ["settings", "assets", "cache"]) requireDirectory(path.join(project, name));
@@ -162,7 +162,8 @@ try {
         snippet = {
             ...request,
             filename: path.join(assets, name),
-            temporary: path.join(temporaryRoot, name),
+            // TS API 使用 / 分隔路径，片段身份比较及导入图键须保持相同格式。
+            temporary: path.join(temporaryRoot, name).split(path.sep).join("/"),
             temporaryRoot,
         };
         fs.mkdirSync(path.dirname(snippet.temporary), { recursive: true });

@@ -888,7 +888,9 @@ int main()
             return 1;
         }
     }
-    const bool success = run(root);
+    const bool success =
+        write_text(root / "settings/editor-import.toml", "[common]\nimport_threads = 8\n") &&
+        run(root);
     fs::remove_all(root, ec);
     return success ? 0 : 1;
 }

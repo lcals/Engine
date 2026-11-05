@@ -26,12 +26,12 @@ def main():
     parser.add_argument("--work-dir", type=Path, required=True)
     parser.add_argument("--node", required=True)
     args = parser.parse_args()
-    modules = args.settings.resolve() / "node_modules"
+    modules = args.settings.resolve() / "typescript/node_modules"
     runtime = modules / "flatbuffers" / "package.json"
     compiler = modules / "typescript" / "lib" / "tsc.js"
     if not runtime.is_file() or not compiler.is_file():
         raise RuntimeError(
-            "Install the fixed project tooling with npm ci in project settings first"
+            "Install the fixed project tooling with npm ci in settings/typescript first"
         )
     if json.loads(runtime.read_text(encoding="utf-8"))["version"] != "25.9.23":
         raise RuntimeError("This schema bridge requires the pinned flatbuffers@25.9.23 runtime")

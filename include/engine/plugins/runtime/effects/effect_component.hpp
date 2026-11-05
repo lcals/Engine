@@ -11,21 +11,7 @@ namespace engine::plugins::effects
 
 class EffectSystem;
 
-struct EffectComponentRuntime
-{
-    enum class Playback
-    {
-        stopped,
-        playing,
-        paused
-    };
-
-    ResourcePtr effect_;
-    std::uint64_t revision_ = 0;
-    Playback requested_ = Playback::stopped;
-    bool awake_pending_ = true;
-    bool playing_ = false;
-};
+struct EffectComponentRuntime;
 
 class EffectComponent final : public Component
 {
@@ -37,8 +23,12 @@ public:
     }
     [[nodiscard]] static bool register_type(ComponentRegistry& registry);
     using Runtime = EffectComponentRuntime;
-    [[nodiscard]] Runtime* runtime() const noexcept;
-    using Playback = Runtime::Playback;
+    enum class Playback
+    {
+        stopped,
+        playing,
+        paused
+    };
     static constexpr ComponentType component_type = ComponentType::EffectData;
     [[nodiscard]] static bool valid_settings(const schema::EffectDataT& settings) noexcept;
     [[nodiscard]] schema::EffectDataT settings() const noexcept;
@@ -51,6 +41,10 @@ public:
     [[nodiscard]] bool pause() noexcept;
     [[nodiscard]] bool stop() noexcept;
     [[nodiscard]] bool playing() const noexcept;
+
+private:
+    template <class T> friend auto engine::ecs_detail::component_runtime(T component) noexcept;
+    [[nodiscard]] Runtime* runtime() const noexcept;
 };
 
 } // namespace engine::plugins::effects

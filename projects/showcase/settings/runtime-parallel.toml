@@ -1,0 +1,153 @@
+[common]
+navigation_tile_threshold = 4
+completions_per_frame = 32
+completion_budget_seconds = 0.002
+
+[common.threads]
+worker_limit = 0
+worker_priority = "normal"
+
+[common.runtime]
+max_concurrency = 0
+priority = "high"
+max_pending = 1024
+
+[common.background]
+max_concurrency = 4
+priority = "low"
+max_pending = 128
+
+[common.loading]
+max_concurrency = 4
+priority = "low"
+max_pending = 256
+
+[common.physics]
+max_concurrency = 0
+priority = "high"
+max_pending = 2048
+
+[common.animation]
+max_concurrency = 0
+priority = "high"
+max_pending = 256
+
+[common.navigation]
+max_concurrency = 0
+priority = "normal"
+max_pending = 256
+
+[common.resources]
+max_in_flight = 8
+max_in_flight_bytes = 134217728
+completion_budget = 32
+
+[common.animation_sampling]
+min_parallel_count = 8
+batch_size = 16
+
+[common.scene_restore]
+nodes_per_step = 128
+max_seconds = 0.002
+
+[common.render]
+texture_batch_size = 8
+texture_staging_bytes = 134217728
+cluster_tile_size = 64
+cluster_depth_slices = 24
+maximum_lights = 256
+maximum_cluster_lights = 64
+shadow_atlas_size = 4096
+local_shadow_tile_size = 512
+maximum_local_shadow_faces = 24
+maximum_planar_reflections = 2
+
+[platform.android]
+completions_per_frame = 8
+completion_budget_seconds = 0.001
+
+[platform.android.threads]
+worker_limit = 3
+
+[platform.android.runtime]
+max_concurrency = 3
+
+[platform.android.background]
+max_concurrency = 1
+
+[platform.android.loading]
+max_concurrency = 1
+
+[platform.android.physics]
+max_concurrency = 3
+
+[platform.android.animation]
+max_concurrency = 2
+
+[platform.android.navigation]
+max_concurrency = 2
+
+[platform.android.resources]
+max_in_flight = 2
+max_in_flight_bytes = 67108864
+completion_budget = 8
+
+[platform.android.scene_restore]
+nodes_per_step = 32
+max_seconds = 0.001
+
+[platform.android.render]
+texture_batch_size = 2
+texture_staging_bytes = 67108864
+cluster_tile_size = 96
+cluster_depth_slices = 16
+maximum_lights = 128
+maximum_cluster_lights = 32
+local_shadow_tile_size = 256
+maximum_local_shadow_faces = 12
+maximum_planar_reflections = 1
+
+[platform.ios]
+completions_per_frame = 8
+completion_budget_seconds = 0.001
+
+[platform.ios.threads]
+worker_limit = 3
+
+[platform.ios.runtime]
+max_concurrency = 3
+
+[platform.ios.background]
+max_concurrency = 1
+
+[platform.ios.loading]
+max_concurrency = 1
+
+[platform.ios.physics]
+max_concurrency = 3
+
+[platform.ios.animation]
+max_concurrency = 2
+
+[platform.ios.navigation]
+max_concurrency = 2
+
+[platform.ios.resources]
+max_in_flight = 2
+max_in_flight_bytes = 67108864
+completion_budget = 8
+
+[platform.ios.scene_restore]
+nodes_per_step = 32
+max_seconds = 0.001
+
+[platform.ios.render]
+texture_batch_size = 2
+texture_staging_bytes = 67108864
+cluster_tile_size = 96
+cluster_depth_slices = 16
+maximum_lights = 128
+maximum_cluster_lights = 32
+local_shadow_tile_size = 256
+maximum_local_shadow_faces = 12
+maximum_planar_reflections = 1

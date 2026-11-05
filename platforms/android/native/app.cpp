@@ -18,6 +18,7 @@ struct AppState
     std::filesystem::path assets_path;
     std::filesystem::path persistent_data_path;
     std::filesystem::path cache_path;
+    std::string game_language;
     bool initialized = false;
 };
 
@@ -113,9 +114,8 @@ bool App::initialize(const AppConfig& config)
     }
 
     AppState candidate;
-    const auto assets = config.assets_path.empty()
-                             ? PathUtils::from_utf8("apk:/assets")
-                             : config.assets_path;
+    const auto assets =
+        config.assets_path.empty() ? PathUtils::from_utf8("apk:/assets") : config.assets_path;
     // Android 的原生路径分隔符为 '/'，保留原始内容，不能先规范化不合法的 APK 输入。
     const auto encoded_assets = assets.u8string();
     const std::string assets_text(encoded_assets.begin(), encoded_assets.end());
@@ -136,8 +136,7 @@ bool App::initialize(const AppConfig& config)
         std::error_code error;
         const bool exists = std::filesystem::exists(candidate.assets_path, error);
         if (error ||
-            (exists &&
-             (!std::filesystem::is_directory(candidate.assets_path, error) || error)))
+            (exists && (!std::filesystem::is_directory(candidate.assets_path, error) || error)))
         {
             return false;
         }
@@ -184,6 +183,7 @@ void App::shutdown() noexcept
     value.assets_path.clear();
     value.persistent_data_path.clear();
     value.cache_path.clear();
+    value.game_language.clear();
 }
 
 bool App::is_initialized() noexcept
@@ -204,6 +204,16 @@ const std::filesystem::path& App::persistent_data_path() noexcept
 const std::filesystem::path& App::cache_path() noexcept
 {
     return state().cache_path;
+}
+
+void App::set_game_language(std::string_view language)
+{
+    state().game_language = language;
+}
+
+const std::string& App::game_language() noexcept
+{
+    return state().game_language;
 }
 
 } // namespace engine

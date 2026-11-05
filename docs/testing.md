@@ -27,7 +27,7 @@
 准备好构建指南要求的宿主工具及依赖后，完整引擎使用根目录 Presets：
 
 ```sh
-npm ci --prefix projects/showcase/settings
+npm ci --prefix projects/showcase/settings/typescript
 cmake --workflow --preset ninja-engine-debug
 cmake --workflow --preset ninja-engine-release
 ```
@@ -37,11 +37,39 @@ Debug workflow 只做脚本准备和构建，Release workflow 另运行测试。
 showcase 的独立 TS 类型检查入口为：
 
 ```sh
-node projects/showcase/settings/node_modules/typescript/bin/tsc \
-  --project projects/showcase/settings/tsconfig.json --noEmit
+node projects/showcase/settings/typescript/node_modules/typescript/bin/tsc \
+  --project projects/showcase/settings/typescript/tsconfig.json --noEmit
 ```
 
 `engine.scene_schema_cross_language` 在 ECS 迁移后已通过 Debug／Release 实跑；测试直接导入所需场景生成类型。全 SDK barrel 暴露的输入枚举生成问题仍见[已知失败与限制](#已知失败与限制)，未据此宣称输入生成器已修复。
+
+### 架构契约修复验证（2026-11-05，Windows x64）
+
+本轮同步[类图](class-diagrams/index.md)与实现：17 种组件的 Runtime 及材质槽状态移入内部头，公开句柄不再提供可变运行缓存入口；WorldSystem 通过生产者的只读验证函数消费通用变换驱动。活动相机移除后清除选择，保存拒绝被临时标记过滤的活动相机。任务完成委托按域轮转，部署按完整版本选择；编辑器目录提交先准备租约和登记，同步使用进程退出自动释放的 OS 锁。ProjectSystem 不再为依赖验证执行无业务用途的 TOML 操作。Animator 原生与 TS 公开方法分别统一到各自类图。
+
+使用根 `windows-static-debug` / `windows-static-release` Preset、默认 QuickJS 后端与已启用的完整插件集合，保留已有依赖和编译缓存。Debug 受影响的四个正式宿主目标及其库构建通过；Release 完整构建通过，定向 CTest **41/41 通过**（157.46 秒），未运行 Debug 测试。覆盖范围包括：
+
+- `engine.scene`、`engine.ecs_scene`、`engine.component_registry`、`engine.animation_rigging_events`：相机删除/重建与正式资源往返、临时相机保存拒绝、公开 Runtime 访问编译期约束、类型无关驱动及挂点即时失效。
+- `engine.runtime_host`、`plugins.runtime.resource_graph`：单完成额度下的域间公平性、坏持久清单/缺实体/错误平台选择完整基线、完整外部版本独立启动、坏热重载保留活动 Run，以及加载器切换失效。
+- `engine.editor_environment`、`engine.asset_sync`、`engine.project`：登记 I/O 失败保留资源代次、核心拒绝后清理候选、同步跨进程互斥及强制终止后的直接重试。
+- 其他定向项覆盖资源编解码、任务、物理、音频、动画/脚本、预制体、字体/UI、角色、导航群体、地形、破坏与特效；`engine.window_render` 和 `engine.font_ui_render` 实际使用 Windows DX12，架构边界与插件选择检查通过。
+
+核心回归可从以下命令重复执行；41 项定向运行的完整输出保存在忽略目录 `build/architecture-fix-ctest-release.log`，配置与构建日志为同目录的 `architecture-fix-*.log`。
+
+```powershell
+cmake --build --preset windows-static-debug --parallel 2 --target engine_app editor_app asset_build_app mcp_app
+ctest --preset windows-static-release --output-on-failure -R '^(engine\.(runtime_host|scene|ecs_scene|component_registry|animation_rigging_events|editor_environment|asset_sync|project)|plugins\.runtime\.resource_graph)$'
+```
+
+本轮额外核对 Animator 的 25 个原生公开方法名、33 个 TS 成员与所属类图一致；改动文档的本地链接及 `git diff --check` 通过。结论限于 Windows x64 静态构建及上述 Release 用例，不代表其他平台设备已验收，也不替代全仓 CTest。
+
+### 项目配置整理验证（2026-11-05，Windows x64）
+
+项目设置统一为 `runtime-<模块>.toml`、`editor-<模块>.toml`，使用 `common` 与运行平台表；TypeScript 工程独立放在 `settings/typescript/`。所有当前支持的项目运行参数、编辑器帧率与导入并发必须显式配置，缺文件、缺字段、错误类型及非法范围均失败；配置链路不提供参数默认值。契约与示例见[编辑器配置](editor/configuration.md)和[运行预算](runtime/parallelism.md)。
+
+本轮使用 `windows-static-debug/release` 根 Preset，保留依赖和增量缓存。Release 相关 CTest **46/46 通过**（140.90 秒），覆盖运行/编辑器配置、脚本、TS 工具定位、资源导入/打包、场景、动画制作以及真实 DX12 窗口、字体 UI 和角色宿主；官方 TypeScript `--noEmit` 通过。五目标平台生成的 JSON 均经原生完整字段校验，公共字段与目标平台覆盖生效，未携带其他平台或源配置分层。这是 Windows 上的配置生成校验，不代表其他平台设备验收。
+
+Debug 受影响代码编译完成，五个宿主目标链接构建通过；Debug 编辑器与运行包已导出，仅做构建与产物核对。Release 编辑器与运行包已重新导出，分别实际启动并正常结束 8 帧；运行包进入菜单场景，输出 `settings/runtime.json` 为完整 Windows 参数。日志保存在忽略目录 `build/windows-static-release/config-style-*.log`。
 
 ### 真实窗口与 GPU 测试
 
@@ -657,8 +685,8 @@ cmake --build --preset ninja-engine-release --target editor_app engine_app asset
   engine_animation_test engine_model_animation_script_test engine_animation_commands_test
 ctest --preset ninja-engine-release --output-on-failure \
   -R '^(engine\.(animation|animation_event_interval|animation_retarget|animation_state_machine_script|animation_events_script|animation_rigging_events|model_animation_script|plugin_selection)|editor\.(retarget_importer|animation_authoring|animation_commands)|resource\.skeleton_rig_definitions)$'
-node projects/showcase/settings/node_modules/typescript/bin/tsc \
-  --project projects/showcase/settings/tsconfig.json --noEmit
+node projects/showcase/settings/typescript/node_modules/typescript/bin/tsc \
+  --project projects/showcase/settings/typescript/tsconfig.json --noEmit
 ```
 
 最终结果：受影响 Debug／Release 宿主与测试目标构建均成功；Release 上述用例及 `editor.fbx_pipeline` 共 **13/13 通过**（9.82 秒），TS 类型检查通过。完整输出保留在 `build/scripted-animation-final-tests.log`。

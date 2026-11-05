@@ -10,11 +10,7 @@ namespace engine
 
 class Resource;
 
-struct TextComponentRuntime
-{
-    std::shared_ptr<const Resource> font_;
-    std::shared_ptr<const Resource> shader_;
-};
+struct TextComponentRuntime;
 
 class TextComponent final : public Component
 {
@@ -27,7 +23,6 @@ public:
     [[nodiscard]] static bool register_type(ComponentRegistry& registry);
     [[nodiscard]] bool initialize();
     using Runtime = TextComponentRuntime;
-    [[nodiscard]] Runtime* runtime() const noexcept;
     static constexpr ComponentType component_type = ComponentType::TextData;
     [[nodiscard]] static bool valid_settings(const schema::TextDataT& settings) noexcept;
     [[nodiscard]] schema::TextDataT settings() const noexcept;
@@ -37,6 +32,10 @@ public:
     [[nodiscard]] std::shared_ptr<const Resource> font() const noexcept;
     [[nodiscard]] std::shared_ptr<const Resource> shader() const noexcept;
     [[nodiscard]] bool restore_data(const schema::ComponentDataT& data);
+
+private:
+    template <class T> friend auto engine::ecs_detail::component_runtime(T component) noexcept;
+    [[nodiscard]] Runtime* runtime() const noexcept;
 };
 
 } // namespace engine

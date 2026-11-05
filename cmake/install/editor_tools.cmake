@@ -28,7 +28,7 @@ function(engine_editor_export_arguments output)
         file(REAL_PATH "${_node_real}" _node_real)
     endif()
     set(ENGINE_TYPESCRIPT_PACKAGE_DIR
-        "${PROJECT_SOURCE_DIR}/projects/showcase/settings/node_modules/typescript"
+        "${PROJECT_SOURCE_DIR}/projects/showcase/settings/typescript/node_modules/typescript"
         CACHE PATH "Installed TypeScript package deployed with the standalone editor")
     # npm 依赖由环境安装准备；普通 configure 不强制安装，仅导出时检查复制来源。
     list(
@@ -58,6 +58,40 @@ function(engine_editor_export_arguments output)
         --support-directory
         "${ENGINE_TYPESCRIPT_PACKAGE_DIR}"
         "${_data}/node_modules/typescript")
+    if(TARGET engine_asset_import)
+        foreach(_tool IN ITEMS FFMPEG FFPROBE)
+            string(TOLOWER "${_tool}" _name)
+            file(REAL_PATH "${ENGINE_${_tool}_EXECUTABLE}" _movie_tool)
+            get_filename_component(_movie_suffix "${_movie_tool}" LAST_EXT)
+            list(APPEND _arguments --support-file "${_movie_tool}"
+                 "${_executables}/${_name}${_movie_suffix}")
+            cmake_path(GET _movie_tool PARENT_PATH _movie_bin)
+            list(APPEND _arguments --library-dir "${_movie_bin}")
+            cmake_path(GET _movie_bin PARENT_PATH _movie_parent)
+            foreach(_candidate IN ITEMS "${_movie_parent}/lib" "${_movie_parent}/bin")
+                if(IS_DIRECTORY "${_candidate}")
+                    list(APPEND _arguments --library-dir "${_candidate}")
+                endif()
+            endforeach()
+        endforeach()
+        cmake_path(GET _movie_bin PARENT_PATH _movie_tools_parent)
+        cmake_path(GET _movie_tools_parent FILENAME _movie_tools_name)
+        if(_movie_tools_name STREQUAL "tools")
+            cmake_path(GET _movie_tools_parent PARENT_PATH _movie_host_root)
+            foreach(_license IN ITEMS ffmpeg libvpx)
+                if(EXISTS "${_movie_host_root}/share/${_license}/copyright")
+                    list(APPEND _arguments --support-file
+                         "${_movie_host_root}/share/${_license}/copyright"
+                         "${_data}/licenses/${_license}.txt")
+                endif()
+            endforeach()
+            foreach(_directory IN ITEMS "${_movie_host_root}/bin" "${_movie_host_root}/lib")
+                if(IS_DIRECTORY "${_directory}")
+                    list(APPEND _arguments --library-dir "${_directory}")
+                endif()
+            endforeach()
+        endif()
+    endif()
     # TypeScript 7 由同版本的官方平台包提供原生编译器。源目录由同一 Node 的平台
     # 决定，不能按 configure 时已安装的包 glob，否则后续 npm ci 的包会漏出交付。
     cmake_path(GET ENGINE_TYPESCRIPT_PACKAGE_DIR PARENT_PATH _typescript_node_modules)

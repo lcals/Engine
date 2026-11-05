@@ -30,6 +30,65 @@ bool expect(bool value, const char* message)
     return value;
 }
 
+bool light_drive_valid(Node owner, std::uint64_t instance) noexcept
+{
+    const auto light = owner.get_component<Light>();
+    return light && light.instance_id() == instance && light.enabled();
+}
+
+bool producer_transform_drive()
+{
+    WorldSystem world;
+    if (!world.initialize({}))
+    {
+        return false;
+    }
+    auto* scene = world.create_scene("Generic transform producer");
+    auto owner = scene ? scene->create_node("Owner") : Node{};
+    auto child = scene ? scene->create_node("Child") : Node{};
+    auto light = owner.add_component<Light>();
+    auto transform = child.get_component<Transform>();
+    auto settings = transform.settings();
+    settings.position = {1, 0, 0};
+    if (!light || !child.set_parent(owner) || !transform.set_settings(settings))
+    {
+        return false;
+    }
+    ecs_detail::TransformDrive drive;
+    drive.owner_type = Light::component_type;
+    drive.owner_instance_id = light.instance_id();
+    drive.validate = light_drive_valid;
+    drive.local[12] = 9;
+    drive.active = true;
+    flecs::world(world.native_world()).entity(owner.id()).set<ecs_detail::TransformDrive>(drive);
+    world.invalidate_scene_state();
+    std::array<float, 16> matrix;
+    if (!expect(transform.world_matrix(matrix.data()) && matrix[12] == 10,
+                "World consumes a valid drive without knowing its producer type") ||
+        !light.set_enabled(false))
+    {
+        return false;
+    }
+    // A producer marks changes to the state inspected by its validator.
+    world.invalidate_scene_state();
+    if (!expect(transform.world_matrix(matrix.data()) && matrix[12] == 1,
+                "producer validation rejects disabled state before the next system tick") ||
+        !light.set_enabled(true))
+    {
+        return false;
+    }
+    world.invalidate_scene_state();
+    if (!expect(transform.world_matrix(matrix.data()) && matrix[12] == 10,
+                "a still-live producer may resume its validated drive") ||
+        !owner.remove_component(Light::component_type))
+    {
+        return false;
+    }
+    light = owner.add_component<Light>();
+    return expect(light && transform.world_matrix(matrix.data()) && matrix[12] == 1,
+                  "a new component instance cannot revive the removed producer's drive");
+}
+
 bool scene_lifetime_phases()
 {
     ResourceSystem resources;
@@ -278,7 +337,7 @@ bool check()
 
 int main()
 {
-    if (!check() || !scene_lifetime_phases())
+    if (!check() || !scene_lifetime_phases() || !producer_transform_drive())
     {
         return 1;
     }

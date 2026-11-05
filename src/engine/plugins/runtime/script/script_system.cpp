@@ -115,7 +115,7 @@ struct ScriptSystem::State
         Run(State& state, Snapshot version)
             : owner(state), snapshot(std::move(version)),
               bindings(state.world, state.renderer, state.ui, state.physics, state.navigation,
-                       state.input, state.window),
+                       state.input, state.window, state.movies),
               machine(vm::create_script_vm())
         {
         }
@@ -123,6 +123,7 @@ struct ScriptSystem::State
         ~Run()
         {
             // VM 与队列先释放，再撤销场景；不存在仍能调用旧 BindingContext 的函数。
+            bindings.cancel_movies();
             machine.reset();
             bindings.shutdown();
         }
@@ -169,6 +170,7 @@ struct ScriptSystem::State
     NavigationSystem* navigation = nullptr;
     InputSystem* input = nullptr;
     WindowSystem* window = nullptr;
+    MoviePlayer* movies = nullptr;
     double delta_time = 0.0;
     const std::thread::id owner_thread = std::this_thread::get_id();
     bool calling = false;
@@ -177,10 +179,10 @@ struct ScriptSystem::State
 
     State(ScriptStatus& state, WorldSystem* scene_world, RenderSystem* scene_renderer,
           UiSystem* scene_ui, PhysicsSystem* scene_physics, NavigationSystem* scene_navigation,
-          InputSystem* scene_input, WindowSystem* scene_window)
+          InputSystem* scene_input, WindowSystem* scene_window, MoviePlayer* movie_player)
         : status(state), world(scene_world), renderer(scene_renderer), ui(scene_ui),
           physics(scene_physics), navigation(scene_navigation), input(scene_input),
-          window(scene_window)
+          window(scene_window), movies(movie_player)
     {
     }
 
@@ -320,9 +322,9 @@ struct ScriptSystem::State
 
 ScriptSystem::ScriptSystem(WorldSystem* world, RenderSystem* renderer, UiSystem* ui,
                            PhysicsSystem* physics, NavigationSystem* navigation, InputSystem* input,
-                           WindowSystem* window, AnimationSystem* animation) noexcept
+                           WindowSystem* window, AnimationSystem* animation, MoviePlayer* movies) noexcept
     : world_(world), renderer_(renderer), ui_(ui), physics_(physics), navigation_(navigation),
-      input_(input), window_(window), animation_(animation)
+      input_(input), window_(window), animation_(animation), movies_(movies)
 {
 }
 
@@ -335,7 +337,7 @@ bool ScriptSystem::on_initialize(const EngineConfig&)
 {
     status_.last_error.clear();
     state_ = std::make_unique<State>(status_, world_, renderer_, ui_, physics_, navigation_, input_,
-                                     window_);
+                                     window_, movies_);
     if (!state_->binding_registry.initialize())
     {
         return state_->fail("Cannot register script binding modules");

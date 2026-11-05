@@ -92,6 +92,10 @@ int main()
             return 1;
         }
     }
+    if (!write(project.root / "settings/editor-import.toml", "[common]\nimport_threads = 8\n"))
+    {
+        return 1;
+    }
     fs::copy_file(fs::path(ENGINE_FBX_TEST_DATA_DIR) / "skeleton.fbx",
                   project.root / "assets/models/person.fbx", code);
     const auto source = project.root / "assets/models/quad.usda";

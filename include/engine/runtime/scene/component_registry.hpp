@@ -43,11 +43,12 @@ public:
     [[nodiscard]] Component find(ComponentType type, Node node) const noexcept;
     [[nodiscard]] bool remove(ComponentType type, Node node) const;
     [[nodiscard]] bool collect(Node node, std::vector<Component>& output) const;
-    [[nodiscard]] const Operations* operations(ComponentType type) const noexcept;
     [[nodiscard]] bool register_type(ComponentType type, const Operations& operations);
     [[nodiscard]] ecs_world_t* native_world() const noexcept;
 
 private:
+    friend class Component;
+    [[nodiscard]] const Operations* operations(ComponentType type) const noexcept;
     friend class WorldSystem;
     ecs_world_t* world_ = nullptr;
     std::map<ComponentType, Operations> operations_;

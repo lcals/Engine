@@ -1,5 +1,7 @@
 # 音频系统
 
+无场景影片声部的规划增量另见[影片复用音频](movie-audio.md)。该设计尚未实现，本页现行方法与所有权保持按当前源码描述。
+
 [类图索引](../../class-diagrams/index.md) · [音频组件](audio-components.md) · [运行时音频](../audio.md)
 
 ```mermaid

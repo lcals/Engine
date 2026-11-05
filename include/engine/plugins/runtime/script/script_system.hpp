@@ -16,6 +16,7 @@ class NavigationSystem;
 class InputSystem;
 class WindowSystem;
 class AnimationSystem;
+class MoviePlayer;
 } // namespace engine
 
 namespace engine::plugins::script
@@ -28,7 +29,7 @@ public:
                           UiSystem* ui = nullptr, PhysicsSystem* physics = nullptr,
                           NavigationSystem* navigation = nullptr, InputSystem* input = nullptr,
                           WindowSystem* window = nullptr,
-                          AnimationSystem* animation = nullptr) noexcept;
+                          AnimationSystem* animation = nullptr, MoviePlayer* movies = nullptr) noexcept;
     ~ScriptSystem() noexcept override;
 
     // 预检只读取候选目录，不执行用户代码、不改变活动资源或旧玩法。
@@ -62,6 +63,7 @@ private:
     WindowSystem* window_ = nullptr;
     // 可空借用；事件接收器解绑前保持对象有效，回调仅在主线程姿态提交后执行。
     AnimationSystem* animation_ = nullptr;
+    MoviePlayer* movies_ = nullptr;
     ScriptStatus status_;
     std::unique_ptr<State> state_;
 };

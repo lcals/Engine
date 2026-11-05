@@ -8,11 +8,7 @@
 
 namespace engine
 {
-struct UiComponentRuntime
-{
-    std::uint64_t document_revision_ = 0;
-    ResourcePtr document_;
-};
+struct UiComponentRuntime;
 
 class UiComponent final : public Component
 {
@@ -24,7 +20,6 @@ public:
     }
     [[nodiscard]] static bool register_type(ComponentRegistry& registry);
     using Runtime = UiComponentRuntime;
-    [[nodiscard]] Runtime* runtime() const noexcept;
     static constexpr ComponentType component_type = ComponentType::UiData;
     [[nodiscard]] static bool valid_settings(const schema::UiDataT& settings) noexcept;
     [[nodiscard]] schema::UiDataT settings() const noexcept;
@@ -34,5 +29,9 @@ public:
     [[nodiscard]] ResourcePtr document() const noexcept;
     [[nodiscard]] std::uint64_t document_revision() const noexcept;
     [[nodiscard]] bool restore_data(const schema::ComponentDataT& data);
+
+private:
+    template <class T> friend auto engine::ecs_detail::component_runtime(T component) noexcept;
+    [[nodiscard]] Runtime* runtime() const noexcept;
 };
 } // namespace engine

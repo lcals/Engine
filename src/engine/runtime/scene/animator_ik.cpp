@@ -1,5 +1,7 @@
 #include "runtime/animation/animation_ik.hpp"
+
 #include "runtime/animation/animation_ik_target.hpp"
+#include "runtime/scene/animator_runtime.hpp"
 namespace engine::animation_detail
 {
 using namespace ik_detail;
@@ -26,7 +28,7 @@ bool set_ik_target(Animator actor, std::string_view name, const AnimationIkTarge
     }
     if (!target.enabled)
     {
-        actor.runtime()->ik_targets_[std::string(name)] = {};
+        engine::ecs_detail::component_runtime(actor)->ik_targets_[std::string(name)] = {};
         return true;
     }
     if (!target_values(target))
@@ -40,7 +42,7 @@ bool set_ik_target(Animator actor, std::string_view name, const AnimationIkTarge
     {
         return false;
     }
-    actor.runtime()->ik_targets_[std::string(name)] = target;
+    engine::ecs_detail::component_runtime(actor)->ik_targets_[std::string(name)] = target;
     return true;
 }
 } // namespace engine::animation_detail
