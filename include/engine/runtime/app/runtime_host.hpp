@@ -91,6 +91,7 @@ public:
                                       std::string_view entry = {}, std::string_view scene = {});
     [[nodiscard]] RuntimeStartupStatus step_gameplay(double max_seconds);
     [[nodiscard]] bool activate_gameplay();
+    // 真实、未缩放秒数；影片按完整时间推进，世界模拟保留单步上限。
     [[nodiscard]] FrameStatus tick(double delta_time);
     // 单独处理事件并发布输入，供不推进世界的宿主流程使用；每帧与 tick 二选一。
     [[nodiscard]] FrameStatus poll_events(double delta_time);
@@ -137,6 +138,7 @@ private:
     RuntimeStartupStatus startup_status_ = RuntimeStartupStatus::failed;
     bool startup_requested_ = false;
     bool gameplay_active_ = false;
+    bool movie_clock_paused_ = false;
     ResourceSystem* resources_ = nullptr;
     std::unique_ptr<ResourceSystem> owned_resources_;
     std::unique_ptr<WindowSystem> window_;

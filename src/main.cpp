@@ -9,6 +9,7 @@
 #include "runtime/gameplay/gameplay_session.hpp"
 #include "runtime/movie/movie_player.hpp"
 #include "runtime/performance/profiling.hpp"
+#include "runtime/task/task_system.hpp"
 #include "runtime_plugins.hpp"
 
 #if ENGINE_HAS_RESOURCE_GRAPH_PLUGIN
@@ -33,6 +34,7 @@
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
+#include <filesystem>
 #include <future>
 #include <memory>
 #include <optional>
@@ -203,6 +205,7 @@ int main(int argc, char* argv[])
         engine::MountList mounts;
         std::string entry;
         std::string error;
+        std::string warning;
     };
     auto startup_catalog = std::make_shared<engine::ResourceCatalog>();
     auto startup_mounts = std::make_shared<engine::MountList>();
@@ -210,42 +213,44 @@ int main(int argc, char* argv[])
     std::future<bool> published_result;
     engine::MoviePlaybackHandle intro_handle;
     bool intro_active = false;
-    bool first_frame = false;
     bool preparing_gameplay = false;
     bool gameplay_ready = false;
-    bool directory_started = false;
     bool starting = has_intro;
-    std::string startup_entry;
-    std::filesystem::path persistent;
-    std::string platform;
     if (starting)
     {
-        if (!engine::ResourceSystem::read_catalog(engine::App::assets_path(), *startup_catalog))
+        const auto persistent = engine::App::persistent_data_path();
+        const auto builtin = engine::App::assets_path();
+        const auto platform = resources.catalog().data().target_platform;
+        published_result = engine.tasks()->submit(
+            "Startup deployment selection",
+            [published, persistent, builtin, platform]()
+            {
+                const bool selected = engine::gameplay_detail::select_published_deployment(
+                    persistent, platform, published->catalog, published->mounts, published->entry,
+                    published->warning);
+                if (selected && !published->catalog.revision().empty())
+                {
+                    return true;
+                }
+                if (!engine::ResourceSystem::read_catalog(builtin, published->catalog))
+                {
+                    published->error = "Cannot read startup catalog";
+                    return false;
+                }
+                published->mounts = {{"content", builtin}};
+                published->entry.clear();
+                return true;
+            });
+        if (!published_result.valid())
         {
-            engine::LogSystem::write(engine::LogLevel::error, "Cannot read startup catalog");
+            engine::LogSystem::write(engine::LogLevel::error,
+                                     "Cannot schedule startup deployment selection");
             engine.shutdown();
             shutdown_resources();
             log.shutdown();
             engine::App::shutdown();
             return 1;
         }
-        *startup_mounts = {{"content", engine::App::assets_path()}};
-        if (!resources.update_catalog(startup_catalog->data(), *startup_mounts))
-        {
-            engine::LogSystem::write(engine::LogLevel::error, resources.last_error());
-            engine.shutdown();
-            shutdown_resources();
-            log.shutdown();
-            engine::App::shutdown();
-            return 1;
-        }
-        intro_active = engine.movie_player()->play(settings.startup_movie, intro_handle);
-        if (!intro_active)
-        {
-            engine::LogSystem::write(engine::LogLevel::error, engine.movie_player()->last_error());
-        }
-        persistent = engine::App::persistent_data_path();
-        platform = startup_catalog->data().target_platform;
     }
 #endif
 #if ENGINE_START_PACKAGED_GAMEPLAY
@@ -278,7 +283,7 @@ int main(int argc, char* argv[])
         engine::Engine::instance().begin_frame();
         const auto current_time = std::chrono::steady_clock::now();
         const double delta_time =
-            std::min(std::chrono::duration<double>(current_time - previous_time).count(), 0.1);
+            std::chrono::duration<double>(current_time - previous_time).count();
         previous_time = current_time;
         const auto status = engine.tick(delta_time);
         if (status == engine::FrameStatus::exit_requested)
@@ -307,61 +312,48 @@ int main(int argc, char* argv[])
             engine::MoviePlaybackStatus movie_status;
             if (intro_active && engine.movie_player()->status(intro_handle, movie_status))
             {
-                if (movie_status.state == engine::MovieState::playing ||
-                    movie_status.state == engine::MovieState::paused ||
-                    movie_status.state == engine::MovieState::completed)
-                {
-                    first_frame = true;
-                }
                 if (movie_status.state == engine::MovieState::failed ||
                     movie_status.state == engine::MovieState::cancelled)
                 {
                     engine::LogSystem::write(engine::LogLevel::error, movie_status.error);
-                    (void)engine.movie_player()->release(intro_handle);
+                    if (!engine.movie_player()->release(intro_handle))
+                    {
+                        result = 1;
+                        break;
+                    }
                     intro_active = false;
                 }
             }
-            if (!directory_started && (!intro_active || first_frame))
+            if (!preparing_gameplay && published_result.valid() &&
+                published_result.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
             {
-                published_result = engine.tasks()->submit(
-                    "Startup deployment selection",
-                    [published, persistent, platform]()
-                    {
-                        return engine::gameplay_detail::select_published_deployment(
-                            persistent, platform, published->catalog, published->mounts,
-                            published->entry, published->error);
-                    });
-                directory_started = true;
-            }
-            const bool directory_ready =
-                directory_started &&
-                (!published_result.valid() ||
-                 published_result.wait_for(std::chrono::seconds(0)) == std::future_status::ready);
-            if (!preparing_gameplay && directory_ready && (!intro_active || first_frame))
-            {
-                if (published_result.valid())
+                if (!published_result.get())
                 {
-                    if (!published_result.get())
-                    {
-                        engine::LogSystem::write(engine::LogLevel::warning, published->error);
-                    }
-                    else if (!published->catalog.revision().empty())
-                    {
-                        *startup_catalog = std::move(published->catalog);
-                        *startup_mounts = std::move(published->mounts);
-                        startup_entry = std::move(published->entry);
-                        if (!resources.update_catalog(startup_catalog->data(), *startup_mounts))
-                        {
-                            engine::LogSystem::write(engine::LogLevel::error,
-                                                     resources.last_error());
-                            result = 1;
-                            break;
-                        }
-                    }
+                    engine::LogSystem::write(engine::LogLevel::error, published->error);
+                    result = 1;
+                    break;
+                }
+                if (!published->warning.empty())
+                {
+                    engine::LogSystem::write(engine::LogLevel::warning, published->warning);
+                }
+                *startup_catalog = std::move(published->catalog);
+                *startup_mounts = std::move(published->mounts);
+                if (!resources.update_catalog(startup_catalog->data(), *startup_mounts))
+                {
+                    engine::LogSystem::write(engine::LogLevel::error, resources.last_error());
+                    result = 1;
+                    break;
+                }
+                intro_active = engine.movie_player()->play(settings.startup_movie, intro_handle);
+                if (!intro_active)
+                {
+                    engine::LogSystem::write(engine::LogLevel::error,
+                                             engine.movie_player()->last_error());
                 }
                 if (!engine.begin_gameplay(script_factory, configure_runtime_plugins,
                                            retargeter_factory, startup_catalog, startup_mounts,
-                                           startup_entry))
+                                           published->entry))
                 {
                     engine::LogSystem::write(engine::LogLevel::error,
                                              "Cannot begin gameplay preparation");

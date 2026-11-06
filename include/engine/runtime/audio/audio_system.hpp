@@ -1,7 +1,7 @@
 #pragma once
 
-#include "runtime/system/system.hpp"
 #include "runtime/resource/resource.hpp"
+#include "runtime/system/system.hpp"
 
 #include <cstddef>
 #include <cstdint>

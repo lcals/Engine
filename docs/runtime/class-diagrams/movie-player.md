@@ -1,8 +1,8 @@
-# 影片播放器（设计契约，尚未实现）
+# 影片播放器
 
 [类图索引](../../class-diagrams/index.md) · [影片资源](movie-data.md) · [音频复用](movie-audio.md) · [启动与业务装配](movie-startup.md) · [脚本接口](../../plugins/runtime/class-diagrams/movie-script-api.md) · [影片导入](../../plugins/editor/class-diagrams/movie-importer.md) · [编辑器命令](../../plugins/editor/class-diagrams/movie-mcp-tools.md)
 
-本页是供评审的规划，不表示当前源码存在这些类或接口。`MoviePlayer` 属于 `engine`，是具有独立播放状态的普通工具；不继承 `System`，不需要 Scene、Node、UiComponent 或脚本环境。启动宿主、原生业务、脚本 Controller 和编辑器预览使用同一契约。
+本页维护影片播放器的正式契约；2026-11-06 修复遵循已有公开接口与所有权。`MoviePlayer` 属于 `engine`，是具有独立播放状态的普通工具；不继承 `System`，不需要 Scene、Node、UiComponent 或脚本环境。启动宿主、原生业务、脚本 Controller 和编辑器预览使用同一契约。
 
 首版按全屏、非循环、SDR 8 位影片设计。源素材差异在编辑器归一化；运行时使用 libvpx 解码 VP9 Profile 0 的 IVF 载荷，离线由 FFmpeg 转码。不会引入多后端工厂或专有实现。
 
@@ -143,11 +143,7 @@ classDiagram
     class FontSystem
     class UiSystem
     class RuntimeHost
-    class RenderSystem {
-        <<planned additions>>
-        +bind_world(WorldSystem* world, FontSystem* fonts, UiSystem* ui) bool
-        +present_movie_frame(const MovieFrame& frame) bool
-    }
+    class RenderSystem
     MovieFrame *-- MoviePlane : 固定平面视图
     MovieFrame ..> MoviePixelFormat : 格式由schema定义
     MovieFrame ..> MovieColorInfo : 使用schema生成色彩值
@@ -160,7 +156,7 @@ classDiagram
     RenderSystem ..> UiSystem : 绑定参数
 ```
 
-本图只列现有 `RenderSystem` 的规划增量；现行方法仍由[渲染系统图](render-system.md)维护，不新增另一种渲染器类型。色彩与格式类型唯一在[影片数据图](movie-data.md)定义；本图不重复持久模型。
+本图只引用 `RenderSystem`；公开方法统一由[渲染系统图](render-system.md)维护，不新增另一种渲染器类型。色彩与格式类型唯一在[影片数据图](movie-data.md)定义；本图不重复持久模型。
 
 `planes` 的实际类型为 `std::array<MoviePlane, 3>`；每个 MoviePlane 的 bytes 都是借用视图，不拥有解码内存。数组未使用的项为空。
 
@@ -178,10 +174,10 @@ classDiagram
 - 文件加载复用注入的 `ResourceLoader`，依赖闭包和共享缓存仍归资源图插件。视频解码复用 `ThreadSystem/TaskSystem`，不增加线程池。首版使用现有不超过 64MiB 的整项读取，只接受影片及其明确音频依赖，不等待完整项目加载；不声称已具备长影片流式读取。
 - `play()` 记录资源目录代次。在 preparing 阶段通过同一 `ResourceLoader::begin_load()` 取得 Movie；有音轨时先尝试同代 `find(audio_guid)`，未驻留则明确对该直接依赖发起第二个单项异步读取。必须在协调线程拿齐两个 `ResourcePtr`，核对各自 `generation()` 与请求和当前目录一致，并完成 `ResourceSystem::validate_dependencies()`，才发布 playing。现有 ResourceLoad 只返回根，不假设可以直接从中取出插件私有依赖包。
 - 注入的加载器必须支持非阻塞 `begin_load()`；不支持时明确失败，不能退化为主线程同步文件读取。单项核心加载器也可按上项显式加载音轨，不要求具体资源图插件。加载期间目录换代则该请求 failed，不自动重试或混代；调用方可释放后重开。进入 playing 后固定两项共享引用，之后换代不影响本次播放。
-- 播放器拥有压缩源资源快照、解码状态、当前帧和有限解码缓冲。后台只持有不可变资源与可取消的内部作业状态，不保存播放器、World、脚本或解码回调接收者的裸指针。停止先使请求代次失效，再取消读取与解码、停止音频；晚到完成只能丢弃。
+- 播放器拥有压缩源资源快照、解码状态、当前帧和有限解码缓冲。后台只持有不可变资源与可取消的内部作业状态，不保存播放器、World、脚本或解码回调接收者的裸指针。停止在当前调用内发布本请求终态、取消读取、标记内部解码作业取消并停止音频；worker 在每个压缩包边界检查取消。释放播放器不等待追帧；独立作业保留资源至退出，晚到完成只能丢弃。
 - 主线程负责音频控制、结果发布与 GPU 提交；音频设备回调只消费音频系统拥有的驻留样本。后台解码失败通过结果返回所属线程，不从 worker 调用脚本。
 - 单个请求只允许一个推进解码状态的在途任务，保持参考帧与时间顺序；输出最多保留当前帧、下一帧和一个解码中的槽。压缩参考帧等后端私有内存也纳入选型峰值指标，不能把整段视频预解成图像序列。解码器自带线程须禁用或纳入现有并行预算，不能无界叠加 worker。
-- 按公共时间轴选择当前应显示的帧；迟到时跳过过期的输出帧，仍完成参考帧需要的解码，不阻塞事件循环等待赶帧。暂未获得新帧时保留当前帧。只有末帧对应的显示时长已到、视频输入结束且可选音频自然排空，才进入 completed；提前读到 EOF 不代表影片已经播放完。
+- 按公共时间轴选择当前应显示的帧；协调线程把目标帧索引按片尾截断后提交给唯一在途任务。worker 顺序解码到目标帧，跳过过期画面的复制与发布，仍完成参考帧需要的解码；任务结束只交回目标帧，不以每宿主帧只解码一个压缩包限制追帧速度。没有逾期帧时最多预解下一帧；不阻塞事件循环等待赶帧。暂未获得新帧时保留当前帧。只有末帧对应的显示时长已到、视频输入结束且可选音频自然排空，才进入 completed；提前读到 EOF 不代表影片已经播放完。
 - x64 必须有可验证的 SSE2 基线与 AVX/AVX2 加速路径；ARM64 对应 NEON，标量实现作为结果对照。复用已有 SDL CPU 能力检测，在初始化时选择实际内核。AVX 编译配置限制在对应实现文件，不能提高整个引擎的最低 CPU 要求。
 - 若选中的成熟解码器已提供 SIMD 路径，验证其真实构建、分派和执行；若采用自有专用解码，逆量化、块逆变换、差分恢复和饱和裁剪分别实现并对照。仅配置 `/arch:AVX2` 不算完成，SIMD 也不替代异步 I/O、正确时钟或数据布局。
 - 有音频时使用[AudioSystem 的播放位置](movie-audio.md)推进视频；无音频时使用可暂停的单调时间。大 `delta_time` 不得令声音假快进。视频 EOF 与音频完成均成立才发布自然完成；精确扬声器输出时间不由 SDL 输入队列计数直接保证。

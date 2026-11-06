@@ -93,7 +93,7 @@ classDiagram
     class UiSystem
     WorldSystem "1" *-- "0..1" UiSystem : 独占子系统
     class AudioSystem
-    WorldSystem "1" *-- "0..1" AudioSystem : 独占子系统
+    AudioSystem --> WorldSystem : 宿主后期绑定，读取发布场景
     class ScriptRuntime
     WorldSystem "1" *-- "0..1" ScriptRuntime : 宿主工厂提供可选实现
     note for WorldSystem "继承 System 生命周期；析构中调用 shutdown()"
@@ -101,7 +101,7 @@ classDiagram
 
 - 由 `Engine` 拥有的根系统；持有一个 flecs 世界，初始化与销毁调用成对。
 - `on_tick()` 校验帧时长、回收空常驻场景并刷新派生场景状态；之后由 `System` 按加入顺序更新子系统，不另启 Flecs 调度器。暂停时仍刷新可见性与层级，实际模拟系统读取 `paused()` 决定是否推进。场景节点属性、层级、具体组件生成数据及领域运行列唯一存入 Flecs；Node/Component 只是身份值句柄，系统以有类型查询消费 Published 实体。
-- `RuntimeHost` 通过 `add_subsystem()` 将子系统所有权移交世界系统；当前顺序为字体、界面、导航底层、可选脚本、`before_physics` 插件、物理、动画、`after_physics` 插件、音频，详见[运行宿主](runtime-host.md)。关闭子系统后再销毁 ECS 世界。
+- `RuntimeHost` 通过 `add_subsystem()` 将子系统所有权移交世界系统；当前顺序为字体、界面、导航底层、可选脚本、`before_physics` 插件、物理、动画、`after_physics` 插件；音频由宿主独占并在世界之后单独更新，详见[运行宿主](runtime-host.md)。关闭子系统后再销毁 ECS 世界。
 - 只有已初始化的世界可创建一个活动场景，已有场景时返回空指针。`destroy_scene()` 可重复调用；关闭时在释放 ECS 世界前销毁场景。每次成功创建分配递增的场景标识，关闭再初始化不重用，供脚本与渲染器拒绝旧引用。
 - `scene()` 返回可空借用，`destroy_scene()` 或世界关闭后失效；只读重载为 `const`，查询与销毁为 `noexcept`。初始化失败和清理遵守[系统约定](engine-system.md)。
 
@@ -121,7 +121,7 @@ C++ 限定符：构造、析构及 `on_shutdown()` 为 `noexcept`；析构和受
 - 已完成的本帧工作不回滚；设置后尚未执行的模拟系统在本次调度读取最新状态，已经执行的系统从下一帧起暂停。恢复时只消费正常新帧时长，不累积暂停时长、不补算历史帧；不能用传入 `0` 秒代替暂停。
 - 成功创建或替换活动场景、销毁场景及世界关闭时恢复 `false`；加载失败保留旧场景及其暂停状态。仅预检而未激活的候选 Run 不能设置或复位活动世界的暂停状态。Run 停止时由现有会话/绑定的场景释放链清理其拥有的场景，不能借候选 Run 析构清理另一 Run 的状态。
 - 脚本通过现有 `SceneBinding` 提供实例 `SetPaused(bool): boolean` 与 `GetPaused(): boolean | null`；只允许活动回调通过当前 Run 所拥有的活动 Scene 身份访问 WorldSystem。旧句柄/不活动回调设置失败、查询为空；不新增原生 `Scene` 持久字段或引擎项目策略。
-- 各模拟系统继续只依赖核心 `WorldSystem` 查询；WorldSystem 不反向 include、链接或扫描具体插件。音频仍由 RuntimeHost 合并窗口不可绘制与世界暂停两项原因，复用已有 `AudioSystem::set_paused()`，不把项目菜单逻辑加入音频或世界核心。
+- 各模拟系统继续只依赖核心 `WorldSystem` 查询；WorldSystem 不反向 include、链接或扫描具体插件。RuntimeHost 仅因窗口不可绘制暂停音频设备；AudioSystem 自行读取世界暂停值以暂停场景声部，独立影片不随世界暂停。不把项目菜单逻辑加入音频或世界核心。
 
 ## 常驻节点与精确清理
 

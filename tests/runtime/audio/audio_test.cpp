@@ -363,8 +363,8 @@ bool playback_and_lifecycle()
         return false;
     }
     world.destroy_scene();
-    if (!expect(audio.tick(0.0) && audio.voice_count() == 0 && SDL_WasInit(SDL_INIT_AUDIO) == 0,
-                "scene destruction closes all streams and the logical device"))
+    if (!expect(audio.tick(0.0) && audio.voice_count() == 0 && SDL_WasInit(SDL_INIT_AUDIO) != 0,
+                "scene destruction closes streams and preserves the shared output device"))
     {
         return false;
     }
@@ -442,8 +442,13 @@ bool persistent_audio()
         return false;
     }
     world.destroy_scene();
-    return expect(audio.tick(0) && SDL_WasInit(SDL_INIT_AUDIO) == 0,
-                  "full world cleanup closes the output device");
+    if (!expect(audio.tick(0) && SDL_WasInit(SDL_INIT_AUDIO) != 0,
+                "world cleanup retains the shared device until explicit service cleanup"))
+    {
+        return false;
+    }
+    audio.clear();
+    return expect(SDL_WasInit(SDL_INIT_AUDIO) == 0, "service cleanup closes the output device");
 }
 
 bool independent_voice()
@@ -458,19 +463,39 @@ bool independent_voice()
                     resources.load("20000000-0000-4000-8000-000000000001", clip),
                 "prepare independent audio") ||
         !expect(audio.play(clip, handle) && audio.set_paused(handle, true) &&
-                    audio.playback(handle, status) && status.state == engine::AudioVoiceState::paused,
+                    audio.playback(handle, status) &&
+                    status.state == engine::AudioVoiceState::paused,
                 "pause independent voice without a world") ||
         !expect(audio.tick(0) && audio.set_paused(handle, false), "resume without a world"))
+    {
+        return false;
+    }
+    if (!audio.playback(handle, status))
+    {
+        return false;
+    }
+    const double snapshot_position = status.position_seconds;
+    SDL_Delay(180);
+    if (!expect(audio.playback(handle, status) &&
+                    status.state == engine::AudioVoiceState::playing &&
+                    status.position_seconds == snapshot_position,
+                "const playback only reads the last published snapshot"))
     {
         return false;
     }
     for (int index = 0; index < 100; ++index)
     {
         SDL_Delay(10);
-        if (!audio.playback(handle, status)) return false;
-        if (status.state == engine::AudioVoiceState::completed) break;
+        if (!audio.tick(0) || !audio.playback(handle, status))
+        {
+            return false;
+        }
+        if (status.state == engine::AudioVoiceState::completed)
+        {
+            break;
+        }
     }
-    return expect(status.state == engine::AudioVoiceState::completed &&
+    return expect(status.state == engine::AudioVoiceState::completed && !audio.stop(handle) &&
                       audio.release(handle) && !audio.playback(handle, status),
                   "independent voice drains and invalidates its handle");
 }
@@ -517,8 +542,7 @@ bool unavailable_device()
 int main()
 {
     return settings_and_resources() && playback_and_lifecycle() && persistent_audio() &&
-                   independent_voice() &&
-                   unavailable_device()
+                   independent_voice() && unavailable_device()
                ? 0
                : 1;
 }

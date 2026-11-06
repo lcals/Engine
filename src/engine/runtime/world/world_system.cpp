@@ -146,7 +146,7 @@ SceneRestoreStatus WorldSystem::step_restore_scene(std::uint64_t request, std::s
     const auto started = std::chrono::steady_clock::now();
     const auto count = std::min(node_budget, restore_config_.nodes_per_step);
     const double time_budget = max_seconds > 0 ? std::min(max_seconds, restore_config_.max_seconds)
-                                                : restore_config_.max_seconds;
+                                               : restore_config_.max_seconds;
     for (std::size_t index = 0; index < count; ++index)
     {
         if (std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count() >=

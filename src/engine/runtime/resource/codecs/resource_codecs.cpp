@@ -4,10 +4,10 @@
 #include "runtime/resource/resource_codec.hpp"
 
 #include "runtime/resource/codecs/audio_resource_codec.hpp"
-#include "runtime/resource/codecs/movie_resource_codec.hpp"
 #include "runtime/resource/codecs/binary_resource_codec.hpp"
 #include "runtime/resource/codecs/material_resource_codec.hpp"
 #include "runtime/resource/codecs/mesh_resource_codec.hpp"
+#include "runtime/resource/codecs/movie_resource_codec.hpp"
 #include "runtime/resource/codecs/prefab_resource_codec.hpp"
 #include "runtime/resource/codecs/scene_resource_codec.hpp"
 #include "runtime/resource/codecs/shader_resource_codec.hpp"

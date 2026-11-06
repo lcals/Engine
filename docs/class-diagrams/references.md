@@ -92,11 +92,10 @@ classDiagram
     RuntimeHost "1" *-- "0..1" InputSystem : 独占输入，暂停前更新
     InputSystem --> WindowSystem : 借用，窗口最后关闭
     RuntimeHost "1" *-- "0..1" GameplaySession : 独占玩法会话
-    Engine "0..1" *-- "0..1" ResourceSystem : 默认装配时独占
+    RuntimeHost "1" *-- "0..1" ResourceSystem : 未外供时早期独占
     RuntimeHost --> ResourceSystem : 可借用宿主已初始化底层
     Engine "1" *-- "0..1" WorldSystem : 独占世界根系统
-    Engine "1" *-- "0..1" RenderSystem : 独占渲染根系统
-    RuntimeHost --> RenderSystem : 借用并提交帧
+    RuntimeHost "1" *-- "0..1" RenderSystem : 独占并提交帧
     RuntimeHost --> WorldSystem : 借用场景状态
     RuntimeHost ..> ScriptRuntimeFactory : 调用宿主创建函数
     ScriptRuntimeFactory ..> WorldSystem : 参数借用
@@ -110,8 +109,8 @@ classDiagram
     GameplaySession --> WorldSystem : 借用并结束场景
     GameplaySession --> RenderSystem : 借用并管理项目 GPU 资源
     GameplaySession --> PhysicsSystem : 可空借用及显式清理
-    GameplaySession --> AudioSystem : 可空借用及显式清理
-    RuntimeHost --> AudioSystem : 借用并随窗口暂停恢复
+    GameplaySession --> AudioSystem : 可空借用及显式清理场景声部
+    RuntimeHost *-- AudioSystem : 独占并随窗口暂停恢复
     RenderSystem --> WindowSystem : 构造参数及持续借用
     RenderSystem --> WorldSystem : 可空构造借用与场景读取
     RenderSystem --> RenderExtension : 借用独立场景绘制扩展
@@ -120,7 +119,7 @@ classDiagram
     RenderContext --> Scene : 调用期间只读借用
 ```
 
-默认初始化顺序为 Window → Resource → World → Render。宿主提供资源底层时先初始化 ResourceSystem 及可选加载插件，再初始化 RuntimeHost 的窗口、世界和渲染；资源底层及加载器必须覆盖全部消费者的生命期。关闭时反序处理。RuntimeHost 拥有窗口和会话，借用渲染与世界；GameplaySession 借用脚本、世界及渲染。ScriptRuntime 实例由 WorldSystem 独占，具体实现由宿主提供。RenderSystem 借用窗口，窗口必须存活到渲染系统退出之后。宿主的 Tracy 私有依赖由构建开关选择，不向 Engine 增加性能领域接口。
+宿主先准备 Window、资源单项读取、Render、Audio 与 MoviePlayer，随后按调用方请求初始化 World。外供 ResourceSystem 及加载器必须先就绪，并覆盖所有消费者。RuntimeHost 独占呈现服务和会话，Engine 独占世界；GameplaySession 借用脚本、世界、渲染和音频。ScriptRuntime 由世界独占，具体实现由宿主工厂提供。关闭先结束玩法和世界，再关闭播放器、音频、渲染及窗口；完整顺序见[运行宿主](../runtime/class-diagrams/runtime-host.md)。
 
 ```mermaid
 classDiagram
@@ -139,10 +138,9 @@ classDiagram
     WorldSystem "1" *-- "0..1" ScriptRuntime : 物理前提交业务意图
     WorldSystem "1" *-- "0..1" PhysicsSystem : 脚本及玩家意图之后
     WorldSystem "1" *-- "0..1" AnimationSystem : 物理之后
-    WorldSystem "1" *-- "0..1" AudioSystem : 动画及宿主相机系统之后
 ```
 
-RuntimeHost 创建并装配各子系统，所有权经 System 转入 WorldSystem。父系统先推进世界，子系统按登记顺序执行：字体、UI、导航、脚本、宿主玩家意图、物理、动画、宿主相机、音频。`RuntimeSetup(RuntimeStage, ...)` 仅在初始化装配时调用两次，将可选系统分别登记到物理之前及动画之后；不增加逐帧阶段框架。脚本实例由宿主提供的 ScriptRuntimeFactory 创建，工厂返回未初始化的抽象子系统；核心不判断虚拟机或插件是否编译。
+RuntimeHost 创建并装配各子系统，所有权经 System 转入 WorldSystem。父系统先推进世界，子系统按登记顺序执行：字体、UI、导航、脚本、宿主玩家意图、物理、动画、宿主相机。宿主随后单独更新 AudioSystem。`RuntimeSetup(RuntimeStage, ...)` 仅在初始化装配时调用两次，将可选系统分别登记到物理之前及动画之后；不增加逐帧阶段框架。脚本实例由宿主提供的 ScriptRuntimeFactory 创建，工厂返回未初始化的抽象子系统；核心不判断虚拟机或插件是否编译。
 
 每帧先处理窗口事件，再更新其余根系统，最后提交渲染。窗口暂停时，宿主先暂停音频输出，然后停止资源、世界和脚本更新；恢复时先恢复输出再推进帧。编辑器在 RuntimeHost::tick 前处理项目启停，因此暂停不阻断停止请求。外部工具仍可发布文件，脚本版本切换等待恢复后的运行线程安全点。
 
@@ -634,7 +632,7 @@ VirtualFileSystem 的 SDL 打开文件操作保留原生 `path.u8string()` 编�
 | 类别               | 直接继承 System 的类型                                                   | 配置与其他参数依赖                                                                             |
 | ------------------ | ------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------- |
 | 运行宿主独占根系统 | WindowSystem、InputSystem | EngineConfig 生命周期参数；RuntimeHost 独立管理窗口与输入，暂停前发布设备及动作快照 |
-| 引擎根系统         | ResourceSystem、WorldSystem、RenderSystem                                | EngineConfig 生命周期参数；RenderSystem 构造借用 WindowSystem 和可空 WorldSystem               |
+| 引擎根系统         | WorldSystem；ResourceSystem、RenderSystem 由宿主管理                                | EngineConfig 生命周期参数；RenderSystem 构造借用 WindowSystem 和可空 WorldSystem               |
 | 世界子系统         | PhysicsSystem、NavigationSystem、AnimationSystem、FontSystem、UiSystem、AudioSystem、ScriptRuntime | EngineConfig 生命周期参数；UI 借用窗口、世界与字体，脚本接口还使用入口字符串及 ScriptStatus |
 | 独立单例根系统     | LogSystem                                                                | EngineConfig、LogLevel、日志文本；返回日志路径借用                                             |
 | 编辑器根系统       | ProjectSystem、EditorSystem                                              | EngineConfig；项目根目录字符串；EditorSystem 构造借用 EditorEnvironment 和可空 GameplaySession |
@@ -1146,9 +1144,9 @@ classDiagram
 
 [输入系统](../runtime/class-diagrams/input-system.md)由 RuntimeHost 独占，借用 WindowSystem，并在宿主暂停模拟前更新；不加入 World，也不反向依赖 UI、脚本或角色插件。脚本 BindingContext 仅借用系统并记录本 Run 创建句柄的清理责任。CharacterControllerSystem 无 WindowSystem 借用及固定输入 fallback，调用方明确提交 CharacterInput；脚本通过可选角色组件绑定提交。完整边界见[输入设计](../runtime/input.md)。
 
-## 影片规划关系（设计契约，尚未实现）
+## 影片关系
 
-此节不替换上方现行所有权。运行、源资源与 MCP 的完整拟定方法分别在[播放器](../runtime/class-diagrams/movie-player.md)、[启动装配](../runtime/class-diagrams/movie-startup.md)、[音频](../runtime/class-diagrams/movie-audio.md)、[导入](../plugins/editor/class-diagrams/movie-importer.md)、[任务](../editor/class-diagrams/asset-import-jobs.md)和[MCP](../plugins/editor/class-diagrams/movie-mcp-tools.md)维护，这里只汇总关系。
+影片运行采用本节宿主独占呈现服务、世界后期绑定的所有权；完整方法分别在[播放器](../runtime/class-diagrams/movie-player.md)、[启动装配](../runtime/class-diagrams/movie-startup.md)、[音频](../runtime/class-diagrams/movie-audio.md)、[导入](../plugins/editor/class-diagrams/movie-importer.md)、[任务](../editor/class-diagrams/asset-import-jobs.md)和[MCP](../plugins/editor/class-diagrams/movie-mcp-tools.md)维护，这里只汇总关系。影片 MCP、专用预览与异步导入批次仍待实现。
 
 ```mermaid
 classDiagram
@@ -1242,4 +1240,4 @@ classDiagram
 
 命名空间分别为：核心 `engine`、生成模型 `engine::schema`、MovieImporter 为 `engine::plugins::asset_import`、MovieBinding 为 `engine::plugins::script::bindings`、MovieEditorCommands 为 `engine::editor`、MCP 登记为 `engine::plugins::mcp`。宿主节点只表示入口装配，不新增宿主包装类。运行时不 include 或链接这些具体编辑器/脚本插件；插件通过宿主注入核心借用。
 
-启动流程与业务流程只在调用方策略上不同，不增加第二套播放器、音频设备、GPU 或资源目录。后台只做不可变数据准备；世界/脚本/GPU 的主线程阶段必须实际拆分，不能用一个预算参数掩盖同步长调用。MCP 只转发既有编辑器命令，导入任务扩展原管线而不新增影片 JobManager。编解码后端、链接增量和完整播放性能仍待实测，不属于本次类图设计的已实现结果。
+启动流程与业务流程只在调用方策略上不同，不增加第二套播放器、音频设备、GPU 或资源目录。后台只做不可变数据准备；世界/脚本/GPU 的主线程阶段必须实际拆分，不能用一个预算参数掩盖同步长调用。MCP 只转发既有编辑器命令，导入任务扩展原管线而不新增影片 JobManager。编解码后端固定为运行时 libvpx / VP9 与离线 FFmpeg；链接增量、SIMD 分派、实际音画同步及各平台性能须独立验证，不以接口存在代替验收。

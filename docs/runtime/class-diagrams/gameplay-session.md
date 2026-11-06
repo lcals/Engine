@@ -2,10 +2,8 @@
 
 [类图索引](../../class-diagrams/index.md) · [脚本运行契约](script-runtime.md) · [运行宿主](runtime-host.md)
 
-> **影片启动规划 / 待实现：** [分阶段启动](movie-startup.md)要求先提交真实影片首帧，再逐帧准备
-> 玩法；主页 ready 必须包含 VM、ECS 与 GPU，不能只表示 CPU 资源就绪。场景停止将按
-> [音频规划](movie-audio.md)只清理场景声部，不关闭宿主共享设备或 Native 影片。以下现行
-> start / stop 方法及说明未在本轮变更，不能视为已支持预算内分步准备。
+[分阶段启动](movie-startup.md)先提交真实影片首帧，再准备玩法；ready 包含所请求的 VM、ECS 与 GPU。
+场景停止只清理场景声部，Native 影片与共享设备由宿主及调用者管理。
 
 ```mermaid
 classDiagram
@@ -17,12 +15,22 @@ classDiagram
         +~GameplaySession()
         +set_resources(const AssetCatalogDataT& data, const MountList& mounts, string_view entry) bool
         +start(string_view entry) bool
+        +begin_prepare(const ResourceCatalog& catalog, const MountList& mounts, string_view entry, string_view scene) bool
+        +step_prepare(uint32_t resource_budget, double max_seconds) GameplayPrepareStatus
+        +activate_prepared() bool
         +tick() bool
         +stop(string_view reason) void
         +execute_project_script(const ProjectScriptRequest& request, string& result_json, string& error) bool
         +script_status() const ScriptStatus#42;
         +last_error() string_view
     }
+    class GameplayPrepareStatus {
+        <<enumeration>>
+        preparing
+        ready
+        failed
+    }
+    GameplaySession ..> GameplayPrepareStatus : 分步准备结果
     class WorldSystem
     class RenderSystem
     class ScriptRuntime
@@ -38,7 +46,7 @@ classDiagram
     GameplaySession --> ScriptRuntime : 可空借用抽象执行契约
     GameplaySession --> PhysicsSystem : 可空借用 清理物理场景
     GameplaySession --> AnimationSystem : 可空借用并清理采样缓存
-    GameplaySession --> AudioSystem : 可空借用 停止并释放声部
+    GameplaySession --> AudioSystem : 可空借用 只停止并释放场景声部
     GameplaySession --> UiSystem : 可空借用 先释放控件文档
     GameplaySession --> FontSystem : 可空借用 释放字体 GPU 缓存
     GameplaySession ..> ResourceSystem : 显式提交资源目录

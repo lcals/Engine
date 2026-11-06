@@ -322,7 +322,8 @@ struct ScriptSystem::State
 
 ScriptSystem::ScriptSystem(WorldSystem* world, RenderSystem* renderer, UiSystem* ui,
                            PhysicsSystem* physics, NavigationSystem* navigation, InputSystem* input,
-                           WindowSystem* window, AnimationSystem* animation, MoviePlayer* movies) noexcept
+                           WindowSystem* window, AnimationSystem* animation,
+                           MoviePlayer* movies) noexcept
     : world_(world), renderer_(renderer), ui_(ui), physics_(physics), navigation_(navigation),
       input_(input), window_(window), animation_(animation), movies_(movies)
 {

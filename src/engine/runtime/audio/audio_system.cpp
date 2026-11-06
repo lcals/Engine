@@ -277,6 +277,55 @@ struct AudioSystem::Impl
         }
     }
 
+    void refresh_voice(Voice& voice)
+    {
+        if (voice.state != AudioVoiceState::playing)
+        {
+            return;
+        }
+        const auto& clip = *voice.clip->audio();
+        if (!SDL_LockAudioStream(voice.stream))
+        {
+            voice.state = AudioVoiceState::failed;
+            voice.error = "Cannot lock audio voice: " + std::string(SDL_GetError());
+            return;
+        }
+        const int queued = SDL_GetAudioStreamQueued(voice.stream);
+        const int available = SDL_GetAudioStreamAvailable(voice.stream);
+        const bool failed = voice.feed_failed;
+        const bool finished = voice.flushed && queued == 0 && available == 0;
+        const auto submitted = voice.frame;
+        if (!SDL_UnlockAudioStream(voice.stream) || queued < 0 || available < 0)
+        {
+            voice.state = AudioVoiceState::failed;
+            voice.error = "Cannot query audio voice: " + std::string(SDL_GetError());
+            return;
+        }
+        if (failed &&
+            (voice.state == AudioVoiceState::playing || voice.state == AudioVoiceState::paused))
+        {
+            voice.state = AudioVoiceState::failed;
+            voice.error = "Audio callback could not queue or finish PCM samples";
+        }
+        else if (finished && voice.state == AudioVoiceState::playing)
+        {
+            voice.state = AudioVoiceState::completed;
+        }
+        // queued 与 available 描述同一队列的输入和输出视图，不能重复扣除。
+        const double pending =
+            static_cast<double>(queued) / (2.0 * sizeof(float) * clip.sample_rate);
+        const double position = static_cast<double>(submitted) / clip.sample_rate - pending;
+        if (voice.state == AudioVoiceState::playing || voice.state == AudioVoiceState::paused)
+        {
+            voice.last_position = std::clamp(std::max(voice.last_position, position), 0.0,
+                                             static_cast<double>(clip.frames) / clip.sample_rate);
+        }
+        if (voice.state == AudioVoiceState::completed)
+        {
+            voice.last_position = static_cast<double>(clip.frames) / clip.sample_rate;
+        }
+    }
+
     bool publish(Voice& voice, const AudioSource& source, const Listener& listener, bool& finished)
     {
         ENGINE_PROFILE_ZONE("Audio.publish");
@@ -355,13 +404,14 @@ bool AudioSystem::on_tick(double)
     {
         return false;
     }
+    for (auto& [id, voice] : impl_->independent)
+    {
+        (void)id;
+        impl_->refresh_voice(*voice);
+    }
     if (world_ == nullptr || world_->scenes().empty())
     {
         impl_->voices.clear();
-        if (impl_->independent.empty())
-        {
-            impl_->close_device();
-        }
         return true;
     }
     if (!world_->refresh_scene_state())
@@ -665,6 +715,7 @@ bool AudioSystem::set_paused(AudioVoiceHandle handle, bool paused)
         return false;
     }
     auto& voice = *found->second;
+    impl_->refresh_voice(voice);
     if (voice.state != AudioVoiceState::playing && voice.state != AudioVoiceState::paused)
     {
         return false;
@@ -677,6 +728,11 @@ bool AudioSystem::set_paused(AudioVoiceHandle handle, bool paused)
     {
         SDL_UnbindAudioStream(voice.stream);
         voice.bound = false;
+        impl_->refresh_voice(voice);
+        if (voice.state != AudioVoiceState::playing)
+        {
+            return false;
+        }
         voice.state = AudioVoiceState::paused;
     }
     else
@@ -694,8 +750,8 @@ bool AudioSystem::set_paused(AudioVoiceHandle handle, bool paused)
 bool AudioSystem::stop(AudioVoiceHandle handle)
 {
     AudioPlaybackStatus status;
-    if (!playback(handle, status) || (status.state != AudioVoiceState::playing &&
-                                      status.state != AudioVoiceState::paused))
+    if (!playback(handle, status) ||
+        (status.state != AudioVoiceState::playing && status.state != AudioVoiceState::paused))
     {
         return false;
     }
@@ -705,6 +761,11 @@ bool AudioSystem::stop(AudioVoiceHandle handle)
         SDL_UnbindAudioStream(voice.stream);
     }
     voice.bound = false;
+    impl_->refresh_voice(voice);
+    if (voice.state != AudioVoiceState::playing && voice.state != AudioVoiceState::paused)
+    {
+        return false;
+    }
     voice.state = AudioVoiceState::stopped;
     return true;
 }
@@ -721,43 +782,8 @@ bool AudioSystem::playback(AudioVoiceHandle handle, AudioPlaybackStatus& output)
     {
         return false;
     }
-    auto& voice = *found->second;
+    const auto& voice = *found->second;
     const auto& clip = *voice.clip->audio();
-    if (!SDL_LockAudioStream(voice.stream))
-    {
-        return impl_->fail("Cannot lock audio voice");
-    }
-    const int queued = SDL_GetAudioStreamQueued(voice.stream);
-    const int available = SDL_GetAudioStreamAvailable(voice.stream);
-    const bool failed = voice.feed_failed;
-    const bool finished = voice.flushed && queued == 0 && available == 0;
-    const auto submitted = voice.frame;
-    if (!SDL_UnlockAudioStream(voice.stream) || queued < 0 || available < 0)
-    {
-        return impl_->fail("Cannot query audio voice");
-    }
-    if (failed &&
-        (voice.state == AudioVoiceState::playing || voice.state == AudioVoiceState::paused))
-    {
-        voice.state = AudioVoiceState::failed;
-        voice.error = "Audio callback could not queue or finish PCM samples";
-    }
-    else if (finished && voice.state == AudioVoiceState::playing)
-    {
-        voice.state = AudioVoiceState::completed;
-    }
-    const double pending = static_cast<double>(queued) / (2.0 * sizeof(float) * clip.sample_rate) +
-                           static_cast<double>(available) / (2.0 * sizeof(float) * 48000.0);
-    const double position = static_cast<double>(submitted) / clip.sample_rate - pending;
-    if (voice.state == AudioVoiceState::playing || voice.state == AudioVoiceState::paused)
-    {
-        voice.last_position = std::clamp(std::max(voice.last_position, position), 0.0,
-                                         static_cast<double>(clip.frames) / clip.sample_rate);
-    }
-    if (voice.state == AudioVoiceState::completed)
-    {
-        voice.last_position = static_cast<double>(clip.frames) / clip.sample_rate;
-    }
     output = {voice.state, voice.last_position, static_cast<double>(clip.frames) / clip.sample_rate,
               voice.error};
     return true;

@@ -162,11 +162,11 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
 #endif
     engine::ScriptRuntimeFactory script_factory = nullptr;
 #if ENGINE_HAS_SCRIPT_PLUGIN
-    script_factory =
-        [](engine::WorldSystem& world, engine::RenderSystem& renderer, engine::UiSystem& ui,
-           engine::PhysicsSystem& physics, engine::NavigationSystem& navigation,
-           engine::InputSystem& input, engine::WindowSystem& window,
-           engine::AnimationSystem& animation, engine::MoviePlayer* movies) -> std::unique_ptr<engine::ScriptRuntime>
+    script_factory = [](engine::WorldSystem& world, engine::RenderSystem& renderer,
+                        engine::UiSystem& ui, engine::PhysicsSystem& physics,
+                        engine::NavigationSystem& navigation, engine::InputSystem& input,
+                        engine::WindowSystem& window, engine::AnimationSystem& animation,
+                        engine::MoviePlayer* movies) -> std::unique_ptr<engine::ScriptRuntime>
     {
         return std::make_unique<engine::plugins::script::ScriptSystem>(
             &world, &renderer, &ui, &physics, &navigation, &input, &window, &animation, movies);
@@ -539,8 +539,9 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
 #endif
             frame_engine.begin_frame();
             const auto current_time = std::chrono::steady_clock::now();
-            const double delta_time =
-                std::min(std::chrono::duration<double>(current_time - previous_time).count(), 0.1);
+            const double elapsed_time =
+                std::chrono::duration<double>(current_time - previous_time).count();
+            const double delta_time = std::min(elapsed_time, 0.1);
             previous_time = current_time;
 #if ENGINE_HAS_ASSET_PIPELINE
             (void)tasks.dispatch_completions(parallel.completions_per_frame,
@@ -667,7 +668,7 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
             }
             else
             {
-                status = runtime.tick(delta_time);
+                status = runtime.tick(elapsed_time);
             }
 #if ENGINE_HAS_MODELING_PLUGIN
             if (modeling != nullptr)

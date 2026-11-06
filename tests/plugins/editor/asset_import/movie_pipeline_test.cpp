@@ -1,5 +1,10 @@
 #include "editor/asset_pipeline/asset_pipeline_system.hpp"
+#include "editor/asset_pipeline/import_tool.hpp"
 #include "plugins/editor/asset_import/movie_importer.hpp"
+#include "runtime/utils/path_utils.hpp"
+#if ENGINE_TEST_MOVIE_BUILD
+#include "plugins/editor/asset_build/asset_build_system.hpp"
+#endif
 #include "runtime/engine_config.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/schema/movie_generated.h"
@@ -28,6 +33,13 @@ bool expect(bool value, const char* message)
         std::fprintf(stderr, "movie pipeline: %s\n", message);
     }
     return value;
+}
+bool write(const fs::path& path, std::string_view content)
+{
+    std::ofstream output(path, std::ios::binary | std::ios::trunc);
+    output << content;
+    output.close();
+    return static_cast<bool>(output);
 }
 struct Fixture
 {
@@ -119,6 +131,94 @@ int main(int argc, char** argv)
         !expect(pipeline.build_assets(fixture.root) && pipeline.last_build().imported == 0 &&
                     pipeline.last_build().reused == 2,
                 "unchanged movie uses cache"))
+    {
+        return 1;
+    }
+#if ENGINE_TEST_MOVIE_BUILD
+    plugins::asset_build::AssetBuildSystem build(pipeline);
+    const auto build_config = fixture.root / "settings/editor-resource-build.toml";
+    const auto game_config = fixture.root / "settings/runtime-game.toml";
+    const std::string platform = pipeline.catalog().target_platform;
+    const std::string game = "[common]\nstartup_movie = \"movies/missing.mp4\"\n[platform." +
+                             platform + "]\nstartup_movie = \"movies/studio.mp4\"\n";
+    if (!build.initialize({}) ||
+        !write(build_config, "[common]\n[[common.items]]\nname = \"main\"\n"
+                             "storage = \"files\"\nroots = []\n") ||
+        !write(game_config, game) || !build.build(fixture.root))
+    {
+        std::fprintf(stderr, "movie package failed: %s\n", build.last_error().c_str());
+        return 1;
+    }
+    ResourceCatalog packaged;
+    const auto destination = build.last_build().output_path;
+    if (!expect(ResourceSystem::read_catalog(destination, packaged) && packaged.find(movie_guid) &&
+                    packaged.find(audio_guid) &&
+                    packaged.find(movie_guid)->location->path == "gen/" + movie_guid &&
+                    packaged.find(audio_guid)->location->path == "gen/" + audio_guid,
+                "platform startup movie and its audio are included despite empty explicit roots"))
+    {
+        return 1;
+    }
+    const std::string packaged_revision(packaged.revision());
+    if (!write(game_config, "[common]\nstartup_movie = \"movies/studio.mp4/audio\"\n") ||
+        !expect(!build.build(fixture.root) && ResourceSystem::read_catalog(destination, packaged) &&
+                    packaged.revision() == packaged_revision,
+                "wrong-kind startup resource fails without replacing the published package") ||
+        !write(game_config, "[common]\nstartup_movie = false\n") ||
+        !expect(!build.build(fixture.root), "invalid startup setting is rejected") ||
+        !write(game_config, game) ||
+        !write(build_config, "[common]\n[[common.items]]\nname = \"main\"\n"
+                             "storage = \"package\"\nroots = [\"movies/studio.mp4\"]\n") ||
+        !expect(build.build(fixture.root) && ResourceSystem::read_catalog(destination, packaged) &&
+                    packaged.find(movie_guid)->location->path.starts_with("packs/main-") &&
+                    packaged.find(audio_guid)->location->path.starts_with("packs/main-"),
+                "automatic startup collection preserves explicit package storage"))
+    {
+        return 1;
+    }
+    // Write a valid platform override which explicitly disables the common startup movie.
+    if (!write(game_config, "[common]\nstartup_movie = \"movies/studio.mp4\"\n[platform." +
+                                platform + "]\nstartup_movie = \"\"\n") ||
+        !write(build_config, "[common]\n[[common.items]]\nname = \"main\"\n"
+                             "storage = \"files\"\nroots = []\n") ||
+        !expect(build.build(fixture.root) && ResourceSystem::read_catalog(destination, packaged) &&
+                    !packaged.find(movie_guid) && !packaged.find(audio_guid),
+                "empty platform override disables automatic startup collection"))
+    {
+        return 1;
+    }
+#endif
+    std::filesystem::path ffmpeg;
+    std::string tool_error;
+    std::string tool_output;
+    const auto anamorphic = fixture.root / "cache/anamorphic.mp4";
+    if (!editor::asset_pipeline::find_import_tool("ffmpeg", ffmpeg, tool_error) ||
+        editor::asset_pipeline::run_import_tool({PathUtils::to_utf8(ffmpeg), "-v", "error", "-y",
+                                                 "-i", argv[1], "-map", "0", "-c", "copy",
+                                                 "-aspect", "32:9", PathUtils::to_utf8(anamorphic)},
+                                                {}, 65536, tool_output, tool_error) !=
+            editor::asset_pipeline::ImportToolStatus::success)
+    {
+        std::fprintf(stderr, "anamorphic fixture failed: %s %s\n", tool_error.c_str(),
+                     tool_output.c_str());
+        return 1;
+    }
+    fs::copy_file(anamorphic, fixture.root / "assets/movies/studio.mp4",
+                  fs::copy_options::overwrite_existing, error);
+    movie_resource.reset();
+    audio_resource.reset();
+    if (error || !pipeline.build_assets(fixture.root) ||
+        !resources.update_catalog(pipeline.catalog(), {{"content", fixture.root / "cache"}}) ||
+        !resources.load(movie_guid, movie_resource) || !resources.load(audio_guid, audio_resource))
+    {
+        std::fprintf(stderr, "anamorphic import failed: %s\n", pipeline.last_error().c_str());
+        return 1;
+    }
+    video = schema::GetMovieData(movie_resource->bytes().data())->video();
+    if (!expect(video && video->width() == 1920 && video->height() == 540 &&
+                    audio_resource->audio()->frames ==
+                        static_cast<std::uint64_t>(video->frame_count()) * 1600,
+                "non-square source pixels preserve 32:9 display aspect and matching audio"))
     {
         return 1;
     }

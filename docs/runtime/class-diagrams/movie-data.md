@@ -1,8 +1,8 @@
-# 影片资源（设计契约，尚未实现）
+# 影片资源
 
 [类图索引](../../class-diagrams/index.md) · [播放器](movie-player.md) · [导入器](../../plugins/editor/class-diagrams/movie-importer.md) · [资源解码器](resource-codecs.md) · [资源目录](resource-catalog.md)
 
-本页定义规划中的资源与单项校验契约。Movie 按现有资源类型登记，新增 `AssetKind::movie`；它不是项目启动配置、场景组件或媒体管理系统。唯一持久模型拟放入 `include/schemas/runtime/movie.fbs`，生成 C++ 与其他语言结构；本轮只设计，不创建 schema 或实现。
+本页定义影片资源与单项校验契约。Movie 按现有资源类型登记，新增 `AssetKind::movie`；它不是项目启动配置、场景组件或媒体管理系统。唯一持久模型位于 `include/schemas/runtime/movie.fbs`，生成 C++ 与其他语言结构。
 
 ## 运行编码选择
 
@@ -102,7 +102,7 @@ classDiagram
 ```mermaid
 classDiagram
     class MovieResourceCodec {
-        <<final planned>>
+        <<final>>
         +decode(const ResourceCatalog& catalog, ByteView payload, Resource& output) bool
         +validate_dependencies(const ResourceCatalog& catalog, const Resource& resource, span~const ResourcePtr~ dependencies) bool
     }

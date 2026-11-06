@@ -280,6 +280,36 @@ python3 tests/plugins/editor/scene_bake/scene_lighting_gpu_test.py --run \
 
 ## 有日期的验证记录
 
+### 2026-11-06：影片类图契约与正确性修复，Windows x64 / DirectX 12 / QuickJS
+
+先同步[影片类图入口](class-diagrams/index.md#影片播放)、播放器、音频、宿主启动与导入／构建契约，再修改实现；保持现有公开方法，不新增架构包装层。影片 MCP、独立预览与异步导入批次仍属后续工作，不能由本次运行链路通过推断已交付。
+
+| 修复范围 | 本次证据 |
+| --- | --- |
+| Windows 影片 Shader | 使用兼容 HLSL 的向量常量构造；影片 Shader 参与实际编译，宿主测试通过真实 DX12 提交影片帧。 |
+| 解码追帧与取消 | 90 帧／30 fps 夹具在 1.5 秒停顿后少量宿主更新内追到第 45 帧；持续 5 Hz 更新不累积落后，最终显示第 89 帧；停止、释放及旧句柄隔离回归通过。 |
+| 音频时间与状态 | 不再重复扣除 SDL 队列；playback 为只读快照，由 tick／控制发布状态。场景清理保留共享设备，完整 clear 关闭；无世界播放、暂停恢复与自然排空通过。 |
+| 媒体时间及启动装配 | 静音影片收到完整 1.25 秒增量；同请求首帧成功提交前不初始化世界，准备期间保持同一资源目录与影片。可执行入口在起播前后台选择完整发布版本，无有效版本才读取完整内置目录。 |
+| 资源构建 | 显式空 roots 仍收集平台配置的片头与音轨；已选包存储不改变；空平台覆盖可关闭片头；错误类型／非影片入口拒绝且保留旧发布目录。 |
+| 像素宽高比 | 对 SAR=2:1、显示比例 32:9 的源生成 1920×540 方形像素影片，音轨时长匹配；更新导入指纹使旧缓存重新生成。 |
+
+使用根预设完成受影响目标的 Debug／Release 编译和链接；未执行 Debug 测试。Release 定向 CTest 的 7 项均通过：`engine.audio`、`engine.script_runtime`、`editor.asset_build`、`resource.movie_player`、`resource.codecs`、`editor.movie_pipeline`、`engine.runtime_host`。最终完整定向运行 7/7，通过用时 14.69 秒。另通过架构规则 10 项、桌面导出脚本 16 项和 28 个修改 C++ 文件的 clang-format 检查。
+
+复跑入口：
+
+```powershell
+cmake --build --preset windows-static-debug --target engine_movie_player_test engine_audio_test engine_resource_codecs_test engine_movie_pipeline_test engine_runtime_host_test engine_script_runtime_test engine_asset_build_test engine_app engine_editor engine_project_app
+cmake --build --preset windows-static-release --target engine_movie_player_test engine_audio_test engine_resource_codecs_test engine_movie_pipeline_test engine_runtime_host_test engine_script_runtime_test engine_asset_build_test engine_app engine_editor engine_project_app
+ctest --preset windows-static-release --output-on-failure -R '^(resource\.(movie_player|codecs)|engine\.(audio|runtime_host|script_runtime)|editor\.(movie_pipeline|asset_build))$'
+python tests/build/architecture_rules_test.py
+python tests/build/desktop_export_test.py
+```
+
+公开 showcase 经 `engine_project_export` 导出后运行 `engine-showcase.exe --frames 420`，DirectX 12 正常初始化，影片开始后约 5 秒输出 `Packaged gameplay started`，420 帧正常退出，退出码 0。导出包含 1370 项资源、2 个资源文件。本机日志位于忽略目录 `build/review-drafts/movie-fix-*.log`，不提交构建产物。
+
+真实 GPU 测试需配置 `ENGINE_ENABLE_GPU_TESTS=ON`；本次已开启。音频自动测试使用 SDL dummy，验证队列、状态及生命周期，不代表扬声器端精确音画同步验收；macOS／Android／iOS 及硬件 SIMD 性能未在本机复验。
+
+
 ### 2026-11-04：V8 15.7 与升级后完整依赖，macOS ARM64 / Metal
 
 固定 V8 15.7.112.23 的正式工具链完成 macOS 13.3 部署目标下的实际重编：Debug 库 1,670 项、Release 库 1,655 项均成功；只执行 Release 上游 `Hello, World!`。保留 sandbox，使用已验证的厂商 libc++ EXTENSIVE 硬化，不以关闭安全检查或可用性诊断通过编译。准备探针验证合法访问和 vector / span / string 越界 trap，所有 V8 C++ 编译均强制版本 / 硬化模式守卫。随后根 Presets `local-ninja-v8-release` / `local-ninja-v8-debug` 全目标构建成功，包含本轮 Quill / SDL 日志桥；Debug 只编译。

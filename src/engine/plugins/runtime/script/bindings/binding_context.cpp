@@ -19,7 +19,8 @@ namespace engine::plugins::script::bindings
 {
 BindingContext::BindingContext(WorldSystem* world, RenderSystem* renderer, UiSystem* ui,
                                PhysicsSystem* physics, NavigationSystem* navigation,
-                               InputSystem* input, WindowSystem* window, MoviePlayer* movies) noexcept
+                               InputSystem* input, WindowSystem* window,
+                               MoviePlayer* movies) noexcept
     : world_(world), renderer_(renderer), ui_(ui), physics_(physics), navigation_(navigation),
       input_(input), window_(window), movies_(movies)
 {
@@ -65,7 +66,10 @@ void BindingContext::cancel_movies() noexcept
     movie_handle_ = {};
 }
 
-MoviePlayer* BindingContext::movies() const noexcept { return movies_; }
+MoviePlayer* BindingContext::movies() const noexcept
+{
+    return movies_;
+}
 bool BindingContext::remember_movie(MoviePlaybackHandle handle) noexcept
 {
     if (movie_handle_.id || !handle.id)

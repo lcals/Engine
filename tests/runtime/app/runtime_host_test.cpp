@@ -1,3 +1,4 @@
+#include "movie_fixture.hpp"
 #include "resource_fixture.hpp"
 #include "runtime_settings_fixture.hpp"
 
@@ -6,6 +7,7 @@
 #include "runtime/gameplay/gameplay_session.hpp"
 #include "runtime/gameplay/script_runtime.hpp"
 #include "runtime/movie/movie_frame.hpp"
+#include "runtime/movie/movie_player.hpp"
 #include "runtime/render/render_system.hpp"
 #include "runtime/task/task_system.hpp"
 
@@ -13,10 +15,13 @@
 #include <nlohmann/json.hpp>
 
 #include <array>
+#include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <thread>
 
 namespace
 {
@@ -261,6 +266,65 @@ bool test_movie_presentation(const EngineConfig& config, const RuntimeParallelCo
     return expect(!renderer->present_movie_frame(frame), "truncated movie plane is rejected");
 }
 
+bool test_movie_clock_and_startup(const EngineConfig& config, const RuntimeParallelConfig& parallel)
+{
+    test_support::ResourceFixture fixture;
+    ResourceSystem resources;
+    RuntimeHost host;
+    if (!resources.initialize(config) || !test_support::make_movie(fixture, 90, 30) ||
+        !fixture.publish(resources) ||
+        !host.initialize_presentation(config, &resources, nullptr, parallel))
+    {
+        return false;
+    }
+    auto catalog = std::make_shared<ResourceCatalog>(resources.catalog());
+    auto mounts = std::make_shared<MountList>(MountList{{"content", fixture.root}});
+    const auto generation = resources.generation();
+    auto& player = *host.movie_player();
+    MoviePlaybackHandle handle;
+    if (!player.play("movies/test.mp4", handle) ||
+        !host.begin_gameplay(nullptr, nullptr, nullptr, catalog, mounts) ||
+        !expect(host.step_gameplay(0.002) == RuntimeStartupStatus::preparing && !host.world(),
+                "world preparation waits for this movie's submitted first frame"))
+    {
+        return false;
+    }
+    MovieFrame frame;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+    while (!player.frame(handle, frame) && std::chrono::steady_clock::now() < deadline)
+    {
+        if (host.tick(0) != FrameStatus::running)
+        {
+            return false;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    MoviePlaybackStatus playback;
+    if (!expect(player.frame(handle, frame) && host.tick(1.25) == FrameStatus::running &&
+                    player.status(handle, playback) &&
+                    std::abs(playback.position_seconds - 1.25) < 0.0001,
+                "silent movie receives full wall time beyond the simulation step cap"))
+    {
+        return false;
+    }
+    RuntimeStartupStatus startup = RuntimeStartupStatus::preparing;
+    while (startup == RuntimeStartupStatus::preparing &&
+           std::chrono::steady_clock::now() < deadline)
+    {
+        startup = host.step_gameplay(0.002);
+        if (host.tick(0) != FrameStatus::running)
+        {
+            return false;
+        }
+    }
+    return expect(startup == RuntimeStartupStatus::ready && host.world() &&
+                      player.status(handle, playback) && playback.state == MovieState::playing &&
+                      resources.generation() == generation,
+                  "staged preparation preserves the intro and submitted catalog") &&
+           player.stop(handle, MovieStopReason::skipped) && player.release(handle) &&
+           host.activate_gameplay() && host.tick(0) == FrameStatus::running;
+}
+
 bool test_deployment_selection(const EngineConfig& config, const RuntimeParallelConfig& parallel)
 {
     RuntimeHost host;
@@ -382,6 +446,7 @@ int main(int, char**)
     settings.engine.height = 240;
     settings.engine.window_title = "Runtime host contract test";
     const bool success = test_movie_presentation(settings.engine, settings.parallel) &&
+                         test_movie_clock_and_startup(settings.engine, settings.parallel) &&
                          test_completion_fairness(settings.engine, settings.parallel) &&
                          test_deployment_selection(settings.engine, settings.parallel);
     App::shutdown();

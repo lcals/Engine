@@ -939,6 +939,10 @@ if(TARGET engine_asset_import)
 
     add_executable(engine_movie_pipeline_test plugins/editor/asset_import/movie_pipeline_test.cpp)
     target_link_libraries(engine_movie_pipeline_test PRIVATE engine::asset_import engine::resource)
+    if(TARGET engine_asset_build)
+        target_link_libraries(engine_movie_pipeline_test PRIVATE engine::asset_build)
+        target_compile_definitions(engine_movie_pipeline_test PRIVATE ENGINE_TEST_MOVIE_BUILD=1)
+    endif()
     engine_apply_options(engine_movie_pipeline_test)
     add_test(NAME editor.movie_pipeline COMMAND engine_movie_pipeline_test
              "${PROJECT_SOURCE_DIR}/projects/showcase/assets/movies/lcals.mp4")
@@ -1253,6 +1257,7 @@ if(TARGET engine_runtime)
     target_compile_definitions(engine_runtime_host_test PRIVATE
                                JSON_NOEXCEPTION=1
                                ENGINE_TEST_RUNTIME_SETTINGS="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/runtime-settings.json")
+    target_link_libraries(engine_runtime_host_test PRIVATE unofficial::libvpx::libvpx)
     engine_apply_options(engine_runtime_host_test)
     if(ENGINE_ENABLE_GPU_TESTS)
         add_test(NAME engine.runtime_host COMMAND engine_runtime_host_test)

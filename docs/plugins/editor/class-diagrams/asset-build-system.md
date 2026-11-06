@@ -23,6 +23,10 @@ classDiagram
         #on_shutdown() void
     }
     class AssetPipelineSystem
+    class ResourceCatalog
+    class AssetEntryT
+    AssetBuildSystem ..> ResourceCatalog : 按实际运行引用收集闭包
+    AssetBuildSystem ..> AssetEntryT : 校验 movie 类型并遍历真实依赖
     class ResourceBuildStats {
         <<struct>>
         +size_t resource_count
@@ -66,6 +70,10 @@ classDiagram
 ```
 
 `AssetCatalogDataT` 来自 FlatBuffers Schema，其运行清单及存储映射契约由[资源系统](../../../runtime/class-diagrams/resource-system.md)维护。构建系统生成磁盘输出，`build()` 不返回资源实体集合，也不调用核心激活新清单。编辑器协调层直接调用 `update_catalog(data, mounts)`；真机启动读取并更新一次运行清单。
+
+## 启动影片入口
+
+`build()` 读取可选 `settings/runtime-game.toml` 的 `startup_movie`，按 `[common]` 再目标 `[platform.<name>]` 覆盖；缺项或空值不增加入口，类型或路径非法则失败。显式值必须定位 kind=movie 的资源。影片与真实音轨依赖始终进入最终闭包，适用于选择部分 items、空 roots 与全量构建。已被显式项选中的资源保持原存储选择；自动补入的资源只追加标准 gen/GUID 散文件，不重复打包、不要求业务维护额外 roots。源配置读取和此选择策略属于编辑器构建插件，核心加载器不读取项目配置。
 
 ## 生命周期和失败约定
 

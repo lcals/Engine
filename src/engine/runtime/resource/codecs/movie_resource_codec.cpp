@@ -31,9 +31,8 @@ bool valid_video(const schema::MovieVideoData& video) noexcept
 {
     const auto* color = video.color();
     const auto* payload = video.payload();
-    if (!payload || !color || video.width() == 0 || video.height() == 0 ||
-        video.width() > 1920 || video.height() > 1080 || video.frame_rate_num() == 0 ||
-        video.frame_rate_den() == 0 ||
+    if (!payload || !color || video.width() == 0 || video.height() == 0 || video.width() > 1920 ||
+        video.height() > 1080 || video.frame_rate_num() == 0 || video.frame_rate_den() == 0 ||
         std::uint64_t{video.frame_rate_num()} > std::uint64_t{video.frame_rate_den()} * 60 ||
         video.time_base_num() != video.frame_rate_den() ||
         video.time_base_den() != video.frame_rate_num() || video.frame_count() == 0 ||
@@ -104,10 +103,10 @@ bool MovieResourceCodec::decode(const ResourceCatalog& catalog, ByteView payload
         return false;
     }
     const auto* audio = movie->audio_guid();
-    if ((!audio || audio->size() == 0) ? !output.info().dependencies.empty()
-                                      : output.info().dependencies.size() != 1 ||
-                                            !declares(catalog, output, audio->string_view(),
-                                                      schema::AssetKind::audio))
+    if ((!audio || audio->size() == 0)
+            ? !output.info().dependencies.empty()
+            : output.info().dependencies.size() != 1 ||
+                  !declares(catalog, output, audio->string_view(), schema::AssetKind::audio))
     {
         return false;
     }
@@ -116,7 +115,7 @@ bool MovieResourceCodec::decode(const ResourceCatalog& catalog, ByteView payload
 }
 
 bool MovieResourceCodec::validate_dependencies(const ResourceCatalog&, const Resource& resource,
-                                                std::span<const ResourcePtr> dependencies) const
+                                               std::span<const ResourcePtr> dependencies) const
 {
     const auto bytes = resource.bytes();
     if (bytes.empty())

@@ -21,6 +21,7 @@
 #include "runtime/window/window_system.hpp"
 #include "runtime/world/world_system.hpp"
 
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cmath>
@@ -39,11 +40,10 @@ MovieFrame startup_black_frame()
     frame.width = 2;
     frame.height = 2;
     frame.format = schema::MoviePixelFormat::nv12;
-    frame.color = schema::MovieColorInfo(schema::MovieColorPrimaries::bt709,
-                                         schema::MovieTransfer::srgb,
-                                         schema::MovieColorMatrix::bt709,
-                                         schema::MovieColorRange::limited,
-                                         schema::MovieChromaLocation::center);
+    frame.color =
+        schema::MovieColorInfo(schema::MovieColorPrimaries::bt709, schema::MovieTransfer::srgb,
+                               schema::MovieColorMatrix::bt709, schema::MovieColorRange::limited,
+                               schema::MovieChromaLocation::center);
     frame.planes[0] = {luma, 2, 2, 2};
     frame.planes[1] = {chroma, 1, 1, 2};
     return frame;
@@ -364,7 +364,8 @@ FrameStatus RuntimeHost::tick(double delta_time)
     {
         return events;
     }
-    if (gameplay_active_ && !engine_.tick(delta_time))
+    const double movie_delta = std::exchange(movie_clock_paused_, false) ? 0.0 : delta_time;
+    if (gameplay_active_ && !engine_.tick(std::min(delta_time, 0.1)))
     {
         failed_ = true;
         return FrameStatus::failed;
@@ -385,7 +386,7 @@ FrameStatus RuntimeHost::tick(double delta_time)
         failed_ = true;
         return FrameStatus::failed;
     }
-    if (!movie_player_->update(delta_time))
+    if (!movie_player_->update(movie_delta))
     {
         failed_ = true;
         return FrameStatus::failed;
@@ -408,10 +409,10 @@ FrameStatus RuntimeHost::tick(double delta_time)
         // 平台暂停可以在本帧检查之后到达，等待恢复而不锁定为失败。
         if (!window_->can_render())
         {
+            movie_clock_paused_ = true;
             return FrameStatus::paused;
         }
-        if (!showing_movie && gameplay_active_ && world_ && gameplay_ &&
-            !world_->scenes().empty())
+        if (!showing_movie && gameplay_active_ && world_ && gameplay_ && !world_->scenes().empty())
         {
             gameplay_->stop("Project rendering failed; the project was stopped");
             if (renderer_->render())
@@ -491,7 +492,12 @@ FrameStatus RuntimeHost::poll_events(double delta_time)
         failed_ = true;
         return FrameStatus::failed;
     }
-    return window_->can_render() ? FrameStatus::running : FrameStatus::paused;
+    if (!window_->can_render())
+    {
+        movie_clock_paused_ = true;
+        return FrameStatus::paused;
+    }
+    return FrameStatus::running;
 }
 
 void RuntimeHost::set_event_observer(WindowEventHandler observer, void* context) noexcept
@@ -610,6 +616,7 @@ void RuntimeHost::shutdown() noexcept
     startup_scene_.clear();
     presented_movie_id_ = 0;
     presented_movie_generation_ = 0;
+    movie_clock_paused_ = false;
 }
 
 } // namespace engine

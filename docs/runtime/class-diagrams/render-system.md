@@ -1,6 +1,6 @@
 # 渲染系统
 
-无场景 YUV 影片呈现及世界借用绑定见[影片播放器](movie-player.md#帧视图与呈现)。现已支持帧呈现与绑定；完整启动交接仍在实现。
+无场景 YUV 影片呈现及世界借用绑定见[影片播放器](movie-player.md#帧视图与呈现)。现已支持帧呈现与绑定；启动交接契约见[影片启动](movie-startup.md)。
 
 [类图索引](../../class-diagrams/index.md) · [引擎与系统](engine-system.md) · [完整引用关系](../../class-diagrams/references.md)
 
@@ -17,6 +17,8 @@ VSync 请求在下一次可提交的帧应用。场景纹理准备和截图编�
 ```mermaid
 classDiagram
     class RenderSystem
+    class MovieFrame
+    RenderSystem ..> MovieFrame : 本次呈现借用 YUV 平面
     class SceneGpuResources {
         <<private>>
         +initialize() bool
@@ -287,6 +289,8 @@ classDiagram
         <<final>>
         +RenderSystem(WindowSystem& windows, WorldSystem#42; world, FontSystem#42; fonts, UiSystem#42; ui, TaskSystem#42; tasks = nullptr, const RenderConfig& config = #123;#125;)
         +~RenderSystem()
+        +bind_world(WorldSystem#42; world, FontSystem#42; fonts, UiSystem#42; ui) bool
+        +present_movie_frame(const MovieFrame& frame) bool
         +add_extension(RenderExtension& extension) bool
         +remove_extension(RenderExtension& extension) bool
         +prepare_scene(Camera camera) bool

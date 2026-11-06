@@ -8,13 +8,11 @@
 #endif
 #include "runtime/app/app.hpp"
 #include "runtime/audio/audio_system.hpp"
-#include "runtime/movie/movie_player.hpp"
-#include "runtime/task/task_system.hpp"
-#include "runtime/task/thread_system.hpp"
 #include "runtime/engine.hpp"
 #include "runtime/engine_config.hpp"
 #include "runtime/input/input_system.hpp"
 #include "runtime/log/log_system.hpp"
+#include "runtime/movie/movie_player.hpp"
 #include "runtime/physics/physics_system.hpp"
 #include "runtime/render/render_system.hpp"
 #include "runtime/resource/resource_system.hpp"
@@ -27,6 +25,8 @@
 #include "runtime/scene/rigid_body.hpp"
 #include "runtime/scene/scene.hpp"
 #include "runtime/scene/transform.hpp"
+#include "runtime/task/task_system.hpp"
+#include "runtime/task/thread_system.hpp"
 #include "runtime/utils/path_utils.hpp"
 #include "runtime/window/window_system.hpp"
 #include "runtime/world/world_system.hpp"
@@ -3080,7 +3080,7 @@ bool run_movie_binding_cases(const fs::path& workspace)
     }
     MoviePlayer player(*resources, tasks, audio);
     engine::plugins::script::ScriptSystem script(nullptr, nullptr, nullptr, nullptr, nullptr,
-                                                  nullptr, nullptr, nullptr, &player);
+                                                 nullptr, nullptr, nullptr, &player);
     constexpr auto source = R"js(
 import { Gameplay, Movie, MovieState, MovieStopReason } from 'engine';
 const topBlocked = Movie.Play('movies/test.mp4') === null;
@@ -3101,7 +3101,8 @@ export default class extends Gameplay {
 )js";
     Fixture candidate;
     if (!script.initialize({}) ||
-        !fixture(workspace, "movie-binding", {{"scripts/game.js", source}}, candidate, {}, {}, {}, "placeholder") ||
+        !fixture(workspace, "movie-binding", {{"scripts/game.js", source}}, candidate, {}, {}, {},
+                 "placeholder") ||
         !apply(script, candidate))
     {
         return expect(false, "run movie facade from active gameplay");
@@ -3112,7 +3113,8 @@ export default class extends Gameplay {
         return false;
     }
     script.stop_gameplay();
-    const bool cleaned = expect(!player.current_handle(current), "run shutdown cancels and releases its movie");
+    const bool cleaned =
+        expect(!player.current_handle(current), "run shutdown cancels and releases its movie");
     script.shutdown();
     resources->shutdown_async();
     return cleaned;
@@ -3167,8 +3169,8 @@ int main(int argc, char** argv)
         run_frame_rate_binding_cases(workspace) && run_json_binding_cases(workspace) &&
         run_storage_binding_cases(workspace) && run_input_binding_cases(workspace) &&
         run_runtime_control_cases(workspace) && run_step_loading_cases(workspace) &&
-        run_movie_binding_cases(workspace) &&
-        run_shooting_query_cases(workspace) && run_physics_interaction_binding_cases(workspace) &&
+        run_movie_binding_cases(workspace) && run_shooting_query_cases(workspace) &&
+        run_physics_interaction_binding_cases(workspace) &&
         run_physics_subscription_cases(workspace) &&
         run_physics_subscription_scene_cases(workspace) &&
         run_persistent_physics_subscription_cases(workspace) &&

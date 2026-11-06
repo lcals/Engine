@@ -28,8 +28,8 @@ public:
     explicit ScriptSystem(WorldSystem* world = nullptr, RenderSystem* renderer = nullptr,
                           UiSystem* ui = nullptr, PhysicsSystem* physics = nullptr,
                           NavigationSystem* navigation = nullptr, InputSystem* input = nullptr,
-                          WindowSystem* window = nullptr,
-                          AnimationSystem* animation = nullptr, MoviePlayer* movies = nullptr) noexcept;
+                          WindowSystem* window = nullptr, AnimationSystem* animation = nullptr,
+                          MoviePlayer* movies = nullptr) noexcept;
     ~ScriptSystem() noexcept override;
 
     // 预检只读取候选目录，不执行用户代码、不改变活动资源或旧玩法。

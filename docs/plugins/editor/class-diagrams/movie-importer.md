@@ -6,13 +6,13 @@
 
 ## 当前实现范围
 
-`MovieImporter` 已登记到编辑器、构建和 MCP 宿主，支持 MP4/MOV 第一个视频及可选第一个音频流。视频离线转为 30 fps、VP9 Profile 0、8 位 YUV420P 的 IVF；音频转为独立 AudioClip 并按视频帧数补齐或裁剪。当前接受 120 秒以内、偶数尺寸且不超过 1920×1080 的 SDR 影片，有明确色彩标记时要求 BT.709，拒绝其他色域或传递函数；缺少色彩标记时按 BT.709 解释；`[movie].audio` 可控制音轨导入，`[audio]` 使用现有采样率、声道和增益语义。原始文件及相邻 meta 保留，音轨子 GUID 在禁用后保留以备恢复。
+`MovieImporter` 已登记到编辑器、构建和 MCP 宿主，支持 MP4/MOV 第一个视频及可选第一个音频流。视频离线转为 30 fps、VP9 Profile 0、8 位 YUV420P 的 IVF；音频转为独立 AudioClip 并按视频帧数补齐或裁剪。当前接受 120 秒以内的 SDR 影片；输出为偶数尺寸、方形像素且不超过 1920×1080，有明确色彩标记时要求 BT.709，拒绝其他色域或传递函数；缺少色彩标记时按 BT.709 解释；`[movie].audio` 可控制音轨导入，`[audio]` 使用现有采样率、声道和增益语义。原始文件及相邻 meta 保留，音轨子 GUID 在禁用后保留以备恢复。
 
 FFmpeg 与 ffprobe 从编辑器工具目录或明确配置的开发工具路径定位，工具版本与文件内容参与增量指纹；输出和工具执行时间有界。公开工具函数已支持合作取消并回收子进程，`ImportContext` 可传入取消检查；当前 `build_assets()` 仍是同步入口，尚未实现批次取消与异步发现，下文相关状态和 MCP 作业接口仍是目标而非现状。更多源参数、音轨选择、任意剪裁和细粒度进度也尚未实现。
 
 ## 类、签名与关系
 
-`MovieImporter` 属于 `engine::plugins::asset_import`，加入已有 `editor/asset_import` 插件；不新增插件、System、Manager 或注册门面。公开头规划为 `include/engine/plugins/editor/asset_import/movie_importer.hpp`，实现规划为对应 `src/engine/plugins/editor/asset_import/movie_importer.cpp`。
+`MovieImporter` 属于 `engine::plugins::asset_import`，加入已有 `editor/asset_import` 插件；不新增插件、System、Manager 或注册门面。公开头为 `include/engine/plugins/editor/asset_import/movie_importer.hpp`，实现为对应 `src/engine/plugins/editor/asset_import/movie_importer.cpp`。
 
 图中只定义本导入器的必要覆盖方法；其他节点是既有类型或跨图引用，不重复定义其方法。
 
@@ -98,15 +98,15 @@ classDiagram
 
 ## 参数、源处理与指纹
 
-导入参数保存在原始文件邻接 meta 的 `[movie]`，涵盖所选视频流、裁剪区间、目标尺寸、帧率、视频质量与是否提取音轨；只公布最终实现已支持的参数和值域。既有身份字段及 `[[subresources]]` 仍由管线维护，编辑命令不得覆盖。
+导入参数保存在原始文件邻接 meta：`[movie].audio` 控制是否提取首条音轨；`[audio]` 提供 sample_rate、channels 与 gain。视频选择首条流，尺寸按显示比例归一化，帧率与质量使用下述固定设置；当前不提供剪裁区间或多流选择参数。既有身份字段及 `[[subresources]]` 仍由管线维护，编辑命令不得覆盖。
 
 音轨的采样率、声道与 gain 沿用现有音频导入参数语义，不在 `[movie]` 再造一套同义设置。MovieImporter 拆出所选音轨后生成现有 `AudioClipDataT`，复用音频规范化和校验能力；原始 MP4/MOV 不伪装为 WAV 后交给仅识别 WAV 的 `AudioImporter`。启动时长、启动后场景和是否等待业务准备属于调用方，不能写进导入器策略。
 
-原始容器的旋转、显示尺寸、帧率、颜色信息和时间戳属于导入器的识别与归一化职责。视频与音轨使用同一个裁剪区间并归零到共同时间原点，写入影片 Schema 要求的有理时间与颜色描述；不能分别截取后靠运行时猜测偏移。首版按播放器的 SDR 8 位边界验证，尚未实现的 HDR 转换等输入明确拒绝，不静默错标颜色或丢失时间信息。
+原始容器的旋转、显示尺寸、帧率、颜色信息和时间戳属于导入器的识别与归一化职责。解析源 SAR；直角旋转时同步交换尺寸与反转 SAR。以实际显示宽高比计算偶数目标尺寸，等比限制到 1920×1080，再通过 scale 与 setsar=1 生成方形像素；不能只丢弃 SAR 标记。尺寸舍入误差限定在目标像素取整范围，不可表示或非法比例明确失败。视频与音轨按同一容器时间范围并归零到共同时间原点，写入影片 Schema 要求的有理时间与颜色描述；不能分别截取后靠运行时猜测偏移。首版按播放器的 SDR 8 位边界验证，尚未实现的 HDR 转换等输入明确拒绝，不静默错标颜色或丢失时间信息。
 
-`inspect_batch()` 的工具指纹包含导入器版本、最终输出 `encoding_version`、Movie/Audio 相关 Schema、选定离线工具版本及影响输出的编码配置；源字节与完整 meta 摘要继续由管线记录。`target_platform` 沿用既有批次输入，不在单个资源选择解码后端。当前尚未选定的编码器名称、码率映射、质量档位及源格式支持范围不写成已实现能力。
+`inspect_batch()` 的工具指纹包含导入器版本、最终输出 `encoding_version`、Movie/Audio 相关 Schema、选定离线工具版本及影响输出的编码配置；源字节与完整 meta 摘要继续由管线记录。`target_platform` 沿用既有批次输入，不在单个资源选择解码后端。当前固定 libvpx-vp9、30 fps 与 CRF 32；归一化规则变化提升工具指纹版本，旧缓存必须重导入。未开放的质量与剪裁参数不写成已实现能力。
 
-`convert()` 根据 `asset.subresource_key/kind` 生成本次请求的一项主 Movie 或 AudioClip，读取经过批次指纹检查的同一源与参数，验证实际输入与发现出的子资源一致；不额外维护一套前置探测结果缓存。视频分支不重复解码音频，音频分支不重复编码视频；若选定工具有自有线程，必须显式约束在导入预算内，不能由每项任务再启动无界并行。使用外部工具时通过[规划公开的 find_import_tool/run_import_tool](../../../editor/class-diagrams/asset-import-jobs.md#编辑器共享的最小离线工具函数)定位、合作取消和限制输出；现有 `src/` 私有 helper 不作为插件公开能力。直接链接库的方案须同样支持合作取消。成功退出仍须校验格式、边界、帧率、时长和音轨输出，不能只检查工具退出码。
+`convert()` 根据 `asset.subresource_key/kind` 生成本次请求的一项主 Movie 或 AudioClip，读取经过批次指纹检查的同一源与参数，验证实际输入与发现出的子资源一致；不额外维护一套前置探测结果缓存。视频分支不重复解码音频，音频分支不重复编码视频；若选定工具有自有线程，必须显式约束在导入预算内，不能由每项任务再启动无界并行。使用外部工具时通过[find_import_tool/run_import_tool](../../../editor/class-diagrams/asset-import-jobs.md#编辑器共享的最小离线工具函数)定位、合作取消和限制输出；现有 `src/` 私有 helper 不作为插件公开能力。直接链接库的方案须同样支持合作取消。成功退出仍须校验格式、边界、帧率、时长和音轨输出，不能只检查工具退出码。
 
 ## 依赖、任务与发布
 

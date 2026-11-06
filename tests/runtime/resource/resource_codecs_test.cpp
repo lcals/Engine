@@ -363,9 +363,9 @@ bool movie_codec_tests()
     video.frame_count = 1;
     video.color = std::make_unique<schema::MovieColorInfo>();
     // A bounded IVF envelope; VP9 bitstream validity is checked by the decoder, not this codec.
-    video.payload = {'D', 'K', 'I', 'F', 0, 0, 32, 0, 'V', 'P', '9', '0',
-                     2, 0, 2, 0, 30, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0,
-                     0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 42};
+    video.payload = {'D', 'K', 'I', 'F', 0, 0, 32, 0, 'V', 'P', '9', '0', 2, 0, 2,
+                     0,   30,  0,   0,   0, 1, 0,  0, 0,   1,   0,   0,   0, 0, 0,
+                     0,   0,   1,   0,   0, 0, 0,  0, 0,   0,   0,   0,   0, 0, 42};
     if (!add_payload(fixture, "valid.mov", schema::AssetKind::movie, pack(movie, "EMOV")))
     {
         return false;
@@ -385,7 +385,8 @@ bool movie_codec_tests()
     ResourcePtr value;
     return expect(fixture.load("valid.mov", value) && value && !value->bytes().empty(),
                   "valid movie envelope loads") &&
-           expect(resources.validate_dependencies(*value, {}), "silent movie has no dependencies") &&
+           expect(resources.validate_dependencies(*value, {}),
+                  "silent movie has no dependencies") &&
            expect(!fixture.load("truncated.mov", value) && !value,
                   "truncated IVF frame is rejected") &&
            expect(!fixture.load("bad-time.mov", value) && !value,

@@ -40,7 +40,9 @@ struct DecodedFrame
 
 struct Decoder
 {
-    explicit Decoder(ResourcePtr source) : resource(std::move(source)) {}
+    explicit Decoder(ResourcePtr source) : resource(std::move(source))
+    {
+    }
     ~Decoder() noexcept
     {
         if (initialized)
@@ -51,7 +53,7 @@ struct Decoder
     Decoder(const Decoder&) = delete;
     Decoder& operator=(const Decoder&) = delete;
 
-    bool decode()
+    bool decode(bool publish)
     {
         const auto bytes = resource->bytes();
         const auto* movie = schema::GetMovieData(bytes.data());
@@ -104,12 +106,17 @@ struct Decoder
                 error = "invalid VP9 output stride";
                 return false;
             }
+            if (!publish)
+            {
+                continue;
+            }
             auto& destination = frame.planes[plane];
             destination.resize(static_cast<std::size_t>(width) * height);
             for (std::uint32_t row = 0; row < height; ++row)
             {
                 std::memcpy(destination.data() + static_cast<std::size_t>(row) * width,
-                            image->planes[plane] + static_cast<std::size_t>(row) * image->stride[plane],
+                            image->planes[plane] +
+                                static_cast<std::size_t>(row) * image->stride[plane],
                             width);
             }
         }
@@ -118,7 +125,22 @@ struct Decoder
             error = "multiple output frames in a VP9 packet";
             return false;
         }
-        output = std::move(frame);
+        if (publish)
+        {
+            output = std::move(frame);
+        }
+        return true;
+    }
+
+    bool decode_until(std::uint32_t target)
+    {
+        while (index <= target)
+        {
+            if (cancelled.load(std::memory_order_relaxed) || !decode(index == target))
+            {
+                return false;
+            }
+        }
         return true;
     }
 
@@ -129,6 +151,7 @@ struct Decoder
     std::uint32_t index = 0;
     DecodedFrame output;
     std::string error;
+    std::atomic<bool> cancelled{false};
 };
 } // namespace
 
@@ -155,13 +178,22 @@ struct MoviePlayer::Impl
             return;
         }
         AudioPlaybackStatus playback;
-        if (audio.playback(voice, playback) &&
-            (playback.state == AudioVoiceState::playing || playback.state == AudioVoiceState::paused))
+        if (audio.playback(voice, playback) && (playback.state == AudioVoiceState::playing ||
+                                                playback.state == AudioVoiceState::paused))
         {
             (void)audio.stop(voice);
         }
         (void)audio.release(voice);
         voice = {};
+    }
+    void cancel_decode() noexcept
+    {
+        if (decoder)
+        {
+            decoder->cancelled.store(true, std::memory_order_relaxed);
+        }
+        decoder.reset();
+        pending = {};
     }
     void fail(std::string message)
     {
@@ -174,13 +206,13 @@ struct MoviePlayer::Impl
         has_next = false;
         load.reset();
         audio_load.reset();
-        decoder.reset();
-        pending = {};
+        cancel_decode();
     }
-    bool schedule()
+    bool schedule(std::uint32_t target)
     {
         auto job = decoder;
-        pending = tasks.submit("decode movie frame", [job] { return job->decode(); });
+        pending =
+            tasks.submit("decode movie frame", [job, target] { return job->decode_until(target); });
         if (!pending.valid())
         {
             fail("cannot submit movie decode task");
@@ -217,6 +249,7 @@ MoviePlayer::MoviePlayer(ResourceSystem& resources, TaskSystem& tasks, AudioSyst
 MoviePlayer::~MoviePlayer() noexcept
 {
     impl_->close_audio();
+    impl_->cancel_decode();
 }
 
 bool MoviePlayer::play(std::string_view path, MoviePlaybackHandle& output)
@@ -248,8 +281,7 @@ bool MoviePlayer::play(std::string_view path, MoviePlaybackHandle& output)
     p.state = {};
     p.movie.reset();
     p.clip.reset();
-    p.decoder.reset();
-    p.pending = {};
+    p.cancel_decode();
     p.has_current = false;
     p.has_next = false;
     output = p.active;
@@ -259,8 +291,8 @@ bool MoviePlayer::play(std::string_view path, MoviePlaybackHandle& output)
 bool MoviePlayer::set_paused(MoviePlaybackHandle handle, bool paused)
 {
     auto& p = *impl_;
-    if (!p.valid(handle) || (p.state.state != MovieState::playing &&
-                             p.state.state != MovieState::paused))
+    if (!p.valid(handle) ||
+        (p.state.state != MovieState::playing && p.state.state != MovieState::paused))
     {
         return false;
     }
@@ -272,8 +304,9 @@ bool MoviePlayer::set_paused(MoviePlaybackHandle handle, bool paused)
     {
         AudioPlaybackStatus playback;
         if (!p.audio.playback(p.voice, playback) ||
-            (playback.state != AudioVoiceState::completed &&
-             !p.audio.set_paused(p.voice, paused)))
+            (playback.state != AudioVoiceState::completed && !p.audio.set_paused(p.voice, paused) &&
+             (!p.audio.playback(p.voice, playback) ||
+              playback.state != AudioVoiceState::completed)))
         {
             p.fail("cannot pause or resume movie audio");
             return false;
@@ -307,8 +340,7 @@ bool MoviePlayer::stop(MoviePlaybackHandle handle, MovieStopReason reason)
     p.state.stop_reason = reason;
     p.load.reset();
     p.audio_load.reset();
-    p.decoder.reset();
-    p.pending = {};
+    p.cancel_decode();
     p.has_current = false;
     p.has_next = false;
     return true;
@@ -342,8 +374,7 @@ bool MoviePlayer::release(MoviePlaybackHandle handle)
     p.active = {};
     p.movie.reset();
     p.clip.reset();
-    p.decoder.reset();
-    p.pending = {};
+    p.cancel_decode();
     p.current = {};
     p.next = {};
     p.has_current = false;
@@ -357,6 +388,7 @@ bool MoviePlayer::update(double delta_time)
     if (!std::isfinite(delta_time) || delta_time < 0 || !p.resources.is_initialized() ||
         !p.tasks.is_initialized() || !p.audio.is_initialized())
     {
+        p.error = "invalid movie update time or services are not ready";
         return false;
     }
     if (!p.active.id || p.terminal() || p.state.state == MovieState::paused)
@@ -385,7 +417,8 @@ bool MoviePlayer::update(double delta_time)
             }
             p.movie = p.load->resource();
             p.load.reset();
-            if (!p.movie || p.movie->generation() != p.catalog_generation || p.movie->bytes().empty())
+            if (!p.movie || p.movie->generation() != p.catalog_generation ||
+                p.movie->bytes().empty())
             {
                 p.fail("invalid movie resource generation");
                 return true;
@@ -397,8 +430,9 @@ bool MoviePlayer::update(double delta_time)
             if (!p.audio_load)
             {
                 p.clip = p.resources.loader().find(guid->string_view());
-                if (!p.clip && (!p.resources.loader().begin_load(guid->string_view(), p.audio_load) ||
-                                !p.audio_load))
+                if (!p.clip &&
+                    (!p.resources.loader().begin_load(guid->string_view(), p.audio_load) ||
+                     !p.audio_load))
                 {
                     p.fail("movie audio asynchronous load could not be started");
                     return true;
@@ -429,7 +463,8 @@ bool MoviePlayer::update(double delta_time)
         if (!p.decoder)
         {
             const std::array<ResourcePtr, 1> deps{p.clip};
-            const auto dependencies = p.clip ? std::span<const ResourcePtr>(deps) : std::span<const ResourcePtr>();
+            const auto dependencies =
+                p.clip ? std::span<const ResourcePtr>(deps) : std::span<const ResourcePtr>();
             if (!p.resources.validate_dependencies(*p.movie, dependencies))
             {
                 p.fail("invalid movie dependencies");
@@ -439,13 +474,14 @@ bool MoviePlayer::update(double delta_time)
             p.state.duration_seconds = static_cast<double>(video->frame_count()) *
                                        video->frame_rate_den() / video->frame_rate_num();
             p.decoder = std::make_shared<Decoder>(p.movie);
-            if (!p.schedule())
+            if (!p.schedule(0))
             {
                 return true;
             }
         }
     }
-    if (p.pending.valid() && p.pending.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
+    if (p.pending.valid() &&
+        p.pending.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
     {
         if (!p.pending.get())
         {
@@ -491,13 +527,13 @@ bool MoviePlayer::update(double delta_time)
     }
     else
     {
-        p.state.position_seconds = std::min(p.state.duration_seconds,
-                                            p.state.position_seconds + delta_time);
+        p.state.position_seconds =
+            std::min(p.state.duration_seconds, p.state.position_seconds + delta_time);
     }
     const auto* video = schema::GetMovieData(p.movie->bytes().data())->video();
-    const double next_time = p.has_next ? static_cast<double>(p.next.index) * video->frame_rate_den() /
-                                             video->frame_rate_num()
-                                       : 0;
+    const double next_time = p.has_next ? static_cast<double>(p.next.index) *
+                                              video->frame_rate_den() / video->frame_rate_num()
+                                        : 0;
     if (p.has_next && p.state.position_seconds >= next_time)
     {
         p.current = std::move(p.next);
@@ -505,7 +541,14 @@ bool MoviePlayer::update(double delta_time)
     }
     if (!p.has_next && !p.pending.valid() && p.decoder->index < video->frame_count())
     {
-        (void)p.schedule();
+        const double frame_position =
+            p.state.position_seconds * video->frame_rate_num() / video->frame_rate_den();
+        const auto target = static_cast<std::uint32_t>(
+            std::min(frame_position, static_cast<double>(video->frame_count() - 1)));
+        if (!p.schedule(std::max(target, p.decoder->index)))
+        {
+            return true;
+        }
     }
     if (audio_finished && p.state.position_seconds >= p.state.duration_seconds &&
         p.current.index + 1 == video->frame_count() && !p.pending.valid() && !p.has_next)

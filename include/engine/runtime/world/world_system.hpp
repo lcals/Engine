@@ -47,9 +47,8 @@ public:
     // 已加载资源的主线程分帧恢复；0 表示拒绝，过期请求不能影响新的候选。
     [[nodiscard]] std::uint64_t begin_restore_scene(std::shared_ptr<const Resource> resource);
     // max_seconds 为 0 时使用配置；正数进一步收紧单次时间预算。
-    [[nodiscard]] SceneRestoreStatus step_restore_scene(std::uint64_t request,
-                                                        std::size_t node_budget,
-                                                        double max_seconds = 0.0);
+    [[nodiscard]] SceneRestoreStatus
+    step_restore_scene(std::uint64_t request, std::size_t node_budget, double max_seconds = 0.0);
     [[nodiscard]] Scene* commit_restore_scene(std::uint64_t request);
     void cancel_restore_scene(std::uint64_t request) noexcept;
     // 卸载玩法并取消恢复候选；保留常驻子树，释放旧场景根资源。
