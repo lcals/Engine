@@ -1235,6 +1235,7 @@ bool run_guid_cases(test_support::ResourceServices& services, const fs::path& wo
         return false;
     }
     engine::schema::SceneDataT data;
+    data.schema_version = 2;
     if (!scene->build_data(data))
     {
         return false;
@@ -2427,6 +2428,7 @@ bool run_step_loading_cases(test_support::ResourceServices& services, const fs::
     }
     auto* prototype = world.create_scene("step-loaded-scene");
     engine::schema::SceneDataT data;
+    data.schema_version = 2;
     if (!prototype || !prototype->create_node("Prepared node") || !prototype->build_data(data))
     {
         return false;

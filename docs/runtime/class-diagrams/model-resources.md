@@ -123,4 +123,4 @@ ModelNode 的 rotation 为角度制 Euler XYZ，Joint 和 RotationKey 为四元�
 
 Model 只维护当前格式 2，生成器必须显式写入版本；Schema 默认值 0 表示未声明格式并由解码器拒绝。删除已废弃的 `skeleton_guid`、`animations` 字段及 ModelAnimationData 表，不保留历史槽位或兼容模型。Schema 指纹变化触发编辑器重新导入缓存，旧运行包重新构建；运行解码器只接受当前格式。
 
-`ModelNodeDataT.source_key` 是源文件稳定层级路径：FBX 使用已消歧的节点路径，USD 使用 prim 路径；预制体用它保留模板节点身份，不使用数组下标。
+`ModelNodeDataT.source_key` 是源文件稳定层级路径，在同一 Model 内必须非空且唯一：FBX 使用已消歧的节点路径，USD 使用 prim 路径；预制体用它保留模板节点身份，不使用数组下标。Codec 与 Prefab 导入均拒绝缺失或重复的身份，不从节点名或父级关系补造旧版身份。

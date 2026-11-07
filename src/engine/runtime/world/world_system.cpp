@@ -106,7 +106,7 @@ std::uint64_t WorldSystem::begin_restore_scene(const ResourceHandle& handle)
         return 0;
     }
     const auto* data = resource.data<SceneResource>();
-    if (!data || !data->info || data->schema_version != 1)
+    if (!data || !data->info || data->schema_version != 2)
     {
         return 0;
     }

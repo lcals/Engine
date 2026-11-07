@@ -4,8 +4,6 @@ function(engine_configure_character_controller_editor_plugin)
                 src/engine/plugins/editor/character_controller/character_camera_codec.cpp
                 src/engine/plugins/editor/character_controller/character_visual_codec.cpp)
     add_library(engine::character_controller_editor ALIAS engine_character_controller_editor)
-    target_include_directories(engine_character_controller_editor
-                               PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
     get_target_property(_controller_toml_includes tomlplusplus::tomlplusplus
                         INTERFACE_INCLUDE_DIRECTORIES)
     target_include_directories(engine_character_controller_editor SYSTEM

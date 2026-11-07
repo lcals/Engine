@@ -48,6 +48,20 @@ bool validation()
         return false;
     }
     auto bad_model = good_model;
+    bad_model.nodes[0]->source_key.clear();
+    if (!expect(!engine::ModelResourceCodec::validate(bad_model),
+                "missing stable Model identity requires reimport"))
+    {
+        return false;
+    }
+    bad_model = good_model;
+    bad_model.nodes[1]->source_key = bad_model.nodes[0]->source_key;
+    if (!expect(!engine::ModelResourceCodec::validate(bad_model),
+                "duplicate stable Model identities are rejected"))
+    {
+        return false;
+    }
+    bad_model = good_model;
     bad_model.schema_version = 1;
     if (!expect(!engine::ModelResourceCodec::validate(bad_model),
                 "old Model version 1 requires explicit reimport"))

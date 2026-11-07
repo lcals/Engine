@@ -90,13 +90,13 @@ Json state(const Animator& value)
 }
 } // namespace
 
-bool register_animator(WorldSystem& world, EditorCommands& commands, NodeAliases& aliases)
+bool register_animator(WorldSystem& world, EditorCommands& commands, SceneCommands& scene_commands)
 {
     if (!register_component<Animator, schema::AnimatorDataT>(
-            world, commands, "animator", aliases,
-            [&world](const auto& args, auto& data, auto& prepared, auto& error)
+            world, scene_commands, commands, "animator",
+            [&world](Node, const auto& args, auto& data, auto& prepared, auto& error)
             { return read(world.resource_loader(), args, data, prepared, error); },
-            [&world](const auto& data) { return write(world.resource_loader(), data); }))
+            [&world](auto, const auto& data) { return write(world.resource_loader(), data); }))
     {
         return false;
     }

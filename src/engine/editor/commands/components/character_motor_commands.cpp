@@ -47,10 +47,14 @@ Json write(const schema::CharacterMotorDataT& value)
 
 } // namespace
 
-bool register_character_motor(WorldSystem& world, EditorCommands& commands, NodeAliases& aliases)
+bool register_character_motor(WorldSystem& world, EditorCommands& commands,
+                              SceneCommands& scene_commands)
 {
     return register_component<CharacterMotor, schema::CharacterMotorDataT>(
-        world, commands, "character_motor", aliases, read, write);
+        world, scene_commands, commands, "character_motor",
+        [](Node, const auto& args, auto& data, auto& prepared, auto& error)
+        { return read(args, data, prepared, error); },
+        [](auto, const auto& data) { return write(data); });
 }
 
 } // namespace engine::editor::components

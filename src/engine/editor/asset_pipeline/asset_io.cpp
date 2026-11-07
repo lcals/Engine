@@ -1,5 +1,6 @@
 #include "editor/asset_pipeline/asset_io.hpp"
 #include "runtime/resource/virtual_file_system.hpp"
+#include "runtime/utils/hash_utils.hpp"
 
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/utils/path_utils.hpp"
@@ -10,7 +11,6 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
-#include <cstdio>
 #include <span>
 #include <string>
 #include <system_error>
@@ -40,15 +40,7 @@ bool unused_file(const fs::path& path, std::string& error)
 
 std::string hash_bytes(std::span<const std::byte> bytes)
 {
-    std::uint64_t hash = 14695981039346656037ULL;
-    for (const auto value : bytes)
-    {
-        hash ^= std::to_integer<unsigned char>(value);
-        hash *= 1099511628211ULL;
-    }
-    std::array<char, 17> text{};
-    std::snprintf(text.data(), text.size(), "%016llx", static_cast<unsigned long long>(hash));
-    return text.data();
+    return hash::hex(hash::fnv1a(bytes));
 }
 
 std::string hash_text(const std::string& text)

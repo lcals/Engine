@@ -6,6 +6,41 @@
 
 **精简状态：字段编辑合并及共用 Target 已按确认类图实现；ComponentEdit 的完整快照契约保持。**
 
+## 组件命令共用接入
+
+公开头文件 `editor/commands/component_commands.hpp` 提供 `engine::editor::components` 普通函数和必要的类型模板。核心组件、角色插件与特效插件统一使用 `register_component<T, Data>(world, scene_commands, commands, name, read, write)`，登记 `set_<name>` / `get_<name>`；不另建命令注册表。
+
+- `Read(Node, const Json&, Data&, vector<ResourceReference>&, string&) -> bool` 只解析、校验类型字段并准备资源，不修改世界。`Write(T, const Data&) -> Json` 只返回类型字段；查询传入当前组件，设置准备传入空句柄，可据此只在查询中返回即时播放状态。
+- 公共流程负责目标解析、读取设置、保存前态、enabled 检查、身份字段和编辑准备。类型校验继续调用 `T::valid_settings`；输出使用既有生成 Data，不引入另一套持久模型。
+- `prepare_component_edit(WorldSystem&, SceneCommands&, Node, optional<ComponentDataT> before, ComponentDataT after, vector<ResourceReference> prepared, unique_ptr<EditorEdit>& output, string& error) -> bool` 供已有自定义命令使用。它验证当前节点与有效组件类型、取得稳定节点身份、捕获前后资源闭包版本，再创建私有 ComponentEdit。失败时 output 为空；成功转移记录和临时引用的所有权。准备不修改场景，资源只保活到首次 apply 完成，历史保留版本元数据。
+- `target`、带 error 的 `fields`、`number` 和三维 `vector` 是插件共用的最小参数工具；完整 Target、NodeAliases、PropertyEdit 和 ComponentEdit 留在 `src/`。编辑器拥有历史和身份，插件不直接构造具体事务。
+- SceneCommands 必须属于传入的 WorldSystem；两者及解析函数捕获的借用必须覆盖已登记命令的寿命。查询无副作用；自定义播放命令仍由特效模块拥有，地形与破坏保留各自领域事务。
+
+```mermaid
+classDiagram
+    class component_commands {
+        <<namespace functions>>
+        +register_component(WorldSystem&, SceneCommands&, EditorCommands&, string_view name, Read, Write) bool
+        +prepare_component_edit(WorldSystem&, SceneCommands&, Node, optional~ComponentDataT~ before, ComponentDataT after, vector~ResourceReference~ prepared, unique_ptr~EditorEdit~& output, string& error) bool
+    }
+    class ComponentEdit
+    class EditorEdit
+    class SceneCommands
+    class EditorCommands
+    class WorldSystem
+    class Node
+    class ComponentDataT
+    class ResourceReference
+    component_commands ..> ComponentEdit : 私有实现创建
+    component_commands ..> EditorEdit : 输出独占记录
+    component_commands --> SceneCommands : 借用稳定身份服务
+    component_commands --> WorldSystem : 借用世界
+    component_commands ..> Node : 本次值句柄
+    component_commands ..> ComponentDataT : 独立前后快照
+    component_commands ..> ResourceReference : 转移准备引用
+    EditorCommands *-- EditorEdit : 独占历史
+```
+
 ## 字段编辑合并目标
 
 TransformEdit、CameraEdit、LightEdit 收敛为同一个私有 `PropertyEdit<DataT>` 模板，DataT 直接使用相应生成的 TransformDataT、CameraDataT、LightDataT。类型文件保留参数解析、字段集合及类型校验，不再各自定义相同的记录容器和 apply/revert。类不导出到公开头文件，也不建立字段反射或第二套历史。

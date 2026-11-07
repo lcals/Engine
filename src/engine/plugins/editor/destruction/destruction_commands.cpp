@@ -2,7 +2,7 @@
 #include "editor/resource_access.hpp"
 #include "plugins/runtime/destruction/destruction_resource.hpp"
 
-#include "editor/commands/components/component_edit.hpp"
+#include "editor/commands/component_commands.hpp"
 #include "editor/commands/scene_commands.hpp"
 #include "plugins/editor/destruction/destruction_files.hpp"
 #include "plugins/editor/destruction/destruction_settings_edit.hpp"
@@ -10,6 +10,7 @@
 #include "plugins/runtime/destruction/destruction_component.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/scene/collider.hpp"
+#include "runtime/world/world_system.hpp"
 
 #include <iterator>
 #include <map>

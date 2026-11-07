@@ -158,6 +158,7 @@ bool write_text(const fs::path& path, std::string_view text)
 bool compound_scene_round_trip(const fs::path& root)
 {
     schema::SceneDataT source;
+    source.schema_version = 2;
     source.info = std::make_unique<schema::SceneInfoT>();
     source.info->name = "Compound collider";
     auto node = std::make_unique<schema::NodeDataT>();

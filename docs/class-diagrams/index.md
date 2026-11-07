@@ -10,6 +10,19 @@
 
 ## 全仓精简评审
 
+### 2026-11-07：重复流程与扩展边界精简
+
+**状态：已实现。受影响代码完成 Debug / Release 构建，15 项定向 Release 测试通过；验证范围见[测试记录](../testing.md#2026-11-07重复流程与扩展边界精简)。**
+
+本批按用户确认的六项精简方向实施：删除特效重复查询、角色控制器废弃字段和 Model 身份回退；组件命令共用编辑器流程；插件通过所属模块公开的最小扩展能力接入；七处 FNV 计算复用普通函数。只维护当前格式，源数据和调用方一次更新，旧缓存与运行包重新生成。
+
+- [组件命令](../editor/class-diagrams/component-commands.md)：公开登记和准备函数，编辑记录、身份映射和版本捕获仍由编辑器拥有；角色、特效与核心组件共用同一流程。
+- [编辑器扩展工具](../editor/class-diagrams/extension-tools.md)：导入、文件、资源准备与网格生成的公开函数；不公开管线内部调度或具体事务类。
+- [哈希函数](../runtime/class-diagrams/hash-utils.md)：固定 FNV-1a 64 位计算和小写十六进制格式；身份组装、文件读取与内容校验仍由调用方负责。
+- [Model](../runtime/class-diagrams/model-resources.md)要求非空且唯一的 `source_key`；[特效命令](../plugins/editor/class-diagrams/effect-importer.md)保留唯一查询入口 `get_effect`。CharacterControllerData 删除五个废弃相机字段，CharacterCameraData 继续拥有对应参数。
+
+地形与破坏的领域撤销、资源核心与资源插件的分工保持原有契约。本节实施状态和实际验证见 [测试记录](../testing.md)。
+
 ### 2026-11-07：模块边界与单一版本修复
 
 本批类图、实现与调用方已同步，验证见[测试记录](../testing.md#2026-11-07模块边界与单一版本修复)：组件设置只保留 `get_settings(output)`；Node 删除返回默认值的 `info()`，保存使用 `build_info(output)`，局部身份直接使用 `local_id()`。Component 的存储快照与保存快照有不同语义，分别使用返回状态的 `get_data(output)` 与 `build_data(output)`，不合并数据含义。

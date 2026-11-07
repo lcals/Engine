@@ -11,6 +11,16 @@
 #include "runtime/task/thread_system.hpp"
 #include "runtime/utils/path_utils.hpp"
 
+#if defined(ENGINE_TEST_EDITOR_COMMANDS)
+#include "editor/commands/editor_commands.hpp"
+#include "editor/commands/scene_commands.hpp"
+#include "plugins/editor/effects/effect_commands.hpp"
+#include "plugins/runtime/effects/effect_component.hpp"
+#include "runtime/scene/scene.hpp"
+#include "runtime/world/world_system.hpp"
+#include <nlohmann/json.hpp>
+#endif
+
 #include <Effekseer/IO/Effekseer.EfkEfcFactory.h>
 #include <flatbuffers/flatbuffers.h>
 #include <toml++/toml.hpp>
@@ -289,10 +299,66 @@ bool check_effect(const Project& project, const ResourceCatalog& catalog, std::s
     return true;
 }
 
+#if defined(ENGINE_TEST_EDITOR_COMMANDS)
+bool component_commands()
+{
+    using plugins::effects::EffectComponent;
+    using Json = nlohmann::json;
+    WorldSystem world;
+    if (!world.initialize(EngineConfig{}) || !world.component_registry().add<EffectComponent>() ||
+        !plugins::effects::register_effect_codec() || !world.create_scene("Effect commands"))
+    {
+        return false;
+    }
+    editor::SceneCommands scene_commands(world);
+    editor::EditorCommands commands([&world]() { return world.scene()->id(); });
+    if (!scene_commands.register_commands(commands) ||
+        !plugins::effects::register_effect_commands(world, scene_commands, commands))
+    {
+        return false;
+    }
+    const auto node = world.scene()->create_node("Effect");
+    const Json scene = {{"sceneId", std::to_string(world.scene()->id())}};
+    auto identity = scene;
+    identity["nodeId"] = std::to_string(node.id());
+    auto input = identity;
+    input["speed"] = 2.0;
+    Json result;
+    std::string error;
+    if (!expect(commands.execute("set_effect", input, result, error) && result["speed"] == 2.0 &&
+                    !result.contains("playing") &&
+                    commands.execute("get_effect", identity, result, error) &&
+                    result["speed"] == 2.0 && result["playing"] == false,
+                "shared effect settings command retains its query and result semantics") ||
+        !expect(!commands.execute("get_effect_state", identity, result, error),
+                "effect state has only one query entry") ||
+        !expect(commands.execute("undo", scene, result, error) &&
+                    !node.get_component<EffectComponent>() &&
+                    commands.execute("redo", scene, result, error) &&
+                    node.get_component<EffectComponent>(),
+                "effect settings use the editor's shared undo lifecycle"))
+    {
+        return false;
+    }
+    input["speed"] = -1;
+    const auto history = commands.undo_count();
+    return expect(
+        !commands.execute("set_effect", input, result, error) && commands.undo_count() == history &&
+            commands.execute("get_effect", identity, result, error) && result["speed"] == 2.0,
+        "invalid settings preserve the component and undo history");
+}
+#endif
+
 } // namespace
 
 int main(int argc, char** argv)
 {
+#if defined(ENGINE_TEST_EDITOR_COMMANDS)
+    if (!component_commands())
+    {
+        return 1;
+    }
+#endif
     Project project;
     constexpr std::string_view scene_guid = "10000000-0000-4000-8000-000000000003";
     const auto laser_guid = identity(1);

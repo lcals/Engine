@@ -26,10 +26,14 @@ Json write(const schema::AudioListenerDataT& value)
     return result;
 }
 } // namespace
-bool register_audio_listener(WorldSystem& world, EditorCommands& commands, NodeAliases& aliases)
+bool register_audio_listener(WorldSystem& world, EditorCommands& commands,
+                             SceneCommands& scene_commands)
 {
     if (!register_component<engine::AudioListener, schema::AudioListenerDataT>(
-            world, commands, "audio_listener", aliases, read, write))
+            world, scene_commands, commands, "audio_listener",
+            [](Node, const auto& args, auto& data, auto& prepared, auto& error)
+            { return read(args, data, prepared, error); },
+            [](auto, const auto& data) { return write(data); }))
     {
         return false;
     }

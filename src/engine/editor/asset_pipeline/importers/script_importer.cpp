@@ -8,10 +8,32 @@
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
+#include <system_error>
 #include <utility>
 
 namespace engine::editor::asset_pipeline
 {
+namespace
+{
+bool hash_optional_file(const std::filesystem::path& path, std::string& hash, std::string& error)
+{
+    std::error_code code;
+    const bool exists = std::filesystem::exists(path, code);
+    if (code)
+    {
+        error = "cannot inspect configuration: " + PathUtils::to_utf8(path);
+        return false;
+    }
+    if (!exists)
+    {
+        hash = "missing";
+        return true;
+    }
+    return file_hash(path, hash, error);
+}
+
+} // namespace
+
 schema::AssetKind ScriptImporter::kind() const noexcept
 {
     return schema::AssetKind::script;

@@ -1,5 +1,6 @@
 #include "editor/asset_pipeline/importers/shader_importer.hpp"
 #include "editor/asset_pipeline/importer_utils.hpp"
+#include "editor/asset_pipeline/material_parameters.hpp"
 
 #include "editor/asset_pipeline/asset_io.hpp"
 #include "editor/asset_pipeline/editor_tools.hpp"

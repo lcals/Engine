@@ -1,4 +1,5 @@
 #include "runtime/resource/resource_system.hpp"
+#include "runtime/utils/hash_utils.hpp"
 
 #include "runtime/resource/resource_read_state.hpp"
 #include "runtime/task/task_system.hpp"
@@ -41,20 +42,7 @@ bool matches_content(ByteView bytes, const schema::AssetEntryT& entry)
     {
         return false;
     }
-    std::uint64_t value = 14695981039346656037ULL;
-    for (std::byte byte : bytes)
-    {
-        value ^= std::to_integer<std::uint8_t>(byte);
-        value *= 1099511628211ULL;
-    }
-    constexpr char hex[] = "0123456789abcdef";
-    std::array<char, 16> actual{};
-    for (std::size_t index = actual.size(); index > 0; --index)
-    {
-        actual[index - 1] = hex[value & 15];
-        value >>= 4;
-    }
-    return entry.content_hash == std::string_view(actual.data(), actual.size());
+    return entry.content_hash == hash::hex(hash::fnv1a(bytes));
 }
 
 bool parse_header(const schema::AssetEntryT& entry, ByteView bytes,

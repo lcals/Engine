@@ -29,7 +29,7 @@ namespace
 
 bool validate_scene(const schema::SceneDataT& scene, std::string& error)
 {
-    if (scene.schema_version != 1 || scene.info == nullptr || scene.info->name.empty())
+    if (scene.schema_version != 2 || scene.info == nullptr || scene.info->name.empty())
     {
         error = "scene requires version 1 and a name";
         return false;
@@ -314,6 +314,7 @@ bool SceneImporter::read(const std::filesystem::path& source, schema::SceneDataT
     }
     const auto& table = parsed.table();
     schema::SceneDataT data;
+    data.schema_version = 2;
     data.info = std::make_unique<schema::SceneInfoT>();
     data.info->name = table["name"].value_or(std::string{});
     if (table.contains("active_camera") &&

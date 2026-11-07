@@ -60,7 +60,7 @@ classDiagram
 
 - `register_effect_codec()` 登记场景 TOML 编解码器；`EffectImporter` 由宿主交给现有 AssetPipelineSystem 登记。
 - `register_effect_commands(WorldSystem&, SceneCommands&, EditorCommands&)` 提供 `set_effect/get_effect`，沿用 `ComponentEdit` 与稳定节点身份实现撤销重做。`effect` 参数采用标准资源路径，查询同时返回 `effectGuid`。
-- `play_effect/pause_effect/stop_effect/get_effect_state` 操作当前场景组件的即时播放状态，不修改持久场景设置，也不进入撤销历史。
+- `get_effect` 是唯一查询入口，同时返回组件设置与即时播放状态；`play_effect/pause_effect/stop_effect` 操作当前场景组件的即时播放状态，不修改持久场景设置，也不进入撤销历史。不保留重复查询入口。
 - `register_effect_mcp_tools(McpSystem&, EditorMcpTools&)` 注册上述六项命令，全部要求当前 `sceneId/nodeId`；MCP 只转发参数，不持有特效算法或图形后端。
 
 本文件描述接口和边界，平台与实际效果验证以对应运行记录为准。

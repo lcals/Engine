@@ -69,6 +69,7 @@ bool run()
         }
     }
     schema::PrefabDataT source;
+    source.schema_version = 2;
     source.root_id = 9;
     // 根不要求排在源数组首项；撤销必须删除实际实例根。
     source.nodes.push_back(node_data(20, 9));

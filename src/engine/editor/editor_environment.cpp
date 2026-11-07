@@ -1,4 +1,5 @@
 #include "editor/editor_environment.hpp"
+#include "runtime/utils/hash_utils.hpp"
 
 #include "editor/asset_pipeline/project_lock.hpp"
 #include "editor/project/project_system.hpp"
@@ -24,20 +25,7 @@ namespace fs = std::filesystem;
 
 std::string application_name(const std::string& project_identity)
 {
-    std::uint64_t hash = 14695981039346656037ULL;
-    for (const unsigned char value : project_identity)
-    {
-        hash ^= value;
-        hash *= 1099511628211ULL;
-    }
-    constexpr char digits[] = "0123456789abcdef";
-    std::string suffix(16, '0');
-    for (std::size_t index = suffix.size(); index != 0; --index)
-    {
-        suffix[index - 1] = digits[hash & 15U];
-        hash >>= 4U;
-    }
-    return "engine-editor-" + suffix;
+    return "engine-editor-" + hash::hex(hash::fnv1a(project_identity));
 }
 } // namespace
 

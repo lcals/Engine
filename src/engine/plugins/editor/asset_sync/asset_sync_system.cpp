@@ -1,5 +1,6 @@
 #include "plugins/editor/asset_sync/asset_sync_system.hpp"
 #include "editor/file_text.hpp"
+#include "runtime/utils/hash_utils.hpp"
 
 #include "editor/asset_pipeline/project_lock.hpp"
 #include "runtime/resource/resource_system.hpp"
@@ -28,30 +29,6 @@ namespace
 
 namespace fs = std::filesystem;
 using Json = nlohmann::json;
-constexpr std::uint64_t fnv_offset = 14695981039346656037ULL;
-constexpr std::uint64_t fnv_prime = 1099511628211ULL;
-
-void hash_bytes(std::uint64_t& hash, std::string_view bytes)
-{
-    for (const unsigned char value : bytes)
-    {
-        hash ^= value;
-        hash *= fnv_prime;
-    }
-}
-
-std::string hex_hash(std::uint64_t hash)
-{
-    constexpr char digits[] = "0123456789abcdef";
-    std::string result(16, '0');
-    for (std::size_t i = result.size(); i != 0; --i)
-    {
-        result[i - 1] = digits[hash & 15U];
-        hash >>= 4U;
-    }
-    return result;
-}
-
 bool file_hash(const fs::path& path, std::string& hash, std::uint64_t& size)
 {
     hash.clear();
@@ -60,7 +37,7 @@ bool file_hash(const fs::path& path, std::string& hash, std::uint64_t& size)
     {
         return false;
     }
-    hash = hex_hash(value);
+    hash = hash::hex(value);
     return true;
 }
 
@@ -315,9 +292,7 @@ bool AssetSyncSystem::sync(const fs::path& source_cache, const fs::path& runtime
         deleted.erase(relative);
     }
     Json manifest = {{"entry", std::string(entry)}, {"files", files}, {"deleted", deleted}};
-    auto hash = fnv_offset;
-    hash_bytes(hash, manifest.dump());
-    const auto revision = hex_hash(hash);
+    const auto revision = hash::hex(hash::fnv1a(manifest.dump()));
     manifest["revision"] = revision;
     const auto final_directory = versions / revision;
     if (!no_symlinks(final_directory))

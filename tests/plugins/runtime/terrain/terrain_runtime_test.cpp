@@ -230,6 +230,7 @@ bool runtime_contract()
     auto renderer = node.get_component<MeshRenderer>();
     auto collider = node.get_component<Collider>();
     schema::SceneDataT scene_data;
+    scene_data.schema_version = 2;
     if (!expect(renderer && collider && renderer.transient() && collider.transient() &&
                     collider.mesh_data() == nullptr &&
                     test_support::scene_nodes(*scene).size() == 1 &&

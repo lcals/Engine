@@ -102,13 +102,14 @@ Json write(ResourceLoader* loader, const schema::AudioSourceDataT& value)
     return result;
 }
 } // namespace
-bool register_audio_source(WorldSystem& world, EditorCommands& commands, NodeAliases& aliases)
+bool register_audio_source(WorldSystem& world, EditorCommands& commands,
+                           SceneCommands& scene_commands)
 {
     if (!register_component<engine::AudioSource, schema::AudioSourceDataT>(
-            world, commands, "audio_source", aliases,
-            [&world](const auto& args, auto& data, auto& prepared, auto& error)
+            world, scene_commands, commands, "audio_source",
+            [&world](Node, const auto& args, auto& data, auto& prepared, auto& error)
             { return read(world.resource_loader(), args, data, prepared, error); },
-            [&world](const auto& data) { return write(world.resource_loader(), data); }))
+            [&world](auto, const auto& data) { return write(world.resource_loader(), data); }))
     {
         return false;
     }

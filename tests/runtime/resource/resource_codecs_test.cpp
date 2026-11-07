@@ -147,6 +147,7 @@ bool codec_tests()
         return false;
     }
     schema::SceneDataT scene;
+    scene.schema_version = 2;
     scene.info = std::make_unique<schema::SceneInfoT>();
     auto node = std::make_unique<schema::NodeDataT>();
     node->info = test_support::node_info();
@@ -313,7 +314,7 @@ bool codec_tests()
     material.type_path = "invalid.material";
     material.parameters.push_back(
         std::make_unique<schema::MaterialParameterT>(*material.parameters.front()));
-    scene.schema_version = 999;
+    scene.schema_version = 1;
     if (!fixture.add(mesh) || !fixture.add(texture) || !fixture.add(shader) ||
         !fixture.add(material) ||
         !add_payload(fixture, "invalid.scene", schema::AssetKind::scene, pack(scene, "ESCN"),
@@ -337,7 +338,7 @@ bool codec_tests()
     if (!expect(resource_detail::data<MeshResource>(mesh_resource.get()) &&
                     resource_detail::data<MeshResource>(mesh_resource.get())->path == "cube.mesh" &&
                     mesh_resource->generation() < resources.generation() &&
-                    resource_detail::data<SceneResource>(scene_resource.get())->schema_version == 1,
+                    resource_detail::data<SceneResource>(scene_resource.get())->schema_version == 2,
                 "failed new-generation decoding never mutates old live models"))
     {
         return false;

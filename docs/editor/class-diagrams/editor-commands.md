@@ -116,6 +116,6 @@ Prefab 编辑登记一个 `EditWrapper = std::function<bool(std::string_view, co
 
 ## 内部命令实现归属
 
-`SceneCommands` 保留场景/节点生命周期、活动相机选择、节点身份单元和显式命令登记。Transform、Camera、Light 的字段记录统一为 PropertyEdit<DataT>，各类型文件只提供准备与字段变更函数；材质编辑保留自身槽位和资源版本语义。所有记录继续派生同一个 EditorEdit，只有 EditorCommands 拥有事务和历史。共享 Target 及 JSON 数值校验留在 component_edit 内部实现，继续借用同一 NodeAliases，不另建注册表、状态镜像或命令框架。
+`SceneCommands` 保留场景/节点生命周期、活动相机选择、节点身份单元和显式命令登记。Transform、Camera、Light 的字段记录统一为 PropertyEdit<DataT>，各类型文件只提供准备与字段变更函数；材质编辑保留自身槽位和资源版本语义。所有记录继续派生同一个 EditorEdit，只有 EditorCommands 拥有事务和历史。共享 Target 和 NodeAliases 留在 component_edit 私有实现；插件通过 component_commands 公开的参数工具、登记与准备函数接入同一事务，不另建注册表、状态镜像或命令框架。
 
 `get_scene` 的分页和诊断快照位于 `commands/scene_query.cpp`；它不承担运行时名称/路径查询。材质快照和恢复归材质命令文件，供预制体事务复用。拆分只改变源文件归属，命令名称、参数、回执、字段级陈旧检查、批次回滚及创建后重做的节点身份均保持。

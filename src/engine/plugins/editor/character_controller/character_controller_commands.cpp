@@ -1,10 +1,11 @@
 #include "plugins/editor/character_controller/character_controller_commands.hpp"
 
+#include "editor/commands/component_commands.hpp"
 #include "plugins/editor/character_controller/character_camera_commands.hpp"
 #include "plugins/editor/character_controller/character_visual_commands.hpp"
-#include "plugins/editor/character_controller/component_commands.hpp"
 #include "plugins/runtime/character_controller/character_controller.hpp"
 #include "runtime/scene/camera.hpp"
+#include "runtime/world/world_system.hpp"
 
 namespace engine::plugins::character_controller
 {
@@ -85,8 +86,12 @@ Json write(const WorldSystem& world, const schema::CharacterControllerDataT& val
 bool register_controller_commands(WorldSystem& world, editor::SceneCommands& scene_commands,
                                   editor::EditorCommands& commands)
 {
-    return register_character_component<CharacterController, schema::CharacterControllerDataT>(
-               world, scene_commands, commands, "character_controller", read, write) &&
+    return editor::components::register_component<CharacterController,
+                                                  schema::CharacterControllerDataT>(
+               world, scene_commands, commands, "character_controller",
+               [&world](Node node, const auto& args, auto& data, auto&, auto& error)
+               { return read(world, node, args, data, error); },
+               [&world](auto, const auto& data) { return write(world, data); }) &&
            register_character_camera_commands(world, scene_commands, commands) &&
            register_character_visual_commands(world, scene_commands, commands);
 }

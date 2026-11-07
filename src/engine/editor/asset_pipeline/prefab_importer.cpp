@@ -1,4 +1,5 @@
 #include "editor/asset_pipeline/prefab_importer.hpp"
+#include "runtime/utils/hash_utils.hpp"
 
 #include "editor/asset_pipeline/components/scene_component_codec.hpp"
 #include "editor/asset_pipeline/importer_utils.hpp"
@@ -21,14 +22,9 @@ using Nodes = std::vector<std::unique_ptr<schema::NodeDataT>>;
 
 std::uint64_t stable_id(std::string_view key)
 {
-    std::uint64_t hash = 14695981039346656037ULL;
-    for (const unsigned char byte : key)
-    {
-        hash ^= byte;
-        hash *= 1099511628211ULL;
-    }
+    const auto value = hash::fnv1a(key);
     // 保留正常递增 ID 空间；碰撞由调用方明确拒绝。
-    return (hash & 0x3fffffffffffffffULL) | 0x4000000000000000ULL;
+    return (value & 0x3fffffffffffffffULL) | 0x4000000000000000ULL;
 }
 
 bool apply_nodes(Nodes& nodes,
@@ -155,6 +151,7 @@ bool PrefabImporter::read(const std::filesystem::path& source, schema::PrefabDat
         return false;
     }
     schema::PrefabDataT data;
+    data.schema_version = 2;
     if (!asset_pipeline::identifier(table.get("root"), data.root_id) || data.root_id == 0)
     {
         error = "Prefab requires a nonzero root ID";
@@ -280,6 +277,7 @@ bool PrefabImporter::validate(const schema::PrefabDataT& data, std::string& erro
         return false;
     }
     schema::SceneDataT scene;
+    scene.schema_version = 2;
     scene.info = std::make_unique<schema::SceneInfoT>();
     scene.info->name = "Prefab";
     for (const auto& node : data.nodes)
@@ -341,6 +339,7 @@ bool PrefabImporter::from_model(const schema::ModelDataT& model,
         return false;
     }
     schema::PrefabDataT result(in_out);
+    result.schema_version = 2;
     result.nodes.clear();
     if (result.root_id == 0)
     {
@@ -368,24 +367,10 @@ bool PrefabImporter::from_model(const schema::ModelDataT& model,
     transform->payload.Set(schema::TransformDataT{});
     root->components.push_back(std::move(transform));
     result.nodes.push_back(std::move(root));
-    std::vector<std::string> keys;
     std::vector<std::uint64_t> ids;
-    std::set<std::string> encountered;
     for (const auto& source : model.nodes)
     {
-        // Legacy Model producers may omit source_key; derive an unambiguous hierarchy path.
-        const auto key =
-            source->source_key.empty()
-                ? (source->parent < 0 ? std::string{}
-                                      : keys[static_cast<std::size_t>(source->parent)] + "/") +
-                      source->name
-                : source->source_key;
-        if (key.empty() || !encountered.insert(key).second)
-        {
-            error = "Model has missing or ambiguous stable node paths";
-            return false;
-        }
-        keys.push_back(key);
+        const auto& key = source->source_key;
         auto found = identities.find(key);
         if (found == identities.end())
         {

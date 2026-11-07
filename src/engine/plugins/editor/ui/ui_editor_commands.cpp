@@ -2,7 +2,7 @@
 #include "editor/resource_access.hpp"
 #include "runtime/resource/types/ui_resource.hpp"
 
-#include "editor/commands/components/component_edit.hpp"
+#include "editor/commands/component_commands.hpp"
 #include "editor/commands/scene_commands.hpp"
 #include "editor/scene/scene_preview.hpp"
 #include "plugins/editor/ui/ui_editor_state.hpp"
@@ -578,17 +578,14 @@ bool UiEditorCommands::State::edit_document(editor::SceneCommands& scene_command
         }
         after.flags->enabled = args["enabled"].get<bool>();
     }
-    std::vector<schema::AssetEntryT> versions{resource->info()};
-    const auto* previous =
-        component ? editor::resource_access::get(world.resource_loader(), component.document())
-                  : nullptr;
-    if (previous)
+    std::vector<ResourceReference> prepared;
+    prepared.push_back(std::move(resource));
+    if (!editor::components::prepare_component_edit(world, scene_commands, node, std::move(before),
+                                                    std::move(after), std::move(prepared), edit,
+                                                    error))
     {
-        versions.push_back(previous->info());
+        return false;
     }
-    edit = std::make_unique<editor::components::ComponentEdit>(
-        world, node.scene()->id(), scene_commands.node_identity(node.id()), std::move(before),
-        std::move(after), std::move(versions));
     result = {{"sceneId", std::to_string(node.scene()->id())},
               {"nodeId", std::to_string(node.id())},
               {"document", path},

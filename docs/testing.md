@@ -4,6 +4,24 @@
 
 验证记录只对注明的日期、平台、后端和范围负责。定向测试通过不表示全仓测试通过，历史实窗结果也不代表后续修改已跨平台验收。功能检查与性能验收分开；性能指标和采样口径见[性能文档](runtime/performance.md)。CI 仅手动触发。
 
+## 2026-11-07：重复流程与扩展边界精简
+
+按[本批类图](class-diagrams/index.md#2026-11-07重复流程与扩展边界精简)完成实现：组件命令共用登记和准备流程，具体事务继续私有；插件不再包含编辑器私有头文件。删除重复特效查询、角色旧字段和 Model 身份回退，七处哈希计算共用核心函数。SceneData / PrefabData 当前版本统一为 2，默认版本 0 无效，旧缓存拒绝读取，由导入器按 Schema 指纹重新生成。
+
+验证环境为 Windows x64、MSVC、QuickJS：
+
+- 最终改动涉及的运行时、编辑器及插件库通过 `windows-static-debug` 构建。Debug 不运行测试。
+- `windows-static-release` 下 `engine_app`、`engine_project_app`、`editor_app`、`mcp_app`、`asset_build_app` 和下列 15 个测试程序编译、链接通过。
+- 定向 Release CTest **15/15 通过，2.37 秒**。覆盖共享命令的设置、查询、撤销/重做、非法输入与历史保护，UI 资源准备，场景和预制体保存/恢复、旧格式拒绝、Model 稳定身份、内容哈希与同步清单。
+- 源码包含和解析后 CMake 目标依赖的架构检查通过；插件对编辑器私有头文件的直接引用为零。修改文档的本地链接、代码围栏和类图花括号检查以及 `git diff --check` 通过。
+
+```powershell
+ctest --preset windows-static-release -R '^((editor\.(commands|physics_audio_commands|character_controller|effects_pipeline|ui_editor|prefab_pipeline|prefab_commands|scene_persistence))|(engine\.(resource_catalog|asset_sync|model_resource|scene_data|prefab|scene))|resource\.codecs)$' --output-on-failure -j 2
+python scripts/check_architecture.py --root . --targets build/windows-static-release/architecture --config Release
+```
+
+本批未执行全量 CTest、Debug 测试、其他平台或 V8 后端验收。
+
 ## 2026-11-07：模块边界与单一版本修复
 
 按[本轮契约](class-diagrams/index.md#2026-11-07模块边界与单一版本修复)同步类图、实现和调用方：组件设置统一使用 `get_settings(output)`，Component 区分存储与保存快照，Node 直接查询局部身份；动画绑定读取公开播放快照，材质导出使用持有的资源身份，特效纹理上传通过渲染公开入口，编辑器准备资源保活到首次提交。删除 `linearFog`、Model 废弃字段及跨图重复的方法定义，单一版本规则记录于 AGENTS.md 和架构文档。

@@ -254,9 +254,11 @@ inline engine::schema::ModelDataT model()
     result.path = model_path;
     auto parent = std::make_unique<engine::schema::ModelNodeDataT>();
     parent->name = "Assembly";
+    parent->source_key = "Assembly";
     result.nodes.push_back(std::move(parent));
     auto child = std::make_unique<engine::schema::ModelNodeDataT>();
     child->name = "Body";
+    child->source_key = "Assembly/Body";
     child->parent = 0;
     child->position = {0, 2, 0};
     child->mesh_guid = mesh_guid;

@@ -19,10 +19,12 @@ bool ModelResourceCodec::validate(const schema::ModelDataT& data)
     {
         return false;
     }
+    std::set<std::string_view> keys;
     for (std::size_t index = 0; index < data.nodes.size(); ++index)
     {
         const auto& node = data.nodes[index];
-        if (!node || node->name.empty() || node->parent < -1 ||
+        if (!node || node->name.empty() || node->source_key.empty() ||
+            !keys.insert(node->source_key).second || node->parent < -1 ||
             node->parent >= static_cast<int>(index) || !model_value_utils::vector(node->position) ||
             !model_value_utils::vector(node->rotation) || !model_value_utils::scale(node->scale) ||
             (!node->mesh_guid.empty() && !GuidMap::valid_guid(node->mesh_guid)) ||

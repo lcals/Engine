@@ -5,6 +5,7 @@
 #include "editor/asset_pipeline/asset_pipeline_system.hpp"
 #include "editor/asset_pipeline/project_lock.hpp"
 #include "editor/commands/editor_commands.hpp"
+#include "editor/mesh/mesh_lod_settings.hpp"
 #include "editor/mesh/mesh_lods.hpp"
 #include "runtime/core/guid_map.hpp"
 #include "runtime/resource/codecs/mesh_resource_codec.hpp"

@@ -3,7 +3,7 @@
 #include "plugins/runtime/terrain/terrain_resource.hpp"
 #include "runtime/resource/virtual_file_system.hpp"
 
-#include "editor/commands/components/component_edit.hpp"
+#include "editor/commands/component_commands.hpp"
 #include "editor/commands/scene_commands.hpp"
 #include "plugins/editor/terrain/terrain_files.hpp"
 #include "plugins/editor/terrain/terrain_settings_edit.hpp"
@@ -11,6 +11,7 @@
 #include "plugins/runtime/terrain/terrain_component.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/schema/terrain_state_generated.h"
+#include "runtime/world/world_system.hpp"
 
 #include <flatbuffers/flatbuffers.h>
 #include <flatbuffers/verifier.h>

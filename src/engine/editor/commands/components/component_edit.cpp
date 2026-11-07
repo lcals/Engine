@@ -1,5 +1,6 @@
 #include "editor/commands/components/component_edit.hpp"
 #include "editor/asset_pipeline/components/scene_component_codec.hpp"
+#include "editor/commands/scene_commands.hpp"
 #include "runtime/resource/resource_system.hpp"
 
 #include <algorithm>
@@ -7,6 +8,36 @@
 
 namespace engine::editor::components
 {
+bool prepare_component_edit(WorldSystem& world, SceneCommands& scene_commands, Node node,
+                            std::optional<schema::ComponentDataT> before,
+                            schema::ComponentDataT after, std::vector<ResourceReference> prepared,
+                            std::unique_ptr<EditorEdit>& output, std::string& error)
+{
+    output.reset();
+    if (!node || node.scene() != world.scene() || after.payload.type == ComponentType::NONE ||
+        (before && before->payload.type != after.payload.type))
+    {
+        error = "Component edit requires a current node and matching snapshots";
+        return false;
+    }
+    auto identity = scene_commands.node_identity(node.id());
+    if (!identity)
+    {
+        error = "Cannot resolve stable node identity";
+        return false;
+    }
+    std::vector<schema::AssetEntryT> versions;
+    if ((before && !resource_versions(world, *before, versions, prepared, error)) ||
+        !resource_versions(world, after, versions, prepared, error))
+    {
+        return false;
+    }
+    output = std::make_unique<ComponentEdit>(
+        world, node.scene()->id(), std::move(identity), std::move(before), std::move(after),
+        std::move(versions), ComponentType::NONE, std::move(prepared));
+    return true;
+}
+
 bool fields(const Json& arguments, std::initializer_list<std::string_view> allowed)
 {
     if (!arguments.is_object())

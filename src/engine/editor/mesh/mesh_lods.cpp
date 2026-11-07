@@ -1,4 +1,5 @@
 #include "editor/mesh/mesh_lods.hpp"
+#include "editor/mesh/mesh_lod_settings.hpp"
 
 #include "runtime/utils/mesh_utils.hpp"
 

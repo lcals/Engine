@@ -1,4 +1,5 @@
 #include "editor/asset_pipeline/importer_utils.hpp"
+#include "editor/asset_pipeline/material_parameters.hpp"
 #include "editor/file_text.hpp"
 
 #include "editor/asset_pipeline/asset_io.hpp"
@@ -152,23 +153,6 @@ bool file_hash(const std::filesystem::path& path, std::string& hash, std::string
     }
     hash = hash_bytes(bytes);
     return true;
-}
-
-bool hash_optional_file(const std::filesystem::path& path, std::string& hash, std::string& error)
-{
-    std::error_code code;
-    const bool exists = std::filesystem::exists(path, code);
-    if (code)
-    {
-        error = "cannot inspect configuration: " + PathUtils::to_utf8(path);
-        return false;
-    }
-    if (!exists)
-    {
-        hash = "missing";
-        return true;
-    }
-    return file_hash(path, hash, error);
 }
 
 bool schema_fingerprint(std::initializer_list<std::string_view> names, std::string& fingerprint,

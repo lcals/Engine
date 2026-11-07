@@ -78,6 +78,7 @@ bool exercise()
     const auto mesh_guid = fixture.catalog.entries.front()->guid;
     constexpr const char* scene_guid = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
     schema::SceneDataT scene;
+    scene.schema_version = 2;
     scene.info = std::make_unique<schema::SceneInfoT>();
     scene.info->name = "Lighting test";
     auto node = std::make_unique<schema::NodeDataT>();

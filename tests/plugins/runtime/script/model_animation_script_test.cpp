@@ -14,6 +14,7 @@ using namespace test_support::animation;
 bool add_prefab(Fixture& fixture)
 {
     engine::schema::PrefabDataT prefab;
+    prefab.schema_version = 2;
     prefab.root_id = 1;
     auto node = std::make_unique<engine::schema::NodeDataT>();
     node->info = test_support::node_info();

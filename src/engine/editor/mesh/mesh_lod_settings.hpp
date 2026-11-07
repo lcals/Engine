@@ -1,16 +1,11 @@
 #pragma once
 
-#include "runtime/schema/mesh_generated.h"
-
-#include <toml++/toml.hpp>
-
-#include <filesystem>
 #include <string>
+#include <toml++/toml.hpp>
 #include <vector>
 
 namespace engine::editor
 {
-
 // Editor-only import values; runtime persistent topology is generated from mesh.fbs.
 struct MeshLodSettings
 {
@@ -22,10 +17,4 @@ struct MeshLodSettings
 
 [[nodiscard]] bool read_mesh_lod_settings(const toml::table& meta, MeshLodSettings& output,
                                           std::string& error);
-[[nodiscard]] bool generate_mesh_lods(schema::MeshDataT& mesh, const toml::table& meta,
-                                      std::string& error);
-[[nodiscard]] bool generate_mesh_lods(schema::MeshDataT& mesh, const std::filesystem::path& source,
-                                      std::string& error);
-[[nodiscard]] std::string mesh_lod_fingerprint();
-
 } // namespace engine::editor

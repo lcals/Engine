@@ -287,3 +287,5 @@ classDiagram
 `PostProcessData` 追加 `ao_enabled:bool=false`、`ao_radius:float=1`、`ao_strength:float=1`、`ao_power:float=1.5`、`ao_fade_start:float=80`、`ao_fade_end:float=150`。旧场景未存储 AO 字段时使用这些默认值。所有浮点值有限，半径 `(0,100]`、强度 `[0,2]`、指数 `[0.1,8]`、淡出距离 `0 <= start < end <= 100000`；具体组件整体校验，失败不部分改变。AO 结果来自当帧 GPU 计算，只有参数进入场景模型。
 
 `PostProcessData` 在末尾继续追加 `hdr_enabled:bool=false`、`bloom_enabled:bool=false`、`bloom_threshold:float=1`、`bloom_intensity:float=0.15`、`bloom_radius:float=1`。阈值范围 `[0,100]`、强度 `[0,10]`、半径 `[0.25,4]`，所有数值有限，且 `bloom_enabled` 为 true 时 `hdr_enabled` 必须为 true。旧数据按关闭的默认值读取；TOML、FlatBuffers、运行时组件和脚本使用同一模型，不自动改写请求中的另一开关。
+
+当前 SceneData / PrefabData 二进制格式版本为 2；生成模型默认版本 0 无效。删除 CharacterController 的废弃相机字段后，读取拒绝旧版和未标记版本的数据；源描述通过当前导入器重新生成缓存和运行包，不保留旧布局读取分支。

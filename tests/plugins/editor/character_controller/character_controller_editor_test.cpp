@@ -65,14 +65,15 @@ bool codec_roundtrip()
     {
         return false;
     }
-    for (const auto name : {"mode", "eye_height", "camera_distance", "pitch_min", "pitch_max"})
+    for (const auto name :
+         {"mode", "eye_height", "camera_distance", "pitch_min", "pitch_max", "unknown"})
     {
         auto legacy = table;
         legacy.insert(name, 1.0);
         error.clear();
         if (!expect(!codec->read(legacy, output, error) && output == source &&
-                        error.find("character_camera") != std::string::npos,
-                    "legacy controller camera fields fail with an explicit migration message"))
+                        error.find("Unknown character_controller field") != std::string::npos,
+                    "fields outside the current controller contract are rejected"))
         {
             return false;
         }

@@ -3,7 +3,6 @@ function(engine_configure_effects_editor_plugin)
                 src/engine/plugins/editor/effects/effect_importer.cpp
                 src/engine/plugins/editor/effects/effect_codec.cpp)
     add_library(engine::effects_editor ALIAS engine_effects_editor)
-    target_include_directories(engine_effects_editor PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
     get_target_property(_effects_toml_includes tomlplusplus::tomlplusplus
                         INTERFACE_INCLUDE_DIRECTORIES)
     target_include_directories(engine_effects_editor SYSTEM PUBLIC ${_effects_toml_includes})

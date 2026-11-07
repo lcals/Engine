@@ -1221,6 +1221,10 @@ if(TARGET engine_effects_editor)
     add_executable(engine_effects_pipeline_test plugins/editor/effects/effects_pipeline_test.cpp)
     target_link_libraries(engine_effects_pipeline_test
                           PRIVATE engine::effects_editor engine::effects_backend engine::resource)
+    if(TARGET engine_editor)
+        target_link_libraries(engine_effects_pipeline_test PRIVATE engine::editor)
+        target_compile_definitions(engine_effects_pipeline_test PRIVATE ENGINE_TEST_EDITOR_COMMANDS=1)
+    endif()
     engine_apply_options(engine_effects_pipeline_test)
     add_test(NAME editor.effects_pipeline COMMAND engine_effects_pipeline_test
                                                   "${PROJECT_SOURCE_DIR}")

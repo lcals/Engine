@@ -421,12 +421,12 @@ bool SceneCommands::register_commands(EditorCommands& commands)
                                          return components::prepare_model(
                                              world_, node_aliases_, arguments, result, edit, error);
                                      }) &&
-           components::register_collider(world_, commands, node_aliases_) &&
-           components::register_rigid_body(world_, commands, node_aliases_) &&
-           components::register_audio_source(world_, commands, node_aliases_) &&
-           components::register_audio_listener(world_, commands, node_aliases_) &&
-           components::register_animator(world_, commands, node_aliases_) &&
-           components::register_character_motor(world_, commands, node_aliases_) &&
+           components::register_collider(world_, commands, *this) &&
+           components::register_rigid_body(world_, commands, *this) &&
+           components::register_audio_source(world_, commands, *this) &&
+           components::register_audio_listener(world_, commands, *this) &&
+           components::register_animator(world_, commands, *this) &&
+           components::register_character_motor(world_, commands, *this) &&
            commands.register_command("get_scene", false,
                                      [this](const Json& arguments, Json& result,
                                             std::unique_ptr<EditorEdit>&, std::string& error)

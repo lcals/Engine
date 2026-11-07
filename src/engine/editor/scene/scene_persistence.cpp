@@ -658,6 +658,7 @@ bool ScenePersistence::State::save(WorldSystem& world, const fs::path& project_r
         return false;
     };
     schema::SceneDataT data;
+    data.schema_version = 2;
     data.info = std::make_unique<schema::SceneInfoT>();
     data.info->name = scene->name();
     if (const auto camera = scene->active_camera(); camera.valid() && camera.node().transient())
@@ -986,6 +987,7 @@ bool ScenePersistence::State::save(WorldSystem& world, const fs::path& project_r
     if (prefab)
     {
         schema::PrefabDataT prefab_data;
+        prefab_data.schema_version = 2;
         prefab_data.root_id = subtree.local_id();
         for (const auto& node : data.nodes)
         {
@@ -1051,6 +1053,7 @@ bool create_model_prefab(WorldSystem& world, const fs::path& project_root, const
     }
     const auto model_guid = resource->info().guid;
     schema::PrefabDataT data;
+    data.schema_version = 2;
     data.model_guid = model_guid;
     Guid default_material;
     (void)resource_access::guid(world.resource_loader(), "builtin://materials/default-pbr",

@@ -3,6 +3,7 @@
 #include "scene_snapshot.hpp"
 
 #include "runtime/engine_config.hpp"
+#include "runtime/resource/codecs/prefab_resource_codec.hpp"
 #include "runtime/scene/camera.hpp"
 #include "runtime/scene/light.hpp"
 #include "runtime/scene/scene.hpp"
@@ -120,6 +121,7 @@ std::unique_ptr<schema::NodeDataT> node_data(std::uint64_t id, std::uint64_t par
 schema::PrefabDataT template_data()
 {
     schema::PrefabDataT data;
+    data.schema_version = 2;
     data.root_id = 9;
     // 故意让子节点先于根，并使用稀疏源身份。
     auto camera = node_data(20, 9, "Camera");
@@ -459,6 +461,15 @@ bool rollback_and_plugin_references()
 
 int main()
 {
+    auto old_format = template_data();
+    old_format.schema_version = 1;
+    if (!expect(!PrefabResourceCodec::validate(old_format) &&
+                    schema::PrefabDataT{}.schema_version == 0 &&
+                    schema::SceneDataT{}.schema_version == 0,
+                "old or unmarked scene and prefab layouts require reimport"))
+    {
+        return 1;
+    }
     return round_trip_and_lifecycle() && explicit_removal_and_reserved_identities() &&
                    rollback_and_plugin_references()
                ? 0

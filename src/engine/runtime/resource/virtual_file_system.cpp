@@ -1,4 +1,5 @@
 #include "runtime/resource/virtual_file_system.hpp"
+#include "runtime/utils/hash_utils.hpp"
 
 #include "runtime/performance/profiling.hpp"
 #include "runtime/schema/asset_catalog_generated.h"
@@ -672,7 +673,7 @@ bool VirtualFileSystem::hash_file(const std::filesystem::path& path, std::uint64
     }
     const auto expected = static_cast<std::uint64_t>(expected_size);
     std::array<std::byte, 64U * 1024U> buffer{};
-    std::uint64_t checksum = 14695981039346656037ULL;
+    std::uint64_t checksum = hash::offset;
     std::uint64_t position = 0;
     bool success = false;
     for (;;)
@@ -688,11 +689,7 @@ bool VirtualFileSystem::hash_file(const std::filesystem::path& path, std::uint64
             break;
         }
         position += count;
-        for (std::size_t index = 0; index < count; ++index)
-        {
-            checksum ^= std::to_integer<std::uint8_t>(buffer[index]);
-            checksum *= 1099511628211ULL;
-        }
+        checksum = hash::fnv1a(std::span(buffer.data(), count), checksum);
     }
     const bool closed = SDL_CloseIO(stream.release());
     if (!success || !closed)

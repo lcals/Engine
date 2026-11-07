@@ -87,10 +87,14 @@ Json write(const schema::RigidBodyDataT& value)
     return result;
 }
 } // namespace
-bool register_rigid_body(WorldSystem& world, EditorCommands& commands, NodeAliases& aliases)
+bool register_rigid_body(WorldSystem& world, EditorCommands& commands,
+                         SceneCommands& scene_commands)
 {
     if (!register_component<engine::RigidBody, schema::RigidBodyDataT>(
-            world, commands, "rigid_body", aliases, read, write))
+            world, scene_commands, commands, "rigid_body",
+            [](Node, const auto& args, auto& data, auto& prepared, auto& error)
+            { return read(args, data, prepared, error); },
+            [](auto, const auto& data) { return write(data); }))
     {
         return false;
     }

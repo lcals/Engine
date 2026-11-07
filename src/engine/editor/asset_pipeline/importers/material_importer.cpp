@@ -1,5 +1,6 @@
 #include "editor/asset_pipeline/importers/material_importer.hpp"
 #include "editor/asset_pipeline/importer_utils.hpp"
+#include "editor/asset_pipeline/material_parameters.hpp"
 
 #include "editor/asset_pipeline/asset_io.hpp"
 #include "editor/asset_pipeline/toml_helpers.hpp"

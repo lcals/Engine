@@ -655,6 +655,7 @@ bool tests()
     }
 
     engine::schema::SceneDataT data;
+    data.schema_version = 2;
     std::string import_error;
     const auto saved_scene = fixture.root / "settings/roundtrip.scene";
     if (!expect(engine::editor::SceneImporter::read(assets / "main.scene", data, import_error) &&

@@ -18,7 +18,8 @@ bool register_effect_mcp_tools(mcp::McpSystem& system, mcp::EditorMcpTools& edit
                 {"loop", {{"type", "boolean"}}},
                 {"playOnAwake", {{"type", "boolean"}}}}) &&
            mcp::tools::component_tool(system, editor, "get_effect",
-                                      "Read effect component settings.", Json::object()) &&
+                                      "Read effect component settings and playback state.",
+                                      Json::object()) &&
            mcp::tools::component_tool(system, editor, "play_effect",
                                       "Play or resume the current effect; does not edit the scene.",
                                       Json::object()) &&
@@ -27,9 +28,7 @@ bool register_effect_mcp_tools(mcp::McpSystem& system, mcp::EditorMcpTools& edit
                                       Json::object()) &&
            mcp::tools::component_tool(system, editor, "stop_effect",
                                       "Stop the current effect and remove its active particles.",
-                                      Json::object()) &&
-           mcp::tools::component_tool(system, editor, "get_effect_state",
-                                      "Read the current effect playback state.", Json::object());
+                                      Json::object());
 }
 
 } // namespace engine::plugins::effects

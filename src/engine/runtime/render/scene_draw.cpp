@@ -12,6 +12,7 @@
 #include "runtime/scene/planar_reflection_component.hpp"
 #include "runtime/scene/scene.hpp"
 #include "runtime/scene/transform.hpp"
+#include "runtime/utils/hash_utils.hpp"
 #include "runtime/world/world_system.hpp"
 #include <SDL3/SDL.h>
 #include <algorithm>
@@ -622,11 +623,7 @@ bool RenderSystem::SceneGpuResources::draw_meshes(const WorldSystem& world,
                                reinterpret_cast<std::uintptr_t>(mesh->geometry->resource.get()));
                     append_key(revision, draw.lod_observer);
                     append_key(revision, draw.reflection);
-                    std::uint64_t identity = 14695981039346656037ULL;
-                    for (const unsigned char byte : revision)
-                    {
-                        identity = (identity ^ byte) * 1099511628211ULL;
-                    }
+                    const auto identity = hash::fnv1a(revision);
                     if (selected_lod_revisions[selection_key] != identity)
                     {
                         selected_lods.erase(selection_key);
