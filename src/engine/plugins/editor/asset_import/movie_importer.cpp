@@ -107,19 +107,19 @@ bool run(const std::vector<std::string>& args, std::string& output, std::string&
 {
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(seconds);
     const auto result = run_import_tool(
-        args,
+        args, output, error,
         [&]
         {
             return (cancel_requested && cancel_requested()) ||
                    std::chrono::steady_clock::now() >= deadline;
         },
-        1024U * 1024U, output, error);
+        1024U * 1024U);
     if (result == ImportToolStatus::cancelled)
     {
         error = cancel_requested && cancel_requested() ? "movie import cancelled"
                                                        : "movie tool exceeded its time limit";
     }
-    if (result != ImportToolStatus::success && !output.empty())
+    if (result == ImportToolStatus::cancelled && !output.empty())
     {
         error += ": " + output;
     }

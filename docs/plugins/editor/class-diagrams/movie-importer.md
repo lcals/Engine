@@ -106,7 +106,7 @@ classDiagram
 
 `inspect_batch()` 的工具指纹包含导入器版本、最终输出 `encoding_version`、Movie/Audio 相关 Schema、选定离线工具版本及影响输出的编码配置；源字节与完整 meta 摘要继续由管线记录。`target_platform` 沿用既有批次输入，不在单个资源选择解码后端。当前固定 libvpx-vp9、30 fps 与 CRF 32；归一化规则变化提升工具指纹版本，旧缓存必须重导入。未开放的质量与剪裁参数不写成已实现能力。
 
-`convert()` 根据 `asset.subresource_key/kind` 生成本次请求的一项主 Movie 或 AudioClip，读取经过批次指纹检查的同一源与参数，验证实际输入与发现出的子资源一致；不额外维护一套前置探测结果缓存。视频分支不重复解码音频，音频分支不重复编码视频；若选定工具有自有线程，必须显式约束在导入预算内，不能由每项任务再启动无界并行。使用外部工具时通过[find_import_tool/run_import_tool](../../../editor/class-diagrams/asset-import-jobs.md#编辑器共享的最小离线工具函数)定位、合作取消和限制输出；现有 `src/` 私有 helper 不作为插件公开能力。直接链接库的方案须同样支持合作取消。成功退出仍须校验格式、边界、帧率、时长和音轨输出，不能只检查工具退出码。
+`convert()` 根据 `asset.subresource_key/kind` 生成本次请求的一项主 Movie 或 AudioClip，读取经过批次指纹检查的同一源与参数，验证实际输入与发现出的子资源一致；不额外维护一套前置探测结果缓存。视频分支不重复解码音频，音频分支不重复编码视频；若选定工具有自有线程，必须显式约束在导入预算内，不能由每项任务再启动无界并行。使用外部工具时通过[find_import_tool/run_import_tool](../../../editor/class-diagrams/extension-tools.md)定位、合作取消和限制输出；现有 `src/` 私有 helper 不作为插件公开能力。直接链接库的方案须同样支持合作取消。成功退出仍须校验格式、边界、帧率、时长和音轨输出，不能只检查工具退出码。
 
 ## 依赖、任务与发布
 

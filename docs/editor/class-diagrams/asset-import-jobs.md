@@ -1,6 +1,6 @@
 # 资源导入异步批次（规划／待实现）
 
-本页只定义现有 `AssetPipelineSystem` 的规划增量，不表示当前已有异步导入。当前公开入口仍是同步 `build_assets()`，实现最终调用 `tasks_.run(tasks)` 等待；`ImportContext` 已增加可选取消检查，但当前同步调用没有提供作业取消入口；新 `run_import_tool()` 可限量读取输出、合作取消并回收进程，旧 `run_process()` 仍阻塞等候离线工具结束。
+本页只定义现有 `AssetPipelineSystem` 的规划增量，不表示当前已有异步导入。当前公开入口仍是同步 `build_assets()`，实现最终调用 `tasks_.run(tasks)` 等待；`ImportContext` 已增加可选取消检查，但当前同步调用没有提供作业取消入口；`run_import_tool()` 是已实现的唯一工具进程入口，支持输出上限、合作取消与进程回收；管线异步批次仍未实现。
 
 [现行资源管线](asset-pipeline-system.md) · [现行导入接口](asset-importers.md) · [影片导入](../../plugins/editor/class-diagrams/movie-importer.md) · [影片与导入 MCP](../../plugins/editor/class-diagrams/movie-mcp-tools.md)
 
@@ -167,7 +167,7 @@ classDiagram
 1. 协调线程拥有批次、GUID/meta 操作、SQL 事务及发布状态。扫描、准备和校验按有界步骤组织；无须等待的纯读取可以提交既有任务域，结果仍在协调线程接受。
 2. 任务由协调线程通过既有 `submit_batch/submit` 提交，worker 只处理稳定输入快照、转换与本批独立暂存产物。原 `TaskDescription.dependencies` 继续表达真实构建依赖。完成委托仍只由所属线程派发。
 3. 不能把整个 `build_assets()` 包装成同一个 TaskSystem 的 worker 作业：该方法会再次控制、提交并等待该域，违反当前 owner 约束并可能造成同池等待。也不能给影片单独开一套后台线程池。
-4. 离线工具通过下文规划的公开共享函数取得路径、运行并合作取消；同步 `run_process()` 见[编辑器扩展工具](extension-tools.md)，它不具备合作取消契约。具有 ImportContext 的转换将批次取消回调传入函数；保持原签名的 discover 不接收批次取消，MovieImporter 用内部时限回调限制探测，已运行调用必须回收后才能进入终态。不终止共享进程或其他批次工具。
+4. 离线工具通过已实现的公开共享函数取得路径、运行并合作取消；工具执行统一使用[编辑器扩展工具](extension-tools.md)的 `run_import_tool()`。具有 ImportContext 的转换将批次取消回调传入函数；保持原签名的 discover 不接收批次取消，MovieImporter 用内部时限回调限制探测，已运行调用必须回收后才能进入终态。不终止共享进程或其他批次工具。
 5. `cancel_build_assets(job)` 对同一进行中请求幂等，记录后进入 `cancelling`，不立即声称任务已释放。收到 worker/子进程结束并清理本批暂存后才进入 `cancelled`。无可取消批次或已越过原子提交点时返回 `false`，调用方通过 poll 查询最终结果。
 6. 提交前收到取消，不发布新的 `gen/catalog`；若原子提交已经开始，则完成既有恢复协议，最终只能报告完整成功或明确失败，不能声称“已取消”却暴露新版本。源文件及合法 meta 参数编辑独立于运行产物发布，不因取消而丢失。
 7. `complete/cancelled/failed` 均为终态。重复 poll 返回同一快照，不重复发布目录、递增修订、触发完成通知或重新执行转换。迟到的旧任务只完成其所属批次清理，不能更新新批次。
@@ -177,39 +177,7 @@ classDiagram
 
 以下函数已公开于 `include/engine/editor/asset_pipeline/import_tool.hpp`，实现留在编辑器层，命名空间为 `engine::editor::asset_pipeline`。它们是普通函数，不新增 Process 类、工具注册框架或工作线程；仅在选定方案确实使用外部工具时调用。直接链接库的方案使用同一取消检查完成可取消调用，不为两种候选提前创建后端框架。
 
-```mermaid
-classDiagram
-    class ImportToolFunctions["editor::asset_pipeline 普通函数"] {
-        <<planned functions>>
-        +find_import_tool(string_view name, Path& output, string& error) bool
-        +run_import_tool(const vector~string~& arguments, const CancellationCheck& cancel_requested, size_t max_output_bytes, string& output, string& error) ImportToolStatus
-    }
-    class ImportToolStatus {
-        <<enumeration>>
-        success
-        failed
-        cancelled
-    }
-    class Path["std::filesystem::path"]
-    class String["std::string / std::string_view"]
-    class Arguments["std::vector&lt;std::string&gt;"]
-    class CancellationCheck
-    class MovieImporter
-    class TaskDescription
-    MovieImporter ..> ImportToolFunctions : 规划公开能力，不 include src 私有头
-    TaskDescription ..> ImportToolFunctions : worker 调用并回收自身工具进程
-    ImportToolFunctions ..> Path : 查找结果输出
-    ImportToolFunctions ..> String : 名称、有限输出与错误
-    ImportToolFunctions ..> Arguments : 借用本次独立 argv 值
-    ImportToolFunctions ..> CancellationCheck : 本次运行期间借用
-    ImportToolFunctions ..> ImportToolStatus : 返回成功、失败或已回收取消
-```
-
-- 两函数返回均标注 `[[nodiscard]]`。`find_import_tool()` 只查编辑器宿主部署或明确配置的工具，成功返回路径；失败清空路径和错误的旧值并给出本次说明。不把本机路径写入资源或运行包，也不把 PATH 中任意同名程序当作固定版本保证。
-- `run_import_tool()` 的 argv、取消回调与输出参数借用覆盖本次调用；它在 worker 内同步完成，不再提交或等待同一任务域。实现以独立 argv 创建进程，不拼接 shell 命令；私有平台/SDL 细节不进入公开头。
-- stdout/stderr 持续排空，合计只保留不超过正值 `max_output_bytes` 的诊断；超限须停止并回收本次进程后返回 `failed`，不能无限读入内存或因管道写满死锁。`output` 失败时只包含有界诊断，`error` 为明确原因，不包含半个解析结果。
-- 运行前及运行中检查取消；`cancelled` 只在没有启动子进程或子进程已停止并回收后返回，输出仍有界。取消与非零退出、启动失败、读取失败区分；只回收本次函数拥有的进程。
-- `asset_io.hpp` 的同步 `run_process()` 与 `editor_tools.hpp` 的工具定位函数已归入[编辑器公开扩展工具](extension-tools.md)；它们不提供本规划的异步作业能力。实际 FFmpeg 部署契约见[影片导入](../../plugins/editor/class-diagrams/movie-importer.md)。
+工具函数的签名、状态和输出契约统一维护在[编辑器扩展工具](extension-tools.md)。本规划仅复用该能力：MovieImporter 与 TaskDescription 在 worker 内同步调用，取消回调和输出限制由本批调用方提供；argv、回调与输出借用覆盖本次调用。取消作业须等待工具回收，不以发出停止请求作为完成。
 
 ## 编辑器与 MCP 接入
 

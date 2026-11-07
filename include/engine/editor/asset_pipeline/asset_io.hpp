@@ -26,8 +26,6 @@ namespace engine::editor::asset_pipeline
 [[nodiscard]] bool create_source_with_meta(const std::filesystem::path& destination,
                                            const std::string& source, std::string_view importer,
                                            std::string& guid, std::string& error);
-[[nodiscard]] bool run_process(const std::vector<std::string>& arguments, std::string& error,
-                               std::string* output = nullptr);
 [[nodiscard]] std::string new_guid();
 
 } // namespace engine::editor::asset_pipeline

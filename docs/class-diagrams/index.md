@@ -10,6 +10,15 @@
 
 ## 全仓精简评审
 
+### 2026-11-07：工具进程与 MCP 登记收敛
+
+**状态：已实现。受影响目标完成 Debug / Release 构建，5 项定向 Release 测试通过；验证范围见[测试记录](../testing.md#2026-11-07工具进程与-mcp-登记收敛)。**
+
+本批继续精简编辑器公共链路，类图、实现及调用方已同步：
+
+- [编辑器扩展工具](../editor/class-diagrams/extension-tools.md)只保留 `run_import_tool(arguments, output, error, cancel_requested = {}, max_output_bytes = SIZE_MAX)` 一个进程入口；删除 `run_process` 及其 SDL 实现，全部脚本、Shader、影片和内置构建调用一次迁移。默认不额外限制原同步调用的输出，影片继续显式使用原上限和取消/时限策略。
+- [MCP 工具登记](../plugins/editor/class-diagrams/editor-mcp-tools.md)集中声明、实现现有组件 schema 和命令转发函数；其他插件使用公开登记头，MCP 内部模块登记声明继续私有。工具名称、参数、回执和借用寿命不变，不增加工具或通用管理层。
+
 ### 2026-11-07：重复流程与扩展边界精简
 
 **状态：已实现。受影响代码完成 Debug / Release 构建，15 项定向 Release 测试通过；验证范围见[测试记录](../testing.md#2026-11-07重复流程与扩展边界精简)。**

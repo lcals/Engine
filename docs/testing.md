@@ -4,6 +4,23 @@
 
 验证记录只对注明的日期、平台、后端和范围负责。定向测试通过不表示全仓测试通过，历史实窗结果也不代表后续修改已跨平台验收。功能检查与性能验收分开；性能指标和采样口径见[性能文档](runtime/performance.md)。CI 仅手动触发。
 
+## 2026-11-07：工具进程与 MCP 登记收敛
+
+按[本批类图](class-diagrams/index.md#2026-11-07工具进程与-mcp-登记收敛)完成实现：工具进程统一为 `run_import_tool`，删除 `run_process`，脚本、Shader、影片及内置资源构建一次迁移。MCP 组件 schema 和命令转发在所属模块集中实现、公开声明，其他插件不再包含 MCP 私有头文件，四个调用目标移除私有源码搜索根。
+
+验证环境为 Windows x64、MSVC、QuickJS：
+
+- 受影响的编辑器管线、资源导入/构建及 MCP 工具库完成 `windows-static-debug` 和 `windows-static-release` 构建；Release 的 `asset_build_app`、`mcp_app` 及四个测试程序编译、链接通过。Debug 不运行测试。
+- 定向 Release CTest **5/5 通过，16.45 秒**：`editor.import_tool`、`editor.asset_pipeline`、`editor.asset_pipeline_scripts`、`editor.movie_pipeline`、`engine.mcp_registry`。验证工具失败诊断、取消与回收、显式输出上限、默认完整读取 64 KiB 输出，以及实际脚本和影片导入链路；MCP 基础登记检查通过，迁移后的工具由宿主链接验证。
+- 源码包含和解析后 CMake 目标依赖的架构检查通过；`run_process` 在源码、公开头和测试中无残留，MCP 私有组件头仅由本模块引用。修改文档的本地链接、代码围栏及类图花括号检查和 `git diff --check` 通过。
+
+```powershell
+ctest --preset windows-static-release -R '^(editor\.(import_tool|asset_pipeline|movie_pipeline|asset_pipeline_scripts)|engine\.mcp_registry)$' --output-on-failure -j 2
+python scripts/check_architecture.py --root . --targets build/windows-static-release/architecture --config Release
+```
+
+本批未执行全量 CTest、Debug 测试、其他平台或 V8 后端验收。
+
 ## 2026-11-07：重复流程与扩展边界精简
 
 按[本批类图](class-diagrams/index.md#2026-11-07重复流程与扩展边界精简)完成实现：组件命令共用登记和准备流程，具体事务继续私有；插件不再包含编辑器私有头文件。删除重复特效查询、角色旧字段和 Model 身份回退，七处哈希计算共用核心函数。SceneData / PrefabData 当前版本统一为 2，默认版本 0 无效，旧缓存拒绝读取，由导入器按 Schema 指纹重新生成。

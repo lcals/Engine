@@ -5,6 +5,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <cstdio>
 #include <utility>
 
 namespace engine::plugins::mcp
@@ -30,4 +31,28 @@ nlohmann::json object_schema(nlohmann::json properties, nlohmann::json required)
             {"required", std::move(required)},
             {"additionalProperties", false}};
 }
+namespace tools
+{
+nlohmann::json component_schema(nlohmann::json properties, nlohmann::json required)
+{
+    properties["sceneId"] = {{"type", "string"}, {"minLength", 1}};
+    properties["nodeId"] = {{"type", "string"}, {"minLength", 1}};
+    required.push_back("sceneId");
+    required.push_back("nodeId");
+    return object_schema(std::move(properties), std::move(required));
+}
+bool component_tool(McpSystem& system, EditorMcpTools& editor, std::string name,
+                    std::string description, nlohmann::json properties, nlohmann::json required)
+{
+    const auto command = name;
+    const bool registered = register_editor_command_tool(
+        system, editor, std::move(name), std::move(description),
+        component_schema(std::move(properties), std::move(required)), command);
+    if (!registered)
+    {
+        std::fprintf(stderr, "Cannot register component MCP tool: %s\n", command.c_str());
+    }
+    return registered;
+}
+} // namespace tools
 } // namespace engine::plugins::mcp

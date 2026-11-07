@@ -4,6 +4,7 @@
 
 #include "editor/asset_pipeline/asset_io.hpp"
 #include "editor/asset_pipeline/editor_tools.hpp"
+#include "editor/asset_pipeline/import_tool.hpp"
 #include "editor/asset_pipeline/toml_helpers.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/schema/material_generated.h"
@@ -373,7 +374,8 @@ bool ShaderImporter::convert(const ImportAsset& asset, const ImportContext& cont
                                                  PathUtils::to_utf8(includes) + ";" +
                                                      PathUtils::to_utf8(source.parent_path()) +
                                                      ";" + PathUtils::to_utf8(context.assets)};
-        if (!run_process(arguments, error))
+        std::string diagnostics;
+        if (run_import_tool(arguments, diagnostics, error) != ImportToolStatus::success)
         {
             return false;
         }
@@ -413,7 +415,8 @@ bool ShaderImporter::inspect_batch(const ImportContext& context, std::string& fi
         !editor_tool_data_path("bgfx", ENGINE_BGFX_SHADER_INCLUDE_DIR, includes, error) ||
         !shader_target(context.target_platform, platform, profile) ||
         !schema_fingerprint({"shader.fbs"}, fingerprint, error) ||
-        !run_process({PathUtils::to_utf8(compiler), "--version"}, error, &version) ||
+        run_import_tool({PathUtils::to_utf8(compiler), "--version"}, version, error) !=
+            ImportToolStatus::success ||
         !file_hash(compiler, compiler_hash, error) ||
         !file_hash(includes / "bgfx_shader.sh", include_hash, error))
     {

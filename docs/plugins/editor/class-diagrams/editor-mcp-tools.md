@@ -15,6 +15,11 @@ classDiagram
         +register_editor_command_tool(McpSystem& system, EditorMcpTools& editor, string name, string description, Json input_schema, string command) bool
         +object_schema(Json properties, Json required) Json
     }
+    class mcp_component_functions {
+        <<namespace functions>>
+        +component_schema(Json properties, Json required = array) Json
+        +component_tool(McpSystem&, EditorMcpTools&, string name, string description, Json properties, Json required = array) bool
+    }
     class McpSystem
     class EditorMcpTools
     class McpTool
@@ -35,9 +40,14 @@ classDiagram
     mcp_functions ..> McpSystem : 调用既有register_tool
     mcp_functions ..> EditorMcpTools : 回调持续借用命令通道
     mcp_functions ..> Json : 参数及按值输出
+    mcp_component_functions ..> mcp_functions : 复用对象schema和命令转发
+    mcp_component_functions ..> McpSystem : 登记组件工具
+    mcp_component_functions ..> EditorMcpTools : 持续借用通道
+    mcp_component_functions ..> Json : 加入sceneId和nodeId
 ```
 
 - 图中 mcp_functions 表示 `engine::plugins::mcp` 的两个命名空间函数，不生成同名类、注册表或管理器。声明放插件公开的 `mcp/editor_tool_registration.hpp`，供已声明依赖 mcp 的编辑器插件复用；参数类型沿用现有 McpTool/Json，不新增工具描述模型。
+- mcp_component_functions 表示 `engine::plugins::mcp::tools` 的现有组件函数，声明合并到同一公开登记头，实现统一放 `editor_tool_registration.cpp`。component_schema 加入两个非空字符串身份字段并设为必需；component_tool 将同名编辑器命令交给公共转发函数，失败保留原日志和返回值。内部各模块 register_* 声明不导出，插件不包含 MCP 私有头文件。
 - register_editor_command_tool 标注 nodiscard。name、description、input_schema 按值转交 McpSystem；command 独立于工具名，按值捕获到回调中，因此工具别名仍可映射到不同的编辑器命令。editor 是持续借用，必须存活到 McpSystem 清空登记。空命令拒绝；其他登记限制、失败状态及登记时机沿用 register_tool。
 - 回调仅调用 editor.call_command(command, arguments, reply)，原样保留返回状态、回执和 pending 身份；不增加等待、重试、参数改写或异常。需要参数翻译的工具仍自行登记原处理函数；execute_batch 到 batch 等映射必须显式给出。
 - object_schema 接受对象 properties 和字符串数组 required，按值组装现有 type/properties/required/additionalProperties=false；即使 required 为空也保留该字段。参数与各字段限制由类型文件声明，合法性由 McpSystem 统一检查；不建立通用 schema DSL。函数保留分配行为，不标 noexcept。

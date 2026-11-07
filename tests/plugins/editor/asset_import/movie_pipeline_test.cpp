@@ -201,7 +201,7 @@ int main(int argc, char** argv)
         editor::asset_pipeline::run_import_tool({PathUtils::to_utf8(ffmpeg), "-v", "error", "-y",
                                                  "-i", argv[1], "-map", "0", "-c", "copy",
                                                  "-aspect", "32:9", PathUtils::to_utf8(anamorphic)},
-                                                {}, 65536, tool_output, tool_error) !=
+                                                tool_output, tool_error, {}, 65536) !=
             editor::asset_pipeline::ImportToolStatus::success)
     {
         std::fprintf(stderr, "anamorphic fixture failed: %s %s\n", tool_error.c_str(),

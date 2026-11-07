@@ -11,6 +11,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <span>
 #include <string>
 #include <system_error>
@@ -201,56 +202,6 @@ bool create_source_with_meta(const fs::path& destination, const std::string& sou
         return false;
     }
     guid = candidate_guid;
-    return true;
-}
-
-bool run_process(const std::vector<std::string>& arguments, std::string& error,
-                 std::string* captured_output)
-{
-    std::vector<const char*> argv;
-    argv.reserve(arguments.size() + 1);
-    for (const auto& argument : arguments)
-    {
-        argv.push_back(argument.c_str());
-    }
-    argv.push_back(nullptr);
-    const SDL_PropertiesID properties = SDL_CreateProperties();
-    const bool configured =
-        properties != 0 &&
-        SDL_SetPointerProperty(properties, SDL_PROP_PROCESS_CREATE_ARGS_POINTER, argv.data()) &&
-        SDL_SetNumberProperty(properties, SDL_PROP_PROCESS_CREATE_STDIN_NUMBER,
-                              SDL_PROCESS_STDIO_NULL) &&
-        SDL_SetNumberProperty(properties, SDL_PROP_PROCESS_CREATE_STDOUT_NUMBER,
-                              SDL_PROCESS_STDIO_APP) &&
-        SDL_SetBooleanProperty(properties, SDL_PROP_PROCESS_CREATE_STDERR_TO_STDOUT_BOOLEAN, true);
-    SDL_Process* process = configured ? SDL_CreateProcessWithProperties(properties) : nullptr;
-    SDL_DestroyProperties(properties);
-    if (process == nullptr)
-    {
-        error = "cannot start tool: " + (arguments.empty() ? std::string{} : arguments[0]) + ": " +
-                SDL_GetError();
-        return false;
-    }
-    std::size_t output_size = 0;
-    int exit_code = -1;
-    void* output = SDL_ReadProcess(process, &output_size, &exit_code);
-    std::string diagnostics;
-    if (output != nullptr)
-    {
-        diagnostics.assign(static_cast<const char*>(output), output_size);
-    }
-    SDL_free(output);
-    const bool waited = SDL_WaitProcess(process, true, &exit_code);
-    SDL_DestroyProcess(process);
-    if (!waited || exit_code != 0)
-    {
-        error = "tool failed (exit " + std::to_string(exit_code) + "): " + diagnostics;
-        return false;
-    }
-    if (captured_output != nullptr)
-    {
-        *captured_output = std::move(diagnostics);
-    }
     return true;
 }
 

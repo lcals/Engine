@@ -34,8 +34,6 @@ function(engine_configure_character_controller_editor_plugin)
             src/engine/plugins/editor/character_controller/character_visual_mcp_tools.cpp)
         add_library(engine::character_controller_mcp_tools ALIAS
                     engine_character_controller_mcp_tools)
-        target_include_directories(engine_character_controller_mcp_tools
-                                   PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
         target_link_libraries(engine_character_controller_mcp_tools
                               PUBLIC engine::project_mcp_tools)
         engine_apply_options(engine_character_controller_mcp_tools)

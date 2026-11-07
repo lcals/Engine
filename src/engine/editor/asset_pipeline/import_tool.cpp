@@ -61,10 +61,9 @@ bool find_import_tool(std::string_view name, std::filesystem::path& output, std:
     return true;
 }
 
-ImportToolStatus run_import_tool(const std::vector<std::string>& arguments,
-                                 const CancellationCheck& cancel_requested,
-                                 std::size_t max_output_bytes, std::string& output,
-                                 std::string& error)
+ImportToolStatus run_import_tool(const std::vector<std::string>& arguments, std::string& output,
+                                 std::string& error, const CancellationCheck& cancel_requested,
+                                 std::size_t max_output_bytes)
 {
     output.clear();
     error.clear();
@@ -168,6 +167,10 @@ ImportToolStatus run_import_tool(const std::vector<std::string>& arguments,
         {
             error = "import tool failed with exit code " + std::to_string(exit_code);
         }
+    }
+    if (result == ImportToolStatus::failed && !output.empty())
+    {
+        error += ": " + output;
     }
     return result;
 }

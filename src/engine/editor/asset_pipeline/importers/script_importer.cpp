@@ -2,6 +2,7 @@
 
 #include "editor/asset_pipeline/asset_io.hpp"
 #include "editor/asset_pipeline/editor_tools.hpp"
+#include "editor/asset_pipeline/import_tool.hpp"
 #include "editor/asset_pipeline/importer_utils.hpp"
 #include "runtime/utils/path_utils.hpp"
 
@@ -62,7 +63,8 @@ bool ScriptImporter::inspect_batch(const ImportContext& context, std::string& fi
     if (!editor_tool_path("node", ENGINE_NODE_EXECUTABLE, node, error) ||
         !editor_tool_data_path("scripts/build_scripts.mjs", ENGINE_SCRIPT_BUILDER, builder,
                                error) ||
-        !run_process({PathUtils::to_utf8(node), "--version"}, error, &key))
+        run_import_tool({PathUtils::to_utf8(node), "--version"}, key, error) !=
+            ImportToolStatus::success)
     {
         if (error.empty())
         {
@@ -84,9 +86,9 @@ bool ScriptImporter::inspect_batch(const ImportContext& context, std::string& fi
         key += ":" + hash;
     }
     std::string input_snapshot;
-    if (!run_process({PathUtils::to_utf8(node), PathUtils::to_utf8(builder), "--project",
-                      PathUtils::to_utf8(context.project), "--inputs"},
-                     error, &input_snapshot))
+    if (run_import_tool({PathUtils::to_utf8(node), PathUtils::to_utf8(builder), "--project",
+                         PathUtils::to_utf8(context.project), "--inputs"},
+                        input_snapshot, error) != ImportToolStatus::success)
     {
         return false;
     }
@@ -181,12 +183,15 @@ bool ScriptImporter::prepare_batch(const ImportContext& context, TaskDescription
     }
     const auto project = PathUtils::to_utf8(context.project);
     const auto output = PathUtils::to_utf8(context.output.parent_path() / "scripts");
-    task = {
-        "Compile project TypeScript",
-        [project, output, node = PathUtils::to_utf8(node), builder = PathUtils::to_utf8(builder),
-         &error]()
-        { return run_process({node, builder, "--project", project, "--output", output}, error); },
-        {}};
+    task = {"Compile project TypeScript",
+            [project, output, node = PathUtils::to_utf8(node),
+             builder = PathUtils::to_utf8(builder), &error]()
+            {
+                std::string diagnostics;
+                return run_import_tool({node, builder, "--project", project, "--output", output},
+                                       diagnostics, error) == ImportToolStatus::success;
+            },
+            {}};
     return true;
 }
 

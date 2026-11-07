@@ -184,7 +184,7 @@ tsconfig 与引擎声明解析，增加单段源码编译模式。
 项目资源不重编译、不重新导入，不产生 GUID、meta 或 catalog 变更。
 
 MCP 工具属于独立工具进程，可以在那里调用随编辑器部署的 Node，
-复用现有 `run_process` 与工具路径函数。源码通过受控临时文件传入，
+复用[编辑器扩展工具](../../../editor/class-diagrams/extension-tools.md)的唯一 `run_import_tool` 与工具路径函数，显式检查返回状态。源码通过受控临时文件传入，
 不拼入 shell 命令；临时文件只放项目 cache 的本次请求目录，完成或失败后清理，
 不写 assets，不进入 Git。编译发生在向编辑器提交命令之前，不阻塞渲染帧。
 

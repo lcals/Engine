@@ -6,7 +6,8 @@
 
 | 公开头文件 | 职责与约束 |
 | --- | --- |
-| `asset_pipeline/asset_io.hpp` | 内容指纹、字节读写、项目内路径校验、源文件和 meta 原子创建、进程执行与 GUID 生成。指纹复用核心哈希函数；项目策略和锁的取得仍由调用方决定。 |
+| `asset_pipeline/asset_io.hpp` | 内容指纹、字节读写、项目内路径校验、源文件和 meta 原子创建及 GUID 生成。指纹复用核心哈希函数；项目策略和锁的取得仍由调用方决定。 |
+| `asset_pipeline/import_tool.hpp` | 唯一工具进程入口和影片工具定位。以 argv 执行并回收本次进程，合并 stdout/stderr，返回成功、失败或已回收取消；调用方决定时限和输出上限。 |
 | `asset_pipeline/importer_utils.hpp` | 使用 ImportContext 读取生成载荷、校验资源引用、解析描述和工具/Schema 指纹。材质参数校验、可选脚本配置指纹留在编辑器内部；不暴露数据库、增量队列或发布事务。 |
 | `asset_pipeline/toml_helpers.hpp` | TOML 值到已有生成模型的类型与范围检查，不持有项目状态。 |
 | `asset_pipeline/project_lock.hpp` | ProjectLock 独占系统锁，acquire/try_acquire 返回状态，析构释放；不复制、不移动。 |
@@ -15,7 +16,7 @@
 | `resource_access.hpp` | 编辑器显式准备资源、保活引用和捕获版本元数据；不建立共享缓存或第二套引用计数。 |
 | `mesh/mesh_lods.hpp`、`mesh/mesh_tangents.hpp` | 生成离线 LOD/切线，使用生成 Mesh 数据；LOD 参数解析结构留在实现内。 |
 
-文件和资源借用只在调用期间有效；返回的拥有值与 ResourceReference 由调用方管理。失败通过 bool 和已有错误输出报告，必要资源在失败路径释放。插件继续由宿主显式登记，编辑器不反向链接任何插件。
+文件和资源借用只在调用期间有效；返回的拥有值与 ResourceReference 由调用方管理。失败通过 bool 或所属状态枚举及已有错误输出报告，必要资源在失败路径释放。插件继续由宿主显式登记，编辑器不反向链接任何插件。
 
 ```mermaid
 classDiagram
@@ -41,7 +42,8 @@ classDiagram
         +write_text(const path&, const string& text, string& error) bool
         +project_file_path(const path& project, string_view directory, string_view relative, string_view extension, path& output, string& error) bool
         +create_source_with_meta(const path& destination, const string& source, string_view importer, string& guid, string& error) bool
-        +run_process(const vector~string~& arguments, string& error, string* output = nullptr) bool
+        +find_import_tool(string_view name, path& output, string& error) bool
+        +run_import_tool(const vector~string~& arguments, string& output, string& error, const CancellationCheck& cancel_requested = {}, size_t max_output_bytes = SIZE_MAX) ImportToolStatus
         +new_guid() string
         +read_generated_payload(const Guid&, const ImportContext&, vector~byte~& output, string& error) bool
         +read_table(const path&, toml_table& table, string& error) bool
@@ -86,6 +88,15 @@ classDiagram
     class AssetKind
     class MaterialValueUnion
     class MeshDataT
+    class CancellationCheck {
+        <<type alias>>
+    }
+    class ImportToolStatus {
+        <<enumeration>>
+        success
+        failed
+        cancelled
+    }
     EditorPlugin ..> asset_pipeline : 显式调用
     EditorPlugin ..> resource_access : 显式准备
     EditorPlugin ..> file_detail : 源文本
@@ -93,6 +104,8 @@ classDiagram
     asset_pipeline ..> ImportContext : 本次借用
     asset_pipeline ..> AssetKind : 参数
     asset_pipeline ..> MaterialValueUnion : 生成模型输出
+    asset_pipeline ..> CancellationCheck : 本次调用借用
+    asset_pipeline ..> ImportToolStatus : 返回进程终态
     resource_access ..> ResourceLoader : 可空借用
     resource_access ..> ResourceReference : 输出拥有引用
     resource_access ..> ResourceHandle : 输入值
@@ -103,3 +116,5 @@ classDiagram
 ```
 
 ProjectLock 属于 `engine::editor::asset_pipeline`。图中命名空间均相对 `engine::editor`；`editor` 节点表示该命名空间自身的网格函数。`path` 为 `std::filesystem::path`，`toml_table/toml_node` 为 `toml::table/node`，`numbers<Count>` 的输出是 `std::array<double, Count>`。这些简写不对应新增 C++ 类型。`get` 返回资源借用，只能在加载器及对应获取有效期间使用；`load` 成功替换输出拥有引用，失败保留原输出，局部候选自动释放。
+
+`run_import_tool` 为调用线程内的同步操作，不建立工作线程或嵌套任务。调用开始清空 output/error；成功返回合并输出，失败返回原因和已捕获诊断，取消只在未启动或已回收进程后返回。输出超过正值上限时停止并回收本次进程；默认 `std::numeric_limits<size_t>::max()` 保持原同步工具没有额外上限的行为。取消回调为可空 `std::function<bool()>`，借用持续到调用结束；时限由调用方组合取消条件。`run_process` 已被替换，不保留转发壳或旧签名。

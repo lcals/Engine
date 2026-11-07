@@ -1,6 +1,6 @@
 #pragma once
 
-#include <nlohmann/json_fwd.hpp>
+#include <nlohmann/json.hpp>
 
 #include <string>
 
@@ -14,4 +14,13 @@ class EditorMcpTools;
                                                 std::string name, std::string description,
                                                 nlohmann::json input_schema, std::string command);
 [[nodiscard]] nlohmann::json object_schema(nlohmann::json properties, nlohmann::json required);
+
+namespace tools
+{
+[[nodiscard]] nlohmann::json component_schema(nlohmann::json properties,
+                                              nlohmann::json required = nlohmann::json::array());
+[[nodiscard]] bool component_tool(McpSystem& system, EditorMcpTools& editor, std::string name,
+                                  std::string description, nlohmann::json properties,
+                                  nlohmann::json required = nlohmann::json::array());
+} // namespace tools
 } // namespace engine::plugins::mcp

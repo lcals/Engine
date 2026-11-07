@@ -4,6 +4,7 @@
 
 #include "editor/asset_pipeline/asset_io.hpp"
 #include "editor/asset_pipeline/editor_tools.hpp"
+#include "editor/asset_pipeline/import_tool.hpp"
 #include "runtime/resource/builtin_resources.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/schema/shader_generated.h"
@@ -159,7 +160,9 @@ bool compile_shaders(std::string_view target, const std::filesystem::path& cache
                 PathUtils::to_utf8(varying),
                 "-i",
                 PathUtils::to_utf8(includes) + ";" + PathUtils::to_utf8(sources)};
-            if (!pipeline::run_process(arguments, error) ||
+            std::string diagnostics;
+            if (pipeline::run_import_tool(arguments, diagnostics, error) !=
+                    pipeline::ImportToolStatus::success ||
                 !pipeline::read_bytes(output, bytes, error) || bytes.empty() ||
                 !pipeline::write_text(hash_path, pipeline::hash_bytes(bytes), error))
             {

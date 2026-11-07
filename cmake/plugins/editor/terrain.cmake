@@ -30,8 +30,6 @@ function(engine_configure_terrain_editor_plugin)
         add_library(engine_terrain_mcp_tools STATIC
                     src/engine/plugins/editor/terrain/terrain_mcp_tools.cpp)
         add_library(engine::terrain_mcp_tools ALIAS engine_terrain_mcp_tools)
-        target_include_directories(engine_terrain_mcp_tools
-                                   PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
         target_link_libraries(engine_terrain_mcp_tools PUBLIC engine::project_mcp_tools)
         engine_apply_options(engine_terrain_mcp_tools)
     endif()
