@@ -1,3 +1,4 @@
+#include "../../../support/render_fixture.hpp"
 #include "resource_fixture.hpp"
 #include "resource_services.hpp"
 #include "scene_snapshot.hpp"
@@ -46,11 +47,14 @@ engine::schema::TextureDataT color_texture(std::string path, std::uint32_t width
                                            std::uint32_t height, std::array<std::uint8_t, 4> color)
 {
     engine::schema::TextureDataT result;
+    result.schema_version = 2;
     result.path = std::move(path);
     result.width = width;
     result.height = height;
-    result.encoding = engine::schema::TextureEncoding::rgba8;
+    result.encoding = engine::schema::TextureEncoding::native;
     result.format = engine::schema::TextureFormat::rgba8;
+    result.subresources.emplace_back(0, 0, 0,
+                                     static_cast<std::uint64_t>(result.width) * result.height * 4);
     result.srgb = false;
     for (std::uint32_t index = 0; index < width * height; ++index)
     {
@@ -62,14 +66,12 @@ engine::schema::TextureDataT color_texture(std::string path, std::uint32_t width
 double mean_red(const engine::schema::TextureDataT& texture)
 {
     if (!engine::TextureResourceCodec::validate(texture) ||
-        texture.format != engine::schema::TextureFormat::rgba16f || texture.data.size() < 68)
+        texture.encoding != engine::schema::TextureEncoding::native ||
+        texture.format != engine::schema::TextureFormat::rgba16f || texture.subresources.empty())
     {
         return -1;
     }
-    // The codec checks the complete KTX layout. Inspect mip zero of its first face.
-    std::uint32_t metadata = 0;
-    std::memcpy(&metadata, texture.data.data() + 60, sizeof(metadata));
-    const std::size_t begin = 68 + metadata;
+    const std::size_t begin = texture.subresources.front().offset();
     const std::size_t pixels = std::size_t{texture.width} * texture.height;
     if (begin > texture.data.size() || pixels * 8 > texture.data.size() - begin)
     {
@@ -92,7 +94,7 @@ double mean_red(const engine::schema::TextureDataT& texture)
 
 bool frame(engine::WindowSystem& windows, engine::RenderSystem& renderer)
 {
-    return windows.tick(1.0 / 60.0) && windows.can_render() && renderer.render();
+    return windows.tick(1.0 / 60.0) && windows.can_render() && test_support::render_frame(renderer);
 }
 
 bool exercise()
@@ -190,13 +192,23 @@ bool exercise()
         }
     }
     engine::schema::TextureDataT irradiance;
+    irradiance.schema_version = 2;
     irradiance.path = "baked/irradiance";
     irradiance.width = irradiance.height = 16;
     irradiance.cube_map = true;
     irradiance.srgb = false;
     irradiance.format = engine::schema::TextureFormat::rgba16f;
-    irradiance.encoding = engine::schema::TextureEncoding::ktx;
-    irradiance.data = ibl.outputs()[0];
+    irradiance.encoding = engine::schema::TextureEncoding::native;
+    const auto& ktx = ibl.outputs()[0];
+    if (ktx.size() < 68)
+    {
+        return false;
+    }
+    irradiance.data.assign(ktx.begin() + 68, ktx.end());
+    for (std::uint32_t face = 0; face < 6; ++face)
+    {
+        irradiance.subresources.emplace_back(0, face, face * 16 * 16 * 8, 16 * 16 * 8);
+    }
     const double ibl_mean = mean_red(irradiance);
     if (!expect(status == bake::BakeProgress::complete && ibl.completed() == ibl.total() &&
                     std::abs(ibl_mean - 1) < 0.01 && !ibl.outputs()[1].empty() &&

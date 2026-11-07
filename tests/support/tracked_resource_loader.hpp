@@ -46,10 +46,10 @@ public:
     {
         return observe(loader_.retain(handle, output), output);
     }
-    bool retain_dependency(const engine::ResourceHandle& owner, std::string_view guid,
+    bool retain_dependency(const engine::ResourceHandle& owner, std::string_view path_or_guid,
                            engine::ResourceHandle& output) override
     {
-        return observe(loader_.retain_dependency(owner, guid, output), output);
+        return observe(loader_.retain_dependency(owner, path_or_guid, output), output);
     }
     bool release(engine::ResourceHandle& handle) noexcept override
     {

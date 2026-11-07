@@ -6,9 +6,13 @@
 namespace
 {
 using namespace test_support::animation;
-bool add_skeleton(Fixture& fixture, std::string_view guid,
-                  const engine::schema::SkeletonDataT& data)
+bool add_skeleton(Fixture& fixture, std::string_view guid, engine::schema::SkeletonDataT data)
 {
+    std::string error;
+    if (!engine::editor::asset_pipeline::prepare_skeleton_sampling(data, error))
+    {
+        return false;
+    }
     flatbuffers::FlatBufferBuilder builder;
     engine::schema::FinishSkeletonDataBuffer(builder,
                                              engine::schema::SkeletonData::Pack(builder, &data));
@@ -373,6 +377,30 @@ bool same_frame_attachment_ik()
         std::erase_if(fixture.files.catalog.entries,
                       [&](const auto& entry) { return entry->guid == guid; });
         if (!add_skeleton(fixture, guid, data))
+        {
+            return false;
+        }
+    }
+    // 源骨架增加关节后，固定动画必须重新离线编译对应的采样轨道和通道掩码。
+    auto source_rig = skeleton(true);
+    source_rig.joints.push_back(joint("palm", 3, {0, 1, 0}, translation(0, -4, 0)));
+    for (int index = 0; index < 3; ++index)
+    {
+        const auto* path = index == 0 ? clip_path : index == 1 ? scale_path : reflected_path;
+        const auto* guid = index == 0 ? clip_guid : index == 1 ? scale_guid : reflected_guid;
+        auto data = clip(path, index != 0, index == 2);
+        std::string error;
+        if (!engine::editor::asset_pipeline::prepare_animation_sampling(data, source_rig, error))
+        {
+            return false;
+        }
+        flatbuffers::FlatBufferBuilder builder;
+        engine::schema::FinishAnimationDataBuffer(
+            builder, engine::schema::AnimationData::Pack(builder, &data));
+        std::erase_if(fixture.files.catalog.entries,
+                      [&](const auto& entry) { return entry->guid == guid; });
+        if (!add(fixture.files, guid, path, engine::schema::AssetKind::animation, builder,
+                 {source_guid}))
         {
             return false;
         }

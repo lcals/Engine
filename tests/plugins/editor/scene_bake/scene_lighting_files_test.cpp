@@ -168,7 +168,14 @@ bool exercise()
     fixed.mesh = std::make_shared<schema::MeshDataT>(mesh);
     fixed.transform = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
     fixed.lightmap = std::make_shared<schema::TextureDataT>();
-    fixed.lightmap->data = {1, 2, 3, 4};
+    fixed.lightmap->schema_version = 2;
+    fixed.lightmap->path = "baked/lightmap";
+    fixed.lightmap->width = fixed.lightmap->height = 1;
+    fixed.lightmap->srgb = false;
+    fixed.lightmap->encoding = schema::TextureEncoding::native;
+    fixed.lightmap->format = schema::TextureFormat::rgba16f;
+    fixed.lightmap->subresources.emplace_back(0, 0, 0, 8);
+    fixed.lightmap->data = {0, 0, 0, 0, 0, 0, 0, 60};
     output.meshes.push_back(fixed);
     bake::BakedProbeLighting probe;
     probe.node_id = 2;

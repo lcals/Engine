@@ -1,4 +1,5 @@
 #include "runtime/ui/rml_font.hpp"
+#include "runtime/core/guid_map.hpp"
 #include "runtime/resource/types/shader_resource.hpp"
 #include "runtime/resource/types/texture_resource.hpp"
 #include "runtime/resource/types/ui_resource.hpp"

@@ -31,7 +31,8 @@ public:
     [[nodiscard]] virtual bool acquire_loaded(std::string_view path_or_guid,
                                               ResourceHandle& output) = 0;
     [[nodiscard]] virtual bool retain(const ResourceHandle& handle, ResourceHandle& output) = 0;
-    [[nodiscard]] virtual bool retain_dependency(const ResourceHandle& owner, std::string_view guid,
+    [[nodiscard]] virtual bool retain_dependency(const ResourceHandle& owner,
+                                                 std::string_view path_or_guid,
                                                  ResourceHandle& output) = 0;
     [[nodiscard]] virtual bool release(ResourceHandle& handle) noexcept = 0;
     [[nodiscard]] virtual ResourceError get(const ResourceHandle& handle,

@@ -1,5 +1,6 @@
 #include "runtime/scene/light_probe_volume_component.hpp"
 
+#include "runtime/core/guid_map.hpp"
 #include "runtime/resource/types/light_probe_resource.hpp"
 #include "runtime/scene/light_probe_volume_component_runtime.hpp"
 

@@ -1,5 +1,6 @@
 #include "runtime/scene/scene.hpp"
 
+#include "runtime/core/guid_map.hpp"
 #include "runtime/resource/types/prefab_resource.hpp"
 #include "runtime/scene/ecs_storage.hpp"
 #include "runtime/scene/resource_binding.hpp"

@@ -204,7 +204,10 @@ bool sync_lifetime()
         !f.graph.load("data/4", a) || !f.graph.load(guid(4), b) ||
         !expect(a.id != b.id && CountingCodec::decodes == 4,
                 "one immutable record per closure resource") ||
-        !f.graph.retain_dependency(a, guid(1), child))
+        !f.graph.retain_dependency(a, "data/1", child) ||
+        !expect(!f.graph.retain_dependency(a, "data/4", invalid) &&
+                    f.graph.error() == ResourceError::not_found,
+                "dependency lookup excludes the owner"))
     {
         return false;
     }
@@ -318,7 +321,7 @@ bool generations_and_memory()
                     pending->error() == ResourceError::generation_changed &&
                     ready->status(progress) == ResourceLoadStatus::ready,
                 "generation changes fail pending requests and preserve completed ones") ||
-        !f.graph.retain_dependency(old_root, guid(1), borrowed))
+        !f.graph.retain_dependency(old_root, "memory/1", borrowed))
     {
         return false;
     }
@@ -398,13 +401,22 @@ bool ownership_and_budgets()
     {
         return false;
     }
-    ResourceGraphSystem small(f.resources, f.planning, {2, 1, 1});
-    if (!small.initialize({}) || !f.add(2, {guid(1)}) || !f.publish())
+    ResourceGraphSystem small(f.resources, f.planning, {2, 16, 0.002});
+    std::vector<std::string> dependencies{guid(1)};
+    for (unsigned index = 2; index <= 1101; ++index)
+    {
+        if (!f.add(index))
+        {
+            return false;
+        }
+        dependencies.push_back(guid(index));
+    }
+    if (!small.initialize({}) || !f.add(1102, std::move(dependencies)) || !f.publish())
     {
         return false;
     }
     std::unique_ptr<ResourceLoad> operation;
-    if (!small.begin_load(guid(2), operation))
+    if (!small.begin_load(guid(1102), operation))
     {
         return false;
     }
@@ -419,9 +431,13 @@ bool ownership_and_budgets()
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
-    return expect(operation->status(progress) == ResourceLoadStatus::failed &&
-                      operation->error() == ResourceError::budget_exceeded && !operation->cancel(),
-                  "impossible closure budgets fail instead of waiting forever");
+    ResourceHandle result, dependency;
+    return expect(operation->status(progress) == ResourceLoadStatus::ready &&
+                      progress.completed == 1102 && progress.total == 1102 &&
+                      operation->take(result) &&
+                      small.retain_dependency(result, "data/1101", dependency) &&
+                      small.release(result) && small.release(dependency),
+                  "closures above 1024 resources advance through the bounded read window");
 }
 } // namespace
 

@@ -1,3 +1,4 @@
+#include "editor/asset_pipeline/animation_sampling.hpp"
 #include "file_text.hpp"
 #include "resource_fixture.hpp"
 #include "runtime/resource/virtual_file_system.hpp"
@@ -74,11 +75,17 @@ public:
 bool skeleton_source(const fs::path& root, const char* filename, const char* guid, const char* name)
 {
     schema::SkeletonDataT data;
+    data.schema_version = 2;
     data.path = filename;
     auto joint = std::make_unique<schema::JointDataT>();
     joint->name = name;
     joint->inverse_bind = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
     data.joints.push_back(std::move(joint));
+    std::string sampling_error;
+    if (!engine::editor::asset_pipeline::prepare_skeleton_sampling(data, sampling_error))
+    {
+        return false;
+    }
     flatbuffers::FlatBufferBuilder builder;
     schema::FinishSkeletonDataBuffer(builder, schema::SkeletonData::Pack(builder, &data));
     return write(root / "assets" / filename,

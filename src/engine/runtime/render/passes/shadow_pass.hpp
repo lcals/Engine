@@ -32,7 +32,7 @@ public:
     [[nodiscard]] bool prepare(std::uint16_t size);
     [[nodiscard]] bool draw(const WorldSystem& world, const RenderSettings& settings,
                             ShadowFrame& frame, const std::vector<GpuMesh>& meshes,
-                            const std::vector<GpuTexture>& textures, bgfx::TextureHandle fallback,
+                            const TextureTable& textures, bgfx::TextureHandle fallback,
                             bgfx::UniformHandle depth_uniform, const RenderConfig& config,
                             std::span<const LocalShadowLight> local_lights,
                             std::span<ClusterLight> lights, const float* camera_world,
@@ -43,8 +43,7 @@ public:
     void release() noexcept;
 
 private:
-    [[nodiscard]] bool bind_material(const Material& material,
-                                     const std::vector<GpuTexture>& textures,
+    [[nodiscard]] bool bind_material(const Material& material, const TextureTable& textures,
                                      bgfx::TextureHandle fallback);
 
     bgfx::TextureHandle color_ = BGFX_INVALID_HANDLE;

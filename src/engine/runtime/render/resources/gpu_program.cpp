@@ -24,7 +24,8 @@ GpuProgram::~GpuProgram() noexcept
 }
 
 GpuProgram::GpuProgram(GpuProgram&& other) noexcept
-    : path(std::move(other.path)), definition(std::move(other.definition)),
+    : path(std::move(other.path)), resource(std::move(other.resource)),
+      definition(std::move(other.definition)),
       vertex_shader(std::exchange(other.vertex_shader, bgfx::ShaderHandle{bgfx::kInvalidHandle})),
       fragment_shader(
           std::exchange(other.fragment_shader, bgfx::ShaderHandle{bgfx::kInvalidHandle})),
@@ -48,6 +49,7 @@ GpuProgram& GpuProgram::operator=(GpuProgram&& other) noexcept
     {
         release();
         path = std::move(other.path);
+        resource = std::move(other.resource);
         definition = std::move(other.definition);
         vertex_shader =
             std::exchange(other.vertex_shader, bgfx::ShaderHandle{bgfx::kInvalidHandle});
@@ -262,6 +264,7 @@ bool GpuProgram::create(const schema::ShaderDataT& shader)
 
 void GpuProgram::release() noexcept
 {
+    resource.reset();
     for (auto handle : {instanced_program, instanced_surface_program})
     {
         if (bgfx::isValid(handle))
@@ -320,7 +323,7 @@ void GpuProgram::release() noexcept
     samplers.clear();
 }
 
-bool GpuProgram::bind_material(const Material& material, const std::vector<GpuTexture>& textures,
+bool GpuProgram::bind_material(const Material& material, const TextureTable& textures,
                                std::span<const bgfx::TextureHandle> frame_textures,
                                bool max_anisotropy)
 {
@@ -411,11 +414,8 @@ bool GpuProgram::bind_material(const Material& material, const std::vector<GpuTe
             continue;
         }
         const auto& resource = material.texture(sampler.name);
-        const auto texture =
-            std::find_if(textures.begin(), textures.end(),
-                         [&resource](const auto& item) { return item.matches(resource); });
-        if (resource.id == 0 || texture == textures.end() ||
-            !texture->resource.data<TextureResource>() ||
+        const auto* texture = find_texture(textures, resource);
+        if (resource.id == 0 || !texture || !texture->resource.data<TextureResource>() ||
             texture->resource.data<TextureResource>()->cube_map)
         {
             return false;

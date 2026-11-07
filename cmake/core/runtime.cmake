@@ -115,7 +115,6 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
                 src/engine/runtime/resource/codecs/shader_resource_codec.cpp
                 src/engine/runtime/resource/codecs/material_resource_codec.cpp
                 src/engine/runtime/resource/codecs/texture_resource_codec.cpp
-                src/engine/runtime/resource/ktx_texture.cpp
                 src/engine/runtime/resource/codecs/audio_resource_codec.cpp
                 src/engine/runtime/resource/codecs/movie_resource_codec.cpp
                 src/engine/runtime/resource/codecs/font_resource_codec.cpp
@@ -132,7 +131,7 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
     target_link_libraries(
         engine_resource
         PUBLIC engine::scene_data
-        PRIVATE engine::task flatbuffers::flatbuffers basisu::basisu_encoder SDL3::SDL3 bgfx::bimg
+        PRIVATE engine::task flatbuffers::flatbuffers basisu::basisu_encoder SDL3::SDL3
                 nlohmann_json::nlohmann_json)
     target_compile_definitions(engine_resource PRIVATE JSON_NOEXCEPTION=1)
 
@@ -234,6 +233,7 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
                 engine::window
                 SDL3::SDL3
                 bgfx::bgfx
+                bgfx::bimg
                 bgfx::bx
                 basisu::basisu_encoder)
     engine_embed_render_shaders(engine_ui ui)

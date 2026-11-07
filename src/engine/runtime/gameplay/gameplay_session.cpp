@@ -365,7 +365,7 @@ struct GameplaySession::State
         return true;
     }
 
-    bool apply(const Snapshot& snapshot)
+    bool apply(const Snapshot& snapshot, bool synchronous)
     {
         auto* resources = &owner.resources_;
         if (resources == nullptr ||
@@ -407,13 +407,21 @@ struct GameplaySession::State
         owner.script_->stop_gameplay();
         owner.release_scene();
         builtins = std::move(candidate_builtins);
-        if (!owner.script_->start_prepared_gameplay() || !owner.renderer_.prepare_scene())
+        RenderPrepareProgress progress;
+        if (!owner.script_->start_prepared_gameplay() ||
+            (synchronous && owner.renderer_.prepare_scene(RenderPrepareMode::synchronous,
+                                                          progress) != RenderPrepareStatus::ready))
         {
             const auto reason = owner.script_->status().last_error.empty()
                                     ? "Cannot prepare scene rendering resources"
                                     : owner.script_->status().last_error;
             owner.stop(reason);
             return false;
+        }
+        if (!synchronous)
+        {
+            prepare_generation = resources->generation();
+            prepare_phase = PreparePhase::gpu;
         }
         owner.last_error_.clear();
         gameplay_requested = true;
@@ -593,13 +601,13 @@ GameplayPrepareStatus GameplaySession::step_prepare(std::uint32_t resource_budge
         state_->prepare_phase = Phase::failed;
         return GameplayPrepareStatus::failed;
     };
-    if (resources->generation() != state_->prepare_generation)
-    {
-        return fail("Resource directory changed during gameplay preparation");
-    }
     if (resource_budget == 0)
     {
         return GameplayPrepareStatus::preparing;
+    }
+    if (resources->generation() != state_->prepare_generation)
+    {
+        return fail("Resource directory changed during gameplay preparation");
     }
     if (state_->prepare_phase == Phase::load)
     {
@@ -759,16 +767,16 @@ GameplayPrepareStatus GameplaySession::step_prepare(std::uint32_t resource_budge
     }
     if (state_->prepare_phase == Phase::gpu)
     {
-        const auto started = std::chrono::steady_clock::now();
-        const bool ready = renderer_.prepare_scene();
-        LogSystem::write(LogLevel::info,
-                         "Startup GPU preparation seconds: " +
-                             std::to_string(std::chrono::duration<double>(
-                                                std::chrono::steady_clock::now() - started)
-                                                .count()));
-        if (!ready)
+        RenderPrepareProgress progress;
+        const auto ready =
+            renderer_.prepare_scene(RenderPrepareMode::incremental, progress, max_seconds);
+        if (ready == RenderPrepareStatus::failed)
         {
-            return fail("Cannot prepare startup scene rendering resources");
+            return fail(renderer_.preparation_error());
+        }
+        if (ready != RenderPrepareStatus::ready)
+        {
+            return GameplayPrepareStatus::preparing;
         }
         state_->prepare_phase = Phase::ready;
         return GameplayPrepareStatus::ready;
@@ -834,7 +842,7 @@ bool GameplaySession::start(std::string_view entry)
     }
     const auto& selected = state_->available ? *state_->available : state_->builtin;
     state_->last_attempt = selected.revision;
-    const bool result = state_->apply(selected);
+    const bool result = state_->apply(selected, true);
     if (result && !deployment_error.empty())
     {
         last_error_ = deployment_error;
@@ -860,12 +868,21 @@ bool GameplaySession::tick()
         state_->gameplay_requested = false;
         release_scene();
     }
-    if (complete && state_->gameplay_requested && state_->hot_reload && state_->available &&
-        state_->available->revision != script_->status().active_revision &&
+    if (state_->gameplay_requested && state_->prepare_phase == State::PreparePhase::gpu)
+    {
+        const auto status = step_prepare(1, 0.002);
+        if (status == GameplayPrepareStatus::ready && !activate_prepared())
+        {
+            stop("Cannot activate reloaded gameplay");
+        }
+    }
+    if (complete && state_->gameplay_requested &&
+        state_->prepare_phase != State::PreparePhase::gpu && state_->hot_reload &&
+        state_->available && state_->available->revision != script_->status().active_revision &&
         state_->available->revision != state_->last_attempt)
     {
         state_->last_attempt = state_->available->revision;
-        (void)state_->apply(*state_->available);
+        (void)state_->apply(*state_->available, false);
     }
     state_->publish();
     state_->schedule_background();

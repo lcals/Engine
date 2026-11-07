@@ -360,9 +360,13 @@ bool render_component_tests()
     geometry.indices = {0, 2, 1};
     geometry.lightmap_texcoords = {{.1, .1}, {.9, .1}, {.1, .9}};
     schema::TextureDataT lightmap;
+    lightmap.schema_version = 2;
     lightmap.path = "lighting/test.texture";
     lightmap.width = lightmap.height = 1;
-    lightmap.encoding = schema::TextureEncoding::rgba8;
+    lightmap.encoding = schema::TextureEncoding::native;
+    lightmap.format = schema::TextureFormat::rgba8;
+    lightmap.subresources.emplace_back(
+        0, 0, 0, static_cast<std::uint64_t>(lightmap.width) * lightmap.height * 4);
     lightmap.srgb = false;
     lightmap.data = {128, 128, 128, 255};
     schema::LightProbeDataT probes;

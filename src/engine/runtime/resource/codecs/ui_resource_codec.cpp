@@ -105,10 +105,10 @@ bool UiResourceCodec::validate_dependencies(const Resource& resource, ResourceVi
             resource_detail::data<TextureResource>(dependency(dependencies, guid));
         if (!texture || texture->cube_map || texture->format == schema::TextureFormat::rgba16f ||
             texture->format == schema::TextureFormat::rg16f ||
-            (texture->encoding != schema::TextureEncoding::rgba8 &&
+            (texture->encoding != schema::TextureEncoding::native &&
              texture->encoding != schema::TextureEncoding::basis))
         {
-            error = "UI requires 2D LDR rgba8/Basis textures";
+            error = "UI requires 2D LDR native/Basis textures";
             return false;
         }
         expected.insert(guid);

@@ -399,6 +399,7 @@ bool tests()
     const auto generated = fixture.root / "cache/gen" / guid;
     const auto original_meta = read(meta_path);
     schema::TextureDataT data;
+    data.schema_version = 2;
     if (!expect(original_meta.find("compression = \"uastc\"") != std::string::npos &&
                     original_meta.find("format = \"auto\"") != std::string::npos &&
                     original_meta.find("srgb") == std::string::npos,
@@ -410,6 +411,25 @@ bool tests()
         !expect(build(pipeline, fixture) && pipeline.last_build().imported == 0 &&
                     pipeline.last_build().reused == 1,
                 "unchanged texture reuses verified cache"))
+    {
+        return false;
+    }
+    auto native_meta = original_meta;
+    const auto storage = native_meta.find("storage = \"basis\"");
+    if (storage == std::string::npos)
+    {
+        return false;
+    }
+    native_meta.replace(storage, std::string("storage = \"basis\"").size(), "storage = \"native\"");
+    if (!expect(write(meta_path, native_meta) && build(pipeline, fixture) &&
+                    texture(fixture, guid, data) &&
+                    data.encoding == schema::TextureEncoding::native &&
+                    data.format != schema::TextureFormat::auto_format &&
+                    data.subresources.size() == 3 && data.data.size() == 48 &&
+                    TextureResourceCodec::validate(data),
+                "explicit native storage publishes platform blocks with every mip range") ||
+        !expect(write(meta_path, original_meta) && build(pipeline, fixture),
+                "storage selection preserves source meta identity"))
     {
         return false;
     }
@@ -639,6 +659,7 @@ bool additional_source_tests()
     {
         const auto* asset = entry(pipeline, path);
         schema::TextureDataT data;
+        data.schema_version = 2;
         if (!expect(asset && texture(fixture, asset->guid, data) && data.srgb &&
                         data.encoding == schema::TextureEncoding::basis && transcode(data, true),
                     "new LDR source formats retain color and use transcodable Basis data"))
@@ -673,28 +694,30 @@ bool additional_source_tests()
             return false;
         }
         render_detail::PreparedTexture prepared;
-        if (!expect(prepared.describe(&services.loader, source.handle(), caps, 168) &&
-                        prepared.prepare() && prepared.format == bgfx::TextureFormat::RGBA16F &&
-                        prepared.bytes == 168 && prepared.levels.size() == 3 &&
-                        (prepared.flags & BGFX_TEXTURE_SRGB) == 0,
-                    "render preparation budgets and decodes every HDR mip as RGBA16F"))
+        for (std::uint32_t mip = 0; mip < 3; ++mip)
         {
-            return false;
-        }
-        for (const auto& level : prepared.levels)
-        {
+            prepared.mip = mip;
+            if (!expect(prepared.describe(&services.loader, source.handle(), caps, 128) &&
+                            prepared.prepare() && prepared.format == bgfx::TextureFormat::RGBA16F &&
+                            prepared.bytes == (128U >> (mip * 2)) &&
+                            (prepared.flags & BGFX_TEXTURE_SRGB) == 0,
+                        "prepare one bounded HDR mip at a time"))
+            {
+                return false;
+            }
             std::array<basist::half_float, 4> pixel{};
-            std::memcpy(pixel.data(), level.data(), sizeof(pixel));
+            std::memcpy(pixel.data(), prepared.pixels.data(), sizeof(pixel));
             if (!expect(std::abs(basist::half_to_float(pixel[0]) - 4.0F) < 0.15F &&
                             std::abs(basist::half_to_float(pixel[1]) - 2.0F) < 0.15F &&
                             std::abs(basist::half_to_float(pixel[2]) - 1.0F) < 0.15F &&
                             basist::half_to_float(pixel[3]) == 1.0F,
-                        "HDR radiance survives encode, mip generation and runtime decode"))
+                        "HDR radiance survives all mips"))
             {
                 return false;
             }
         }
-        if (!expect(!prepared.describe(&services.loader, source.handle(), caps, 167),
+        prepared.mip = 0;
+        if (!expect(!prepared.describe(&services.loader, source.handle(), caps, 127),
                     "HDR upload respects its eight-byte-per-pixel memory budget"))
         {
             return false;
@@ -806,13 +829,12 @@ bool ktx_tests()
     const auto& data = *engine::resource_detail::data<engine::TextureResource>(cube.get());
     const auto& lut_data = *engine::resource_detail::data<engine::TextureResource>(lut.get());
     if (!expect(
-            data.encoding == schema::TextureEncoding::ktx && data.cube_map &&
+            data.encoding == schema::TextureEncoding::native && data.cube_map &&
                 data.format == schema::TextureFormat::rgba16f && !data.srgb && data.width == 4 &&
-                data.height == 4 && data.mip_count == 3 &&
-                std::string(reinterpret_cast<const char*>(data.data.data()), data.data.size()) ==
-                    cube_bytes &&
-                !lut_data.cube_map && lut_data.format == schema::TextureFormat::rg16f &&
-                lut_data.mip_count == 1 && !lut_data.srgb,
+                data.height == 4 && data.mip_count == 3 && data.subresources.size() == 18 &&
+                data.data.size() == (16 + 4 + 1) * 6 * 8 && !lut_data.cube_map &&
+                lut_data.format == schema::TextureFormat::rg16f && lut_data.mip_count == 1 &&
+                !lut_data.srgb,
             "retain all HDR faces, roughness mips and BRDF channel format without recompression") ||
         !expect(build(pipeline, fixture) && pipeline.last_build().imported == 0 &&
                     pipeline.last_build().reused == 2,
@@ -904,28 +926,28 @@ bool ktx_tests()
     {
         return false;
     }
-    for (const auto* valid : {&data, &lut_data})
-    {
-        if (!expect(valid->data[44] == 0 && valid->data[45] == 0 && valid->data[46] == 0 &&
-                        valid->data[47] == 0 && TextureResourceCodec::validate(*valid),
-                    "2D and cube KTX use zero pixelDepth and remain valid"))
-        {
-            return false;
-        }
-        invalid = *valid;
-        invalid.data[44] = 1;
-        if (!expect(!TextureResourceCodec::validate(invalid),
-                    "reject nonzero pixelDepth instead of normalizing an invalid 2D/cube header"))
-        {
-            return false;
-        }
-    }
-    for (const auto offset : {std::size_t{48}, std::size_t{52}, std::size_t{56}, std::size_t{64}})
+    for (int change = 0; change < 4; ++change)
     {
         invalid = data;
-        invalid.data[offset] = 2;
+        const auto first = invalid.subresources.front();
+        if (change == 0)
+        {
+            invalid.subresources.pop_back();
+        }
+        if (change == 1)
+        {
+            invalid.subresources[1] = first;
+        }
+        if (change == 2)
+        {
+            invalid.subresources[0] = {0, 0, 1, first.size()};
+        }
+        if (change == 3)
+        {
+            invalid.subresources[0] = {0, 6, 0, first.size()};
+        }
         if (!expect(!TextureResourceCodec::validate(invalid),
-                    "reject illegal array count, face count, mip count or face size"))
+                    "reject incomplete, duplicate, overlapping and invalid face ranges"))
         {
             return false;
         }

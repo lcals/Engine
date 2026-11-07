@@ -63,6 +63,8 @@ Android 打包结果包含以下字段（其余必填项从完整 TOML 收集）
 | `navigation_tile_threshold` | 导航 tile 构建并行阈值，1–1024 |
 | `scene_restore.nodes_per_step` / `max_seconds` | 主线程场景恢复批量与时间预算；节点 1–1000000，秒数 (0, 1] |
 | `render.texture_batch_size` / `texture_staging_bytes` | 贴图准备批量与暂存字节预算；批量 1–64，字节 1–4 GiB |
+| `render.prepare_items_per_step` / `prepare_seconds_per_step` | 分步准备的数量与时间软预算，默认 64 项 / 0.002 秒；均须大于零，时间须有限 |
+| `render.upload_bytes_per_step` | 每步纹理上传字节预算，默认 8 MiB；大纹理跨帧上传，单个不可拆解码单元超出暂存预算则失败 |
 | `completions_per_frame` / `completion_budget_seconds` | 主线程完成委托派发数量与总时间预算；数量 1–65536，秒数 (0, 1] |
 
 配置在启动时读取。本轮不自动重读文件，不承诺运行中任意缩减 worker 或域额度。时间预算在工作项之间检查，不能抢占一个已经开始的节点恢复、回调或 GPU 操作；重工作必须继续按可控批次组织。

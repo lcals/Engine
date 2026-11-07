@@ -135,6 +135,7 @@ joint(const char* name, int parent, engine::Vec3 position, std::vector<float> in
 inline engine::schema::SkeletonDataT skeleton(bool source)
 {
     engine::schema::SkeletonDataT data;
+    data.schema_version = 2;
     data.path = source ? "skeletons/source.skeleton" : "skeletons/target.skeleton";
     data.joints.push_back(joint("root", -1, {}, translation(0, 0, 0)));
     // 两份骨架的 GUID 和索引不同；目标次序还特意不同于 ozz DFS。
@@ -167,6 +168,7 @@ track(std::uint32_t index, engine::Vec3 from, engine::Vec3 to, engine::Vec3 scal
 inline engine::schema::AnimationDataT clip(const char* path, bool scale, bool reflect)
 {
     engine::schema::AnimationDataT data;
+    data.schema_version = 2;
     data.path = path;
     data.name = "Animation test";
     data.skeleton_guid = source_guid;
@@ -323,7 +325,13 @@ struct Fixture
         }
         for (bool source : {false, true})
         {
-            const auto data = skeleton(source);
+            auto data = skeleton(source);
+            std::string error;
+            if (!engine::editor::asset_pipeline::prepare_skeleton_sampling(data, error))
+            {
+                std::fprintf(stderr, "%s\n", error.c_str());
+                return false;
+            }
             flatbuffers::FlatBufferBuilder builder;
             engine::schema::FinishSkeletonDataBuffer(
                 builder, engine::schema::SkeletonData::Pack(builder, &data));
@@ -337,7 +345,14 @@ struct Fixture
         {
             const auto* path = index == 0 ? clip_path : index == 1 ? scale_path : reflected_path;
             const auto* guid = index == 0 ? clip_guid : index == 1 ? scale_guid : reflected_guid;
-            const auto data = clip(path, index != 0, index == 2);
+            auto data = clip(path, index != 0, index == 2);
+            std::string error;
+            if (!engine::editor::asset_pipeline::prepare_animation_sampling(data, skeleton(true),
+                                                                            error))
+            {
+                std::fprintf(stderr, "%s\n", error.c_str());
+                return false;
+            }
             flatbuffers::FlatBufferBuilder builder;
             engine::schema::FinishAnimationDataBuffer(
                 builder, engine::schema::AnimationData::Pack(builder, &data));

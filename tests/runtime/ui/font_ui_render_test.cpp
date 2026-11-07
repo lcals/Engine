@@ -1,3 +1,4 @@
+#include "../../support/render_fixture.hpp"
 #include "file_text.hpp"
 #include "resource_services.hpp"
 #include "runtime/resource/virtual_file_system.hpp"
@@ -420,7 +421,8 @@ struct Systems
             }
             if (window.can_render())
             {
-                if (!expect(renderer.render(), "render a real frame with font/UI consumers"))
+                if (!expect(test_support::render_frame(renderer),
+                            "render a real frame with font/UI consumers"))
                 {
                     return false;
                 }

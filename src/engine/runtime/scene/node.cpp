@@ -113,6 +113,7 @@ bool Node::set_enabled(bool value) noexcept
     }
     info->enabled = value;
     world_->invalidate_scene_state();
+    current.event<Node>().id<ecs_detail::Published>().entity(entity_id_).ctx(*this).emit();
     return true;
 }
 bool Node::active() const noexcept
@@ -148,6 +149,7 @@ bool Node::set_visible(bool value) noexcept
     }
     info->visible = value;
     world_->invalidate_scene_state();
+    current.event<Node>().id<ecs_detail::Published>().entity(entity_id_).ctx(*this).emit();
     return true;
 }
 bool Node::visible_in_hierarchy() const noexcept
@@ -252,6 +254,7 @@ bool Node::set_parent(Node parent) noexcept
         entity.remove(flecs::ChildOf, flecs::Wildcard);
     }
     world_->invalidate_scene_state();
+    current.event<Node>().id<ecs_detail::Published>().entity(entity_id_).ctx(*this).emit();
     return true;
 }
 bool Node::transient() const noexcept

@@ -1,3 +1,4 @@
+#include "../../support/render_fixture.hpp"
 #include "resource_fixture.hpp"
 #include "resource_services.hpp"
 #include "scene_snapshot.hpp"
@@ -44,7 +45,8 @@ bool frames(engine::WindowSystem& window, engine::RenderSystem& renderer, int co
 {
     for (int i = 0; i < count; ++i)
     {
-        if (!window.tick(1.0 / 60.0) || !window.can_render() || !renderer.render(camera))
+        if (!window.tick(1.0 / 60.0) || !window.can_render() ||
+            !test_support::render_frame(renderer, camera))
         {
             return false;
         }
@@ -67,24 +69,21 @@ engine::schema::TextureDataT environment_texture(const char* path, bool cube)
             pixels[offset + 1] = static_cast<std::uint8_t>(half >> 8);
         }
     }
-    std::string bytes(68 + pixels.size(), '\0');
-    bx::StaticMemoryBlockWriter writer(bytes.data(), static_cast<std::uint32_t>(bytes.size()));
-    bx::Error error;
-    const auto written = bimg::imageWriteKtx(
-        &writer, cube ? bimg::TextureFormat::RGBA16F : bimg::TextureFormat::RG16F, cube, 4, 4, 0, 1,
-        1, false, pixels.data(), &error);
     engine::schema::TextureDataT result;
+    result.schema_version = 2;
     result.path = path;
     result.width = result.height = 4;
     result.mip_count = 1;
     result.srgb = false;
     result.cube_map = cube;
-    result.encoding = engine::schema::TextureEncoding::ktx;
+    result.encoding = engine::schema::TextureEncoding::native;
     result.format =
         cube ? engine::schema::TextureFormat::rgba16f : engine::schema::TextureFormat::rg16f;
-    if (error.isOk() && written == static_cast<std::int32_t>(bytes.size()))
+    result.data = std::move(pixels);
+    const auto face_bytes = 4 * 4 * channels * 2;
+    for (std::uint32_t face = 0; face < (cube ? 6U : 1U); ++face)
     {
-        result.data.assign(bytes.begin(), bytes.end());
+        result.subresources.emplace_back(0, face, face * face_bytes, face_bytes);
     }
     return result;
 }
@@ -92,11 +91,14 @@ engine::schema::TextureDataT environment_texture(const char* path, bool cube)
 engine::schema::TextureDataT albedo(const char* path, const std::array<std::uint8_t, 3>& rgb)
 {
     engine::schema::TextureDataT result;
+    result.schema_version = 2;
     result.path = path;
     result.width = result.height = 4;
     result.srgb = true;
-    result.encoding = engine::schema::TextureEncoding::rgba8;
+    result.encoding = engine::schema::TextureEncoding::native;
     result.format = engine::schema::TextureFormat::rgba8;
+    result.subresources.emplace_back(0, 0, 0,
+                                     static_cast<std::uint64_t>(result.width) * result.height * 4);
     for (int i = 0; i < 16; ++i)
     {
         result.data.insert(result.data.end(), rgb.begin(), rgb.end());

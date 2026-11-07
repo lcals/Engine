@@ -54,6 +54,7 @@ bool near_rotation(const schema::Vec4& value, bx::Quaternion expected)
 schema::SkeletonDataT skeleton(bool target)
 {
     schema::SkeletonDataT result;
+    result.schema_version = 2;
     result.path = target ? "rigs/target.skeleton" : "rigs/source.skeleton";
     const auto joint = [&](const char* name, int parent, schema::Vec3 t, bx::Quaternion r)
     {

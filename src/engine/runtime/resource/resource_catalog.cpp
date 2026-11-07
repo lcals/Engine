@@ -5,11 +5,19 @@
 #include <algorithm>
 #include <cstdint>
 #include <limits>
+#include <map>
 #include <set>
 #include <vector>
 
 namespace engine
 {
+struct ResourceCatalog::CatalogSnapshot
+{
+    GuidMap identities;
+    schema::AssetCatalogDataT data;
+    std::map<Guid, std::size_t, std::less<>> entries;
+};
+
 namespace
 {
 
@@ -74,10 +82,10 @@ bool ResourceCatalog::assign(const schema::AssetCatalogDataT& data)
     {
         return false;
     }
-    ResourceCatalog candidate;
+    auto candidate = std::make_shared<CatalogSnapshot>();
     for (const auto& entry : builtin_resource_catalog().entries)
     {
-        if (!candidate.identities_.add(entry->path, entry->guid))
+        if (!candidate->identities.add(entry->path, entry->guid))
         {
             return false;
         }
@@ -100,7 +108,7 @@ bool ResourceCatalog::assign(const schema::AssetCatalogDataT& data)
             }
         }
         else if (entry->path.starts_with("builtin://") ||
-                 !candidate.identities_.add(entry->path, entry->guid))
+                 !candidate->identities.add(entry->path, entry->guid))
         {
             return false;
         }
@@ -110,7 +118,7 @@ bool ResourceCatalog::assign(const schema::AssetCatalogDataT& data)
         {
             return false;
         }
-        if (!candidate.entries_.emplace(entry->guid, index).second)
+        if (!candidate->entries.emplace(entry->guid, index).second)
         {
             return false;
         }
@@ -129,8 +137,8 @@ bool ResourceCatalog::assign(const schema::AssetCatalogDataT& data)
             {
                 return false;
             }
-            const auto found = candidate.entries_.find(dependency);
-            if (found != candidate.entries_.end())
+            const auto found = candidate->entries.find(dependency);
+            if (found != candidate->entries.end())
             {
                 ++remaining[index];
                 users[found->second].push_back(index);
@@ -159,31 +167,39 @@ bool ResourceCatalog::assign(const schema::AssetCatalogDataT& data)
     {
         return false;
     }
-    candidate.data_ = data;
-    *this = std::move(candidate);
+    candidate->data = data;
+    snapshot_ = std::move(candidate);
     return true;
 }
 
 const schema::AssetEntryT* ResourceCatalog::find(std::string_view guid) const noexcept
 {
-    const auto found = entries_.find(guid);
-    return found == entries_.end() ? builtin_resource_info(guid)
-                                   : data_.entries[found->second].get();
+    if (snapshot_)
+    {
+        const auto found = snapshot_->entries.find(guid);
+        if (found != snapshot_->entries.end())
+        {
+            return snapshot_->data.entries[found->second].get();
+        }
+    }
+    return builtin_resource_info(guid);
 }
 
 const GuidMap& ResourceCatalog::identities() const noexcept
 {
-    return identities_;
+    static const GuidMap empty;
+    return snapshot_ ? snapshot_->identities : empty;
 }
 
 const schema::AssetCatalogDataT& ResourceCatalog::data() const noexcept
 {
-    return data_;
+    static const schema::AssetCatalogDataT empty;
+    return snapshot_ ? snapshot_->data : empty;
 }
 
 std::string_view ResourceCatalog::revision() const noexcept
 {
-    return data_.revision;
+    return data().revision;
 }
 
 } // namespace engine

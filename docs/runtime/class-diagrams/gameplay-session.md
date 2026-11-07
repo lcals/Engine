@@ -5,6 +5,8 @@
 [分阶段启动](movie-startup.md)先提交真实影片首帧，再准备玩法；ready 包含所请求的 VM、ECS 与 GPU。
 场景停止只清理场景声部，Native 影片与共享设备由宿主及调用者管理。
 
+**2026-11-07 已实现接入：** 本页公开签名保持，渲染准备调用改用[RenderSystem 的单一准备入口](render-system.md#大场景分批准备)。start 明确选择 synchronous，保持完成后返回；step_prepare 在 GPU 阶段选择 incremental，传入本步剩余时间，preparing 时留在阶段、failed 时保留原因并清理候选、ready 才允许 activate_prepared。资源加载 / ECS 恢复 / VM / 渲染进度分别统计，不以资源请求 ready 提前激活。玩法初始化回调仍是不可抢占同步调用，业务须使用显式异步资源与场景恢复接口处理大场景，不能把整场景同步加载藏进 OnInitialize 后声称会话启动已分帧。
+
 ```mermaid
 classDiagram
     class ProjectScriptRequest

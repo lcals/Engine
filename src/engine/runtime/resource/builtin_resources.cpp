@@ -315,11 +315,14 @@ const BuiltinDefinitions& builtin_definitions()
             [&result](const char* path, bool srgb, std::vector<std::uint8_t> pixels)
         {
             schema::TextureDataT texture;
+            texture.schema_version = 2;
             texture.path = path;
             texture.width = 1;
             texture.height = 1;
             texture.srgb = srgb;
-            texture.encoding = schema::TextureEncoding::rgba8;
+            texture.encoding = schema::TextureEncoding::native;
+            texture.format = schema::TextureFormat::rgba8;
+            texture.subresources.emplace_back(0, 0, 0, pixels.size());
             texture.data = std::move(pixels);
             result.textures.push_back(std::move(texture));
         };

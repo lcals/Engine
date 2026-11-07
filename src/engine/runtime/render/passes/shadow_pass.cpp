@@ -146,7 +146,7 @@ std::uint32_t ShadowPass::resource_count() const noexcept
            static_cast<std::uint32_t>(bgfx::isValid(uv_transform_));
 }
 
-bool ShadowPass::bind_material(const Material& material, const std::vector<GpuTexture>& textures,
+bool ShadowPass::bind_material(const Material& material, const TextureTable& textures,
                                bgfx::TextureHandle fallback)
 {
     const auto* shader = material.shader_data();
@@ -193,10 +193,8 @@ bool ShadowPass::bind_material(const Material& material, const std::vector<GpuTe
         }
         base_alpha = static_cast<float>(tint.w());
         const auto& resource = material.texture("baseColorTexture");
-        const auto found =
-            std::find_if(textures.begin(), textures.end(),
-                         [&resource](const auto& item) { return item.matches(resource); });
-        if (resource.id == 0 || found == textures.end())
+        const auto* found = find_texture(textures, resource);
+        if (resource.id == 0 || found == nullptr)
         {
             return false;
         }
@@ -225,7 +223,7 @@ bool ShadowPass::bind_material(const Material& material, const std::vector<GpuTe
 }
 
 bool ShadowPass::draw(const WorldSystem& world, const RenderSettings& settings, ShadowFrame& frame,
-                      const std::vector<GpuMesh>& meshes, const std::vector<GpuTexture>& textures,
+                      const std::vector<GpuMesh>& meshes, const TextureTable& textures,
                       bgfx::TextureHandle fallback, bgfx::UniformHandle depth_uniform,
                       const RenderConfig& config, std::span<const LocalShadowLight> local_lights,
                       std::span<ClusterLight> lights, const float* camera_world,

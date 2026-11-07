@@ -1,3 +1,4 @@
+#include "../../support/render_fixture.hpp"
 #include "resource_fixture.hpp"
 #include "resource_services.hpp"
 #include "scene_snapshot.hpp"
@@ -49,7 +50,7 @@ engine::schema::MeshDataT quad()
 
 bool frame(engine::WindowSystem& window, engine::RenderSystem& renderer)
 {
-    return window.tick(1.0 / 60.0) && window.can_render() && renderer.render();
+    return window.tick(1.0 / 60.0) && window.can_render() && test_support::render_frame(renderer);
 }
 
 bool capture(engine::WindowSystem& window, engine::RenderSystem& renderer,

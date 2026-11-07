@@ -364,7 +364,9 @@ FrameStatus RuntimeHost::tick(double delta_time)
         return events;
     }
     const double movie_delta = std::exchange(movie_clock_paused_, false) ? 0.0 : delta_time;
-    if (gameplay_active_ && !engine_.tick(std::min(delta_time, 0.1)))
+    const auto awaiting_activation = [&]
+    { return gameplay_ && gameplay_->step_prepare(0, 0.002) != GameplayPrepareStatus::failed; };
+    if (gameplay_active_ && !awaiting_activation() && !engine_.tick(std::min(delta_time, 0.1)))
     {
         failed_ = true;
         return FrameStatus::failed;
@@ -399,8 +401,17 @@ FrameStatus RuntimeHost::tick(double delta_time)
         (movie_status.state == MovieState::playing || movie_status.state == MovieState::paused ||
          movie_status.state == MovieState::completed) &&
         movie_player_->frame(movie_handle, movie_frame);
+    RenderPrepareProgress progress;
+    const auto prepared = gameplay_active_ && !awaiting_activation() && window_->can_render()
+                              ? renderer_->prepare_scene(RenderPrepareMode::incremental, progress)
+                              : RenderPrepareStatus::preparing;
+    if (prepared == RenderPrepareStatus::failed && gameplay_)
+    {
+        const std::string error(renderer_->preparation_error());
+        gameplay_->stop(error);
+    }
     const bool rendered = showing_movie ? renderer_->present_movie_frame(movie_frame)
-                          : !gameplay_active_
+                          : !gameplay_active_ || prepared != RenderPrepareStatus::ready
                               ? renderer_->present_movie_frame(startup_black_frame())
                               : renderer_->render();
     if (!rendered)

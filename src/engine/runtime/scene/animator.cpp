@@ -263,6 +263,7 @@ bool Animator::apply_animation(const AnimationPlayRequest& request, ResourceRefe
                                    .try_get<animation_detail::AnimationServices>();
         std::string error;
         schema::AnimationDataT rest;
+        rest.schema_version = 2;
         if (!services || !services->retargeter ||
             !ecs_detail::acquire_resource(node(), request.retarget_profile_path, profile) ||
             !profile || !profile.data<AnimationRetargetResource>() ||

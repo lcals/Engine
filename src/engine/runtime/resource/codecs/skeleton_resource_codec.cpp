@@ -1,5 +1,6 @@
 #include "runtime/resource/codecs/skeleton_resource_codec.hpp"
 #include "runtime/resource/codecs/resource_decode.hpp"
+#include "runtime/resource/codecs/sampling_archive.hpp"
 
 #include "runtime/resource/codecs/model_value_utils.hpp"
 #include <set>
@@ -40,7 +41,7 @@ bool ancestor(const schema::SkeletonDataT& skeleton, std::size_t parent, std::si
 
 bool SkeletonResourceCodec::validate(const schema::SkeletonDataT& data)
 {
-    if (data.schema_version != 1 || !valid_path(data.path) || data.joints.empty() ||
+    if (data.schema_version != 2 || !valid_path(data.path) || data.joints.empty() ||
         data.joints.size() > 1024 || data.sockets.size() > 1024 || data.aim_ik.size() > 1024 ||
         data.two_bone_ik.size() > 1024)
     {
@@ -113,7 +114,7 @@ bool SkeletonResourceCodec::validate(const schema::SkeletonDataT& data)
             return false;
         }
     }
-    return true;
+    return sampling_archive_detail::skeleton(data);
 }
 
 schema::AssetKind SkeletonResourceCodec::kind() const noexcept
@@ -126,8 +127,19 @@ bool SkeletonResourceCodec::decode(const schema::AssetEntryT& entry, ByteView pa
 {
     const auto validate = [](ByteView payload, std::string& error)
     {
-        return resource_decode_detail::verify_flatbuffer(payload, schema::VerifySkeletonDataBuffer,
-                                                         "Invalid Skeleton FlatBuffer", error);
+        if (!resource_decode_detail::verify_flatbuffer(payload, schema::VerifySkeletonDataBuffer,
+                                                       "Invalid Skeleton FlatBuffer", error))
+        {
+            return false;
+        }
+        const auto* data = schema::GetSkeletonData(payload.data());
+        if (data->schema_version() != 2 ||
+            data->sampling_encoding() != schema::SamplingEncoding::ozz_archive)
+        {
+            error = "Disk Skeleton requires the current offline sampling archive";
+            return false;
+        }
+        return true;
     };
     return resource_decode_detail::decode_flatbuffer<ResourceType>(
         entry, payload, 64U * 1024U * 1024U, validate,

@@ -1,13 +1,10 @@
 #pragma once
 
-#include "runtime/core/guid_map.hpp"
 #include "runtime/resource/resource_reference.hpp"
 #include "runtime/scene/node.hpp"
 #include "runtime/world/world_system.hpp"
 
-#include <set>
 #include <string>
-#include <vector>
 
 namespace engine::ecs_detail
 {
@@ -49,33 +46,7 @@ inline bool acquire_dependency(ResourceLoader* loader, ResourceHandle owner, std
     {
         return output.retain(loader, owner);
     }
-    if (GuidMap::valid_guid(input))
-    {
-        return output.dependency(loader, owner, input);
-    }
-    std::vector<std::string> pending = root->info().dependencies;
-    std::set<std::string> visited;
-    for (std::size_t index = 0; index < pending.size(); ++index)
-    {
-        const auto identity = pending[index];
-        if (!visited.insert(identity).second)
-        {
-            continue;
-        }
-        ResourceReference value;
-        if (!value.dependency(loader, owner, identity))
-        {
-            return false;
-        }
-        if (value->info().path == input)
-        {
-            output = std::move(value);
-            return true;
-        }
-        pending.insert(pending.end(), value->info().dependencies.begin(),
-                       value->info().dependencies.end());
-    }
-    return false;
+    return output.dependency(loader, owner, input);
 }
 
 inline bool acquire_resource(Node node, std::string_view input, ResourceReference& output)

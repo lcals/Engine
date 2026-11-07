@@ -1,5 +1,7 @@
 # 运行宿主
 
+**2026-11-07 已实现接入：** [大场景准备](large-scene-preparation.md#调用方与完成边界)不增加 Host 的资源缓存或另一套加载接口。运行包无论是否配置开场影片，都走已有分阶段玩法准备；影片只影响呈现与进入时机。正常帧在场景明确修改后调用渲染 incremental 准备，preparing 时维持调用方选择的已就绪加载画面 / 启动清屏并继续派发任务，不能因尚未准备误走项目失败分支。ready 后才调用场景 render；真正 failed 仍按会话错误处理。该接入已实现，公开方法与系统所有权保持。
+
 **资源接入：可执行入口选择资源插件，给 RuntimeHost/各模块注入可空的 ResourceLoader，并分离文件、解析、资源图、影片及渲染任务域。** 公开参数按[已确认的业务接入](resource-consumers.md)同步；没有加载器时基础宿主仍可启动，资源操作返回失败。
 
 [类图索引](../../class-diagrams/index.md) · [完整引用关系](../../class-diagrams/references.md)

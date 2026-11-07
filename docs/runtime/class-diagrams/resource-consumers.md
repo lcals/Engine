@@ -99,6 +99,12 @@ Scene/Prefab 的持久字段仍保存路径/GUID，不把进程句柄序列化�
 
 ## 各模块自己的任务
 
+**2026-11-07 实现补充：** [大场景准备](large-scene-preparation.md)细化以下模块内部工作，已实现。恢复作用域的 `acquire_dependency` 直接委托 `retain_dependency(owner, path_or_guid)`；保留根自身的 retain，不再遍历依赖并反复取得临时获取。插件可替换，消费者不能访问默认插件的 DependencyIndex。
+
+不可变 Mesh / Texture 等数据的完整结构校验由 ResourceCodec 在首次接纳时完成；组件恢复只检查自身配置、资源类型、绑定匹配和身份，不重新扫描全部顶点 / 索引。内存资源仍经过同一接纳校验，不能跳过。改变内容必须创建新候选 / 身份，不能以“已校验”为由允许原位修改。资源跨对象共享与组件实例状态继续分开。
+
+渲染准备的同步 / 分步入口和完成状态只在 RenderSystem 定义。调用方不得把资源 ready 等同渲染 ready；加载器不接管 GPU 队列、暂停场景或完成绘制。场景恢复的单项组件步骤仍不可抢占，分帧预算不是硬实时保证。
+
 ```mermaid
 classDiagram
     class ThreadSystem

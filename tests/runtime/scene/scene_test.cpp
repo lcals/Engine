@@ -1679,10 +1679,14 @@ bool baked_lighting_bindings(test_support::ResourceServices& services)
     mesh_data.indices = {0, 2, 1};
     mesh_data.lightmap_texcoords = {{0.1, 0.1}, {0.9, 0.1}, {0.1, 0.9}};
     engine::schema::TextureDataT texture;
+    texture.schema_version = 2;
     texture.path = "lighting/test.texture";
     texture.width = 1;
     texture.height = 1;
-    texture.encoding = engine::schema::TextureEncoding::rgba8;
+    texture.encoding = engine::schema::TextureEncoding::native;
+    texture.format = engine::schema::TextureFormat::rgba8;
+    texture.subresources.emplace_back(
+        0, 0, 0, static_cast<std::uint64_t>(texture.width) * texture.height * 4);
     texture.srgb = false;
     texture.data = {128, 128, 128, 255};
     engine::schema::LightProbeDataT probes;

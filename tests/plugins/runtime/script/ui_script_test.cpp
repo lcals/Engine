@@ -1,3 +1,4 @@
+#include "../../../support/render_fixture.hpp"
 #include "editor/asset_pipeline/asset_pipeline_system.hpp"
 #include "plugins/editor/asset_import/font_importer.hpp"
 #include "plugins/editor/asset_import/ui_importer.hpp"
@@ -669,7 +670,7 @@ struct Systems
             }
             if (window.can_render())
             {
-                if (!expect(renderer.render(), "render real UI frame"))
+                if (!expect(test_support::render_frame(renderer), "render real UI frame"))
                 {
                     return false;
                 }
@@ -688,7 +689,8 @@ struct Systems
         return expect(test_support::start_script(script, services, mounts,
                                                  "scripts/" + std::string(name) + ".js"),
                       script.status().last_error) &&
-               expect(renderer.prepare_scene(), "prepare scene after gameplay initialization") &&
+               expect(test_support::prepare_render(renderer),
+                      "prepare scene after gameplay initialization") &&
                frames();
     }
 
@@ -972,7 +974,7 @@ bool mvc_case(Systems& systems, const fs::path& project)
         if (!expect(systems.world.scene() == nullptr && systems.ui.document_count() == 0,
                     "stopping releases the script scene and document") ||
             !expect(systems.script.start_prepared_gameplay(), systems.script.status().last_error) ||
-            !expect(systems.renderer.prepare_scene(), "prepare restarted UI") ||
+            !expect(test_support::prepare_render(systems.renderer), "prepare restarted UI") ||
             !systems.frames() || !systems.tick() || !systems.label_is("0:0:") || !click(systems) ||
             !systems.tick() || !systems.label_is("1:0:"))
         {
@@ -1042,7 +1044,8 @@ bool persistent_documents(Systems& systems, const fs::path& project)
     }
     systems.stop();
     if (!expect(systems.world.scenes().empty() && !systems.ui.is_valid(old_element) &&
-                    systems.script.start_prepared_gameplay() && systems.renderer.prepare_scene(),
+                    systems.script.start_prepared_gameplay() &&
+                    test_support::prepare_render(systems.renderer),
                 "Run replacement destroys persistent objects before creating new ones") ||
         !systems.frames() || !systems.tick() || !click(systems) || !systems.tick())
     {

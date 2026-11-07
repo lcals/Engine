@@ -146,22 +146,13 @@ void RenderSystem::SceneGpuResources::release() noexcept
     frame_time_stamp = UINT32_MAX;
     atmosphere.release();
     debug_draw.release();
-    for (auto& program : programs)
-    {
-        program.release();
-    }
+    programs.clear();
     for (auto& mesh : meshes)
     {
         mesh.release();
     }
-    for (auto& texture : textures)
-    {
-        texture.release();
-    }
-    for (auto& texture : ibl_textures)
-    {
-        texture.release();
-    }
+    textures.clear();
+    ibl_textures.fill(nullptr);
     release_capture();
     if (bgfx::isValid(hdr_capture_readback))
     {
@@ -271,6 +262,7 @@ void RenderSystem::SceneGpuResources::release() noexcept
     ao_sampler = BGFX_INVALID_HANDLE;
     programs.clear();
     meshes.clear();
+    mesh_index.clear();
     geometries.clear();
     skinning.release();
     textures.clear();
@@ -347,34 +339,23 @@ std::uint32_t RenderSystem::SceneGpuResources::resource_count() const noexcept
             count += mesh->resource_count();
         }
     }
-    for (const auto& texture : ibl_textures)
+    for (const auto& mesh : meshes)
     {
-        count += static_cast<std::uint32_t>(bgfx::isValid(texture.handle));
-    }
-    for (auto iterator = meshes.begin(); iterator != meshes.end(); ++iterator)
-    {
-        const auto& mesh = *iterator;
         count += static_cast<std::uint32_t>(bgfx::isValid(mesh.deformed_vertices)) +
                  static_cast<std::uint32_t>(bgfx::isValid(mesh.palette));
-        bool first = true;
-        for (auto previous = meshes.begin(); previous != iterator; ++previous)
+    }
+    for (const auto& [source, cached] : geometries)
+    {
+        if (const auto geometry = cached.lock())
         {
-            if (previous->geometry == mesh.geometry)
-            {
-                first = false;
-                break;
-            }
-        }
-        if (first && mesh.geometry)
-        {
-            count += mesh.geometry->resource_count();
+            count += geometry->resource_count();
         }
     }
-    for (const auto& texture : textures)
+    for (const auto& [source, texture] : textures)
     {
         count += static_cast<std::uint32_t>(bgfx::isValid(texture.handle));
     }
-    for (const auto& program : programs)
+    for (const auto& [source, program] : programs)
     {
         count += static_cast<std::uint32_t>(bgfx::isValid(program.vertex_shader)) +
                  static_cast<std::uint32_t>(bgfx::isValid(program.fragment_shader)) +
@@ -396,7 +377,8 @@ std::uint32_t RenderSystem::SceneGpuResources::resource_count() const noexcept
     return count;
 }
 
-bool RenderSystem::SceneGpuResources::prepare_ibl(const Scene* scene, std::size_t staging_bytes)
+bool RenderSystem::SceneGpuResources::collect_ibl(const Scene* scene,
+                                                  RenderPreparation& preparation)
 {
     EnvironmentSettings snapshot;
     const EnvironmentSettings* environment = nullptr;
@@ -429,60 +411,42 @@ bool RenderSystem::SceneGpuResources::prepare_ibl(const Scene* scene, std::size_
                 }
             });
     }
-    if (environment == nullptr || environment->ibl_irradiance_guid.empty())
-    {
-        for (auto& texture : ibl_textures)
-        {
-            texture.release();
-        }
-        ibl_generation = 0;
-        return true;
-    }
-    auto* resources = scene->world().resource_loader();
-    if (resources == nullptr)
-    {
-        return false;
-    }
-    const std::array guids = {&environment->ibl_irradiance_guid, &environment->ibl_prefilter_guid,
-                              &environment->ibl_lut_guid};
-    bool changed = false;
-    for (std::size_t index = 0; index < guids.size(); ++index)
-    {
-        changed = changed || !ibl_textures[index].matches(sources[index]);
-    }
-    if (!changed)
-    {
-        return true;
-    }
-    std::array<render_detail::GpuTexture, 3> candidate;
-    for (std::size_t index = 0; index < guids.size(); ++index)
+    auto* loader = scene ? scene->world().resource_loader() : nullptr;
+    for (std::size_t index = 0; index < sources.size(); ++index)
     {
         const TextureResource* source = nullptr;
-        const bool loaded = resources->get(sources[index], source) == ResourceError::none;
-        const auto* texture = source ? &source->data() : nullptr;
-        const bool cube = index < 2;
-        const auto format = cube ? schema::TextureFormat::rgba16f : schema::TextureFormat::rg16f;
-        render_detail::PreparedTexture prepared;
-        if (!loaded || texture == nullptr || texture->cube_map != cube || texture->srgb ||
-            texture->format != format ||
-            !prepared.describe(resources, sources[index], *bgfx::getCaps(), staging_bytes) ||
-            !prepared.prepare() || !candidate[index].create(prepared))
+        if (environment && !environment->ibl_irradiance_guid.empty())
         {
-            for (auto& item : candidate)
+            const bool cube = index < 2;
+            const auto format =
+                cube ? schema::TextureFormat::rgba16f : schema::TextureFormat::rg16f;
+            if (!loader || loader->get(sources[index], source) != ResourceError::none ||
+                source->data().cube_map != cube || source->data().srgb ||
+                source->data().format != format ||
+                !preparation.request_texture(loader, sources[index]))
             {
-                item.release();
+                return false;
             }
-            SDL_LogError(SDL_LOG_CATEGORY_RENDER, "Invalid IBL texture resource: %s",
-                         guids[index]->c_str());
-            return false;
         }
+        auto& previous = preparation.ibl_sources[index];
+        if (previous != source)
+        {
+            if (previous)
+            {
+                if (--preparation.texture_users[previous] == 0)
+                {
+                    preparation.unused_textures.insert(previous);
+                }
+            }
+            if (source)
+            {
+                ++preparation.texture_users[source];
+                preparation.unused_textures.erase(source);
+            }
+            previous = source;
+        }
+        ibl_textures[index] = nullptr;
     }
-    for (std::size_t index = 0; index < candidate.size(); ++index)
-    {
-        ibl_textures[index].release();
-        ibl_textures[index] = std::move(candidate[index]);
-    }
-
     return true;
 }
 

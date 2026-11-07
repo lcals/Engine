@@ -1,3 +1,4 @@
+#include "../../support/render_fixture.hpp"
 #include "runtime/engine_config.hpp"
 #include "runtime/render/render_context.hpp"
 #include "runtime/render/render_extension.hpp"
@@ -125,7 +126,8 @@ bool capture(engine::WindowSystem& window, engine::RenderSystem& renderer,
          frame < 32 && renderer.hdr_capture_status() == engine::SceneCaptureStatus::pending;
          ++frame)
     {
-        if (!window.tick(1.0 / 60.0) || !window.can_render() || !renderer.render({}))
+        if (!window.tick(1.0 / 60.0) || !window.can_render() ||
+            !test_support::render_frame(renderer, {}))
         {
             return false;
         }

@@ -272,7 +272,6 @@ bool MeshRenderer::set_mesh(std::string_view path)
     if (runtime()->mesh_revision_ == std::numeric_limits<std::uint64_t>::max() ||
         !ecs_detail::acquire_resource(node(), path, replacement) ||
         replacement.data<MeshResource>() == nullptr ||
-        !MeshUtils::validate(*replacement.data<MeshResource>()) ||
         !skin_joint_count(*replacement.data<MeshResource>(), joint_count) ||
         !set_material_count(
             std::max(material_count(), required_materials(*replacement.data<MeshResource>()))))
@@ -650,7 +649,6 @@ bool MeshRenderer::restore_data(const schema::ComponentDataT& data)
     Runtime replacement;
     if (!ecs_detail::acquire_resource(node(), settings->mesh_guid, replacement.mesh_resource_) ||
         !replacement.mesh_resource_ || !replacement.mesh_resource_.data<MeshResource>() ||
-        !MeshUtils::validate(*replacement.mesh_resource_.data<MeshResource>()) ||
         !skin_joint_count(*replacement.mesh_resource_.data<MeshResource>(),
                           replacement.skin_joint_count_) ||
         required_materials(*replacement.mesh_resource_.data<MeshResource>()) >

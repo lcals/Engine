@@ -16,8 +16,8 @@ namespace engine::plugins::resource_graph
 struct ResourceGraphConfig
 {
     std::uint32_t max_requests = 128;
-    std::uint32_t max_pending_resources = 1024;
     std::uint32_t completion_budget = 16;
+    double coordination_budget_seconds = 0.002;
 };
 
 class ResourceGraphSystem final : public System, public ResourceLoader
@@ -41,7 +41,7 @@ public:
     [[nodiscard]] bool acquire_loaded(std::string_view path_or_guid,
                                       ResourceHandle& output) override;
     [[nodiscard]] bool retain(const ResourceHandle& handle, ResourceHandle& output) override;
-    [[nodiscard]] bool retain_dependency(const ResourceHandle& owner, std::string_view guid,
+    [[nodiscard]] bool retain_dependency(const ResourceHandle& owner, std::string_view path_or_guid,
                                          ResourceHandle& output) override;
     [[nodiscard]] bool release(ResourceHandle& handle) noexcept override;
     [[nodiscard]] ResourceError get(const ResourceHandle& handle,

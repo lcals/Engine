@@ -1,3 +1,4 @@
+#include "../../support/render_fixture.hpp"
 #include "resource_fixture.hpp"
 #include "resource_services.hpp"
 #include "scene_snapshot.hpp"
@@ -34,10 +35,11 @@ engine::schema::TextureDataT constant_normal(const char* path,
                                              const std::array<std::uint16_t, 3>& encoded)
 {
     engine::schema::TextureDataT result;
+    result.schema_version = 2;
     result.path = path;
     result.width = result.height = 4;
     result.srgb = false;
-    result.encoding = engine::schema::TextureEncoding::ktx;
+    result.encoding = engine::schema::TextureEncoding::native;
     result.format = engine::schema::TextureFormat::rgba16f;
     std::array<std::uint16_t, 4 * 4 * 4> pixels{};
     for (std::size_t index = 0; index < pixels.size(); index += 4)
@@ -47,15 +49,12 @@ engine::schema::TextureDataT constant_normal(const char* path,
         pixels[index + 2] = encoded[2];
         pixels[index + 3] = 0x3c00;
     }
-    std::string bytes(68 + sizeof(pixels), '\0');
-    bx::StaticMemoryBlockWriter writer(bytes.data(), static_cast<std::uint32_t>(bytes.size()));
-    bx::Error error;
-    const auto written = bimg::imageWriteKtx(&writer, bimg::TextureFormat::RGBA16F, false, 4, 4, 0,
-                                             1, 1, false, pixels.data(), &error);
-    if (error.isOk() && written == static_cast<std::int32_t>(bytes.size()))
+    for (const auto half : pixels)
     {
-        result.data.assign(bytes.begin(), bytes.end());
+        result.data.push_back(static_cast<std::uint8_t>(half));
+        result.data.push_back(static_cast<std::uint8_t>(half >> 8));
     }
+    result.subresources.emplace_back(0, 0, 0, result.data.size());
     return result;
 }
 
@@ -72,7 +71,8 @@ bool frames(engine::WindowSystem& window, engine::RenderSystem& renderer, int co
 {
     for (int index = 0; index < count; ++index)
     {
-        if (!window.tick(1.0 / 60.0) || !window.can_render() || !renderer.render())
+        if (!window.tick(1.0 / 60.0) || !window.can_render() ||
+            !test_support::render_frame(renderer))
         {
             return false;
         }
@@ -161,11 +161,14 @@ bool test()
     const auto rotated_normal =
         constant_normal("textures/hex-test-rotated-normal", {0x3800, 0x3a00, 0x3c00});
     engine::schema::TextureDataT checker;
+    checker.schema_version = 2;
     checker.path = "textures/hex-test-checker";
     checker.width = checker.height = 8;
     checker.srgb = true;
-    checker.encoding = engine::schema::TextureEncoding::rgba8;
+    checker.encoding = engine::schema::TextureEncoding::native;
     checker.format = engine::schema::TextureFormat::rgba8;
+    checker.subresources.emplace_back(
+        0, 0, 0, static_cast<std::uint64_t>(checker.width) * checker.height * 4);
     for (int y = 0; y < 8; ++y)
     {
         for (int x = 0; x < 8; ++x)

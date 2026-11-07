@@ -4,6 +4,28 @@
 
 验证记录只对注明的日期、平台、后端和范围负责。定向测试通过不表示全仓测试通过，历史实窗结果也不代表后续修改已跨平台验收。功能检查与性能验收分开；性能指标和采样口径见[性能文档](runtime/performance.md)。CI 仅手动触发。
 
+## 2026-11-07：大场景加载与分步渲染准备
+
+按[已确认类图](runtime/class-diagrams/large-scene-preparation.md)实现共享目录快照、资源闭包索引与有界推进、渲染实例 / 唯一资源索引、分步纹理准备与延迟回收，以及 Texture / Skeleton / Animation 当前格式 2。运行宿主、无影片启动、GameplaySession、编辑器预览 / 启停、烘焙和测试调用方一次迁移；旧接口及旧磁盘格式不保留兼容分支。
+
+验证环境为 Windows x64、MSVC、QuickJS、DirectX 12：
+
+- `windows-static-debug` 与 `windows-static-release` 下受影响运行时、编辑器和插件库，以及 `engine_app`、`engine_project_app`、`editor_app` 编译 / 链接通过。Debug 仅编译，不执行测试。
+- 定向 Release CTest 共 **30 个不同用例最终通过**。覆盖资源图、纹理管线、动画 / 重定向 / IK / 事件、FBX、运行配置、宿主、编辑器、UI、渲染与 GPU 烘焙；未执行全量 CTest。首次验证发现的配置、归档夹具、蒙皮资源回收与初始化 UI 句柄失效已修正，并重跑失败项。
+- 资源图验证必要闭包超过 1024（测试为 1102 项）后仍完成，保留同根请求合并、取消、旧代际获取与最后引用释放。错误发布同样受每步完成额度限制。
+- 新增增量准备验证：阻塞纹理 worker 时调用仍返回 preparing；旧任务回收前计入暂存，取消不自行推进 GPU 帧，新轮次不使用旧结果。现有真实窗口回归覆盖阴影、IBL、形变、实例 / 资源释放；UI 验证初始化句柄和常驻文档在准备与场景变化中保持正确身份。
+- 纹理验证普通图片 native 产物、mip 范围、KTX 源转 native 和 HDR 分块 / 超限错误。动画验证离线归档读入、损坏 / 截断 / 字节序拒绝、显式 structured 内存输入与磁盘拒绝、缺失通道的目标骨架默认值，以及 FBX / 脚本消费。
+- 架构检查（源码包含与解析后 CMake 目标依赖）、修改文档的本地链接 / 围栏检查以及 `git diff --check` 通过。
+
+测试按模块分批执行；以下为对应的可重复筛选集合（测试结果记录在上文，不要求日常全部重跑）：
+
+```powershell
+ctest --preset windows-static-release -R '^(plugins\.runtime\.resource_graph|resource\.skeleton_rig_definitions|editor\.(texture_pipeline|fbx_pipeline|fbx_bind_pose|retarget_importer|scene_lighting_files|scene_bake_core_loader|commands|runtime_settings)|engine\.(runtime_settings|runtime_host|editor|animation|animation_retarget|animation_rigging_events|animation_events_script|animation_state_machine_script|model_animation_script|scene|effects_runtime|ui_script|font_ui_render|render_foundation|render_submission|window_render|atmosphere_hex|hdr_extension_capture|scene_hdr_capture|scene_hdr_transparency))$' --output-on-failure
+python scripts/check_architecture.py --root . --targets build/windows-static-release/architecture --config Release
+```
+
+本批是实现与功能回归，**未测量真实大场景的启动耗时、首帧峰值或包体收益**。2 ms 是工作项之间的软预算，首次实体发现、单个 Mesh / Shader 创建、VM 初始化、UI / 字体和插件原子步骤仍可能超时；没有实现世界分区或自动流式加载。native 默认未全项目启用，其 I/O / 包体成本需由项目采样决定。macOS / iOS / Android / Linux 与 V8 未验收；USD 仍只支持既有静态模型路径，本批没有新增骨骼动画导入。
+
 ## 2026-11-07：工具进程与 MCP 登记收敛
 
 按[本批类图](class-diagrams/index.md#2026-11-07工具进程与-mcp-登记收敛)完成实现：工具进程统一为 `run_import_tool`，删除 `run_process`，脚本、Shader、影片及内置资源构建一次迁移。MCP 组件 schema 和命令转发在所属模块集中实现、公开声明，其他插件不再包含 MCP 私有头文件，四个调用目标移除私有源码搜索根。

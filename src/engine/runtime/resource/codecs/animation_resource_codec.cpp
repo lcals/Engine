@@ -1,5 +1,6 @@
 #include "runtime/resource/codecs/animation_resource_codec.hpp"
 #include "runtime/resource/codecs/resource_decode.hpp"
+#include "runtime/resource/codecs/sampling_archive.hpp"
 
 #include "runtime/core/guid_map.hpp"
 #include "runtime/resource/codecs/model_value_utils.hpp"
@@ -31,7 +32,7 @@ bool animation_scale(const schema::Vec3& value)
 template <typename Key, typename Predicate>
 bool keys(const std::vector<Key>& values, float duration, Predicate validate)
 {
-    if (values.empty() || values.size() > 1000000)
+    if (values.size() > 1000000)
     {
         return false;
     }
@@ -50,7 +51,7 @@ bool keys(const std::vector<Key>& values, float duration, Predicate validate)
 } // namespace
 bool AnimationResourceCodec::validate(const schema::AnimationDataT& data)
 {
-    if (data.schema_version != 1 || !valid_path(data.path) || data.name.empty() ||
+    if (data.schema_version != 2 || !valid_path(data.path) || data.name.empty() ||
         !GuidMap::valid_guid(data.skeleton_guid) || !std::isfinite(data.duration) ||
         data.duration <= 0.0F || !std::isfinite(1.0F / data.duration) || data.duration > 86400.0F ||
         data.tracks.empty() || data.tracks.size() > 1024)
@@ -131,7 +132,7 @@ bool AnimationResourceCodec::validate(const schema::AnimationDataT& data)
             return false;
         }
     }
-    return true;
+    return sampling_archive_detail::animation(data);
 }
 schema::AssetKind AnimationResourceCodec::kind() const noexcept
 {
@@ -143,8 +144,19 @@ bool AnimationResourceCodec::decode(const schema::AssetEntryT& entry, ByteView p
 {
     const auto validate = [](ByteView payload, std::string& error)
     {
-        return resource_decode_detail::verify_flatbuffer(payload, schema::VerifyAnimationDataBuffer,
-                                                         "Invalid Animation FlatBuffer", error);
+        if (!resource_decode_detail::verify_flatbuffer(payload, schema::VerifyAnimationDataBuffer,
+                                                       "Invalid Animation FlatBuffer", error))
+        {
+            return false;
+        }
+        const auto* data = schema::GetAnimationData(payload.data());
+        if (data->schema_version() != 2 ||
+            data->sampling_encoding() != schema::SamplingEncoding::ozz_archive)
+        {
+            error = "Disk Animation requires the current offline sampling archive";
+            return false;
+        }
+        return true;
     };
     return resource_decode_detail::decode_flatbuffer<ResourceType>(
         entry, payload, 64U * 1024U * 1024U, validate, [](const std::uint8_t* bytes)
@@ -174,6 +186,25 @@ bool AnimationResourceCodec::validate_dependencies(const Resource& resource,
     if (!skeleton || !resource_detail::data<SkeletonResource>(skeleton))
     {
         return false;
+    }
+    const auto count = resource_detail::data<SkeletonResource>(skeleton)->joints.size();
+    if (data->sampling_encoding == schema::SamplingEncoding::ozz_archive)
+    {
+        std::vector<std::uint8_t> channels(count);
+        for (const auto& track : data->tracks)
+        {
+            if (track->joint >= count)
+            {
+                return false;
+            }
+            channels[track->joint] = (!track->translations.empty() ? 1 : 0) |
+                                     (!track->rotations.empty() ? 2 : 0) |
+                                     (!track->scales.empty() ? 4 : 0);
+        }
+        if (channels != data->sampling_channels)
+        {
+            return false;
+        }
     }
     for (const auto& track : data->tracks)
     {

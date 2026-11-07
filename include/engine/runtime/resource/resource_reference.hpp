@@ -55,9 +55,9 @@ public:
         return retain(source.loader_, source.handle_);
     }
     [[nodiscard]] bool dependency(ResourceLoader* loader, const ResourceHandle& owner,
-                                  std::string_view guid)
+                                  std::string_view path_or_guid)
     {
-        if (loader_ || !loader || !loader->retain_dependency(owner, guid, handle_))
+        if (loader_ || !loader || !loader->retain_dependency(owner, path_or_guid, handle_))
         {
             return false;
         }

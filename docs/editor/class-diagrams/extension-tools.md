@@ -15,8 +15,11 @@
 | `file_text.hpp` | 物理源文件读取为文本，失败清空输出，不加载运行资源。 |
 | `resource_access.hpp` | 编辑器显式准备资源、保活引用和捕获版本元数据；不建立共享缓存或第二套引用计数。 |
 | `mesh/mesh_lods.hpp`、`mesh/mesh_tangents.hpp` | 生成离线 LOD/切线，使用生成 Mesh 数据；LOD 参数解析结构留在实现内。 |
+| `asset_pipeline/animation_sampling.hpp` | 用既有生成 SkeletonData / AnimationData 生成采样归档；两个普通函数，不新增导入器接口或 System。 |
 
 文件和资源借用只在调用期间有效；返回的拥有值与 ResourceReference 由调用方管理。失败通过 bool 或所属状态枚举及已有错误输出报告，必要资源在失败路径释放。插件继续由宿主显式登记，编辑器不反向链接任何插件。
+
+**2026-11-07 实现补充：** 两个 `prepare_*_sampling` 函数已实现，签名归本页独占维护。它们为 nodiscard 的同步 CPU 操作，供既有编辑器任务域调用，不自建线程池。成功原子替换 candidate 的派生采样字段并设为当前归档编码；失败保持 candidate 原值并返回 error。不改变 GUID、路径、joints / tracks / events、socket / IK 或依赖声明。Animation 输入的源骨架必须已生成有效归档且身份 / 结构匹配；派生字段及格式语义见[动画产物](../../runtime/class-diagrams/model-resources.md#离线采样产物)。
 
 ```mermaid
 classDiagram
@@ -53,6 +56,8 @@ classDiagram
         +source_extension(const path&) string
         +generic_path(const path&) string
         +shader_target(string_view target, string& platform, string& profile) bool
+        +prepare_skeleton_sampling(SkeletonDataT& candidate, string& error) bool
+        +prepare_animation_sampling(AnimationDataT& candidate, const SkeletonDataT& skeleton, string& error) bool
         +editor_tool_path(string_view name, const path& fallback, path& output, string& error) bool
         +editor_tool_data_path(string_view relative, const path& fallback, path& output, string& error) bool
         +identifier(const toml_node* node, uint64_t& output) bool
@@ -88,6 +93,8 @@ classDiagram
     class AssetKind
     class MaterialValueUnion
     class MeshDataT
+    class SkeletonDataT
+    class AnimationDataT
     class CancellationCheck {
         <<type alias>>
     }
@@ -106,6 +113,8 @@ classDiagram
     asset_pipeline ..> MaterialValueUnion : 生成模型输出
     asset_pipeline ..> CancellationCheck : 本次调用借用
     asset_pipeline ..> ImportToolStatus : 返回进程终态
+    asset_pipeline ..> SkeletonDataT : 生成模型的派生字段输入输出
+    asset_pipeline ..> AnimationDataT : 生成模型的派生字段输入输出
     resource_access ..> ResourceLoader : 可空借用
     resource_access ..> ResourceReference : 输出拥有引用
     resource_access ..> ResourceHandle : 输入值

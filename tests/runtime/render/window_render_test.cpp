@@ -1,3 +1,4 @@
+#include "../../support/render_fixture.hpp"
 #include "resource_services.hpp"
 #include "runtime/resource/virtual_file_system.hpp"
 #include "scene_snapshot.hpp"
@@ -100,7 +101,7 @@ bool render_frames(engine::WindowSystem& windows, engine::RenderSystem& renderer
         }
         if (windows.can_render())
         {
-            if (!expect(renderer.render(camera), "submit a real GPU frame"))
+            if (!expect(test_support::render_frame(renderer, camera), "submit a real GPU frame"))
             {
                 return false;
             }
@@ -245,7 +246,7 @@ bool test_window_and_renderer(const engine::EngineConfig& config)
         !expect(!windows.initialize(invalid_config), "reject zero window width") ||
         !expect(windows.native_window() == nullptr,
                 "failed window initialization leaves no window") ||
-        !expect(!renderer.render(), "reject rendering before initialization") ||
+        !expect(!test_support::render_frame(renderer), "reject rendering before initialization") ||
         !expect(!renderer.initialize(config), "renderer requires an initialized window") ||
         !expect(windows.initialize(config), "initialize SDL window") ||
         !expect(renderer.initialize(config), "initialize GPU renderer") ||
@@ -282,7 +283,7 @@ bool test_window_and_renderer(const engine::EngineConfig& config)
         !push_application_event(SDL_EVENT_WILL_ENTER_BACKGROUND) ||
         !expect(windows.tick(delta_time), "poll background event") ||
         !expect(!windows.can_render(), "background application must pause drawing") ||
-        !expect(!renderer.render(), "renderer must reject a paused window") ||
+        !expect(!test_support::render_frame(renderer), "renderer must reject a paused window") ||
         !push_application_event(SDL_EVENT_DID_ENTER_FOREGROUND) ||
         !render_frames(windows, renderer, 8))
     {
@@ -405,12 +406,13 @@ bool test_scene_renderer(const engine::EngineConfig& config)
     engine::WorldSystem world(&services.loader);
     engine::WindowSystem windows;
     engine::RenderSystem renderer(windows, &world);
-    if (!expect(!renderer.prepare_scene(), "preparation requires initialized renderer") ||
+    if (!expect(!test_support::prepare_render(renderer),
+                "preparation requires initialized renderer") ||
         !expect(world.initialize(config), "initialize scene world") ||
         !expect(windows.initialize(config), "initialize scene window") ||
         !expect(renderer.initialize(config), "initialize scene renderer") ||
         !render_frames(windows, renderer, 8) ||
-        !expect(!renderer.scene_prepared() && renderer.gpu_resource_count() == 0,
+        !expect(test_support::render_ready(renderer) && renderer.gpu_resource_count() == 0,
                 "idle editor owns no project GPU resources"))
     {
         return false;
@@ -460,10 +462,10 @@ bool test_scene_renderer(const engine::EngineConfig& config)
             return valid;
         };
         if (!create_cube_scene(world, cycle == 0) ||
-            !expect(renderer.prepare_scene(), "prepare embedded cube resources") ||
-            !expect(renderer.scene_prepared() && renderer.gpu_resource_count() > 0,
+            !expect(test_support::prepare_render(renderer), "prepare embedded cube resources") ||
+            !expect(test_support::render_ready(renderer) && renderer.gpu_resource_count() > 0,
                     "prepared scene owns GPU handles") ||
-            !expect(renderer.prepare_scene(), "preparing twice is idempotent") ||
+            !expect(test_support::prepare_render(renderer), "preparing twice is idempotent") ||
             !render_frames(windows, renderer, 8) ||
             !expect(bgfx::getStats()->numDraw > idle_draws,
                     "mesh contributes real depth, surface and color draws above blank baseline") ||
@@ -490,13 +492,17 @@ bool test_scene_renderer(const engine::EngineConfig& config)
              {"shaders/tests/incomplete", "shaders/tests/unknown-uniform"})
         {
             if (!expect(mesh.material().set_shader(invalid_path), "select schema-valid shader") ||
-                !expect(
-                    !renderer.prepare_scene() && renderer.gpu_resource_count() == 0,
-                    "shader reflection rejects missing and unknown uniforms with full cleanup") ||
-                !expect(mesh.material().set_shader(custom.path), "restore valid shader") ||
+                !expect(!test_support::prepare_render(renderer) &&
+                            renderer.gpu_resource_count() == 0,
+                        "shader reflection rejects missing and unknown uniforms with full cleanup"))
+            {
+                return false;
+            }
+            renderer.release_scene();
+            if (!expect(mesh.material().set_shader(custom.path), "restore valid shader") ||
                 !render_frames(windows, renderer, 8) ||
                 !expect(renderer.gpu_resource_count() > 0,
-                        "renderer recovers without retaining failed program handles"))
+                        "explicit reset retires the failed preparation generation"))
             {
                 return false;
             }
@@ -520,7 +526,7 @@ bool test_scene_renderer(const engine::EngineConfig& config)
             return false;
         }
 
-        // 热重载替换场景时不提前通知渲染器，render 按存活节点增量准备资源。
+        // 热重载替换场景时不提前通知渲染器，准备入口按存活节点更新资源。
         world.destroy_scene();
         if (!create_cube_scene(world, false) || !render_frames(windows, renderer, 8) ||
             !expect(renderer.gpu_resource_count() > 0 && bgfx::getStats()->numDraw == scene_draws,
@@ -532,7 +538,7 @@ bool test_scene_renderer(const engine::EngineConfig& config)
         world.destroy_scene();
         renderer.release_scene();
         renderer.release_scene();
-        if (!expect(!renderer.scene_prepared() && renderer.gpu_resource_count() == 0,
+        if (!expect(!test_support::render_ready(renderer) && renderer.gpu_resource_count() == 0,
                     "stop releases project ownership immediately") ||
             !render_frames(windows, renderer, 8) ||
             !expect(bgfx::getStats()->numDraw == idle_draws,
@@ -738,12 +744,15 @@ engine::schema::MeshDataT textured_quad()
 engine::schema::TextureDataT test_texture(const char* path, bool srgb, bool blocks)
 {
     engine::schema::TextureDataT data;
+    data.schema_version = 2;
     data.path = path;
     data.width = 8;
     data.height = 8;
     data.srgb = srgb;
-    data.encoding = engine::schema::TextureEncoding::rgba8;
+    data.encoding = engine::schema::TextureEncoding::native;
     data.format = engine::schema::TextureFormat::rgba8;
+    data.subresources.emplace_back(0, 0, 0,
+                                   static_cast<std::uint64_t>(data.width) * data.height * 4);
     for (std::uint32_t y = 0; y < data.height; ++y)
     {
         for (std::uint32_t x = 0; x < data.width; ++x)
@@ -778,24 +787,21 @@ engine::schema::TextureDataT ibl_test_texture(const char* path, bool cube)
             pixels[offset + 1] = static_cast<std::uint8_t>(half >> 8);
         }
     }
-    std::string bytes(64 + 4 + pixels.size(), '\0');
-    bx::StaticMemoryBlockWriter writer(bytes.data(), static_cast<std::uint32_t>(bytes.size()));
-    bx::Error error;
-    const auto written = bimg::imageWriteKtx(
-        &writer, cube ? bimg::TextureFormat::RGBA16F : bimg::TextureFormat::RG16F, cube, 4, 4, 0, 1,
-        1, false, pixels.data(), &error);
     engine::schema::TextureDataT result;
+    result.schema_version = 2;
     result.path = path;
     result.width = result.height = 4;
     result.mip_count = 1;
     result.srgb = false;
     result.cube_map = cube;
-    result.encoding = engine::schema::TextureEncoding::ktx;
+    result.encoding = engine::schema::TextureEncoding::native;
     result.format =
         cube ? engine::schema::TextureFormat::rgba16f : engine::schema::TextureFormat::rg16f;
-    if (error.isOk() && written == static_cast<std::int32_t>(bytes.size()))
+    result.data = std::move(pixels);
+    const auto face_bytes = 4 * 4 * channels * 2;
+    for (std::uint32_t face = 0; face < (cube ? 6U : 1U); ++face)
     {
-        result.data.assign(bytes.begin(), bytes.end());
+        result.subresources.emplace_back(0, face, face * face_bytes, face_bytes);
     }
     return result;
 }
@@ -905,6 +911,7 @@ bool test_scene_sampling(const engine::EngineConfig& config)
         return false;
     }
     engine::schema::TextureDataT checker;
+    checker.schema_version = 2;
     checker.path = "textures/sampling-checker";
     checker.width = checker.height = 256;
     checker.mip_count = 9;
@@ -1945,7 +1952,7 @@ bool test_gpu_skinning(const engine::EngineConfig& config)
     {
         return false;
     }
-    const auto skeleton = test_support::animation::skeleton(false);
+    auto skeleton = test_support::animation::skeleton(false);
     auto mesh = textured_quad();
     mesh.path = "meshes/gpu-skinning";
     mesh.skeleton_guid = test_support::animation::target_guid;
@@ -1958,6 +1965,11 @@ bool test_gpu_skinning(const engine::EngineConfig& config)
         vertex.mutate_nz(0.577350269F);
     }
     if (!engine::MeshUtils::build_tangents(mesh, mesh.tangents))
+    {
+        return false;
+    }
+    std::string sampling_error;
+    if (!engine::editor::asset_pipeline::prepare_skeleton_sampling(skeleton, sampling_error))
     {
         return false;
     }
@@ -2124,6 +2136,78 @@ bool test_gpu_skinning(const engine::EngineConfig& config)
     return render_frames(windows, renderer, 4) &&
            expect(gpu_counts() == idle,
                   "shared geometry and per-instance skinning buffers retire together");
+}
+
+bool test_incremental_preparation(const engine::EngineConfig& config)
+{
+    engine::ThreadSystem threads({.worker_limit = 2});
+    engine::TaskSystem tasks(threads, {.name = "Incremental preparation", .max_concurrency = 1});
+    test_support::ResourceServices services(&threads);
+    engine::WorldSystem world(&services.loader);
+    engine::WindowSystem windows;
+    engine::RenderSystem renderer(windows, &world, nullptr, nullptr, &tasks,
+                                  {.texture_batch_size = 1,
+                                   .texture_staging_bytes = 64,
+                                   .prepare_items_per_step = 1,
+                                   .prepare_seconds_per_step = 0.002,
+                                   .upload_bytes_per_step = 16});
+    if (!threads.initialize(config) || !tasks.initialize(config) || !services.initialize(config) ||
+        !services.prepare_builtins() || !world.initialize(config) || !windows.initialize(config) ||
+        !renderer.initialize(config) || !create_cube_scene(world, false))
+    {
+        return false;
+    }
+    std::promise<void> release;
+    const auto gate = release.get_future().share();
+    auto occupied = tasks.submit("Hold texture worker",
+                                 [gate]
+                                 {
+                                     gate.wait();
+                                     return true;
+                                 });
+    engine::RenderPrepareProgress progress;
+    const auto begin = std::chrono::steady_clock::now();
+    auto status = engine::RenderPrepareStatus::preparing;
+    for (int i = 0; i < 16 && progress.staging_bytes == 0; ++i)
+    {
+        status = renderer.prepare_scene(engine::RenderPrepareMode::incremental, progress);
+    }
+    const auto elapsed =
+        std::chrono::duration<double>(std::chrono::steady_clock::now() - begin).count();
+    const auto generation = progress.generation;
+    const auto frame = renderer.frame_number();
+    renderer.release_scene();
+    const bool nonblocking = occupied.valid() && status == engine::RenderPrepareStatus::preparing &&
+                             progress.staging_bytes > 0 && progress.staging_bytes <= 64 &&
+                             elapsed < 0.5 && renderer.frame_number() == frame;
+    release.set_value();
+    if (!expect(nonblocking && occupied.get(),
+                "incremental preparation and cancellation never wait for a blocked worker"))
+    {
+        return false;
+    }
+    for (int step = 0; step < 256; ++step)
+    {
+        if (!windows.tick(1.0 / 60.0))
+        {
+            return false;
+        }
+        status = renderer.prepare_scene(engine::RenderPrepareMode::incremental, progress);
+        if (!expect(status != engine::RenderPrepareStatus::failed && progress.staging_bytes <= 64,
+                    "retired and active staging stay within one shared budget"))
+        {
+            return false;
+        }
+        const bool rendered = renderer.render();
+        if (status == engine::RenderPrepareStatus::ready)
+        {
+            return expect(rendered && progress.generation > generation &&
+                              progress.discovery_complete &&
+                              progress.resources_ready == progress.resources_total,
+                          "cancelled work cannot complete the replacement generation");
+        }
+    }
+    return expect(false, "incremental preparation finishes within the fixture frame limit");
 }
 
 bool test_textured_renderer(const engine::EngineConfig& config, bool shared)
@@ -2562,7 +2646,7 @@ bool test_textured_renderer(const engine::EngineConfig& config, bool shared)
     engine::RenderSystem limited(windows, &world, nullptr, nullptr, shared ? &tasks : nullptr,
                                  {.texture_batch_size = 4, .texture_staging_bytes = 1});
     return expect(limited.initialize(config) && create_cube_scene(world, false) &&
-                      !limited.prepare_scene() && limited.gpu_resource_count() == 0,
+                      !test_support::prepare_render(limited) && limited.gpu_resource_count() == 0,
                   "oversized texture fails before allocating staging pixels and cleans candidates");
 }
 
@@ -2580,7 +2664,12 @@ bool test_render_settings_and_capture(const engine::EngineConfig& config)
     {
         return false;
     }
-    const auto skeleton = test_support::animation::skeleton(false);
+    auto skeleton = test_support::animation::skeleton(false);
+    std::string sampling_error;
+    if (!engine::editor::asset_pipeline::prepare_skeleton_sampling(skeleton, sampling_error))
+    {
+        return false;
+    }
     flatbuffers::FlatBufferBuilder skeleton_builder;
     engine::schema::FinishSkeletonDataBuffer(
         skeleton_builder, engine::schema::SkeletonData::Pack(skeleton_builder, &skeleton));
@@ -3928,7 +4017,8 @@ bool test_render_extensions(const engine::EngineConfig& config)
             return false;
         }
         extension.accept_draw = false;
-        if (!expect(!renderer.render(preview), "extension draw failure reaches caller"))
+        if (!expect(!test_support::render_frame(renderer, preview),
+                    "extension draw failure reaches caller"))
         {
             return false;
         }
@@ -4242,7 +4332,8 @@ int main(int, char**)
 
     const bool windows_passed = test_window_and_renderer(config);
     const bool scene_passed = windows_passed && test_scene_renderer(config);
-    bool textures_passed = scene_passed && test_textured_renderer(config, false);
+    bool textures_passed = scene_passed && test_incremental_preparation(config) &&
+                           test_textured_renderer(config, false);
     textures_passed = textures_passed && test_textured_renderer(config, true);
     const bool sampling_passed = textures_passed && test_scene_sampling(config);
     const bool skinning_passed = sampling_passed && test_orthographic_pbr_view(config) &&

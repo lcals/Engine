@@ -1,3 +1,4 @@
+#include "../../../support/render_fixture.hpp"
 #include "plugins/runtime/effects/codecs/effect_resource_codec.hpp"
 #include "resource_services.hpp"
 #include "runtime/resource/virtual_file_system.hpp"
@@ -119,11 +120,14 @@ bool prepare_effect(test_support::ResourceFixture& fixture, ByteView source,
             continue;
         }
         schema::TextureDataT texture;
+        texture.schema_version = 2;
         texture.path = std::string(folder) + "/texture-" + std::to_string(paths.size());
         texture.width = 1;
         texture.height = 1;
-        texture.encoding = schema::TextureEncoding::rgba8;
+        texture.encoding = schema::TextureEncoding::native;
         texture.format = schema::TextureFormat::rgba8;
+        texture.subresources.emplace_back(
+            0, 0, 0, static_cast<std::uint64_t>(texture.width) * texture.height * 4);
         texture.srgb = true;
         texture.data.assign(color.begin(), color.end());
         if (!fixture.add(texture))
@@ -177,7 +181,7 @@ bool advance(WindowSystem& windows, RenderSystem& renderer, EffectSystem& effect
             continue;
         }
         if (!expect(effects.tick(1.0 / 60.0), effects.last_error()) ||
-            !expect(renderer.render(), effects.last_error()))
+            !expect(test_support::render_frame(renderer), effects.last_error()))
         {
             return false;
         }
@@ -330,8 +334,9 @@ int main(int argc, char** argv)
     auto cold_node = scene->create_node("Deferred across world pause");
     auto cold = cold_node ? cold_node.add_component<EffectComponent>() : EffectComponent{};
     if (!expect(cold && first.pause() && world.set_paused(true) && cold.set_effect("red/effect") &&
-                    effects.tick(120) && renderer.render() && renderer.render() &&
-                    !cold.playing() && !first.playing() && second.playing(),
+                    effects.tick(120) && test_support::render_frame(renderer) &&
+                    test_support::render_frame(renderer) && !cold.playing() && !first.playing() &&
+                    second.playing(),
                 "world pause blocks both tick and draw fallback emission, preserving individual "
                 "pause") ||
         !expect(world.set_paused(false), "resume effect world") ||

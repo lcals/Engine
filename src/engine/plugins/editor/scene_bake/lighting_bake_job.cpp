@@ -101,23 +101,17 @@ bool texture(std::span<const float> rgba, std::uint16_t size, schema::TextureDat
         }
         half[i] = bx::halfFromFloat(rgba[i]);
     }
-    bx::DefaultAllocator allocator;
-    bx::MemoryBlock block(&allocator);
-    bx::MemoryWriter writer(&block);
-    bx::Error error;
-    const auto written = bimg::imageWriteKtx(&writer, bimg::TextureFormat::RGBA16F, false, size,
-                                             size, 0, 1, 1, false, half.data(), &error);
-    if (!error.isOk() || written <= 0)
-    {
-        return false;
-    }
-    const auto* bytes = static_cast<const std::uint8_t*>(block.more(0));
+    const auto* bytes = reinterpret_cast<const std::uint8_t*>(half.data());
+    const auto byte_count = half.size() * sizeof(half.front());
+    output = {};
+    output.schema_version = 2;
     output.path = "bake/lightmap.ktx";
     output.width = output.height = size;
     output.srgb = false;
-    output.encoding = schema::TextureEncoding::ktx;
+    output.encoding = schema::TextureEncoding::native;
     output.format = schema::TextureFormat::rgba16f;
-    output.data.assign(bytes, bytes + written);
+    output.data.assign(bytes, bytes + byte_count);
+    output.subresources.emplace_back(0, 0, 0, byte_count);
     return true;
 }
 
@@ -712,7 +706,10 @@ BakeProgress LightingBakeJob::tick(std::string& error)
     {
         s.request.indirect.push_back({s.runtime_ids[mesh.node_id], mesh.lightmap, mesh.mesh});
     }
-    if (!s.renderer.request_diffuse_capture(s.request))
+    RenderPrepareProgress preparation;
+    if (s.renderer.prepare_scene(RenderPrepareMode::synchronous, preparation) !=
+            RenderPrepareStatus::ready ||
+        !s.renderer.request_diffuse_capture(s.request))
     {
         error = "Renderer rejected the diffuse capture request";
         return s.progress = BakeProgress::failed;

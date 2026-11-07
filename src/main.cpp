@@ -192,12 +192,14 @@ int main(int argc, char* argv[])
 #endif
 #if ENGINE_START_PACKAGED_GAMEPLAY && ENGINE_HAS_RESOURCE_GRAPH_PLUGIN && ENGINE_HAS_APP_SERVICES
     const bool has_intro = !settings.startup_movie.empty();
+    constexpr bool staged_startup = true;
 #else
     [[maybe_unused]] constexpr bool has_intro = false;
+    [[maybe_unused]] constexpr bool staged_startup = false;
 #endif
 #if ENGINE_HAS_RESOURCE_GRAPH_PLUGIN
     const bool engine_ready =
-        has_intro
+        staged_startup
             ? engine.initialize_presentation(config, &resources, &resource_graph, &threads,
                                              parallel)
             : engine.initialize(config, &resources, &resource_graph, script_factory,
@@ -239,7 +241,7 @@ int main(int argc, char* argv[])
     bool intro_active = false;
     bool preparing_gameplay = false;
     bool gameplay_ready = false;
-    bool starting = has_intro;
+    bool starting = true;
     if (starting)
     {
         const auto persistent = engine::App::persistent_data_path();
@@ -275,24 +277,6 @@ int main(int argc, char* argv[])
             engine::App::shutdown();
             return 1;
         }
-    }
-#endif
-#if ENGINE_START_PACKAGED_GAMEPLAY
-    if (!has_intro && !engine.gameplay()->start())
-    {
-        const std::string detail(engine.gameplay()->last_error());
-        engine::LogSystem::write(engine::LogLevel::error, "Gameplay startup failed: " + detail);
-        engine.shutdown();
-#if ENGINE_HAS_RESOURCE_GRAPH_PLUGIN
-        shutdown_resources();
-#endif
-        log.shutdown();
-        engine::App::shutdown();
-        return 1;
-    }
-    if (!has_intro)
-    {
-        engine::LogSystem::write(engine::LogLevel::info, "Packaged gameplay started");
     }
 #endif
     auto previous_time = std::chrono::steady_clock::now();
@@ -376,7 +360,7 @@ int main(int argc, char* argv[])
                     result = 1;
                     break;
                 }
-                if (!resource_graph.begin_load(settings.startup_movie, intro_load))
+                if (has_intro && !resource_graph.begin_load(settings.startup_movie, intro_load))
                 {
                     engine::LogSystem::write(engine::LogLevel::error, resource_graph.last_error());
                 }

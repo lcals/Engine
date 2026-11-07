@@ -4,6 +4,8 @@
 
 **状态：统一资源契约及业务接入补充已按确认类图实现；验证范围见测试文档。** 保留 plugins/runtime/resource_graph/ 的归属。插件是对底层能力的高级封装：组织加载、依赖、共享、内部计数和卸载；核心不承载这些策略，业务不直接组合单项读取。
 
+**2026-11-07 大场景变更已实现：** 本页配置及内部组织调整已实现，本批验证范围见测试文档。公开加载 / 引用语义保持；闭包路径获取的变更见 ResourceLoader，跨模块入口见[大场景准备](../../../runtime/class-diagrams/large-scene-preparation.md)。
+
 默认实现为 engine::plugins::resource_graph::ResourceGraphSystem。ResourceLoader 等契约在核心 engine 命名空间，业务只依赖它们；其他人可提供符合相同契约的加载器，由可执行宿主替换注入。
 
 ## 默认包装实现
@@ -21,8 +23,8 @@ classDiagram
     class ResourceGraphConfig {
         <<struct>>
         +uint32_t max_requests = 128
-        +uint32_t max_pending_resources = 1024
         +uint32_t completion_budget = 16
+        +double coordination_budget_seconds = 0.002
     }
     class System
     class ResourceLoader
@@ -53,7 +55,7 @@ classDiagram
 
 ## 记录、获取和在途合并
 
-**精简状态：本节私有结构已按确认类图迁移；ResourceLoader 的公开方法和完成语义保持。** 删除无读取用途的 task_references 镜像字段；后台任务安全由实际工作状态或独立资源获取的所有权保证。
+**本节大场景增量已实现。** 已删除的 task_references 镜像字段不恢复；后台任务安全由实际工作状态或独立资源获取的所有权保证。
 
 ```mermaid
 classDiagram
@@ -66,16 +68,27 @@ classDiagram
         +uint64_t acquisitions
         +uint64_t dependency_references
         +uint64_t request_references
+        +uint32_t unresolved_dependencies
     }
     class Acquisition {
         <<private struct>>
     }
     class LoadState {
         <<private struct>>
+        +uint32_t completed
+        +uint32_t total
+        +size_t admission_cursor
+    }
+    class LoadPlan {
+        <<private immutable struct>>
+    }
+    class DependencyIndex {
+        <<private immutable struct>>
     }
     class GraphResourceLoad
     class Resource
     class ResourceRead
+    class ResourceCatalog
     ResourceGraphSystem *-- ResourceRecord : 按目录代际和GUID索引
     ResourceGraphSystem *-- Acquisition : 每次获取独立身份
     ResourceGraphSystem o-- LoadState : 活动请求状态
@@ -85,12 +98,21 @@ classDiagram
     ResourceRecord *-- Resource : 只读数据独占所有权
     ResourceRecord *-- ResourceRead : 尚未完成时拥有操作
     ResourceRecord --> ResourceRecord : 去重后的直接依赖引用
+    ResourceRecord o-- DependencyIndex : 已建立的根闭包身份索引
+    LoadState o-- LoadPlan : 共享去重计划 不复制载荷
+    LoadPlan *-- ResourceCatalog : 目录值共享不可变快照
+    LoadPlan o-- DependencyIndex : 根的GUID与路径成员索引
+    ResourceRecord ..> LoadState : 以请求身份通知一次完成
 ```
 
 这些是插件内部记录示意，不是新增公开架构层。计数区分获取、依赖、请求，所有加减在协调线程完成；业务模块任务通过独立获取计入 acquisitions，不再维护只反映 read 是否存在的 task_references。计数溢出/身份耗尽返回明确错误，不回绕。共享控制状态允许请求晚于插件析构，资源引用仍由插件集中核算。
 
 - 索引键固定为目录代际 + GUID，同代际路径由目录唯一映射；同一在途资源只存在一份读取/解码。多个请求只是增加各自等待关系，不各自保存一棵重复加载树。
 - 每个请求从必要依赖声明建立去重后序计划并检测环。只处理真实必要依赖，不按文件分组加载未使用的模型子资源。
+- 计划共享该目录代际的不可变 ResourceCatalog；同代际、同根、同内存定义集合的在途请求共享一份计划。内存定义用独立不可变元数据保活，不能让 worker 借用可能被撤销的 ResourceRecord。
+- DependencyIndex 按 GUID 和逻辑路径记录根的必要闭包成员，只保存身份 / 元数据索引，不增加第二套载荷引用。请求根在计划阶段建立索引；未独立规划过的依赖根仅在首次需要其闭包查询时建立并缓存一次，成本归本次获取，不能藏到 status/get 中。不为每个资源预先复制所有祖先的传递闭包，避免索引内存平方增长。
+- 每个请求用去重集合登记引用；每条依赖边只计数一次。记录发布时通过反向等待边递减父项的 unresolved_dependencies，并向订阅请求增加 completed；重复通知、已取消身份和已完成请求被拒绝。禁止每帧对全部记录逐个扫描全部请求，再在线性 pins 数组里找成员；status 读取已维护计数。
+- 完整实例身份仍经加载器校验。闭包索引不会让旧获取复活；撤销记录或最后拥有者退出时销毁其索引。动态组件绑定仍从当前已加载目录获取；恢复作用域使用根闭包，两者不混代。
 - 每项先得到核心单项候选，再在直接依赖就绪后调用核心 validate_dependencies；成功才原子发布该项及其依赖关系。根 ready 前完整闭包必须就绪。
 - 原子单位是一个资源记录及其已就绪闭包；已成功的共享依赖可服务其他请求。根失败只回滚本请求持有的临时引用；无其他引用的依赖立即卸载，不清除其他请求已取得的数据。
 - 同一资源多次成功 load 得到独立 Acquisition，数据仍只有一份。release 只撤销自己的身份；不允许 unload(guid) 强制破坏别人的使用。
@@ -125,6 +147,15 @@ sequenceDiagram
 图中等待跨系统 tick 完成，不是单次 begin_load 中同步执行所有步骤。业务 status 是只读查询。宿主先派发共享任务完成，再按依赖顺序 tick 核心读取系统、插件和使用模块；关闭反序。
 
 异步目录计划等 CPU 工作使用本插件的 TaskSystem；输入为不可变目录快照，worker 不修改共享记录。解析任务属于核心读取域，文件任务属于文件域，互不挪用领域模块的任务队列。插件 on_tick 只做有预算的协调与发布，不等待 worker。
+
+### 执行窗口与预算
+
+- 删除 `max_pending_resources`，不再因一个场景的未就绪闭包超过 1024 项而失败。完整计划只保存元数据；单项读取的数量 / 字节窗口仍由 ResourceReadConfig 与 FileAsyncConfig 独占管理，插件遇到 busy 保留游标并让出，不另建同义额度或线程池。
+- 计划落入共享记录、等待边登记、读取提交、发布和取消清理由同一协调时间预算限制，并保留游标；completion_budget 限制每 tick 的终态发布数量，不能把这个数误用为每帧只能遍历同样数量的所有元数据。初始化拒绝零发布预算及非有限 / 非正时间预算。
+- 可以在依赖未发布时读取 / 解码本项；只有依赖全部 ready 才调用 validate_dependencies 并发布。优先调度能解除依赖等待的项，窗口空闲时允许后续项预读。候选占用的字节纳入诊断；窗口只约束在途传输 / 解码，不能宣称限制最终就绪资源的总驻留内存。
+- 单项本身超过核心读取上限仍明确 budget_exceeded，不偷偷扩大缓冲。超大实体分块 / 资源分区属于独立格式设计；整个包大于窗口不构成单项超限。
+- 相同根 / 依赖的请求只共享工作和数据，各自保留独立获取、取消和进度。注册到已 ready 记录时只计一次完成；等待表以可校验请求身份定位，不持有可悬空的请求指针。
+- 取消先使请求身份失效，随后分步解除其临时引用；其他请求仍需要的记录继续推进。后台工作结束前保活输入，不能在协调线程等待 future。清理队列不得作为常驻缓存；关闭阶段完整回收这些工作后再关闭借用服务。
 
 同步 load 在协调线程完成自己的计划、读取与校验。若闭包已有在途异步记录，先返回 busy，不等待完成委托、不重复读、不 tick 其他系统。完整命中 ready 时直接获取。异步资源预算暂满时插件有界排队，先检查取消/换代再重试；单项超限明确失败，不无限等待。
 

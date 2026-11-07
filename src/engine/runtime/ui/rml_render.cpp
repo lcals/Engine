@@ -13,6 +13,8 @@
 #include <SDL3/SDL_log.h>
 #include <algorithm>
 #include <basisu/transcoder/basisu_transcoder.h>
+#include <bimg/bimg.h>
+#include <bx/allocator.h>
 #include <bx/math.h>
 #include <charconv>
 #include <cmath>
@@ -31,12 +33,12 @@ bool supported_texture(const Resource& resource)
     const auto* data = resource_detail::data<TextureResource>(&resource);
     if (data && !data->cube_map && data->format != schema::TextureFormat::rgba16f &&
         data->format != schema::TextureFormat::rg16f &&
-        (data->encoding == schema::TextureEncoding::rgba8 ||
+        (data->encoding == schema::TextureEncoding::native ||
          data->encoding == schema::TextureEncoding::basis))
     {
         return true;
     }
-    SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "UI requires 2D LDR rgba8/Basis textures: %s",
+    SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "UI requires 2D LDR native/Basis textures: %s",
                  resource.info().path.c_str());
     return false;
 }
@@ -414,14 +416,39 @@ Rml::TextureHandle RmlRender::LoadTexture(Rml::Vector2i& dimensions, const Rml::
         return 0;
     }
     std::vector<std::uint8_t> pixels(static_cast<std::size_t>(data.width) * data.height * 4);
-    if (data.encoding == schema::TextureEncoding::rgba8)
+    if (data.encoding == schema::TextureEncoding::native)
     {
-        if (data.data.size() < pixels.size())
+        const auto part =
+            std::find_if(data.subresources.begin(), data.subresources.end(),
+                         [](const auto& value) { return value.mip() == 0 && value.face() == 0; });
+        if (part == data.subresources.end() || part->offset() > data.data.size() ||
+            part->size() > data.data.size() - part->offset())
         {
             healthy_ = false;
             return 0;
         }
-        std::copy_n(data.data.begin(), pixels.size(), pixels.begin());
+        bimg::TextureFormat::Enum format;
+        switch (data.format)
+        {
+        case schema::TextureFormat::rgba8:
+            format = bimg::TextureFormat::RGBA8;
+            break;
+        case schema::TextureFormat::bc7:
+            format = bimg::TextureFormat::BC7;
+            break;
+        case schema::TextureFormat::astc4x4:
+            format = bimg::TextureFormat::ASTC4x4;
+            break;
+        case schema::TextureFormat::etc2:
+            format = bimg::TextureFormat::ETC2A;
+            break;
+        default:
+            healthy_ = false;
+            return 0;
+        }
+        bx::DefaultAllocator allocator;
+        bimg::imageDecodeToRgba8(&allocator, pixels.data(), data.data.data() + part->offset(),
+                                 data.width, data.height, data.width * 4, format);
     }
     else
     {

@@ -1,10 +1,17 @@
 namespace engine.schema;
 
-enum TextureEncoding:ubyte { basis, rgba8, ktx }
+enum TextureEncoding:ubyte { basis, native }
 enum TextureFormat:ubyte { auto_format, rgba8, bc7, astc4x4, etc2, rgba16f, rg16f }
 
+struct TextureSubresourceData {
+    mip:uint;
+    face:uint;
+    offset:ulong;
+    size:ulong;
+}
+
 table TextureData {
-    schema_version:uint = 1;
+    schema_version:uint = 0;
     path:string (required);
     width:uint;
     height:uint;
@@ -14,6 +21,7 @@ table TextureData {
     format:TextureFormat = auto_format;
     data:[ubyte] (required);
     cube_map:bool = false;
+    subresources:[TextureSubresourceData];
 }
 
 root_type TextureData;

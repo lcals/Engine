@@ -1,3 +1,5 @@
+#include "runtime/resource/codecs/animation_resource_codec.hpp"
+#include "runtime/resource/codecs/skeleton_resource_codec.hpp"
 #include "scene_snapshot.hpp"
 
 #include "animation_fixture.hpp"
@@ -316,6 +318,12 @@ bool blending_and_instances()
     // 同 GUID 新资源代际与旧场景引用共存，不能命中旧编译动作。
     auto replacement = clip(clip_path, false, false);
     replacement.tracks[0]->translations[1] = {1, {11, 0, 0}};
+    std::string sampling_error;
+    if (!engine::editor::asset_pipeline::prepare_animation_sampling(replacement, skeleton(true),
+                                                                    sampling_error))
+    {
+        return false;
+    }
     flatbuffers::FlatBufferBuilder builder;
     engine::schema::FinishAnimationDataBuffer(
         builder, engine::schema::AnimationData::Pack(builder, &replacement));
@@ -489,11 +497,61 @@ bool parallel_sampling_matches_serial()
                   "saturated task domain falls back without dropping or duplicating poses");
 }
 
+bool offline_archive_contracts()
+{
+    auto rig = skeleton(true);
+    auto animation = clip(clip_path, false, false);
+    animation.tracks[0]->scales.clear();
+    std::string error;
+    if (!expect(
+            engine::editor::asset_pipeline::prepare_skeleton_sampling(rig, error) &&
+                engine::editor::asset_pipeline::prepare_animation_sampling(animation, rig, error) &&
+                engine::SkeletonResourceCodec::validate(rig) &&
+                engine::AnimationResourceCodec::validate(animation),
+            "offline archives validate with explicit missing-channel masks"))
+    {
+        return false;
+    }
+    auto bad_rig = rig;
+    bad_rig.sampling_joint_order[0] = bad_rig.sampling_joint_order[1];
+    auto bad_animation = animation;
+    bad_animation.sampling_archive.pop_back();
+    if (!expect(!engine::SkeletonResourceCodec::validate(bad_rig) &&
+                    !engine::AnimationResourceCodec::validate(bad_animation),
+                "reject duplicate DFS mapping and truncated archive before ozz reads"))
+    {
+        return false;
+    }
+    bad_animation = animation;
+    bad_animation.sampling_archive[0] = 0;
+    if (!expect(!engine::AnimationResourceCodec::validate(bad_animation),
+                "archive byte order is part of the current contract"))
+    {
+        return false;
+    }
+    auto structured = skeleton(true);
+    flatbuffers::FlatBufferBuilder bytes;
+    engine::schema::FinishSkeletonDataBuffer(
+        bytes, engine::schema::SkeletonData::Pack(bytes, &structured));
+    engine::schema::AssetEntryT entry;
+    entry.kind = engine::schema::AssetKind::skeleton;
+    std::unique_ptr<engine::Resource> output;
+    return expect(
+        engine::SkeletonResourceCodec::validate(structured) &&
+            !engine::SkeletonResourceCodec{}.decode(
+                entry,
+                {reinterpret_cast<const std::byte*>(bytes.GetBufferPointer()), bytes.GetSize()},
+                output, error) &&
+            !output,
+        "structured is an explicit memory input and is never accepted from disk");
+}
+
 } // namespace
 
 int main()
 {
-    return persistent_animation() && parallel_sampling_matches_serial() &&
+    return offline_archive_contracts() && persistent_animation() &&
+                   parallel_sampling_matches_serial() &&
                    world_pause_preserves_individual_playback() && sampling_and_controls() &&
                    skinning_and_lifecycle() && blending_and_instances()
                ? 0

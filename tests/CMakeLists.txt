@@ -1491,7 +1491,7 @@ if(TARGET engine_scene_bake)
 
     add_executable(engine_scene_lighting_files_test plugins/editor/scene_bake/scene_lighting_files_test.cpp
         "${PROJECT_SOURCE_DIR}/src/engine/plugins/editor/scene_bake/scene_bake_files.cpp")
-    target_link_libraries(engine_scene_lighting_files_test PRIVATE engine::asset_pipeline engine::resource)
+    target_link_libraries(engine_scene_lighting_files_test PRIVATE engine::asset_pipeline engine::resource bgfx::bimg_encode)
     target_include_directories(engine_scene_lighting_files_test PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
     get_target_property(_bake_toml_includes tomlplusplus::tomlplusplus INTERFACE_INCLUDE_DIRECTORIES)
     target_include_directories(engine_scene_lighting_files_test SYSTEM PRIVATE ${_bake_toml_includes})
@@ -1644,4 +1644,21 @@ if(TARGET engine_animation_tools_editor)
         PRIVATE ENGINE_FBX_TEST_DATA_DIR="${PROJECT_SOURCE_DIR}/projects/showcase/assets/models")
     engine_apply_options(engine_animation_authoring_commands_test)
     add_test(NAME editor.animation_authoring COMMAND engine_animation_authoring_commands_test)
+endif()
+
+if(TARGET engine_animation)
+    add_library(engine_test_sampling STATIC ../src/engine/editor/asset_pipeline/animation_sampling.cpp)
+    target_include_directories(engine_test_sampling PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+    target_link_libraries(engine_test_sampling PUBLIC engine::scene_data PRIVATE engine::resource ozz_animation_offline ozz_animation)
+    engine_apply_options(engine_test_sampling)
+    foreach(_test engine_animation_test engine_animation_rigging_events_test
+        engine_animation_state_machine_script_test engine_animation_events_script_test
+        engine_model_animation_script_test
+        engine_skeleton_rig_definitions_test
+        engine_animation_retarget_test engine_render_foundation_test engine_window_render_test
+        engine_retarget_importer_test)
+        if(TARGET ${_test})
+            target_link_libraries(${_test} PRIVATE engine_test_sampling)
+        endif()
+    endforeach()
 endif()

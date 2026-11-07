@@ -683,7 +683,15 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
                     }
                 }
 #endif
-                else if (!runtime.renderer()->render(preview->camera()))
+                else if (
+                    [&]
+                    {
+                        engine::RenderPrepareProgress progress;
+                        const auto prepared = runtime.renderer()->preparation_status(progress);
+                        const bool rendered = runtime.renderer()->render(preview->camera());
+                        return prepared == engine::RenderPrepareStatus::failed ||
+                               (prepared == engine::RenderPrepareStatus::ready && !rendered);
+                    }())
                 {
                     LogSystem::write(LogLevel::error, "Scene preview rendering failed");
                     preview->close();

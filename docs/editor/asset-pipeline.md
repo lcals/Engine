@@ -28,7 +28,7 @@
 
 `cache/assets.sqlite` 使用版本 2，记录源、工具、配置和生成指纹；`dependencies` 表用于构建失效和任务排序，`runtime_dependencies` 表用于打包闭包。数据库与目录索引位于 cache 根，不进入 gen。实体哈希用于校验和增量判断，不改变 GUID 身份。
 
-场景、网格、材质和 Shader 描述转换为各自的 FlatBuffers 载荷；TypeScript 编译为 JavaScript，Shader 源码由宿主 shaderc 编译为目标平台程序。PNG/JPG/JPEG/TGA/QOI/HDR/EXR 通过 [TextureImporter](class-diagrams/texture-importer.md) 生成包含 BasisU 数据的纹理载荷，格式、压缩、颜色空间和 mip 设置取自相邻 `.meta`。没有专用导入器的文件保留原始字节作为载荷。转换结束后统一调用核心实体编码接口封装，不能把 `gen/<GUID>` 直接当作裸 JS 或裸 FlatBuffer 读取。
+场景、网格、材质和 Shader 描述转换为各自的 FlatBuffers 载荷；TypeScript 编译为 JavaScript，Shader 源码由宿主 shaderc 编译为目标平台程序。PNG/JPG/JPEG/TGA/QOI/HDR/EXR 通过 [TextureImporter](class-diagrams/texture-importer.md) 生成 basis 或 native 纹理载荷，格式、压缩、颜色空间和 mip 设置取自相邻 `.meta`。没有专用导入器的文件保留原始字节作为载荷。转换结束后统一调用核心实体编码接口封装，不能把 `gen/<GUID>` 直接当作裸 JS 或裸 FlatBuffer 读取。
 
 建模插件的 [ModelingMeshImporter](../plugins/editor/class-diagrams/modeling-mesh-importer.md) 由编辑器、构建 CLI 和 MCP 宿主显式注入。它从 `.mesh` 的 `[modeling]` 权威数据编译普通运行 Mesh；基础 MeshImporter 仍处理普通网格。未注入插件时，权威源导入明确失败，不使用冗余渲染数组。导入器身份和 Schema 参与增量指纹，移除插件不能绕过检查复用旧缓存。
 
@@ -48,7 +48,7 @@
 
 已消失的子资源不会进入本批运行目录，但身份保留在源 meta 并参与全项目冲突检查。源文件、meta、Schema 或导入器指纹变化按依赖传播；没有变化时整批复用，不改写正式版本。发现阶段已知子资源丢失身份时失败，防止引用被悄悄重分配。
 
-FBX 生成层级、几何、骨架和采样动画；USD 当前只生成自包含的静态凸多边形模型。具体格式限制由各插件校验。核心只定义运行 Schema、ResourceCodec 和场景实例化，格式依赖不进入运行包；MCP 调用现有导入/构建/同步能力，无需复制每种格式的算法。
+FBX 生成层级、几何、骨架和采样动画；Skeleton / Animation 格式 2 含离线 Ozz 归档，磁盘载荷缺失归档时拒绝读取，运行时不调用 Builder 补齐。显式 structured 内存候选仍支持动态生成。USD 当前只生成自包含的静态凸多边形模型。具体格式限制由各插件校验。核心只定义运行 Schema、ResourceCodec 和场景实例化，格式依赖不进入运行包；MCP 调用现有导入/构建/同步能力，无需复制每种格式的算法。
 
 ## 运行资源与同步
 
@@ -84,16 +84,18 @@ importer = "texture"
 meta_version = 1
 
 [texture]
+storage = "basis"
 format = "auto"
 compression = "uastc"
 compression_level = 2
 mipmaps = true
 ```
 
-- `format`：LDR 的 `auto` 按 GPU 与转码器能力选择，或明确 `rgba8` / `bc7` / `astc4x4` / `etc2`；HDR 只允许 `auto` / `rgba16f`，运行时保持 RGBA16F。显式格式不支持时返回失败。
+- `storage`：默认 `basis`，运行时按设备能力转码；显式 `native` 在编辑器提前转为目标平台数据，运行时只分块上传。native 的 `auto` 为 Windows/Linux BC7、macOS/iOS ASTC4x4、Android ETC2，HDR 为 RGBA16F；设备不支持时返回错误，不附带后备载荷。
+- `format`：basis LDR 的 `auto` 按 GPU 与转码器能力选择，或明确 `rgba8` / `bc7` / `astc4x4` / `etc2`；HDR 只允许 `auto` / `rgba16f`，运行时保持 RGBA16F。显式格式不支持时返回失败。
 - `compression`：默认 UASTC；LDR 可选 ETC1S。UASTC LDR 可显式使用 `rdo_quality_scalar`（0.001..50，默认1，越小失真越少），ETC1S 使用 `quality`（1..255，默认128）。HDR 使用 UASTC HDR 4×4，不接受 LDR RDO 或 ETC1S 选项。
 - `compression_level`：UASTC LDR/HDR 0..4，ETC1S 0..6；`srgb` 省略时 LDR 默认 true、HDR 默认 false。法线、ORM 等 LDR 数据贴图显式设为 false；HDR 不允许 true。`mipmaps` 决定是否生成完整 mip 链。
-- 设置、源图片、Schema 和编码器版本均参与增量键。输出为 `cache/gen/<完整GUID>` 中的 TextureData/BasisU 资源；Shader sampler 默认纹理和材质纹理引用进入统一依赖树、打包和同步。
+- 设置、源图片、Schema 和编码器版本均参与增量键。输出为 `cache/gen/<完整GUID>` 中的 TextureData 格式 2 资源（basis 或 native）；Shader sampler 默认纹理和材质纹理引用进入统一依赖树、打包和同步。
 - 旧图片若使用 `importer = "source"`，修改为 `texture` 时保留原 GUID；不自动改变已有原始二进制的用途。单边最大8192、总像素最多16M，解码前检查图片头。
 
 **法线和 ORM 的颜色空间必须检查**：普通 LDR 图片没有显式指定 `srgb` 时按颜色贴图处理，默认启用 sRGB 解码；导入器不会根据文件名或材质绑定自动推断用途。给法线或 ORM 图片的邻接 `.meta` 增加以下设置，并保留该文件原有 GUID 和其他选项；若已有 `[texture]` 表，只需在该表中加入或修改 `srgb`，不要重复创建同名表：

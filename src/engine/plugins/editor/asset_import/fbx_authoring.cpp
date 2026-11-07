@@ -280,6 +280,7 @@ bool validate_animation_authoring(const FbxDocument& document, std::string& erro
             return false;
         }
         schema::SkeletonDataT skeleton;
+        skeleton.schema_version = 2;
         skeleton.path = "authoring/skeleton";
         if (!convert_skeleton(document, skeleton, error) ||
             !SkeletonResourceCodec::validate(skeleton))

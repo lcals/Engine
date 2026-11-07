@@ -498,6 +498,7 @@ bool load_document(const std::filesystem::path& path, FbxDocument& document, std
 bool convert_skeleton(const FbxDocument& document, schema::SkeletonDataT& output,
                       std::string& error)
 {
+    output.schema_version = 2;
     std::map<const ufbx_node*, ufbx_matrix> bindings;
     for (const auto& [key, node] : document.meshes)
     {
@@ -743,6 +744,7 @@ bool convert_animation(const FbxDocument& source, const FbxDocument& skeleton,
                        const ufbx_anim_stack& stack, schema::AnimationDataT& output,
                        std::string& error)
 {
+    output.schema_version = 2;
     if (source.scale_factor != skeleton.scale_factor ||
         source.rotation_offset != skeleton.rotation_offset)
     {

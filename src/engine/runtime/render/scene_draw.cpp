@@ -380,12 +380,13 @@ bool RenderSystem::SceneGpuResources::prepare_lighting(
         float farthest = lens.near_clip;
         for (const auto id : capture->node_ids)
         {
-            const auto mesh = std::find_if(meshes.begin(), meshes.end(),
-                                           [id](const auto& value) { return value.node_id == id; });
             const auto node = world.find_node(id);
+            const auto renderer = node ? node.get_component<MeshRenderer>() : MeshRenderer{};
+            const auto found = mesh_index.find({world.epoch(), id, renderer.instance_id()});
+            const auto* mesh = found == mesh_index.end() ? nullptr : &meshes[found->second];
             const auto transform = node ? node.get_component<Transform>() : Transform{};
             std::array<float, 16> model{};
-            if (mesh == meshes.end() || !transform || !transform.world_matrix(model.data()))
+            if (!mesh || !transform || !transform.world_matrix(model.data()))
             {
                 return false;
             }
@@ -467,7 +468,7 @@ bool RenderSystem::SceneGpuResources::draw_meshes(const WorldSystem& world,
     const bool ibl_ready =
         settings.ibl_enabled &&
         std::all_of(ibl_textures.begin(), ibl_textures.end(),
-                    [](const auto& texture) { return bgfx::isValid(texture.handle); });
+                    [](const auto* texture) { return texture && bgfx::isValid(texture->handle); });
     const float camera_position_value[]{draw.world[12], draw.world[13], draw.world[14], 1};
     const float ambient_value[]{settings.ambient_color[0], settings.ambient_color[1],
                                 settings.ambient_color[2], settings.ambient_intensity};
@@ -485,7 +486,7 @@ bool RenderSystem::SceneGpuResources::draw_meshes(const WorldSystem& world,
     const float ibl[]{
         ibl_ready ? 1.0F : 0.0F, settings.ibl_intensity,
         ibl_ready
-            ? static_cast<float>(ibl_textures[1].resource.data<TextureResource>()->mip_count - 1)
+            ? static_cast<float>(ibl_textures[1]->resource.data<TextureResource>()->mip_count - 1)
             : 0,
         0};
     const float shadow_values[]{draw.shadow_bias, draw.inverse_shadow_size,
@@ -542,14 +543,13 @@ bool RenderSystem::SceneGpuResources::draw_meshes(const WorldSystem& world,
                     return true;
                 }
             }
-            const auto mesh = std::find_if(meshes.begin(), meshes.end(), [&node](const auto& entry)
-                                           { return entry.node_id == node.id(); });
+            const auto found = mesh_index.find({world.epoch(), node.id(), renderer.instance_id()});
+            const auto* mesh = found == mesh_index.end() ? nullptr : &meshes[found->second];
             const auto transform = node.get_component<Transform>();
             const auto* data = renderer.mesh_data();
             Item item;
             item.renderer = renderer;
-            if (mesh == meshes.end() || !transform || !data ||
-                !transform.world_matrix(item.model.data()) ||
+            if (!mesh || !transform || !data || !transform.world_matrix(item.model.data()) ||
                 !render_detail::normal_matrix(item.model.data(), item.normal.data()))
             {
                 return false;
@@ -749,10 +749,8 @@ bool RenderSystem::SceneGpuResources::draw_meshes(const WorldSystem& world,
             const auto source = item.renderer.lightmap_resource();
             if (source.id)
             {
-                const auto texture =
-                    std::find_if(textures.begin(), textures.end(),
-                                 [&source](const auto& entry) { return entry.matches(source); });
-                if (texture == textures.end())
+                const auto* texture = render_detail::find_texture(textures, source);
+                if (!texture)
                 {
                     return false;
                 }
@@ -824,12 +822,12 @@ bool RenderSystem::SceneGpuResources::draw_meshes(const WorldSystem& world,
         }
         const auto& item = items[item_index];
         const auto material = item.material;
-        auto program = std::find_if(programs.begin(), programs.end(), [&material](const auto& entry)
-                                    { return entry.path == material.shader_path(); });
-        if (program == programs.end())
+        const auto found_program = programs.find(material.shader_data());
+        if (found_program == programs.end())
         {
             return false;
         }
+        auto* program = &found_program->second;
         if (mode == SceneDrawMode::surface && !bgfx::isValid(program->surface_program))
         {
             continue;
@@ -869,11 +867,11 @@ bool RenderSystem::SceneGpuResources::draw_meshes(const WorldSystem& world,
         bgfx::setTexture(render_detail::ambient_occlusion_stage, ao_sampler,
                          use_ao ? ambient_occlusion.texture() : shadow_fallback);
         bgfx::setTexture(render_detail::ibl_irradiance_stage, ibl_irradiance_sampler,
-                         ibl_ready ? ibl_textures[0].handle : ibl_cube_fallback);
+                         ibl_ready ? ibl_textures[0]->handle : ibl_cube_fallback);
         bgfx::setTexture(render_detail::ibl_prefilter_stage, ibl_prefilter_sampler,
-                         ibl_ready ? ibl_textures[1].handle : ibl_cube_fallback);
+                         ibl_ready ? ibl_textures[1]->handle : ibl_cube_fallback);
         bgfx::setTexture(render_detail::ibl_lut_stage, ibl_lut_sampler,
-                         ibl_ready ? ibl_textures[2].handle : ibl_lut_fallback);
+                         ibl_ready ? ibl_textures[2]->handle : ibl_lut_fallback);
         const float surface_value[]{material.cull_mode() != schema::CullMode::back ? 1.0F : 0.0F,
                                     static_cast<float>(material.blend_mode()), 0, 0};
         bgfx::setUniform(surface, surface_value);

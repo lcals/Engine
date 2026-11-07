@@ -8,9 +8,14 @@
 #include "editor/asset_pipeline/scene_importer.hpp"
 #include "plugins/editor/scene_bake/lighting_bake_job.hpp"
 #include "runtime/core/guid_map.hpp"
+#include "runtime/resource/codecs/texture_resource_codec.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/utils/path_utils.hpp"
 
+#include <bimg/bimg.h>
+#include <bx/allocator.h>
+#include <bx/error.h>
+#include <bx/readerwriter.h>
 #include <toml++/toml.hpp>
 
 #include <algorithm>
@@ -29,6 +34,33 @@ namespace
 {
 namespace fs = std::filesystem;
 namespace io = editor::asset_pipeline;
+
+bool write_lightmap(const fs::path& path, const schema::TextureDataT& image, std::string& error)
+{
+    if (!TextureResourceCodec::validate(image) ||
+        image.encoding != schema::TextureEncoding::native ||
+        image.format != schema::TextureFormat::rgba16f || image.cube_map || image.srgb ||
+        image.mip_count != 1)
+    {
+        error = "Baked lightmap must be a native linear RGBA16F image";
+        return false;
+    }
+    bx::DefaultAllocator allocator;
+    bx::MemoryBlock block(&allocator);
+    bx::MemoryWriter writer(&block);
+    bx::Error status;
+    const auto written =
+        bimg::imageWriteKtx(&writer, bimg::TextureFormat::RGBA16F, false, image.width, image.height,
+                            0, 1, 1, false, image.data.data(), &status);
+    if (!status.isOk() || written <= 0)
+    {
+        error = "Cannot encode the baked lightmap source";
+        return false;
+    }
+    return io::write_bytes(
+        path, {static_cast<const std::byte*>(block.more(0)), static_cast<std::size_t>(written)},
+        error);
+}
 
 bool safe_path(const fs::path& root, const fs::path& relative, fs::path& output, std::string& error)
 {
@@ -740,8 +772,7 @@ bool SceneBakeFiles::stage_lighting(const LightingBakeOutputs& output, std::stri
         renderer->lightmap_transform.assign(item.transform.begin(), item.transform.end());
         ++index;
         renderer->lightmap_guid = outputs_[index].guid;
-        if (!io::write_bytes(files_[index * 2].staged,
-                             std::as_bytes(std::span(item.lightmap->data)), error) ||
+        if (!write_lightmap(files_[index * 2].staged, *item.lightmap, error) ||
             !stage_meta(index, "texture_ktx", error))
         {
             return false;

@@ -17,8 +17,12 @@
 #include "runtime/render/scene_draw.hpp"
 
 #include <array>
+#include <compare>
+#include <deque>
+#include <future>
 #include <map>
 #include <memory>
+#include <set>
 #include <vector>
 
 namespace engine
@@ -26,6 +30,31 @@ namespace engine
 
 class Scene;
 class Resource;
+
+namespace render_detail
+{
+struct RenderInstanceKey
+{
+    std::uint64_t world_epoch = 0;
+    std::uint64_t entity = 0;
+    std::uint64_t component_instance = 0;
+    auto operator<=>(const RenderInstanceKey&) const = default;
+};
+
+struct TexturePrepareWork
+{
+    ResourceReference source;
+    PreparedTexture part;
+    std::future<bool> completion;
+    std::uint64_t generation = 0;
+    std::uint64_t reserved_bytes = 0;
+    std::size_t uploaded = 0;
+    std::uint32_t mip = 0;
+    std::uint32_t face = 0;
+    std::uint64_t byte_offset = 0;
+    bool prepared = false;
+};
+} // namespace render_detail
 
 // 独占当前场景GPU资源；由RenderSystem在bgfx关闭前释放，组件借用不跨帧保存。
 struct RenderSystem::SceneGpuResources
@@ -41,9 +70,10 @@ struct RenderSystem::SceneGpuResources
     std::array<float, 4> frame_time{};
     bgfx::UniformHandle frame_time_uniform = BGFX_INVALID_HANDLE;
     std::vector<render_detail::GpuMesh> meshes;
+    std::map<render_detail::RenderInstanceKey, std::size_t> mesh_index;
     std::map<const Resource*, std::weak_ptr<render_detail::GpuGeometry>> geometries;
     render_detail::SkinningPass skinning;
-    std::vector<render_detail::GpuTexture> textures;
+    render_detail::TextureTable textures;
     bgfx::UniformHandle normal_transform = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle camera_position = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle light_direction = BGFX_INVALID_HANDLE;
@@ -77,7 +107,7 @@ struct RenderSystem::SceneGpuResources
     bgfx::UniformHandle ibl_lut_sampler = BGFX_INVALID_HANDLE;
     bgfx::TextureHandle ibl_cube_fallback = BGFX_INVALID_HANDLE;
     bgfx::TextureHandle ibl_lut_fallback = BGFX_INVALID_HANDLE;
-    std::array<render_detail::GpuTexture, 3> ibl_textures;
+    std::array<render_detail::GpuTexture*, 3> ibl_textures{};
     std::uint64_t ibl_generation = 0;
     render_detail::ShadowPass shadow;
     std::array<render_detail::ClusteredLightingPass, 4> clusters;
@@ -109,7 +139,7 @@ struct RenderSystem::SceneGpuResources
     render_detail::HdrPostProcessPass hdr_post_process;
     bgfx::UniformHandle ao_settings = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle ao_sampler = BGFX_INVALID_HANDLE;
-    std::vector<render_detail::GpuProgram> programs;
+    std::unordered_map<const schema::ShaderDataT*, render_detail::GpuProgram> programs;
 
     SceneGpuResources() = default;
     ~SceneGpuResources() noexcept;
@@ -135,7 +165,38 @@ struct RenderSystem::SceneGpuResources
                                         const RenderSettings& settings);
     void release() noexcept;
     [[nodiscard]] std::uint32_t resource_count() const noexcept;
-    [[nodiscard]] bool prepare_ibl(const Scene* scene, std::size_t staging_bytes);
+    [[nodiscard]] bool collect_ibl(const Scene* scene, RenderPreparation& preparation);
+};
+
+struct RenderSystem::RenderPreparation
+{
+    std::uint64_t generation = 0;
+    RenderPrepareStatus status = RenderPrepareStatus::idle;
+    RenderPrepareProgress progress;
+    std::string error;
+    WorldSystem* observed_world = nullptr;
+    std::uint64_t world_epoch = 0;
+    std::uint64_t camera_instance = 0;
+    std::vector<std::uint64_t> observers;
+    std::vector<std::uint64_t> scenes;
+    std::set<std::uint64_t> dirty_nodes;
+    bool discover = true;
+    bool ibl_dirty = true;
+    std::uint64_t staging_bytes = 0;
+    std::size_t active_jobs = 0;
+    std::map<const Resource*, std::shared_ptr<render_detail::TexturePrepareWork>> textures;
+    std::set<const Resource*> ready_textures;
+    std::map<const Resource*, std::size_t> texture_users;
+    std::map<const schema::ShaderDataT*, std::size_t> program_users;
+    std::set<const Resource*> unused_textures;
+    std::set<const schema::ShaderDataT*> unused_programs;
+    std::set<const schema::ShaderDataT*> pending_programs;
+    std::array<const Resource*, 3> ibl_sources{};
+    std::vector<std::shared_ptr<render_detail::TexturePrepareWork>> retired_work;
+    std::vector<std::unique_ptr<SceneGpuResources>> retired_scenes;
+
+    [[nodiscard]] bool request_texture(ResourceLoader* loader, ResourceHandle source);
+    void detach_observers() noexcept;
 };
 
 } // namespace engine

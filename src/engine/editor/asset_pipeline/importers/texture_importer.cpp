@@ -42,6 +42,7 @@ constexpr std::uint64_t maximum_pixels = 16U * 1024U * 1024U;
 struct TextureSettings
 {
     schema::TextureFormat format = schema::TextureFormat::auto_format;
+    bool native = false;
     bool uastc = true;
     std::uint32_t quality = 128;
     std::uint32_t compression_level = 2;
@@ -86,9 +87,9 @@ bool settings(const std::filesystem::path& source, bool hdr, TextureSettings& ou
         error = "texture meta requires a [texture] table";
         return false;
     }
-    constexpr std::array<std::string_view, 7> fields = {
+    constexpr std::array<std::string_view, 8> fields = {
         "format", "compression", "quality", "compression_level", "rdo_quality_scalar",
-        "srgb",   "mipmaps"};
+        "srgb",   "mipmaps",     "storage"};
     for (const auto& [key, value] : *table)
     {
         static_cast<void>(value);
@@ -111,6 +112,14 @@ bool settings(const std::filesystem::path& source, bool hdr, TextureSettings& ou
         return false;
     }
     output.format = static_cast<schema::TextureFormat>(selected - formats.begin());
+    const auto storage = (*table)["storage"].value_or(std::string("basis"));
+    if ((table->contains("storage") && !(*table)["storage"].is_string()) ||
+        (storage != "basis" && storage != "native"))
+    {
+        error = "texture storage must be basis or native";
+        return false;
+    }
+    output.native = storage == "native";
     output.uastc = compression == "uastc";
     if ((hdr && (!output.uastc || (output.format != schema::TextureFormat::auto_format &&
                                    output.format != schema::TextureFormat::rgba16f))) ||
@@ -182,6 +191,91 @@ bool settings(const std::filesystem::path& source, bool hdr, TextureSettings& ou
         return false;
     }
     output.mipmaps = (*table)["mipmaps"].value_or(true);
+    return true;
+}
+
+bool native_texture(schema::TextureDataT& texture, std::span<const std::uint8_t> encoded,
+                    std::string_view platform, std::string& error)
+{
+    if (texture.format == schema::TextureFormat::auto_format)
+    {
+        if (platform == "windows" || platform == "linux")
+        {
+            texture.format = schema::TextureFormat::bc7;
+        }
+        else if (platform == "macos" || platform == "ios")
+        {
+            texture.format = schema::TextureFormat::astc4x4;
+        }
+        else if (platform == "android")
+        {
+            texture.format = schema::TextureFormat::etc2;
+        }
+        else
+        {
+            error = "native texture requires an explicit target platform";
+            return false;
+        }
+    }
+    using Target = basist::transcoder_texture_format;
+    Target target;
+    switch (texture.format)
+    {
+    case schema::TextureFormat::bc7:
+        target = Target::cTFBC7_RGBA;
+        break;
+    case schema::TextureFormat::astc4x4:
+        target = Target::cTFASTC_4x4_RGBA;
+        break;
+    case schema::TextureFormat::etc2:
+        target = Target::cTFETC2_RGBA;
+        break;
+    case schema::TextureFormat::rgba8:
+        target = Target::cTFRGBA32;
+        break;
+    case schema::TextureFormat::rgba16f:
+        target = Target::cTFRGBA_HALF;
+        break;
+    default:
+        error = "unsupported native texture format";
+        return false;
+    }
+    basist::basisu_transcoder decoder;
+    const auto size = static_cast<std::uint32_t>(encoded.size());
+    if (!decoder.start_transcoding(encoded.data(), size))
+    {
+        error = "cannot initialize native texture transcoding";
+        return false;
+    }
+    const bool pixels = texture.format == schema::TextureFormat::rgba8 ||
+                        texture.format == schema::TextureFormat::rgba16f;
+    for (std::uint32_t mip = 0; mip < texture.mip_count; ++mip)
+    {
+        const auto width = std::max(1U, texture.width >> mip);
+        const auto height = std::max(1U, texture.height >> mip);
+        const auto units = pixels ? static_cast<std::size_t>(width) * height
+                                  : static_cast<std::size_t>((width + 3) / 4) * ((height + 3) / 4);
+        const auto bytes = units * (texture.format == schema::TextureFormat::rgba16f ? 8U
+                                    : pixels                                         ? 4U
+                                                                                     : 16U);
+        constexpr std::size_t maximum_bytes = 63U * 1024U * 1024U;
+        if (bytes > maximum_bytes - texture.data.size())
+        {
+            error = "native texture exceeds the resource limit; select basis or reduce the image";
+            return false;
+        }
+        const auto offset = texture.data.size();
+        texture.data.resize(offset + bytes);
+        if (!decoder.transcode_image_level(encoded.data(), size, 0, mip,
+                                           texture.data.data() + offset,
+                                           static_cast<std::uint32_t>(units), target))
+        {
+            error = "cannot transcode native texture mip";
+            return false;
+        }
+        texture.subresources.emplace_back(mip, 0, offset, bytes);
+    }
+    texture.encoding = schema::TextureEncoding::native;
     return true;
 }
 
@@ -397,14 +491,14 @@ bool read_hdr(std::span<const std::uint8_t> bytes, std::string_view extension,
 
 std::string_view TextureImporter::default_meta() const noexcept
 {
-    return "\n[texture]\nformat = \"auto\"\ncompression = \"uastc\"\n"
+    return "\n[texture]\nstorage = \"basis\"\nformat = \"auto\"\ncompression = \"uastc\"\n"
            "compression_level = 2\nmipmaps = true\n";
 }
 
 std::string_view TextureImporter::version() noexcept
 {
     // TinyEXR 3.3 and stb 2026-08-02 also change decoding, independent of the BasisU version.
-    return "basisu-" BASISU_LIB_VERSION_STRING "-texture-importer-3";
+    return "basisu-" BASISU_LIB_VERSION_STRING "-texture-importer-4-native-map-1";
 }
 
 bool TextureImporter::initialize(std::string& error)
@@ -491,6 +585,7 @@ bool TextureImporter::convert(const ImportAsset& asset, const ImportContext& con
         return false;
     }
     schema::TextureDataT texture;
+    texture.schema_version = 2;
     texture.path = asset.path;
     texture.width = info.m_orig_width;
     texture.height = info.m_orig_height;
@@ -498,7 +593,23 @@ bool TextureImporter::convert(const ImportAsset& asset, const ImportContext& con
     texture.srgb = configuration.srgb;
     texture.encoding = schema::TextureEncoding::basis;
     texture.format = configuration.format;
-    texture.data.assign(encoded.begin(), encoded.end());
+    if (configuration.native)
+    {
+        if (!native_texture(texture, {encoded.data(), encoded.size()}, context.target_platform,
+                            error))
+        {
+            return false;
+        }
+    }
+    else
+    {
+        texture.data.assign(encoded.begin(), encoded.end());
+    }
+    if (!TextureResourceCodec::validate(texture))
+    {
+        error = "texture import produced invalid current-version data";
+        return false;
+    }
     flatbuffers::FlatBufferBuilder builder;
     schema::FinishTextureDataBuffer(builder, schema::TextureData::Pack(builder, &texture));
     return write_bytes(context.output / asset.guid,
@@ -516,14 +627,14 @@ bool TextureImporter::matches(const std::filesystem::path& source) const
     return extension == ".png" || extension == ".jpg" || extension == ".jpeg" ||
            extension == ".tga" || extension == ".qoi" || extension == ".hdr" || extension == ".exr";
 }
-bool TextureImporter::inspect_batch(const ImportContext&, std::string& fingerprint,
+bool TextureImporter::inspect_batch(const ImportContext& context, std::string& fingerprint,
                                     std::string& error)
 {
     if (!schema_fingerprint({"texture.fbs"}, fingerprint, error))
     {
         return false;
     }
-    fingerprint += ":" + std::string(version());
+    fingerprint += ":" + std::string(version()) + ":" + context.target_platform;
     return true;
 }
 bool TextureImporter::prepare_batch(const ImportContext&, TaskDescription& task,

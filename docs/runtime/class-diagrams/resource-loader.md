@@ -4,6 +4,8 @@
 
 **状态：统一资源契约及业务接入补充已按确认类图实现；验证范围见测试文档。** 本文件只定义核心契约；依赖、共享、引用计数和卸载由资源插件实现。业务只依赖 ResourceLoader，不直接调用单项读取接口。
 
+**2026-11-07 已实现增量：** 下图 retain_dependency / ResourceReference.dependency 的路径语义已实现，其余生命周期契约保持。具体边界见加载接口说明和[大场景准备](large-scene-preparation.md)。
+
 ## 加载接口
 
 ```mermaid
@@ -17,7 +19,7 @@ classDiagram
         +begin_load_memory(unique_ptr~Resource~& candidate, span~const ResourceHandle~ dependencies, unique_ptr~ResourceLoad~& output) bool*
         +acquire_loaded(string_view path_or_guid, ResourceHandle& output) bool*
         +retain(const ResourceHandle& handle, ResourceHandle& output) bool*
-        +retain_dependency(const ResourceHandle& owner, string_view guid, ResourceHandle& output) bool*
+        +retain_dependency(const ResourceHandle& owner, string_view path_or_guid, ResourceHandle& output) bool*
         +release(ResourceHandle& handle) bool*
         +get(const ResourceHandle& handle, const Resource*& output) ResourceError*
         +get~TResource~(const ResourceHandle& handle, const TResource*& output) ResourceError
@@ -41,6 +43,7 @@ classDiagram
 - 基类构造与公共虚析构 noexcept，禁止复制/移动。状态与查询标注 nodiscard；get、error、last_error 为 const，get 模板只校验规范类型后转交借用，不使用 RTTI。实例只在宿主协调线程操作，不承诺任意线程并发调用。
 - load/begin_load 按目录唯一逻辑路径或完整 GUID 定位，不接收物理文件路径；同步/异步完成语义见总图。所有获取/操作输出应以空值传入；非空时拒绝且保留原值，不能覆盖而泄漏。在合法空输出前提下，失败保持空值。retain/take 同样遵守此规则。
 - retain 只复制已就绪的使用权，成功得到不同获取身份；不读取文件。retain_dependency 只在 owner 的已加载闭包中查找（包含传递依赖），缺失失败，不以当前目录另行加载。
+- **2026-11-07 已实现：** retain_dependency 的输入扩展为 GUID 或逻辑路径；二者按 owner 持有的同一闭包解析，包含内存资源与旧目录代际，不查询当前目录作回退。owner 自身不属于其依赖，获取自身使用 retain。输出须为空，失败保持空；格式无效 / 不在闭包返回 not_found，无效 owner 返回 invalid_handle。其他加载器实现必须提供相同语义。公开方法仍只有一个，不新增 find_dependency 或路径兼容包装。
 - release 消耗该获取并清空传入句柄。全零句柄重复清理返回成功；非零但已失效或来自其他加载器的句柄返回 invalid_handle，清空本地值，不减少其他引用。它不等价于强制按 GUID 销毁资源。
 - get 成功返回 ResourceError::none，失败输出 nullptr；全零句柄返回 not_loaded，失效/跨服务句柄返回 invalid_handle，模板类型不符返回 type_mismatch。它不加引用、不发起 I/O、不推进状态，也不修改 last_error。
 - error/last_error 保存最近一次命令失败的上下文；下一次命令可覆盖，不用于异步请求的独立错误查询。异步失败归 ResourceLoad。字符串借用不能跨下一次命令保存。
@@ -58,7 +61,7 @@ classDiagram
         +acquire(ResourceLoader* loader, string_view path_or_guid) bool
         +retain(ResourceLoader* loader, const ResourceHandle& source) bool
         +retain(const ResourceReference& source) bool
-        +dependency(ResourceLoader* loader, const ResourceHandle& owner, string_view guid) bool
+        +dependency(ResourceLoader* loader, const ResourceHandle& owner, string_view path_or_guid) bool
         +adopt(ResourceLoader* loader, ResourceHandle& handle) bool
         +reset() void
         +detach() ResourceHandle

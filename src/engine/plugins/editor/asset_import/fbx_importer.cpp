@@ -1,4 +1,5 @@
 #include "plugins/editor/asset_import/fbx_importer.hpp"
+#include "editor/asset_pipeline/animation_sampling.hpp"
 
 #include "editor/asset_pipeline/asset_io.hpp"
 #include "editor/asset_pipeline/importer_utils.hpp"
@@ -314,12 +315,13 @@ bool FbxImporter::inspect_batch(const ImportContext& context, std::string& finge
         }
     }
     if (!schema_fingerprint({"common.fbs", "model.fbs", "mesh.fbs", "skeleton.fbs", "animation.fbs",
-                             "animation_pose.fbs"},
+                             "sampling.fbs", "animation_pose.fbs"},
                             fingerprint, error))
     {
         return false;
     }
-    fingerprint += ":ufbx-0.23.1:ozz-0.17.0:mikktspace-3e895b49-angle-precision-1:fbx-importer-13" +
+    fingerprint += ":ufbx-0.23.1:ozz-0.17.0:mikktspace-3e895b49-angle-precision-1:fbx-importer-14-"
+                   "sampling-ozz-0.17.0" +
                    editor::mesh_lod_fingerprint();
     return true;
 }
@@ -422,8 +424,10 @@ bool FbxImporter::convert(const ImportAsset& asset, const ImportContext& context
     else if (asset.kind == schema::AssetKind::skeleton)
     {
         schema::SkeletonDataT result;
+        result.schema_version = 2;
         result.path = asset.path;
-        if (!convert_skeleton(document, result, error) || !SkeletonResourceCodec::validate(result))
+        if (!convert_skeleton(document, result, error) ||
+            !editor::asset_pipeline::prepare_skeleton_sampling(result, error))
         {
             if (error.empty())
             {
@@ -461,13 +465,18 @@ bool FbxImporter::convert(const ImportAsset& asset, const ImportContext& context
     }
     else if (asset.kind == schema::AssetKind::animation)
     {
+        schema::SkeletonDataT source_rig;
+        source_rig.schema_version = 2;
+        source_rig.path = asset.path + "/source-skeleton";
         schema::AnimationDataT result;
+        result.schema_version = 2;
         result.path = asset.path;
         result.skeleton_guid = skeleton_guid;
         const auto animation = document.animations.find(asset.subresource_key);
         if (skeleton == nullptr || animation == document.animations.end() ||
             !convert_animation(document, *skeleton, *animation->second, result, error) ||
-            !AnimationResourceCodec::validate(result))
+            !convert_skeleton(*skeleton, source_rig, error) ||
+            !editor::asset_pipeline::prepare_animation_sampling(result, source_rig, error))
         {
             if (error.empty())
             {

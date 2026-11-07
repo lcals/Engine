@@ -10,6 +10,16 @@
 
 ## 全仓精简评审
 
+### 2026-11-07：大场景加载与渲染准备
+
+**状态：已按确认类图实现。** 架构入口为[大场景准备关系图](../runtime/class-diagrams/large-scene-preparation.md)，从资源组织、GPU 准备、离线产物三部分收敛现有模块。
+
+- [目录](../runtime/class-diagrams/resource-catalog.md)改用共享不可变快照；[资源加载契约](../runtime/class-diagrams/resource-loader.md)统一闭包内 GUID / 路径获取；[默认资源插件](../plugins/runtime/class-diagrams/resource-graph.md)用执行窗口、直接索引及增量完成计数替代全闭包容量限制和重复遍历。
+- [渲染系统](../runtime/class-diagrams/render-system.md#大场景分批准备)用一个明确区分同步 / 分步模式的准备入口，收敛实例索引、暂存预算和异步收尾；[调用方关系](../runtime/class-diagrams/large-scene-preparation.md#调用方与完成边界)统一启动、预览及场景切换的使用顺序。
+- [固定动画采样产物](../runtime/class-diagrams/model-resources.md#离线采样产物)由现有导入链提前生成；[贴图产物](../editor/class-diagrams/texture-importer.md#目标平台产物)保留 basis 默认值，显式选择 native 才提前转码。资源身份、显式加载 / 释放与插件可替换性保持。
+
+确认后一次迁移调用方、Schema 和缓存，不保留旧签名或旧磁盘格式回退。具体迁移及验收边界列在评审入口；历史“已实现”记录不代表本批设计已实现。
+
 ### 2026-11-07：工具进程与 MCP 登记收敛
 
 **状态：已实现。受影响目标完成 Debug / Release 构建，5 项定向 Release 测试通过；验证范围见[测试记录](../testing.md#2026-11-07工具进程与-mcp-登记收敛)。**

@@ -67,6 +67,8 @@ classDiagram
 
 C++ 限定符：构造为 `explicit`；构造、析构及 `on_shutdown()` 为 `noexcept`；析构和受保护钩子标注 `override`，返回状态的钩子标注 `[[nodiscard]]`。
 
-资源重整接入：start_project 使用管线相同的 ProjectLock 保护 environment.refresh_resources 与 GameplaySession.start；导入占用锁时返回失败，已运行时重复启动仍幂等。资源导入和构建不自动停止或重启项目。
+资源重整接入：start_project 使用管线相同的 ProjectLock 保护 environment.refresh_resources 与玩法准备的目录捕获；导入占用锁时返回失败，已运行时重复启动仍幂等。资源导入和构建不自动停止或重启项目。
+
+**2026-11-07 大场景接入已实现：** start_project 调用 GameplaySession.begin_prepare 后返回已受理，由后续 on_tick 调用 step_prepare；ready 后显式 activate_prepared，failed 发布本次错误并清理。刷新与捕获完成后释放项目锁，不跨帧持锁等待 GPU，也不从交互命令调用同步 start。公开命令与 EditorSystem 方法不增加，准备状态归已有玩法会话；取消、停止和再次启动沿用会话身份校验。边界见[大场景准备](../../runtime/class-diagrams/large-scene-preparation.md#调用方与完成边界)。
 
 `scene_commands()` 与 `commands()` 都为 nodiscard、noexcept，返回本编辑器拥有的服务借用；无世界、初始化前或关闭后为空。宿主据此给独立插件提供通用节点身份与事务入口，EditorSystem 不识别插件的具体命令。

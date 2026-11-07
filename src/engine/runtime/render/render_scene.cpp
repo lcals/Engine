@@ -42,7 +42,9 @@ bool RenderSystem::draw_scene(Camera view_camera, const RenderSettings& renderin
     {
         cancel_diffuse_capture();
     }
-    if (!prepare_scene(view_camera))
+    if (world_ && !world_->scenes().empty() &&
+        (!preparation_ || preparation_->status != RenderPrepareStatus::ready ||
+         preparation_->world_epoch != world_->epoch()))
     {
         return false;
     }
@@ -74,6 +76,22 @@ bool RenderSystem::draw_scene(Camera view_camera, const RenderSettings& renderin
     // Mirrors and light capture need the actual orthonormal camera, not a scaled Node transform.
     bx::mtxInverse(camera_world, view);
     auto& resources = *scene_resources_;
+    bool uses_skinning = false;
+    for (auto& mesh : resources.meshes)
+    {
+        const auto renderer = world_->find_node(mesh.node_id).get_component<MeshRenderer>();
+        if (!renderer || renderer.instance_id() != mesh.instance_id ||
+            renderer.mesh_revision() != mesh.revision ||
+            !mesh.update_deformation(renderer, resources.skinning))
+        {
+            return false;
+        }
+        uses_skinning = uses_skinning || bgfx::isValid(mesh.palette);
+    }
+    if (!uses_skinning)
+    {
+        resources.skinning.release();
+    }
     struct Plane
     {
         Node node = {};
@@ -262,9 +280,10 @@ bool RenderSystem::draw_scene(Camera view_camera, const RenderSettings& renderin
     {
         // Match the main PBR pass: disabling IBL selects the analytical DFG
         // fallback even when an earlier bake has left its LUT loaded.
-        const bgfx::TextureHandle reflection_lut = rendering.ibl_enabled
-                                                       ? resources.ibl_textures[2].handle
-                                                       : bgfx::TextureHandle{bgfx::kInvalidHandle};
+        const bgfx::TextureHandle reflection_lut =
+            rendering.ibl_enabled && resources.ibl_textures[2]
+                ? resources.ibl_textures[2]->handle
+                : bgfx::TextureHandle{bgfx::kInvalidHandle};
         if (!resources.reflections.prepare(draw.width, draw.height, rendering) ||
             !resources.reflections.render(
                 view, projection, frozen_scene, resources.hdr_post_process.opaque_specular(),

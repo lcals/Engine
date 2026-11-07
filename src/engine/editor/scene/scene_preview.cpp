@@ -412,7 +412,7 @@ struct ScenePreview::State
         camera = view;
         path = requested;
         speed = requested_speed;
-        if (!configure_input() || !renderer.prepare_scene(camera))
+        if (!configure_input())
         {
             close();
             return fail("Cannot prepare preview rendering resources");
@@ -454,11 +454,6 @@ struct ScenePreview::State
             return fail("Cannot reload preview scene; the current scene was retained");
         }
         renderer.release_scene();
-        if (!renderer.prepare_scene(camera))
-        {
-            close();
-            return fail("Cannot prepare refreshed preview rendering resources");
-        }
         return checkpoint();
     }
 
@@ -883,7 +878,19 @@ bool ScenePreview::tick(double delta_time)
         return true;
     }
     state_->poll_resources();
-    return !active() || state_->move_camera(delta_time);
+    if (!active())
+    {
+        return true;
+    }
+    RenderPrepareProgress progress;
+    if (state_->renderer.prepare_scene(RenderPrepareMode::incremental, progress, 0,
+                                       state_->camera) == RenderPrepareStatus::failed)
+    {
+        const std::string error(state_->renderer.preparation_error());
+        state_->close();
+        return state_->fail(error);
+    }
+    return state_->move_camera(delta_time);
 }
 
 void ScenePreview::close() noexcept

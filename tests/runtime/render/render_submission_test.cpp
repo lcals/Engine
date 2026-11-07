@@ -1,3 +1,4 @@
+#include "../../support/render_fixture.hpp"
 #include "resource_fixture.hpp"
 #include "resource_services.hpp"
 #include "scene_snapshot.hpp"
@@ -133,7 +134,7 @@ bool frames(WindowSystem& window, RenderSystem& renderer, int count)
             SDL_Delay(5);
             continue;
         }
-        if (!renderer.render())
+        if (!test_support::render_frame(renderer))
         {
             return false;
         }

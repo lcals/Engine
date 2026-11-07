@@ -1,6 +1,7 @@
 #include "runtime/render/render_constants.hpp"
 #include "runtime/render/render_math.hpp"
 #include "runtime/render/scene_gpu_resources.hpp"
+#include "runtime/resource/codecs/texture_resource_codec.hpp"
 #include "runtime/resource/resource.hpp"
 #include "runtime/scene/ecs_scene.hpp"
 #include "runtime/scene/ecs_storage.hpp"
@@ -665,21 +666,35 @@ bool RenderSystem::SceneGpuResources::prepare_capture(const SceneCaptureRequest&
     for (const auto& item : request.indirect)
     {
         const auto& image = *item.image;
-        if (image.encoding != schema::TextureEncoding::ktx || image.srgb || image.cube_map ||
+        if (!TextureResourceCodec::validate(image) ||
+            image.encoding != schema::TextureEncoding::native || image.srgb || image.cube_map ||
             image.format != schema::TextureFormat::rgba16f || image.data.empty() ||
             image.data.size() > UINT32_MAX)
         {
             return false;
         }
-        bgfx::TextureInfo info;
-        const auto texture = bgfx::createTexture(
-            bgfx::copy(image.data.data(), static_cast<std::uint32_t>(image.data.size())),
-            BGFX_SAMPLER_UVW_CLAMP, 0, &info);
+        const auto texture = bgfx::createTexture2D(
+            static_cast<std::uint16_t>(image.width), static_cast<std::uint16_t>(image.height),
+            image.mip_count > 1, 1, bgfx::TextureFormat::RGBA16F, BGFX_SAMPLER_UVW_CLAMP);
         capture_lightmaps.push_back(texture);
-        if (!bgfx::isValid(texture) || info.width != image.width || info.height != image.height ||
-            info.format != bgfx::TextureFormat::RGBA16F)
+        if (!bgfx::isValid(texture))
         {
             return false;
+        }
+        for (const auto& part : image.subresources)
+        {
+            if (part.face() != 0 || part.mip() >= image.mip_count ||
+                part.offset() > image.data.size() ||
+                part.size() > image.data.size() - part.offset())
+            {
+                return false;
+            }
+            bgfx::updateTexture2D(
+                texture, 0, static_cast<std::uint8_t>(part.mip()), 0, 0,
+                static_cast<std::uint16_t>(std::max(1U, image.width >> part.mip())),
+                static_cast<std::uint16_t>(std::max(1U, image.height >> part.mip())),
+                bgfx::copy(image.data.data() + part.offset(),
+                           static_cast<std::uint32_t>(part.size())));
         }
         std::unique_ptr<render_detail::GpuGeometry> geometry;
         if (item.mesh)
@@ -791,7 +806,8 @@ bool RenderSystem::SceneGpuResources::draw_capture_sky(const SceneCaptureRequest
     float view_projection[16], inverse[16];
     bx::mtxMul(view_projection, request.view.data(), request.projection.data());
     bx::mtxInverse(inverse, view_projection);
-    const bool ibl_ready = settings.ibl_enabled && bgfx::isValid(ibl_textures[1].handle);
+    const bool ibl_ready =
+        settings.ibl_enabled && ibl_textures[1] && bgfx::isValid(ibl_textures[1]->handle);
     const float ibl[]{ibl_ready ? 1.0F : 0.0F, settings.ibl_intensity, 0, 0};
     const float mode[]{1, bgfx::getCaps()->homogeneousDepth ? -1.0F : 0.0F,
                        bgfx::getCaps()->originBottomLeft ? 1.0F : 0.0F, 0};
@@ -811,7 +827,7 @@ bool RenderSystem::SceneGpuResources::draw_capture_sky(const SceneCaptureRequest
     bgfx::setViewUniform(render_detail::capture_view, ambient_equator, equator);
     bgfx::setViewUniform(render_detail::capture_view, ambient_ground, ground);
     bgfx::setTexture(13, ibl_prefilter_sampler,
-                     ibl_ready ? ibl_textures[1].handle : ibl_cube_fallback);
+                     ibl_ready ? ibl_textures[1]->handle : ibl_cube_fallback);
     bgfx::setVertexBuffer(0, capture_fullscreen);
     bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A);
     bgfx::submit(render_detail::capture_view, capture_sky_program);

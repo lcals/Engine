@@ -91,6 +91,11 @@ export default class extends Gameplay {
     skeleton_data.aim_ik.push_back(std::move(aim));
     std::erase_if(fixture.files.catalog.entries,
                   [](const auto& entry) { return entry->guid == target_guid; });
+    std::string sampling_error;
+    if (!engine::editor::asset_pipeline::prepare_skeleton_sampling(skeleton_data, sampling_error))
+    {
+        return false;
+    }
     flatbuffers::FlatBufferBuilder skeleton_builder;
     engine::schema::FinishSkeletonDataBuffer(
         skeleton_builder, engine::schema::SkeletonData::Pack(skeleton_builder, &skeleton_data));

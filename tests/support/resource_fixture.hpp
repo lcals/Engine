@@ -1,4 +1,5 @@
 #pragma once
+#include "editor/asset_pipeline/animation_sampling.hpp"
 
 #include "resource_codecs.hpp"
 #include "runtime/resource/builtin_resources.hpp"
@@ -234,9 +235,15 @@ public:
 
     bool add(const engine::schema::SkeletonDataT& skeleton)
     {
+        auto compiled = skeleton;
+        std::string error;
+        if (!engine::editor::asset_pipeline::prepare_skeleton_sampling(compiled, error))
+        {
+            return false;
+        }
         flatbuffers::FlatBufferBuilder builder;
         engine::schema::FinishSkeletonDataBuffer(
-            builder, engine::schema::SkeletonData::Pack(builder, &skeleton));
+            builder, engine::schema::SkeletonData::Pack(builder, &compiled));
         return add_entity(skeleton.path, engine::schema::AssetKind::skeleton, builder, {});
     }
 

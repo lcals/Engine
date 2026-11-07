@@ -833,11 +833,14 @@ bool check_textures(test_support::ResourceServices& services, engine::Scene& sce
     auto& loader = services.loader;
     test_support::ResourceFixture fixture;
     engine::schema::TextureDataT texture;
+    texture.schema_version = 2;
     texture.path = "textures/gray";
     texture.width = 1;
     texture.height = 1;
-    texture.encoding = engine::schema::TextureEncoding::rgba8;
+    texture.encoding = engine::schema::TextureEncoding::native;
     texture.format = engine::schema::TextureFormat::rgba8;
+    texture.subresources.emplace_back(
+        0, 0, 0, static_cast<std::uint64_t>(texture.width) * texture.height * 4);
     texture.data = {128, 128, 128, 255};
     if (!expect(fixture.add(texture) && fixture.publish(resources) && services.prepare_builtins(),
                 "publish a texture through the GUID resource catalog"))

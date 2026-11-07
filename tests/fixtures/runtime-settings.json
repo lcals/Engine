@@ -61,6 +61,9 @@
     "rendering": {
       "texture_batch_size": 2,
       "texture_staging_bytes": 67108864,
+      "prepare_items_per_step": 64,
+      "prepare_seconds_per_step": 0.002,
+      "upload_bytes_per_step": 8388608,
       "cluster_tile_size": 64,
       "cluster_depth_slices": 24,
       "maximum_lights": 256,

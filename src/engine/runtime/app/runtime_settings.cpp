@@ -194,13 +194,19 @@ bool apply_parallel(const Json& value, RuntimeParallelConfig& output, std::strin
         const auto& render = value["rendering"];
         auto& config = output.rendering;
         if (!keys(render,
-                  {"texture_batch_size", "texture_staging_bytes", "cluster_tile_size",
+                  {"texture_batch_size", "texture_staging_bytes", "prepare_items_per_step",
+                   "prepare_seconds_per_step", "upload_bytes_per_step", "cluster_tile_size",
                    "cluster_depth_slices", "maximum_lights", "maximum_cluster_lights",
                    "shadow_atlas_size", "local_shadow_tile_size", "maximum_local_shadow_faces",
                    "maximum_planar_reflections"},
                   error) ||
             !integer(render, "texture_batch_size", config.texture_batch_size, 1, 64, error) ||
             !integer(render, "texture_staging_bytes", config.texture_staging_bytes, 1,
+                     maximum_bytes, error) ||
+            !integer(render, "prepare_items_per_step", config.prepare_items_per_step, 1, 65536,
+                     error) ||
+            !seconds(render, "prepare_seconds_per_step", config.prepare_seconds_per_step, error) ||
+            !integer(render, "upload_bytes_per_step", config.upload_bytes_per_step, 1,
                      maximum_bytes, error) ||
             !integer(render, "cluster_tile_size", config.cluster_tile_size, 16, 256, error) ||
             !integer(render, "cluster_depth_slices", config.cluster_depth_slices, 1, 64, error) ||

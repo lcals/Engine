@@ -11,7 +11,11 @@
 namespace engine
 {
 class MeshRenderer;
+namespace schema
+{
+struct ShaderDataT;
 }
+} // namespace engine
 
 namespace engine::render_detail
 {
@@ -38,6 +42,8 @@ struct GpuMesh
     std::uint64_t revision = 0;
     std::uint64_t deformation_revision = 0;
     std::shared_ptr<GpuGeometry> geometry;
+    std::vector<const Resource*> textures;
+    std::vector<const schema::ShaderDataT*> programs;
     bgfx::DynamicVertexBufferHandle deformed_vertices = BGFX_INVALID_HANDLE;
     bgfx::DynamicVertexBufferHandle palette = BGFX_INVALID_HANDLE;
     std::array<float, 3> minimum{};
