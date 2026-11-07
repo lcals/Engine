@@ -2,7 +2,9 @@
 
 #include "runtime/performance/profiling.hpp"
 #include "runtime/scene/mesh_renderer.hpp"
+#include "runtime/scene/node.hpp"
 #include "runtime/utils/mesh_utils.hpp"
+#include "runtime/world/world_system.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -210,7 +212,11 @@ bool GpuGeometry::create(const MeshRenderer& renderer)
         }
         lods_.push_back(std::move(lod));
     }
-    resource = renderer.mesh_resource();
+    if (!resource.retain(renderer.node().world()->resource_loader(), renderer.mesh_resource()))
+    {
+        release();
+        return false;
+    }
     vertex_count = static_cast<std::uint32_t>(packed.size());
     return true;
 }

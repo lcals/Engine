@@ -1,115 +1,30 @@
 #include "runtime/resource/resource_codec.hpp"
 
-#include "runtime/resource/resource_catalog.hpp"
+#include "runtime/core/guid_map.hpp"
 
 #include <algorithm>
-#include <utility>
 
 namespace engine
 {
-
-bool ResourceCodec::validate_dependencies(const ResourceCatalog&, const Resource&,
-                                          std::span<const ResourcePtr>) const
-{
-    return true;
-}
-
-void ResourceCodec::store(Resource& output, std::unique_ptr<schema::SceneDataT> data) noexcept
-{
-    output.scene_ = std::move(data);
-}
-
-void ResourceCodec::store(Resource& output, std::unique_ptr<schema::MeshDataT> data) noexcept
-{
-    output.mesh_ = std::move(data);
-}
-
-void ResourceCodec::store(Resource& output, std::unique_ptr<schema::ShaderDataT> data) noexcept
-{
-    output.shader_ = std::move(data);
-}
-
-void ResourceCodec::store(Resource& output, std::unique_ptr<schema::MaterialDataT> data) noexcept
-{
-    output.material_ = std::move(data);
-}
-
-void ResourceCodec::store(Resource& output, std::unique_ptr<schema::TextureDataT> data) noexcept
-{
-    output.texture_ = std::move(data);
-}
-
-void ResourceCodec::store(Resource& output, std::unique_ptr<schema::AudioClipDataT> data) noexcept
-{
-    output.audio_ = std::move(data);
-}
-
-void ResourceCodec::store(Resource& output, std::unique_ptr<schema::PrefabDataT> data) noexcept
-{
-    output.prefab_ = std::move(data);
-}
-
-void ResourceCodec::store(Resource& output, std::unique_ptr<schema::ModelDataT> data) noexcept
-{
-    output.model_ = std::move(data);
-}
-
-void ResourceCodec::store(Resource& output, std::unique_ptr<schema::SkeletonDataT> data) noexcept
-{
-    output.skeleton_ = std::move(data);
-}
-
-void ResourceCodec::store(Resource& output, std::unique_ptr<schema::AnimationDataT> data) noexcept
-{
-    output.animation_ = std::move(data);
-}
-
-void ResourceCodec::store(Resource& output,
-                          std::unique_ptr<schema::AnimationRetargetProfileDataT> data) noexcept
-{
-    output.retarget_profile_ = std::move(data);
-}
-
-void ResourceCodec::store(Resource& output, std::unique_ptr<schema::FontDataT> data) noexcept
-{
-    output.font_ = std::move(data);
-}
-
-void ResourceCodec::store(Resource& output, std::unique_ptr<schema::UiDocumentDataT> data) noexcept
-{
-    output.ui_ = std::move(data);
-}
-
-void ResourceCodec::store(Resource& output, std::unique_ptr<schema::LightProbeDataT> data) noexcept
-{
-    output.light_probe_ = std::move(data);
-}
-
-void ResourceCodec::store(Resource& output, ByteView data)
-{
-    output.bytes_.assign(data.begin(), data.end());
-}
-
 bool ResourceCodec::valid_path(std::string_view path) noexcept
 {
     return GuidMap::valid_path(path) && !path.starts_with("editor://");
 }
-
-bool ResourceCodec::declares(const ResourceCatalog& catalog, const Resource& resource,
-                             std::string_view guid, schema::AssetKind kind) noexcept
+bool ResourceCodec::declares(const Resource& resource, std::string_view guid) noexcept
 {
-    const auto* target = catalog.find(guid);
     const auto& declared = resource.info().dependencies;
-    return target != nullptr && target->kind == kind &&
+    return GuidMap::valid_guid(guid) &&
            std::find(declared.begin(), declared.end(), guid) != declared.end();
 }
-
-const Resource* ResourceCodec::dependency(std::span<const ResourcePtr> resources,
-                                          std::string_view guid) noexcept
+const Resource* ResourceCodec::dependency(ResourceView resources,
+                                          std::string_view path_or_guid) noexcept
 {
-    const auto found = std::find_if(resources.begin(), resources.end(), [guid](const auto& resource)
-                                    { return resource && resource->info().guid == guid; });
-    return found != resources.end() ? found->get() : nullptr;
+    const auto found = std::find_if(resources.begin(), resources.end(),
+                                    [path_or_guid](const auto* value)
+                                    {
+                                        return value && (value->info().guid == path_or_guid ||
+                                                         value->info().path == path_or_guid);
+                                    });
+    return found == resources.end() ? nullptr : *found;
 }
-
 } // namespace engine

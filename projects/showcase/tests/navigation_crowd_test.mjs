@@ -1,3 +1,4 @@
+import { resourceStub } from "./resource_mock.mjs";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
@@ -11,7 +12,7 @@ const root = path.resolve(
 const output = await mkdtemp(path.join(tmpdir(), "engine-navigation-crowd-"));
 
 // 只替代宿主边界。实际范例模块、MVC、目标配置和清理流程参与回归，不模拟 Detour。
-const source = String.raw`
+const source = resourceStub + String.raw`
 export const fixture = { scene: null, ids: [], agents: [], animators: [], paths: [], positions: 0,
     builds: [], replacements: [], clears: 0, reject: 0, stops: 0, events: [],
     failReplace: false, failBuild: false, failBrush: 0, brushes: 0, terrain: null,

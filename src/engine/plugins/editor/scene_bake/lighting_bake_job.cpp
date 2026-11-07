@@ -1,4 +1,8 @@
 #include "plugins/editor/scene_bake/lighting_bake_job.hpp"
+#include "editor/resource_access.hpp"
+#include "runtime/resource/types/material_resource.hpp"
+#include "runtime/resource/types/mesh_resource.hpp"
+#include "runtime/world/world_system.hpp"
 
 #include "runtime/render/render_system.hpp"
 #include "runtime/render/scene_capture.hpp"
@@ -13,7 +17,6 @@
 #include <bx/allocator.h>
 #include <bx/math.h>
 #include <bx/readerwriter.h>
-#include <bx/math.h>
 #include <xatlas.h>
 #define LIGHTMAPPER_IMPLEMENTATION
 #include <lightmapper.h>
@@ -348,11 +351,14 @@ bool LightingBakeJob::start(const schema::SceneDataT& scene, const Scene& active
         {
             continue;
         }
-        ResourcePtr resource;
+        editor::resource_access::ResourceReference resource;
         BakedMeshLighting item;
         item.node_id = node->info->properties->id;
-        if (dynamic || !s.resources.loader().load(mesh->mesh_guid, resource) || !resource ||
-            !resource->mesh() || !resource->mesh()->skin.empty() ||
+        if (dynamic ||
+            !editor::resource_access::load(active_scene.world().resource_loader(), mesh->mesh_guid,
+                                           resource) ||
+            !resource || !resource.data<MeshResource>() ||
+            !resource.data<MeshResource>()->skin.empty() ||
             !world_matrix(item.node_id, item.transform))
         {
             error = "Static lighting requires fixed, imported, unskinned mesh geometry";
@@ -366,16 +372,18 @@ bool LightingBakeJob::start(const schema::SceneDataT& scene, const Scene& active
             {
                 continue;
             }
-            ResourcePtr material;
-            if (!s.resources.loader().load(guid, material) || !material || !material->material() ||
-                material->material()->shader_path != "builtin://shaders/pbr" ||
-                material->material()->blend_mode != schema::BlendMode::opaque)
+            editor::resource_access::ResourceReference material;
+            if (!editor::resource_access::load(active_scene.world().resource_loader(), guid,
+                                               material) ||
+                !material || !material.data<MaterialResource>() ||
+                material.data<MaterialResource>()->shader_path != "builtin://shaders/pbr" ||
+                material.data<MaterialResource>()->blend_mode != schema::BlendMode::opaque)
             {
                 error = "Static bake contributors require opaque builtin PBR materials";
                 return false;
             }
         }
-        item.mesh = std::make_shared<schema::MeshDataT>(*resource->mesh());
+        item.mesh = std::make_shared<schema::MeshDataT>(*resource.data<MeshResource>());
         out.meshes.push_back(std::move(item));
     }
     if (!lights.empty() || out.meshes.size() > 4096 || settings.probes.size() > 64 ||

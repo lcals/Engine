@@ -1,5 +1,6 @@
 #include "plugins/editor/asset_import/fbx_document.hpp"
 #include "plugins/editor/asset_import/fbx_authoring.hpp"
+#include "runtime/resource/virtual_file_system.hpp"
 
 #include "editor/asset_pipeline/asset_io.hpp"
 #include "editor/asset_pipeline/importer_utils.hpp"
@@ -395,7 +396,7 @@ bool load_document(const std::filesystem::path& path, FbxDocument& document, std
         return false;
     }
     std::vector<std::byte> bytes;
-    if (!ResourceSystem::read_binary(path, bytes))
+    if (!VirtualFileSystem::read_file(path, bytes))
     {
         error = "Cannot read FBX source: " + PathUtils::to_utf8(path);
         return false;

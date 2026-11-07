@@ -1,6 +1,8 @@
 #include "editor/asset_pipeline/asset_pipeline_system.hpp"
 #include "editor/asset_pipeline/scene_importer.hpp"
+#include "file_text.hpp"
 #include "ktx_fixture.hpp"
+#include "resource_services.hpp"
 #include "runtime/engine_config.hpp"
 #include "runtime/render/resources/gpu_texture.hpp"
 #include "runtime/resource/codecs/texture_resource_codec.hpp"
@@ -132,7 +134,7 @@ bool write_image(const std::filesystem::path& path, const unsigned char (&bytes)
 std::string read(const std::filesystem::path& path)
 {
     std::string text;
-    return ResourceSystem::read_text(path, text) ? text : std::string{};
+    return test_support::read_text(path, text) ? text : std::string{};
 }
 
 std::string meta(std::string_view guid, std::string_view importer)
@@ -373,8 +375,9 @@ bool tests()
     engine::TaskSystem tasks(threads, {"Editor", 4, engine::TaskPriority::low});
     engine::editor::AssetPipelineSystem pipeline(tasks);
     EngineConfig config;
-    if (!fixture.initialize() || !resources.initialize(config) || !threads.initialize(config) ||
-        !tasks.initialize(config) || !pipeline.initialize(config))
+    if (!fixture.initialize() ||
+        !(test_support::register_resource_codecs(resources) && resources.initialize(config)) ||
+        !threads.initialize(config) || !tasks.initialize(config) || !pipeline.initialize(config))
     {
         return false;
     }
@@ -453,27 +456,31 @@ bool tests()
         return false;
     }
     {
-        ResourcePtr loaded;
+        std::unique_ptr<Resource> loaded;
         if (!expect(resources.update_catalog(pipeline.catalog(),
                                              {{"content", fixture.root / "cache"}}) &&
-                        resources.load(scene_guid, loaded) && loaded->scene(),
+                        test_support::read_resource(resources, scene_guid, loaded) &&
+                        engine::resource_detail::data<engine::SceneResource>(loaded.get()),
                     "resource core reads the imported scene entity"))
         {
             return false;
         }
-        ResourcePtr mesh_resource;
-        ResourcePtr material_resource;
-        ResourcePtr texture_resource;
-        if (!expect(ResourceSystem::find_mesh("quad.mesh") == nullptr &&
-                        resources.load(mesh_guid, mesh_resource) &&
-                        resources.load(material_guid, material_resource) &&
-                        resources.load(guid, texture_resource) && material_resource->material() &&
-                        texture_resource->texture(),
-                    "pipeline outputs load independently without a recursive cache plugin"))
+        std::unique_ptr<Resource> mesh_resource;
+        std::unique_ptr<Resource> material_resource;
+        std::unique_ptr<Resource> texture_resource;
+        if (!expect(
+                test_support::read_resource(resources, mesh_guid, mesh_resource) &&
+                    test_support::read_resource(resources, material_guid, material_resource) &&
+                    test_support::read_resource(resources, guid, texture_resource) &&
+                    engine::resource_detail::data<engine::MaterialResource>(
+                        material_resource.get()) &&
+                    engine::resource_detail::data<engine::TextureResource>(texture_resource.get()),
+                "pipeline outputs load independently without a recursive cache plugin"))
         {
             return false;
         }
-        const auto* imported_mesh = mesh_resource->mesh();
+        const auto* imported_mesh =
+            engine::resource_detail::data<engine::MeshResource>(mesh_resource.get());
         if (!expect(imported_mesh && imported_mesh->texcoords.size() == 4 &&
                         imported_mesh->submeshes.size() == 2,
                     "runtime receives UVs, colors, tangents and material submeshes"))
@@ -585,9 +592,10 @@ bool additional_source_tests()
     ThreadSystem threads;
     TaskSystem tasks(threads, {"Editor", 4, TaskPriority::low});
     editor::AssetPipelineSystem pipeline(tasks);
-    ResourceSystem resources;
+    test_support::ResourceServices services(&threads);
+    auto& resources = services.core;
     if (!fixture.initialize() || !threads.initialize({}) || !tasks.initialize({}) ||
-        !pipeline.initialize({}) || !resources.initialize({}))
+        !pipeline.initialize({}) || !services.initialize({}))
     {
         return false;
     }
@@ -642,13 +650,14 @@ bool additional_source_tests()
     for (const auto* path : {"radiance.hdr", "linear.exr"})
     {
         const auto* asset = entry(pipeline, path);
-        ResourcePtr loaded;
-        if (!expect(asset && resources.load(asset->guid, loaded) && loaded->texture(),
+        std::unique_ptr<Resource> loaded;
+        if (!expect(asset && test_support::read_resource(resources, asset->guid, loaded) &&
+                        engine::resource_detail::data<engine::TextureResource>(loaded.get()),
                     "runtime codec accepts independently imported Basis HDR texture"))
         {
             return false;
         }
-        const auto& data = *loaded->texture();
+        const auto& data = *engine::resource_detail::data<engine::TextureResource>(loaded.get());
         if (!expect(data.encoding == schema::TextureEncoding::basis && !data.srgb &&
                         data.format == schema::TextureFormat::rgba16f && data.mip_count == 3,
                     "HDR defaults to linear UASTC HDR and complete floating-point mips"))
@@ -658,10 +667,16 @@ bool additional_source_tests()
         bgfx::Caps caps{};
         caps.limits.maxTextureSize = 8192;
         caps.formats[bgfx::TextureFormat::RGBA16F] = BGFX_CAPS_FORMAT_TEXTURE_2D;
+        engine::resource_detail::ResourceReference source;
+        if (!services.load(asset->guid, source))
+        {
+            return false;
+        }
         render_detail::PreparedTexture prepared;
-        if (!expect(prepared.describe(loaded, caps, 168) && prepared.prepare() &&
-                        prepared.format == bgfx::TextureFormat::RGBA16F && prepared.bytes == 168 &&
-                        prepared.levels.size() == 3 && (prepared.flags & BGFX_TEXTURE_SRGB) == 0,
+        if (!expect(prepared.describe(&services.loader, source.handle(), caps, 168) &&
+                        prepared.prepare() && prepared.format == bgfx::TextureFormat::RGBA16F &&
+                        prepared.bytes == 168 && prepared.levels.size() == 3 &&
+                        (prepared.flags & BGFX_TEXTURE_SRGB) == 0,
                     "render preparation budgets and decodes every HDR mip as RGBA16F"))
         {
             return false;
@@ -679,13 +694,13 @@ bool additional_source_tests()
                 return false;
             }
         }
-        if (!expect(!prepared.describe(loaded, caps, 167),
+        if (!expect(!prepared.describe(&services.loader, source.handle(), caps, 167),
                     "HDR upload respects its eight-byte-per-pixel memory budget"))
         {
             return false;
         }
         caps.formats[bgfx::TextureFormat::RGBA16F] = 0;
-        if (!expect(!prepared.describe(loaded, caps, 168),
+        if (!expect(!prepared.describe(&services.loader, source.handle(), caps, 168),
                     "missing half-float GPU support fails instead of silently clamping to LDR"))
         {
             return false;
@@ -749,11 +764,12 @@ bool ktx_tests()
     engine::ThreadSystem threads;
     engine::TaskSystem tasks(threads, {"Editor", 4, engine::TaskPriority::low});
     engine::editor::AssetPipelineSystem pipeline(tasks);
-    ResourceSystem resources;
+    test_support::ResourceServices services(&threads);
+    auto& resources = services.core;
     const auto cube_bytes = test_support::ktx_image(true, true, 3);
     const auto lut_bytes = test_support::ktx_image(false, false, 1);
     if (!expect(fixture.initialize() && threads.initialize({}) && tasks.initialize({}) &&
-                    pipeline.initialize({}) && resources.initialize({}) && !cube_bytes.empty() &&
+                    pipeline.initialize({}) && services.initialize({}) && !cube_bytes.empty() &&
                     !lut_bytes.empty(),
                 "create HDR KTX import fixture") ||
         !expect(write(fixture.root / "assets/reflection.ktx", cube_bytes) &&
@@ -773,20 +789,22 @@ bool ktx_tests()
     const auto lut_guid = lut_entry->guid;
     const auto meta_path = fixture.root / "assets/reflection.ktx.meta";
     const auto default_meta = read(meta_path);
-    ResourcePtr cube;
-    ResourcePtr lut;
+    std::unique_ptr<Resource> cube;
+    std::unique_ptr<Resource> lut;
     if (!expect(default_meta.find("texture_ktx") != std::string::npos &&
                     default_meta.find("srgb = false") != std::string::npos &&
                     resources.update_catalog(pipeline.catalog(),
                                              {{"content", fixture.root / "cache"}}) &&
-                    resources.load(cube_guid, cube) && resources.load(lut_guid, lut) &&
-                    cube->texture() != nullptr && lut->texture() != nullptr,
+                    test_support::read_resource(resources, cube_guid, cube) &&
+                    test_support::read_resource(resources, lut_guid, lut) &&
+                    engine::resource_detail::data<engine::TextureResource>(cube.get()) != nullptr &&
+                    engine::resource_detail::data<engine::TextureResource>(lut.get()) != nullptr,
                 "load HDR KTX resources through the runtime codec"))
     {
         return false;
     }
-    const auto& data = *cube->texture();
-    const auto& lut_data = *lut->texture();
+    const auto& data = *engine::resource_detail::data<engine::TextureResource>(cube.get());
+    const auto& lut_data = *engine::resource_detail::data<engine::TextureResource>(lut.get());
     if (!expect(
             data.encoding == schema::TextureEncoding::ktx && data.cube_map &&
                 data.format == schema::TextureFormat::rgba16f && !data.srgb && data.width == 4 &&
@@ -802,7 +820,12 @@ bool ktx_tests()
     {
         return false;
     }
-    WorldSystem world;
+    if (!services.prepare_builtins() || !services.load("reflection.ktx") ||
+        !services.load("brdf.ktx"))
+    {
+        return false;
+    }
+    WorldSystem world(&services.loader);
     if (!expect(world.initialize({}), "initialize ordinary scene for material sampler checks"))
     {
         return false;
@@ -833,24 +856,29 @@ bool ktx_tests()
         "shader = \"00000000-0000-4000-8000-000000000001\"\n[[textures]]\n"
         "name = \"baseColorTexture\"\ntexture = \"" +
         cube_guid + "\"\n";
-    ResourcePtr invalid_material;
-    ResourcePtr shader;
-    ResourcePtr cube_dependency;
-    if (!expect(write(fixture.root / "assets/cube.material", definition) &&
-                    write(fixture.root / "assets/cube.material.meta",
-                          meta(material_guid, "material")) &&
-                    build(pipeline, fixture) &&
-                    resources.update_catalog(pipeline.catalog(),
-                                             {{"content", fixture.root / "cache"}}) &&
-                    resources.load(material_guid, invalid_material) &&
-                    resources.load(invalid_material->material()->shader_guid, shader) &&
-                    resources.load(cube_guid, cube_dependency),
-                "load authored material and direct dependencies independently"))
+    std::unique_ptr<Resource> invalid_material;
+    std::unique_ptr<Resource> shader;
+    std::unique_ptr<Resource> cube_dependency;
+    if (!expect(
+            write(fixture.root / "assets/cube.material", definition) &&
+                write(fixture.root / "assets/cube.material.meta",
+                      meta(material_guid, "material")) &&
+                build(pipeline, fixture) &&
+                resources.update_catalog(pipeline.catalog(),
+                                         {{"content", fixture.root / "cache"}}) &&
+                test_support::read_resource(resources, material_guid, invalid_material) &&
+                test_support::read_resource(
+                    resources,
+                    engine::resource_detail::data<engine::MaterialResource>(invalid_material.get())
+                        ->shader_guid,
+                    shader) &&
+                test_support::read_resource(resources, cube_guid, cube_dependency),
+            "load authored material and direct dependencies independently"))
     {
         return false;
     }
-    const std::array dependencies{shader, cube_dependency};
-    if (!expect(!resources.validate_dependencies(*invalid_material, dependencies) &&
+    const std::vector<const Resource*> dependencies{shader.get(), cube_dependency.get()};
+    if (!expect(!test_support::validate_dependencies(resources, *invalid_material, dependencies) &&
                     !material.set_type("cube.material") &&
                     material.get_texture("baseColorTexture", bound) && bound == "brdf.ktx",
                 "material dependency validation and type replacement reject cubemap samplers"))

@@ -28,6 +28,7 @@
 #include "plugins/runtime/script/bindings/planar_reflection_component_binding.hpp"
 #include "plugins/runtime/script/bindings/post_process_component_binding.hpp"
 #include "plugins/runtime/script/bindings/render_binding.hpp"
+#include "plugins/runtime/script/bindings/resources_binding.hpp"
 #include "plugins/runtime/script/bindings/rigid_body_binding.hpp"
 #include "plugins/runtime/script/bindings/scene_binding.hpp"
 #include "plugins/runtime/script/bindings/storage_binding.hpp"
@@ -70,11 +71,11 @@ bool ScriptBindingRegistry::initialize()
     // 新增绑定仅在此注册实现类；各类自行注册native方法与组件工厂。
     if (!add<CompletionBinding>() || !add<GameplayBinding>() || !add<DebugBinding>() ||
         !add<AppBinding>() || !add<WindowBinding>() || !add<StorageBinding>() ||
-        !add<JsonBinding>() || !add<MovieBinding>() || !add<InputBinding>() ||
-        !add<PhysicsBinding>() || !add<NavigationBinding>() || !add<EngineBinding>() ||
-        !add<TimeBinding>() || !add<RenderBinding>() || !add<SceneBinding>() ||
-        !add<NodeBinding>() || !add<ComponentBinding>() || !add<TransformBinding>() ||
-        !add<CameraBinding>() || !add<EnvironmentComponentBinding>() ||
+        !add<ResourcesBinding>() || !add<JsonBinding>() || !add<MovieBinding>() ||
+        !add<InputBinding>() || !add<PhysicsBinding>() || !add<NavigationBinding>() ||
+        !add<EngineBinding>() || !add<TimeBinding>() || !add<RenderBinding>() ||
+        !add<SceneBinding>() || !add<NodeBinding>() || !add<ComponentBinding>() ||
+        !add<TransformBinding>() || !add<CameraBinding>() || !add<EnvironmentComponentBinding>() ||
         !add<PostProcessComponentBinding>() || !add<PlanarReflectionComponentBinding>() ||
         !add<LightProbeVolumeComponentBinding>() || !add<LightBinding>() ||
         !add<MeshRendererBinding>() || !add<MaterialBinding>() || !add<ColliderBinding>() ||

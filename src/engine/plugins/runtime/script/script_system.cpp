@@ -7,10 +7,13 @@
 #include "runtime/animation/animation_events.hpp"
 #include "runtime/animation/animation_system.hpp"
 #include "runtime/app/app.hpp"
+#include "runtime/core/guid_map.hpp"
 #include "runtime/log/log_system.hpp"
 #include "runtime/performance/profiling.hpp"
-#include "runtime/resource/resource_system.hpp"
+#include "runtime/resource/resource_reference.hpp"
+#include "runtime/resource/types/script_resource.hpp"
 #include "runtime/utils/path_utils.hpp"
+#include <set>
 
 #include <nlohmann/json.hpp>
 
@@ -77,24 +80,47 @@ struct Snapshot
 {
     std::string revision = "builtin";
     std::string entry = "scripts/game.js";
-    std::shared_ptr<const ResourceCatalog> catalog;
-    MountList mounts;
-    std::map<std::string, Guid, std::less<>> module_guids;
+    resource_detail::ResourceReference root;
+    std::map<std::string, const ScriptResource*, std::less<>> modules;
 };
 
-[[nodiscard]] bool catalog_snapshot(const ResourceCatalog& catalog, const MountList& mounts,
-                                    Snapshot& snapshot)
+[[nodiscard]] bool loaded_snapshot(ResourceLoader* loader, ResourceHandle entry, Snapshot& snapshot)
 {
-    snapshot.catalog = std::make_shared<ResourceCatalog>(catalog);
-    snapshot.mounts = mounts;
-    for (const auto& asset : catalog.data().entries)
+    if (!snapshot.root.retain(loader, entry))
     {
-        if (asset->kind == schema::AssetKind::script &&
-            (asset->module_path.empty() ||
-             !snapshot.module_guids.emplace(asset->module_path, asset->guid).second))
+        return false;
+    }
+    const auto* root = resource_detail::cast<ScriptResource>(snapshot.root.get());
+    if (!root || root->info().module_path.empty())
+    {
+        return false;
+    }
+    snapshot.entry = root->info().module_path;
+    snapshot.modules.emplace(snapshot.entry, root);
+    std::vector<Guid> pending = root->info().dependencies;
+    std::set<Guid> visited{root->info().guid};
+    for (std::size_t index = 0; index < pending.size(); ++index)
+    {
+        const auto guid = pending[index];
+        if (!visited.insert(guid).second)
+        {
+            continue;
+        }
+        resource_detail::ResourceReference dependency;
+        if (!dependency.dependency(loader, entry, guid))
         {
             return false;
         }
+        if (const auto* script = resource_detail::cast<ScriptResource>(dependency.get()))
+        {
+            if (script->info().module_path.empty() ||
+                !snapshot.modules.emplace(script->info().module_path, script).second)
+            {
+                return false;
+            }
+        }
+        pending.insert(pending.end(), dependency->info().dependencies.begin(),
+                       dependency->info().dependencies.end());
     }
     return true;
 }
@@ -107,15 +133,14 @@ struct ScriptSystem::State
     {
         State& owner;
         Snapshot snapshot;
-        std::vector<ResourcePtr> resources;
         bool initialization_entered = false;
         bindings::BindingContext bindings;
         std::unique_ptr<vm::ScriptVm> machine;
 
         Run(State& state, Snapshot version)
             : owner(state), snapshot(std::move(version)),
-              bindings(state.world, state.renderer, state.ui, state.physics, state.navigation,
-                       state.input, state.window, state.movies),
+              bindings(state.resources, state.world, state.renderer, state.ui, state.physics,
+                       state.navigation, state.input, state.window, state.movies),
               machine(vm::create_script_vm())
         {
         }
@@ -136,22 +161,16 @@ struct ScriptSystem::State
                 source = owner.binding_registry.source();
                 return true;
             }
-            if (!script_path(path) || snapshot.catalog == nullptr)
+            const auto mapped = snapshot.modules.find(path);
+            if (!script_path(path) || mapped == snapshot.modules.end())
             {
-                return owner.fail("Module is deleted or is not JavaScript: " + std::string(path));
-            }
-            const auto mapped = snapshot.module_guids.find(path);
-            ByteBuffer bytes;
-            bool success = mapped != snapshot.module_guids.end();
-            if (success)
-            {
-                success = ResourceSystem::read_resource(*snapshot.catalog, snapshot.mounts,
-                                                        mapped->second, bytes);
-            }
-            if (!success || bytes.size() > maximum_text_size)
-            {
-                return owner.fail("Cannot read GUID module from supplied catalog: " +
+                return owner.fail("Module is absent from the loaded script closure: " +
                                   std::string(path));
+            }
+            const auto& bytes = mapped->second->data();
+            if (bytes.size() > maximum_text_size)
+            {
+                return owner.fail("Script module exceeds the source size limit");
             }
             if (!bytes.empty())
             {
@@ -163,6 +182,7 @@ struct ScriptSystem::State
 
     ScriptStatus& status;
     bindings::ScriptBindingRegistry binding_registry;
+    ResourceLoader* resources = nullptr;
     WorldSystem* world = nullptr;
     RenderSystem* renderer = nullptr;
     UiSystem* ui = nullptr;
@@ -177,11 +197,12 @@ struct ScriptSystem::State
     std::unique_ptr<Run> active;
     std::unique_ptr<Run> prepared;
 
-    State(ScriptStatus& state, WorldSystem* scene_world, RenderSystem* scene_renderer,
-          UiSystem* scene_ui, PhysicsSystem* scene_physics, NavigationSystem* scene_navigation,
-          InputSystem* scene_input, WindowSystem* scene_window, MoviePlayer* movie_player)
-        : status(state), world(scene_world), renderer(scene_renderer), ui(scene_ui),
-          physics(scene_physics), navigation(scene_navigation), input(scene_input),
+    State(ScriptStatus& state, ResourceLoader* loader, WorldSystem* scene_world,
+          RenderSystem* scene_renderer, UiSystem* scene_ui, PhysicsSystem* scene_physics,
+          NavigationSystem* scene_navigation, InputSystem* scene_input, WindowSystem* scene_window,
+          MoviePlayer* movie_player)
+        : status(state), resources(loader), world(scene_world), renderer(scene_renderer),
+          ui(scene_ui), physics(scene_physics), navigation(scene_navigation), input(scene_input),
           window(scene_window), movies(movie_player)
     {
     }
@@ -270,33 +291,6 @@ struct ScriptSystem::State
         {
             return fail("Gameplay run identifiers are exhausted");
         }
-        if (candidate->snapshot.catalog != nullptr)
-        {
-            auto* system = ResourceSystem::instance();
-            if (system == nullptr)
-            {
-                return fail("Gameplay requires an active resource system");
-            }
-            for (const auto& name : candidate->machine->loaded_modules())
-            {
-                if (name == "engine")
-                {
-                    continue;
-                }
-                const auto mapped = candidate->snapshot.module_guids.find(name);
-                const auto* expected = mapped == candidate->snapshot.module_guids.end()
-                                           ? nullptr
-                                           : candidate->snapshot.catalog->find(mapped->second);
-                ResourcePtr resource;
-                if (expected == nullptr || !system->loader().load(expected->guid, resource) ||
-                    resource->info().content_hash != expected->content_hash ||
-                    resource->info().module_path != expected->module_path)
-                {
-                    return fail("Active script resources differ from the prepared catalog");
-                }
-                candidate->resources.push_back(std::move(resource));
-            }
-        }
         active = std::move(candidate);
         active->bindings.activate();
         if (!active->machine->start())
@@ -320,12 +314,13 @@ struct ScriptSystem::State
     }
 };
 
-ScriptSystem::ScriptSystem(WorldSystem* world, RenderSystem* renderer, UiSystem* ui,
-                           PhysicsSystem* physics, NavigationSystem* navigation, InputSystem* input,
-                           WindowSystem* window, AnimationSystem* animation,
+ScriptSystem::ScriptSystem(ResourceLoader* resources, WorldSystem* world, RenderSystem* renderer,
+                           UiSystem* ui, PhysicsSystem* physics, NavigationSystem* navigation,
+                           InputSystem* input, WindowSystem* window, AnimationSystem* animation,
                            MoviePlayer* movies) noexcept
-    : world_(world), renderer_(renderer), ui_(ui), physics_(physics), navigation_(navigation),
-      input_(input), window_(window), animation_(animation), movies_(movies)
+    : resources_(resources), world_(world), renderer_(renderer), ui_(ui), physics_(physics),
+      navigation_(navigation), input_(input), window_(window), animation_(animation),
+      movies_(movies)
 {
 }
 
@@ -337,8 +332,8 @@ ScriptSystem::~ScriptSystem() noexcept
 bool ScriptSystem::on_initialize(const EngineConfig&)
 {
     status_.last_error.clear();
-    state_ = std::make_unique<State>(status_, world_, renderer_, ui_, physics_, navigation_, input_,
-                                     window_, movies_);
+    state_ = std::make_unique<State>(status_, resources_, world_, renderer_, ui_, physics_,
+                                     navigation_, input_, window_, movies_);
     if (!state_->binding_registry.initialize())
     {
         return state_->fail("Cannot register script binding modules");
@@ -380,8 +375,7 @@ bool ScriptSystem::on_initialize(const EngineConfig&)
     return true;
 }
 
-bool ScriptSystem::prepare_gameplay(const ResourceCatalog& catalog, const MountList& mounts,
-                                    std::string_view entry, std::string_view revision)
+bool ScriptSystem::prepare_gameplay(const ResourceHandle& entry, std::string_view revision)
 {
     if (!is_initialized() || !state_)
     {
@@ -390,13 +384,11 @@ bool ScriptSystem::prepare_gameplay(const ResourceCatalog& catalog, const MountL
     }
     state_->prepared.reset();
     Snapshot snapshot;
-    const std::string_view selected = entry.empty() ? std::string_view{"scripts/game.js"} : entry;
-    if (!relative_path(selected, snapshot.entry) || snapshot.entry != selected ||
-        !script_path(snapshot.entry) || !catalog_snapshot(catalog, mounts, snapshot))
+    if (!loaded_snapshot(resources_, entry, snapshot))
     {
-        return state_->fail("Invalid gameplay entry or resource catalog");
+        return state_->fail("Gameplay requires a loaded script entry and its complete closure");
     }
-    snapshot.revision = revision.empty() ? std::string(catalog.revision()) : std::string(revision);
+    snapshot.revision = std::string(revision);
     state_->prepared = state_->precheck(std::move(snapshot));
     return state_->prepared != nullptr;
 }
@@ -419,7 +411,8 @@ void ScriptSystem::stop_gameplay() noexcept
     }
 }
 
-bool ScriptSystem::execute_project_script(const ProjectScriptRequest& request,
+bool ScriptSystem::execute_project_script(const ResourceHandle& script_handle,
+                                          const ProjectScriptRequest& request,
                                           std::string& result_json, std::string& error)
 {
     result_json.clear();
@@ -433,6 +426,19 @@ bool ScriptSystem::execute_project_script(const ProjectScriptRequest& request,
         request.expected_run_id != status_.run_id || state_->calling)
     {
         error = "Project script requires the matching active Run at a non-reentrant safe point";
+        return false;
+    }
+    resource_detail::ResourceReference script;
+    if (!script.retain(resources_, script_handle) || !script.data<ScriptResource>())
+    {
+        error = "Project script resource is not loaded";
+        return false;
+    }
+    const auto& bytes = *script.data<ScriptResource>();
+    const std::string_view source(reinterpret_cast<const char*>(bytes.data()), bytes.size());
+    if (request.javascript != source || request.module_path != script->info().module_path)
+    {
+        error = "Project script request differs from its loaded resource";
         return false;
     }
     std::string module_path;

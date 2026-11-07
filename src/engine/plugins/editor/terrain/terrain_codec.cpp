@@ -1,5 +1,7 @@
 #include "plugins/editor/terrain/terrain_codec.hpp"
 
+#include "runtime/resource/builtin_resources.hpp"
+
 #include "editor/asset_pipeline/importer_utils.hpp"
 #include "editor/asset_pipeline/toml_helpers.hpp"
 #include "plugins/runtime/terrain/terrain_component.hpp"
@@ -101,6 +103,22 @@ bool TerrainCodec::read(const toml::table& table, schema::ComponentDataT& compon
     {
         error = "invalid terrain GUIDs, colors or UV scale";
         return false;
+    }
+    if (!value.terrain_guid.empty() && value.material_guid.empty())
+    {
+        for (const auto& entry : builtin_resource_catalog().entries)
+        {
+            if (entry->path == "builtin://materials/default-pbr")
+            {
+                value.material_guid = entry->guid;
+                break;
+            }
+        }
+        if (value.material_guid.empty())
+        {
+            error = "Default material is unavailable";
+            return false;
+        }
     }
     component.payload.Set(std::move(value));
     return true;

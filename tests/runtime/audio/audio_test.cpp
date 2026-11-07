@@ -1,6 +1,7 @@
 #include "scene_snapshot.hpp"
 
 #include "resource_fixture.hpp"
+#include "resource_services.hpp"
 
 #include "runtime/audio/audio_system.hpp"
 #include "runtime/engine_config.hpp"
@@ -92,11 +93,12 @@ bool add_clip(test_support::ResourceFixture& fixture, std::string_view path, std
     return true;
 }
 
-bool prepare(test_support::ResourceFixture& fixture, engine::ResourceSystem& resources)
+bool prepare(test_support::ResourceFixture& fixture, test_support::ResourceServices& resources)
 {
     return !fixture.root.empty() && resources.initialize({}) &&
            add_clip(fixture, "audio/mono.wav", 1) && add_clip(fixture, "audio/stereo.wav", 2) &&
-           fixture.publish(resources);
+           fixture.publish(resources.core) && resources.load("audio/mono.wav") &&
+           resources.load("audio/stereo.wav");
 }
 
 bool pump(engine::AudioSystem& audio, std::chrono::milliseconds duration)
@@ -132,8 +134,8 @@ bool wait_stopped(engine::AudioSystem& audio, engine::AudioSource source)
 bool settings_and_resources()
 {
     test_support::ResourceFixture fixture;
-    engine::ResourceSystem resources;
-    engine::WorldSystem world;
+    test_support::ResourceServices resources;
+    engine::WorldSystem world(&resources.loader);
     if (!expect(prepare(fixture, resources) && world.initialize({}), "prepare audio resources"))
     {
         return false;
@@ -220,9 +222,9 @@ bool playback_and_lifecycle()
         return false;
     }
     test_support::ResourceFixture fixture;
-    engine::ResourceSystem resources;
-    engine::WorldSystem world;
-    engine::AudioSystem audio(&world);
+    test_support::ResourceServices resources;
+    engine::WorldSystem world(&resources.loader);
+    engine::AudioSystem audio(&resources.loader, &world);
     if (!expect(prepare(fixture, resources) && world.initialize({}) && audio.initialize({}),
                 "initialize without opening an audio device") ||
         !expect(audio.tick(0.0) && audio.voice_count() == 0 && SDL_WasInit(SDL_INIT_AUDIO) == 0,
@@ -396,9 +398,9 @@ bool playback_and_lifecycle()
 bool persistent_audio()
 {
     test_support::ResourceFixture fixture;
-    engine::ResourceSystem resources;
-    engine::WorldSystem world;
-    engine::AudioSystem audio(&world);
+    test_support::ResourceServices resources;
+    engine::WorldSystem world(&resources.loader);
+    engine::AudioSystem audio(&resources.loader, &world);
     if (!expect(prepare(fixture, resources) && world.initialize({}) && audio.initialize({}),
                 "initialize persistent audio test"))
     {
@@ -454,15 +456,15 @@ bool persistent_audio()
 bool independent_voice()
 {
     test_support::ResourceFixture fixture;
-    engine::ResourceSystem resources;
-    engine::AudioSystem audio;
-    engine::ResourcePtr clip;
+    test_support::ResourceServices resources;
+    engine::AudioSystem audio(&resources.loader);
+    engine::resource_detail::ResourceReference clip;
     engine::AudioVoiceHandle handle;
     engine::AudioPlaybackStatus status;
     if (!expect(prepare(fixture, resources) && audio.initialize({}) &&
                     resources.load("20000000-0000-4000-8000-000000000001", clip),
                 "prepare independent audio") ||
-        !expect(audio.play(clip, handle) && audio.set_paused(handle, true) &&
+        !expect(audio.play(clip.handle(), handle) && audio.set_paused(handle, true) &&
                     audio.playback(handle, status) &&
                     status.state == engine::AudioVoiceState::paused,
                 "pause independent voice without a world") ||
@@ -508,9 +510,9 @@ bool unavailable_device()
         return false;
     }
     test_support::ResourceFixture fixture;
-    engine::ResourceSystem resources;
-    engine::WorldSystem world;
-    engine::AudioSystem audio(&world);
+    test_support::ResourceServices resources;
+    engine::WorldSystem world(&resources.loader);
+    engine::AudioSystem audio(&resources.loader, &world);
     if (!expect(prepare(fixture, resources) && world.initialize({}) && audio.initialize({}) &&
                     audio.tick(0),
                 "absence of audio hardware does not prevent idle engine initialization"))

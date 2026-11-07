@@ -5,8 +5,10 @@
 #include "editor/project/project_system.hpp"
 #include "editor/render/render_commands.hpp"
 #include "editor/scene/scene_persistence.hpp"
+#include "file_text.hpp"
 #include "plugins/editor/modeling/modeling_commands.hpp"
 #include "plugins/editor/modeling/modeling_mesh_importer.hpp"
+#include "resource_services.hpp"
 #include "runtime/engine_config.hpp"
 #include "runtime/render/render_system.hpp"
 #include "runtime/resource/resource_system.hpp"
@@ -89,7 +91,7 @@ bool snapshot_sources(const fs::path& root, SourceSnapshots& output)
         {
             SourceSnapshot snapshot;
             snapshot.modified = current->last_write_time(ec);
-            if (ec || !ResourceSystem::read_text(current->path(), snapshot.content))
+            if (ec || !test_support::read_text(current->path(), snapshot.content))
             {
                 return false;
             }
@@ -192,13 +194,15 @@ bool run(const fs::path& root)
 {
     // 与 editor_app 同样装配项目系统，捕获跨模块 TOML ABI/符号冲突。
     engine::editor::ProjectSystem project(PathUtils::to_utf8(root));
-    ResourceSystem resources;
-    WorldSystem world;
     engine::ThreadSystem threads;
+    test_support::ResourceServices services(&threads);
+    auto& resources = services.core;
+    WorldSystem world(&services.loader);
     engine::TaskSystem tasks(threads, {"Editor", 4, engine::TaskPriority::low});
     engine::editor::AssetPipelineSystem pipeline(tasks);
-    if (!project.initialize({}) || !resources.initialize({}) || !world.initialize({}) ||
-        !threads.initialize({}) || !tasks.initialize({}) || !pipeline.initialize({}) ||
+    if (!project.initialize({}) ||
+        !((threads.initialize({}) && services.initialize({})) && services.prepare_builtins()) ||
+        !world.initialize({}) || !tasks.initialize({}) || !pipeline.initialize({}) ||
         !compound_scene_round_trip(root))
     {
         return false;
@@ -414,8 +418,8 @@ bool run(const fs::path& root)
     const auto path = root / "assets/scenes/room.scene";
     std::string source;
     std::string meta;
-    if (!ResourceSystem::read_text(path, source) ||
-        !ResourceSystem::read_text(root / "assets/scenes/room.scene.meta", meta))
+    if (!test_support::read_text(path, source) ||
+        !test_support::read_text(root / "assets/scenes/room.scene.meta", meta))
     {
         return false;
     }
@@ -444,7 +448,7 @@ bool run(const fs::path& root)
     const auto mesh_path = root / "assets/scenes/room-resources/meshes" /
                            ("node-" + std::to_string(first.info().properties->id) + ".mesh");
     std::string original_mesh;
-    if (!ResourceSystem::read_text(mesh_path, original_mesh))
+    if (!test_support::read_text(mesh_path, original_mesh))
     {
         return false;
     }
@@ -487,13 +491,13 @@ bool run(const fs::path& root)
     reject_export = false;
     export_count = 0;
     std::string restored;
-    if (!expect(ResourceSystem::read_text(path, restored) && restored == source,
+    if (!expect(test_support::read_text(path, restored) && restored == source,
                 "scene restored after failed save") ||
-        !expect(ResourceSystem::read_text(mesh_path, restored) && restored == original_mesh,
+        !expect(test_support::read_text(mesh_path, restored) && restored == original_mesh,
                 "earlier mesh publication restored after later failure") ||
         !expect(execute("save_scene", save) && result["resourceCount"] == 2 && export_count == 2,
                 "failed save does not advance mesh snapshots before successful retry", error) ||
-        !expect(ResourceSystem::read_text(root / "assets/scenes/room.scene.meta", restored) &&
+        !expect(test_support::read_text(root / "assets/scenes/room.scene.meta", restored) &&
                     restored == meta,
                 "repeat save preserves scene GUID"))
     {
@@ -507,7 +511,7 @@ bool run(const fs::path& root)
     for (const auto& conflict_path : {mesh_path, mesh_meta_path, material_path, path})
     {
         std::string original;
-        if (!ResourceSystem::read_text(conflict_path, original) ||
+        if (!test_support::read_text(conflict_path, original) ||
             !write_text(conflict_path, original + "\n# external modification\n") ||
             !snapshot_sources(root / "assets", initial_sources))
         {
@@ -533,7 +537,7 @@ bool run(const fs::path& root)
     }
     std::string mesh_meta;
     std::error_code ec;
-    if (!ResourceSystem::read_text(mesh_meta_path, mesh_meta) || !fs::remove(mesh_meta_path, ec) ||
+    if (!test_support::read_text(mesh_meta_path, mesh_meta) || !fs::remove(mesh_meta_path, ec) ||
         ec ||
         !expect(!execute("save_scene", save), "missing saved mesh identity is not regenerated",
                 error) ||
@@ -550,7 +554,11 @@ bool run(const fs::path& root)
     if (!expect(pipeline.build_assets(root), "import saved scene and dependencies",
                 pipeline.last_error()) ||
         !expect(resources.update_catalog(pipeline.catalog(), {{"content", root / "cache"}}),
-                "publish imported resource catalog", resources.last_error()))
+                "publish imported resource catalog", std::string(resources.last_error())))
+    {
+        return false;
+    }
+    if (!services.prepare_builtins() || !services.load("scenes/room.scene"))
     {
         return false;
     }
@@ -647,14 +655,15 @@ bool run(const fs::path& root)
     const auto original_material_source =
         root / "assets" / PathUtils::from_utf8(original_material_path);
     std::string original_material;
-    if (!ResourceSystem::read_text(original_material_source, original_material))
+    if (!test_support::read_text(original_material_source, original_material))
     {
         return false;
     }
     Guid shared_mesh_guid;
     Guid shared_material_guid;
-    if (!ResourceSystem::path_to_guid(renderer.mesh_path(), shared_mesh_guid) ||
-        !ResourceSystem::path_to_guid(original_material_path, shared_material_guid))
+    if (!resources.catalog().identities().path_to_guid(renderer.mesh_path(), shared_mesh_guid) ||
+        !resources.catalog().identities().path_to_guid(original_material_path,
+                                                       shared_material_guid))
     {
         return false;
     }
@@ -710,11 +719,11 @@ bool run(const fs::path& root)
     const std::string after_transform = current_sources.at(path).content;
     if (!expect(execute("undo", current) && execute("save_scene", loaded_save) &&
                     result["resourceCount"] == 1 && commands.redo_count() == 1 &&
-                    ResourceSystem::read_text(path, restored) && restored == before_transform,
+                    test_support::read_text(path, restored) && restored == before_transform,
                 "saved edit can be undone and the reverted scene can be saved", error) ||
         !expect(execute("redo", current) && execute("save_scene", loaded_save) &&
                     result["resourceCount"] == 1 && commands.undo_count() == edited_history &&
-                    ResourceSystem::read_text(path, restored) && restored == after_transform &&
+                    test_support::read_text(path, restored) && restored == after_transform &&
                     export_count == 0,
                 "saving after undo preserves redo and the original resource identities", error))
     {
@@ -738,7 +747,7 @@ bool run(const fs::path& root)
     if (!expect(first_saved && first_saved->additional_material_guids.size() == 1 &&
                     first_saved->additional_material_guids[0] != shared_material_guid &&
                     shared_saved && shared_saved->material_guid == shared_material_guid &&
-                    ResourceSystem::read_text(original_material_source, restored) &&
+                    test_support::read_text(original_material_source, restored) &&
                     restored == original_material,
                 "local override does not overwrite the material used by other nodes") ||
         !snapshot_sources(root / "assets", initial_sources) ||
@@ -786,6 +795,7 @@ bool run(const fs::path& root)
                                 {"path", "prefabs/material.prefab"}};
     if (!expect(execute("create_prefab", prefab_create) && pipeline.build_assets(root) &&
                     resources.update_catalog(pipeline.catalog(), {{"content", root / "cache"}}) &&
+                    services.prepare_builtins() &&
                     execute("instantiate_prefab", {{"sceneId", std::to_string(scene->id())},
                                                    {"path", "prefabs/material.prefab"},
                                                    {"name", "Prefab copy"}}),
@@ -855,7 +865,7 @@ bool run(const fs::path& root)
     if (!expect(material_override && material_override->material_guid != shared_material_guid &&
                     material_override->additional_material_guids.size() == 1 &&
                     material_override->additional_material_guids.front() != shared_material_guid &&
-                    ResourceSystem::read_text(original_material_source, restored) &&
+                    test_support::read_text(original_material_source, restored) &&
                     restored == original_material,
                 "prefab overrides export full material resources without changing the template",
                 error))

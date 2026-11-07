@@ -7,9 +7,9 @@
 #include "plugins/runtime/terrain/terrain_component.hpp"
 #include "runtime/performance/profiling.hpp"
 #include "runtime/physics/physics_system.hpp"
-#include "runtime/resource/resource_system.hpp"
 #include "runtime/scene/collider.hpp"
 #include "runtime/scene/mesh_renderer.hpp"
+#include "runtime/scene/resource_binding.hpp"
 #include "runtime/scene/rigid_body.hpp"
 #include "runtime/scene/scene.hpp"
 #include "runtime/scene/transform.hpp"
@@ -257,9 +257,16 @@ bool TerrainSystem::commit_prepared(TerrainComponent component, TerrainVolume ca
     }
     const auto previous_mesh = *renderer.mesh_data();
     const auto previous_material = std::string(renderer.material().type_path());
-    std::string material = "builtin://materials/default-pbr";
+    const auto& material_resource = engine::ecs_detail::component_runtime(component)->material_;
+    if (!material_resource)
+    {
+        return false;
+    }
+    ecs_detail::ResourceBindingScope binding(world_, material_resource.handle());
+    std::string material = material_resource->info().path;
     if ((!component.settings().material_guid.empty() &&
-         !ResourceSystem::guid_to_path(component.settings().material_guid, material)) ||
+         !ecs_detail::resource_path(component.node(), component.settings().material_guid,
+                                    material)) ||
         !renderer.material().set_type(material))
     {
         remove_new();
@@ -723,9 +730,15 @@ bool TerrainSystem::collapse_detached(TerrainComponent component, std::uint32_t 
         engine::ecs_detail::component_runtime(component)->last_error_.clear();
         return true;
     }
-    std::string material = "builtin://materials/default-pbr";
+    const auto& material_resource = engine::ecs_detail::component_runtime(component)->material_;
+    if (!material_resource)
+    {
+        return false;
+    }
+    ecs_detail::ResourceBindingScope binding(world_, material_resource.handle());
+    std::string material = material_resource->info().path;
     if (!component.settings().material_guid.empty() &&
-        !ResourceSystem::guid_to_path(component.settings().material_guid, material))
+        !ecs_detail::resource_path(component.node(), component.settings().material_guid, material))
     {
         engine::ecs_detail::component_runtime(component)->last_error_ =
             "Cannot resolve terrain fragment material";
@@ -969,7 +982,7 @@ void TerrainSystem::on_shutdown() noexcept
         {
             engine::ecs_detail::component_runtime(component)->ready_ = false;
             engine::ecs_detail::component_runtime(component)->pending_ =
-                engine::ecs_detail::component_runtime(component)->resource_ != nullptr;
+                static_cast<bool>(engine::ecs_detail::component_runtime(component)->resource_);
         }
         if (auto renderer = node.get_component<MeshRenderer>(); renderer && renderer.transient())
         {

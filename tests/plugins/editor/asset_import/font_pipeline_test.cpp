@@ -1,5 +1,7 @@
 #include "editor/asset_pipeline/asset_pipeline_system.hpp"
+#include "file_text.hpp"
 #include "plugins/editor/asset_import/font_importer.hpp"
+#include "resource_fixture.hpp"
 #include "runtime/engine_config.hpp"
 #include "runtime/resource/codecs/font_resource_codec.hpp"
 #include "runtime/resource/resource_system.hpp"
@@ -43,7 +45,7 @@ bool write(const fs::path& path, std::string_view text)
 std::string read(const fs::path& path)
 {
     std::string text;
-    return engine::ResourceSystem::read_text(path, text) ? text : std::string{};
+    return test_support::read_text(path, text) ? text : std::string{};
 }
 
 std::string metadata(std::string_view guid, std::string_view settings)
@@ -112,24 +114,35 @@ int main(int argc, char** argv)
         !expect(pipeline.add_importer(importer), "register font import plugin") ||
         !expect(pipeline.build_assets(project.root), pipeline.last_error()) ||
         !expect(pipeline.last_build().imported == 1, "font source generates one resource") ||
-        !expect(resources.initialize({}), "initialize resource core") ||
+        !expect(test_support::register_resource_codecs(resources) && resources.initialize({}),
+                "initialize resource core") ||
         !expect(resources.update_catalog(pipeline.catalog(), {{"content", project.root / "cache"}}),
-                resources.last_error()))
+                std::string(resources.last_error())))
     {
         return 1;
     }
     Guid guid;
-    ResourcePtr original;
+    std::unique_ptr<Resource> original;
     if (!expect(resources.catalog().identities().path_to_guid("test.ttf", guid),
                 "source font has a GUID") ||
         !expect(read(meta).find("[font]") != std::string::npos, "font meta defaults generated") ||
-        !expect(resources.load(guid, original), resources.last_error()) ||
-        !expect(original->info().kind == schema::AssetKind::font && original->font() != nullptr,
+        !expect(resources.read(guid, original), std::string(resources.last_error())) ||
+        !expect(original->info().kind == schema::AssetKind::font &&
+                    engine::resource_detail::data<engine::FontResource>(original.get()) != nullptr,
                 "core decodes standalone font data") ||
-        !expect(original->font()->family == "Lato" && original->font()->units_per_em == 2000 &&
-                    original->font()->glyphs.size() > 95 && !original->font()->curves.empty(),
-                "font has normalized outlines and Unicode glyphs") ||
-        !expect(original->font()->ascender > 0.5F && original->font()->ascender < 2.0F,
+        !expect(
+            engine::resource_detail::data<engine::FontResource>(original.get())->family == "Lato" &&
+                engine::resource_detail::data<engine::FontResource>(original.get())->units_per_em ==
+                    2000 &&
+                engine::resource_detail::data<engine::FontResource>(original.get())->glyphs.size() >
+                    95 &&
+                !engine::resource_detail::data<engine::FontResource>(original.get())
+                     ->curves.empty(),
+            "font has normalized outlines and Unicode glyphs") ||
+        !expect(engine::resource_detail::data<engine::FontResource>(original.get())->ascender >
+                        0.5F &&
+                    engine::resource_detail::data<engine::FontResource>(original.get())->ascender <
+                        2.0F,
                 "font metrics use em units") ||
         !expect(original->info().dependencies.empty(), "font has no runtime parser dependencies") ||
         !expect(pipeline.build_assets(project.root), pipeline.last_error()) ||
@@ -140,10 +153,14 @@ int main(int argc, char** argv)
     }
     const auto find_glyph = [&](std::uint32_t codepoint) -> const schema::FontGlyphT*
     {
-        const auto found =
-            std::find_if(original->font()->glyphs.begin(), original->font()->glyphs.end(),
-                         [codepoint](const auto& glyph) { return glyph->codepoint == codepoint; });
-        return found != original->font()->glyphs.end() ? found->get() : nullptr;
+        const auto found = std::find_if(
+            engine::resource_detail::data<engine::FontResource>(original.get())->glyphs.begin(),
+            engine::resource_detail::data<engine::FontResource>(original.get())->glyphs.end(),
+            [codepoint](const auto& glyph) { return glyph->codepoint == codepoint; });
+        return found != engine::resource_detail::data<engine::FontResource>(original.get())
+                            ->glyphs.end()
+                   ? found->get()
+                   : nullptr;
     };
     const auto* space = find_glyph(0x20);
     const auto* accented = find_glyph(0xe9);
@@ -156,19 +173,24 @@ int main(int argc, char** argv)
     }
     const auto old_revision = pipeline.last_build().revision;
     const auto changed_meta = metadata(guid, "unicode_ranges = [\"0020-007E\"]\nkerning = false\n");
-    ResourcePtr changed;
+    std::unique_ptr<Resource> changed;
     if (!expect(write(meta, changed_meta), "update font import settings") ||
         !expect(pipeline.build_assets(project.root), pipeline.last_error()) ||
         !expect(pipeline.last_build().imported == 1 &&
                     pipeline.last_build().revision != old_revision,
                 "font meta change regenerates the same GUID resource") ||
         !expect(resources.update_catalog(pipeline.catalog(), {{"content", project.root / "cache"}}),
-                resources.last_error()) ||
-        !expect(resources.load(guid, changed), resources.last_error()) ||
-        !expect(changed->font()->glyphs.size() == 96 && changed->font()->kerning.empty(),
-                "ASCII subset plus missing glyph respects kerning toggle") ||
-        !expect(original->font()->glyphs.size() > changed->font()->glyphs.size(),
-                "old font reference remains immutable"))
+                std::string(resources.last_error())) ||
+        !expect(resources.read(guid, changed), std::string(resources.last_error())) ||
+        !expect(
+            engine::resource_detail::data<engine::FontResource>(changed.get())->glyphs.size() ==
+                    96 &&
+                engine::resource_detail::data<engine::FontResource>(changed.get())->kerning.empty(),
+            "ASCII subset plus missing glyph respects kerning toggle") ||
+        !expect(
+            engine::resource_detail::data<engine::FontResource>(original.get())->glyphs.size() >
+                engine::resource_detail::data<engine::FontResource>(changed.get())->glyphs.size(),
+            "old font reference remains immutable"))
     {
         return 1;
     }
@@ -199,25 +221,25 @@ int main(int argc, char** argv)
     {
         return 1;
     }
-    auto invalid = *changed->font();
+    auto invalid = *engine::resource_detail::data<engine::FontResource>(changed.get());
     invalid.glyphs[1]->curve_count = std::numeric_limits<std::uint32_t>::max();
     if (!expect(!FontResourceCodec::validate(invalid), "core rejects out-of-bounds glyph curves"))
     {
         return 1;
     }
-    invalid = *changed->font();
+    invalid = *engine::resource_detail::data<engine::FontResource>(changed.get());
     invalid.glyphs[1]->codepoint = 0;
     if (!expect(!FontResourceCodec::validate(invalid), "core rejects duplicate glyph codepoints"))
     {
         return 1;
     }
-    invalid = *changed->font();
+    invalid = *engine::resource_detail::data<engine::FontResource>(changed.get());
     invalid.ascender = std::numeric_limits<float>::quiet_NaN();
     if (!expect(!FontResourceCodec::validate(invalid), "core rejects nonfinite font metrics"))
     {
         return 1;
     }
-    invalid = *changed->font();
+    invalid = *engine::resource_detail::data<engine::FontResource>(changed.get());
     invalid.kerning.emplace_back(0x110000, 0x41, -0.1F);
     if (!expect(!FontResourceCodec::validate(invalid), "core rejects unknown kerning codepoint"))
     {

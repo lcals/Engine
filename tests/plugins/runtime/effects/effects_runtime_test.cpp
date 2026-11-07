@@ -1,3 +1,6 @@
+#include "plugins/runtime/effects/codecs/effect_resource_codec.hpp"
+#include "resource_services.hpp"
+#include "runtime/resource/virtual_file_system.hpp"
 #include "scene_snapshot.hpp"
 
 #include "plugins/runtime/effects/effect_component.hpp"
@@ -191,8 +194,9 @@ int main(int argc, char** argv)
     config.width = 640;
     config.height = 360;
     config.window_title = "Effects runtime integration";
-    ResourceSystem resources;
-    WorldSystem world;
+    test_support::ResourceServices services;
+    ResourceSystem& resources = services.core;
+    WorldSystem world{&services.loader};
     WindowSystem windows;
     RenderSystem renderer(windows, &world);
     EffectSystem effects(world, renderer);
@@ -203,7 +207,7 @@ int main(int argc, char** argv)
     Effekseer::EfkEfcProperty properties;
     Effekseer::EfkEfcProperty model_properties;
     if (!expect(argc == 2 &&
-                    ResourceSystem::read_binary(
+                    VirtualFileSystem::read_file(
                         PathUtils::from_utf8(argv[1]) /
                             "projects/showcase/assets/effects/laser/laser.efkefc",
                         source) &&
@@ -213,9 +217,9 @@ int main(int argc, char** argv)
                     properties.GetDistortionImages().empty() && properties.GetModels().empty(),
                 "read the official sprite fixture and its declared color textures") ||
         !expect(
-            ResourceSystem::read_binary(PathUtils::from_utf8(argv[1]) /
-                                            "projects/showcase/assets/effects/arrow/arrow.efkefc",
-                                        model_source) &&
+            VirtualFileSystem::read_file(PathUtils::from_utf8(argv[1]) /
+                                             "projects/showcase/assets/effects/arrow/arrow.efkefc",
+                                         model_source) &&
                 !model_source.empty() &&
                 model_properties.Load(model_source.data(),
                                       static_cast<std::int32_t>(model_source.size())) &&
@@ -223,7 +227,7 @@ int main(int argc, char** argv)
                 !model_properties.GetColorImages().empty() &&
                 model_properties.GetNormalImages().empty() &&
                 model_properties.GetDistortionImages().empty() &&
-                ResourceSystem::read_binary(
+                VirtualFileSystem::read_file(
                     PathUtils::from_utf8(argv[1]) /
                         "projects/showcase/assets/effects/arrow/models/arrow.efkmodel",
                     model_bytes) &&
@@ -234,14 +238,27 @@ int main(int argc, char** argv)
     }
     const std::map<std::u16string, ByteBuffer> models{
         {model_properties.GetModels().front(), std::move(model_bytes)}};
-    if (!expect(resources.initialize(config) && world.initialize(config) &&
-                    effects.initialize(config),
+    if (!expect((resources.add<engine::plugins::effects::EffectResourceCodec>() &&
+                 services.initialize(config)) &&
+                    world.initialize(config) && effects.initialize(config),
                 "initialize effect ownership and registration") ||
         !expect(prepare_effect(fixture, source, properties, "red", {255, 40, 40, 255}) &&
                     prepare_effect(fixture, source, properties, "green", {40, 255, 40, 255}) &&
                     prepare_effect(fixture, model_source, model_properties, "model",
                                    {90, 130, 255, 255}, models) &&
-                    add_effect(fixture, "invalid/effect", {}, {}) && fixture.publish(resources),
+                    add_effect(fixture, "invalid/effect", {}, {}) &&
+                    (fixture.publish(resources) && services.prepare_builtins() &&
+                     [&]
+                     {
+                         for (const auto& entry : fixture.catalog.entries)
+                         {
+                             if (entry->path != "invalid/effect" && !services.load(entry->path))
+                             {
+                                 return false;
+                             }
+                         }
+                         return true;
+                     }()),
                 "publish two effects with identical SDK paths"))
     {
         return 1;
@@ -331,7 +348,19 @@ int main(int argc, char** argv)
     auto manual = second.settings();
     manual.play_on_awake = false;
     if (!expect(stopped && stopped.set_settings(settings) && stopped.stop() && first.pause() &&
-                    second.set_settings(manual) && fixture.publish(resources),
+                    second.set_settings(manual) &&
+                    (fixture.publish(resources) && services.prepare_builtins() &&
+                     [&]
+                     {
+                         for (const auto& entry : fixture.catalog.entries)
+                         {
+                             if (entry->path != "invalid/effect" && !services.load(entry->path))
+                             {
+                                 return false;
+                             }
+                         }
+                         return true;
+                     }()),
                 "refresh catalog with paused, stopped and manually playing instances") ||
         !advance(windows, renderer, effects) ||
         !expect(!first.playing() && !stopped.playing() && second.playing(),
@@ -504,7 +533,7 @@ int main(int argc, char** argv)
     effects.shutdown();
     windows.shutdown();
     world.shutdown();
-    resources.shutdown();
+    services.shutdown();
     std::puts("Effect playback, GUID isolation, shared assets, removal and GPU retirement passed.");
     return 0;
 }

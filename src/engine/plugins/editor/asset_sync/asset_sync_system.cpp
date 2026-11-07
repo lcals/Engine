@@ -1,4 +1,5 @@
 #include "plugins/editor/asset_sync/asset_sync_system.hpp"
+#include "editor/file_text.hpp"
 
 #include "editor/asset_pipeline/project_lock.hpp"
 #include "runtime/resource/resource_system.hpp"
@@ -118,7 +119,7 @@ bool contains_path(const fs::path& parent, const fs::path& child)
 bool read_json(const fs::path& path, Json& output)
 {
     std::string text;
-    if (!ResourceSystem::read_text(path, text))
+    if (!engine::editor::file_detail::read_text(path, text))
     {
         return false;
     }

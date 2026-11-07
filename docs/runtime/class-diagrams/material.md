@@ -25,7 +25,7 @@ classDiagram
         +set_v4(string_view name, const Vec4& value) bool
         +set_texture(string_view name, string_view path) bool
         +get_texture(string_view name, string_view& output) bool
-        +texture(string_view name) ResourcePtr
+        +texture(string_view name) ResourceHandle
         +get_float(string_view name, float& output) bool
         +get_v2(string_view name, Vec2& output) bool
         +get_v3(string_view name, Vec3& output) bool
@@ -91,7 +91,7 @@ classDiagram
 
 - 项目材质定义可引用内置或项目 Shader；内置材质定义不能引用项目 Shader。材质持有定义与当前 Shader 的共享引用；换型失败保留旧引用。最后一个使用者释放后项目资源自动回收；`builtin://` 定义保留至资源系统关闭。
 
-- Shader 通过具名 sampler 声明贴图槽和内置默认资源；Material 按名称覆盖贴图路径，持有 ResourcePtr。切换材质或 Shader 时先加载完整候选集合，失败保留旧值。get_texture 失败输出空值，texture 按值返回共享引用（未知名称为空），调用方持有该引用期间资源保持有效。
+- Shader 通过具名 sampler 声明贴图槽和内置默认资源；Material 按名称覆盖贴图路径，内部独立 retain 已加载资源。切换材质或 Shader 时先获取完整的已加载候选集合，失败保留旧值。get_texture 失败输出空值，texture 返回借用的获取身份（未知名称为空句柄）；复制身份不会加计数，跨越组件修改或销毁使用时，调用方必须自行 retain。
 - 当前材质 sampler 的契约为二维贴图，可使用 LDR 或线性 HDR KTX；立方体贴图由环境 IBL 使用，不能赋给普通材质槽。资源依赖校验、材质换型和 `set_texture()` 都检查维度，失败保留原材质引用。
 
 - `shader_data()` 为 const noexcept，只读借用当前材质持有的 Shader 资源数据；不经过可选插件缓存查询。材质换型、Shader 切换或实例销毁后旧借用失效，目录换代不使已有材质转向其他版本。

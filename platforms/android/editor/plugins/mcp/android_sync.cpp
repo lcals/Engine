@@ -1,3 +1,4 @@
+#include "editor/file_text.hpp"
 #include "plugins/editor/mcp/project_mcp_tools.hpp"
 
 #include "plugins/editor/asset_sync/asset_sync_system.hpp"
@@ -431,7 +432,7 @@ bool ProjectMcpTools::sync_android(const fs::path& source, std::string& reply)
     }
     std::string manifest_text;
     const auto manifest_path = mirror / "assets" / "available.json";
-    if (!ResourceSystem::read_text(manifest_path, manifest_text))
+    if (!engine::editor::file_detail::read_text(manifest_path, manifest_text))
     {
         return fail("cannot read generated Android asset manifest");
     }

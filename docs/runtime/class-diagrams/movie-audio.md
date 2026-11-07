@@ -1,5 +1,7 @@
 # 影片复用音频
 
+**资源接入状态：已按用户确认的统一资源契约迁移；验证结果见[测试文档](../../testing.md)。** 资源句柄及保活遵循[高层加载契约](resource-loader.md)。
+
 [类图索引](../../class-diagrams/index.md) · [当前音频系统](audio-system.md) · [影片播放器](movie-player.md) · [启动装配](movie-startup.md) · [影片资源](movie-data.md)
 
 本页定义影片独立声部的身份、状态和行为契约；同一 `AudioSystem` 的全部公开方法统一在[音频类图](audio-system.md)维护。
@@ -34,18 +36,21 @@ classDiagram
     class System
     class WorldSystem
     class Resource
-    class ResourcePtr
+    class ResourceHandle
+    class ResourceLoader
     class AudioClipDataT
     class MoviePlayer
     class GameplaySession
     class RuntimeHost
     AudioSystem --|> System
     AudioSystem ..> WorldSystem : 可空绑定参数
-    AudioSystem ..> ResourcePtr : 接受共享音频资源
+    AudioSystem ..> ResourceHandle : 接受已加载音频获取
+    AudioSystem --> ResourceLoader : 借用高层契约
     AudioSystem ..> AudioVoiceHandle : 输入输出独立声部身份
     AudioSystem ..> AudioPlaybackStatus : 复制位置与状态
     AudioPlaybackStatus ..> AudioVoiceState
-    AudioSystem o-- Resource : 声部保留不可变AudioClip
+    AudioSystem *-- ResourceHandle : 声部独立获取
+    AudioSystem ..> Resource : 通过获取借用不可变AudioClip
     Resource ..> AudioClipDataT : 使用现有生成模型
     MoviePlayer --> AudioSystem : 借用
     MoviePlayer *-- AudioVoiceHandle : 只持值句柄
@@ -58,7 +63,7 @@ classDiagram
 新增返回状态的方法标注 `[[nodiscard]]`；`playback()` 为 `const`，只复制已发布的状态快照，不访问 SDL 流、不更新游标或终态。`on_tick()` 无论是否绑定世界都刷新独立声部；控制操作可在自己的修改边界同步最新消费状态。AudioVoiceHandle 默认零值无效，AudioPlaybackStatus 默认值只作为失败输出，调用方必须检查查询返回状态。
 
 - `set_world()` 借用已就绪世界，空值解除；不重建设备，不清除独立声部。更换世界先清旧场景声部，旧世界销毁前必须解除借用。
-- `play()` 接受已校验的 AudioClip `ResourcePtr`，非循环、原速、非空间播放；成功才返回句柄并保留共享资源，失败清空输出并使用现有 `last_error()`。首次实际播放打开设备，设备或流失败明确返回，不能用 dummy 输出代替成功。
+- `play()` 接受已加载的 AudioClip ResourceHandle，校验后 retain 声部独立获取，非循环、原速、非空间播放；未加载、失效或错误类型返回 false，不触发 I/O。成功才返回声部句柄，失败回滚获取、清空输出并使用现有 last_error。首次实际播放打开设备，设备或流失败明确返回，不能用 dummy 输出代替成功。
 - 声部身份校验 AudioSystem 实例代次与 ID，不能与裸节点 ID 共用身份；停止、重播、世界切换或旧脚本清理不得操作另一声部。
 - `set_paused(handle, bool)` 只改变该独立声部；现有设备级 `set_paused(bool)` 继续用于窗口/应用整体暂停。世界暂停只影响场景声部，不因片头阶段没有世界就把整个设备暂停。
 - 独立声部的 `set_paused()` 仅接受 playing/paused，重复设置当前值成功；无效身份或终态返回 false。`stop()` 将活动声部变为 stopped，终态或无效身份返回 false 且不改写已有结局。
@@ -75,4 +80,4 @@ classDiagram
 
 仅所有样本已提交、流末尾 flush 完成且待消费数据排空后，才报告服务级自然完成；设备缓冲尾音不因流销毁而提前截断。具体补偿采用实际平台可提供的信息，不能凭空声称零延迟。无音轨影片由 MoviePlayer 使用可暂停的单调时钟。
 
-停止影片先停止并释放其 AudioVoiceHandle；流销毁同步 SDL 回调后，才释放声部共享的 AudioClip。宿主关闭时先结束影片与玩法，取消并收尾读取/解码，再清场景声音、解除世界借用并关闭世界，最后销毁所有音频流与设备。异常退出和部分初始化走同一反序清理；不在 worker 上销毁音频设备。
+停止影片先停止并释放其 AudioVoiceHandle；流销毁同步 SDL 回调后，才通过注入的加载器释放声部取得的 AudioClip 获取。宿主关闭时先结束影片与玩法，取消并收尾读取/解码，再清场景声音、解除世界借用并关闭世界，最后销毁所有音频流与设备。异常退出和部分初始化走同一反序清理；不在 worker 上销毁音频设备。

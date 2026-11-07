@@ -1,4 +1,5 @@
 #include "resource_fixture.hpp"
+#include "resource_services.hpp"
 
 #include "runtime/engine_config.hpp"
 #include "runtime/scene/ecs_storage.hpp"
@@ -91,25 +92,26 @@ bool producer_transform_drive()
 
 bool scene_lifetime_phases()
 {
-    ResourceSystem resources;
-    WorldSystem world;
+    test_support::ResourceServices services;
+    auto& resources = services.core;
+    WorldSystem world(&services.loader);
     test_support::ResourceFixture fixture;
-    if (!resources.initialize({}) || !world.initialize({}))
+    if (!services.initialize({}) || !world.initialize({}))
     {
         return false;
     }
     auto* active = world.create_scene("Active");
     auto node = active ? active->create_node("Retained until safe point") : Node{};
     schema::SceneDataT snapshot;
-    ResourcePtr resource;
+    engine::resource_detail::ResourceReference resource;
     if (!node || !active->build_data(snapshot) || !fixture.add("phases.scene", snapshot) ||
-        !fixture.publish(resources) || !fixture.load("phases.scene", resource))
+        !fixture.publish(resources) || !services.load("phases.scene", resource))
     {
         return false;
     }
     for (bool multi_threaded : {true, false})
     {
-        const auto request = world.begin_restore_scene(resource);
+        const auto request = world.begin_restore_scene(resource.handle());
         if (!request || world.step_restore_scene(request, 64) != SceneRestoreStatus::ready)
         {
             return false;

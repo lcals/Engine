@@ -11,9 +11,9 @@
 #include "runtime/performance/profiling.hpp"
 #include "runtime/render/render_context.hpp"
 #include "runtime/render/render_system.hpp"
-#include "runtime/resource/resource_system.hpp"
 #include "runtime/scene/light.hpp"
 #include "runtime/scene/node.hpp"
+#include "runtime/scene/resource_binding.hpp"
 #include "runtime/scene/scene.hpp"
 #include "runtime/scene/transform.hpp"
 #include "runtime/world/world_system.hpp"
@@ -109,7 +109,7 @@ struct EffectSystem::State
 {
     struct CompiledEffect
     {
-        ResourcePtr resource;
+        resource_detail::ResourceReference resource;
         detail::EffectBindings bindings;
         Effekseer::EffectRef effect;
     };
@@ -205,7 +205,7 @@ struct EffectSystem::State
         return true;
     }
 
-    std::shared_ptr<CompiledEffect> compile(const ResourcePtr& resource)
+    std::shared_ptr<CompiledEffect> compile(const resource_detail::ResourceReference& resource)
     {
         const auto key = std::make_pair(resource->info().guid, resource->generation());
         const auto existing = effects.find(key);
@@ -217,9 +217,9 @@ struct EffectSystem::State
             }
         }
         resources.error.clear();
-        const schema::EffectAssetData* asset = nullptr;
-        if (!detail::read_effect_asset(resource->bytes(), asset, resources.error) ||
-            asset->data()->size() > static_cast<std::size_t>(std::numeric_limits<int>::max()))
+        const auto* asset = resource.data<EffectResource>();
+        if (!asset ||
+            asset->data.size() > static_cast<std::size_t>(std::numeric_limits<int>::max()))
         {
             if (resources.error.empty())
             {
@@ -228,15 +228,17 @@ struct EffectSystem::State
             return nullptr;
         }
         auto result = std::make_shared<CompiledEffect>();
-        result->resource = resource;
-        if (!detail::load_effect_bindings(*resource, *asset, result->bindings, resources.error))
+        if (!result->resource.retain(resource))
+        {
+            return nullptr;
+        }
+        if (!detail::load_effect_bindings(resource, *asset, result->bindings, resources.error))
         {
             return nullptr;
         }
         resources.loading = &result->bindings;
-        result->effect =
-            Effekseer::Effect::Create(manager, asset->data()->data(),
-                                      static_cast<std::int32_t>(asset->data()->size()), 1.0F, u"");
+        result->effect = Effekseer::Effect::Create(
+            manager, asset->data.data(), static_cast<std::int32_t>(asset->data.size()), 1.0F, u"");
         resources.loading = nullptr;
         if (!result->effect || !resources.error.empty())
         {
@@ -321,19 +323,6 @@ struct EffectSystem::State
                 if (!component || !engine::ecs_detail::component_runtime(component)->effect_)
                 {
                     return true;
-                }
-                auto* source = ResourceSystem::instance();
-                if (source &&
-                    engine::ecs_detail::component_runtime(component)->effect_->generation() !=
-                        source->generation())
-                {
-                    const auto settings = stored.data;
-                    if (!component.set_settings(settings))
-                    {
-                        resources.error = "Cannot refresh effect resource: " +
-                                          std::string(component.effect_path());
-                        return false;
-                    }
                 }
                 const auto id = component.instance_id();
                 alive.insert(id);

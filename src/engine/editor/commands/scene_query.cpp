@@ -1,4 +1,5 @@
 #include "editor/commands/scene_query.hpp"
+#include "editor/resource_access.hpp"
 
 #include "editor/commands/components/component_edit.hpp"
 #include "editor/render/render_component_commands.hpp"
@@ -160,7 +161,8 @@ bool query_scene(WorldSystem& world, const Json& arguments, Json& result, std::s
                 const auto& value = node.get_component<UiComponent>();
                 const auto& guid = value.settings().document_guid;
                 std::string path;
-                if (!guid.empty() && !ResourceSystem::guid_to_path(guid, path))
+                if (!guid.empty() &&
+                    !resource_access::path(node.scene()->world().resource_loader(), guid, path))
                 {
                     path.clear();
                 }

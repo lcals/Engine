@@ -1,7 +1,9 @@
 #include "editor/asset_pipeline/asset_pipeline_system.hpp"
+#include "file_text.hpp"
 #include "ktx_fixture.hpp"
 #include "plugins/editor/asset_import/font_importer.hpp"
 #include "plugins/editor/asset_import/ui_importer.hpp"
+#include "resource_codecs.hpp"
 #include "runtime/engine_config.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/task/task_system.hpp"
@@ -43,7 +45,7 @@ bool write(const fs::path& path, std::string_view text)
 std::string read(const fs::path& path)
 {
     std::string text;
-    return engine::ResourceSystem::read_text(path, text) ? text : std::string{};
+    return test_support::read_text(path, text) ? text : std::string{};
 }
 
 std::string metadata(std::string_view guid, std::string_view settings)
@@ -105,30 +107,33 @@ bool texture_dimensions(const Project& project, engine::editor::AssetPipelineSys
         const auto settings =
             metadata(ui_guid, std::string("textures = [\"") + texture +
                                   "\"]\n[[ui.fonts]]\nfamily = \"body\"\nasset = \"lato.ttf\"\n");
-        engine::ResourcePtr document;
+        std::unique_ptr<engine::Resource> document;
         if (!expect(write(project.root / "assets/menu.rml", markup) &&
                         write(project.root / "assets/menu.rml.meta", settings) &&
                         pipeline.build_assets(project.root),
                     pipeline.last_error()) ||
             !expect(resources.update_catalog(pipeline.catalog(),
                                              {{"content", project.root / "cache"}}) &&
-                        resources.load(ui_guid, document),
+                        test_support::read_resource(resources, ui_guid, document),
                     resources.last_error()))
         {
             return false;
         }
-        std::vector<engine::ResourcePtr> dependencies;
+        std::vector<std::unique_ptr<engine::Resource>> owners;
+        std::vector<const engine::Resource*> dependencies;
         for (const auto& guid : document->info().dependencies)
         {
-            engine::ResourcePtr resource;
-            if (!expect(resources.load(guid, resource), resources.last_error()))
+            std::unique_ptr<engine::Resource> resource;
+            if (!expect(test_support::read_resource(resources, guid, resource),
+                        resources.last_error()))
             {
                 return false;
             }
-            dependencies.push_back(std::move(resource));
+            dependencies.push_back(resource.get());
+            owners.push_back(std::move(resource));
         }
         const bool ldr = std::string_view(texture).starts_with("builtin://");
-        if (!expect(resources.validate_dependencies(*document, dependencies) == ldr,
+        if (!expect(test_support::validate_dependencies(resources, *document, dependencies) == ldr,
                     "UI accepts 2D LDR and rejects HDR KTX/cubemap dependencies"))
         {
             return false;
@@ -181,22 +186,36 @@ int main(int argc, char** argv)
         !expect(pipeline.build_assets(project.root), pipeline.last_error()) ||
         !expect(pipeline.last_build().imported == 2,
                 "font and UI import as independent resources") ||
-        !expect(resources.initialize({}), "initialize resource core") ||
+        !expect((test_support::register_resource_codecs(resources) && resources.initialize({})),
+                "initialize resource core") ||
         !expect(resources.update_catalog(pipeline.catalog(), {{"content", project.root / "cache"}}),
                 resources.last_error()))
     {
         return 1;
     }
-    ResourcePtr original;
+    std::unique_ptr<Resource> original;
     Guid shader_guid;
-    if (!expect(resources.load(ui_guid, original), resources.last_error()) ||
-        !expect(original->ui() != nullptr && original->ui()->markup == markup &&
-                    original->ui()->fonts.size() == 2 &&
-                    original->ui()->fonts.front()->font_guid == font_guid &&
-                    original->ui()->fonts.front()->family == "lato" &&
-                    original->ui()->fonts.back()->family == "caption" &&
-                    original->ui()->fonts.front()->shader_path == "builtin://shaders/font",
-                "UI preserves aliases, normalizes families and resolves shared font GUID") ||
+    if (!expect(test_support::read_resource(resources, ui_guid, original),
+                resources.last_error()) ||
+        !expect(
+            engine::resource_detail::data<engine::UiResource>(original.get()) != nullptr &&
+                engine::resource_detail::data<engine::UiResource>(original.get())->markup ==
+                    markup &&
+                engine::resource_detail::data<engine::UiResource>(original.get())->fonts.size() ==
+                    2 &&
+                engine::resource_detail::data<engine::UiResource>(original.get())
+                        ->fonts.front()
+                        ->font_guid == font_guid &&
+                engine::resource_detail::data<engine::UiResource>(original.get())
+                        ->fonts.front()
+                        ->family == "lato" &&
+                engine::resource_detail::data<engine::UiResource>(original.get())
+                        ->fonts.back()
+                        ->family == "caption" &&
+                engine::resource_detail::data<engine::UiResource>(original.get())
+                        ->fonts.front()
+                        ->shader_path == "builtin://shaders/font",
+            "UI preserves aliases, normalizes families and resolves shared font GUID") ||
         !expect(
             resources.catalog().identities().path_to_guid("builtin://shaders/font", shader_guid),
             "builtin font shader is catalogued") ||
@@ -265,7 +284,8 @@ int main(int argc, char** argv)
             return 1;
         }
     }
-    if (!expect(original->ui()->markup == markup, "loaded UI reference remains immutable"))
+    if (!expect(engine::resource_detail::data<engine::UiResource>(original.get())->markup == markup,
+                "loaded UI reference remains immutable"))
     {
         return 1;
     }

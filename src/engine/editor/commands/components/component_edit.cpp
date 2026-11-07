@@ -1,4 +1,5 @@
 #include "editor/commands/components/component_edit.hpp"
+#include "editor/asset_pipeline/components/scene_component_codec.hpp"
 #include "runtime/resource/resource_system.hpp"
 
 #include <algorithm>
@@ -186,15 +187,11 @@ bool ComponentEdit::replace(const std::optional<schema::ComponentDataT>& expecte
         error = "Component edit targets a stale scene or node";
         return false;
     }
-    const auto* resources = ResourceSystem::instance();
-    for (const auto& version : versions_)
+    std::vector<resource_access::ResourceReference> pins;
+    if (!resource_access::load_versions(world_.resource_loader(), versions_, pins))
     {
-        const auto* available = resources ? resources->catalog().find(version.guid) : nullptr;
-        if (!available || *available != version)
-        {
-            error = "Component resource version changed since the edit";
-            return false;
-        }
+        error = "Component resource version changed since the edit";
+        return false;
     }
     auto current = node.get_component(type_);
     schema::ComponentDataT snapshot;
@@ -227,6 +224,50 @@ bool ComponentEdit::replace(const std::optional<schema::ComponentDataT>& expecte
         }
         error = "Cannot apply component settings or resolve its resources";
         return false;
+    }
+    return true;
+}
+bool resource_versions(WorldSystem& world, const schema::ComponentDataT& data,
+                       std::vector<schema::AssetEntryT>& versions, std::string& error)
+{
+    const auto* codec = asset_pipeline::find_scene_component_codec(data.payload.type);
+    if (!codec)
+    {
+        error = "Component codec is unavailable";
+        return false;
+    }
+    toml::table fields;
+    codec->write(data, fields);
+    const auto capture = [&](std::string_view path)
+    {
+        if (path.empty())
+        {
+            return true;
+        }
+        resource_access::ResourceReference resource;
+        return resource_access::load(world.resource_loader(), path, resource) &&
+               resource_access::collect_versions(resource, versions);
+    };
+    for (const auto name : codec->resource_fields())
+    {
+        const auto field = fields[name];
+        if (const auto text = field.value<std::string>(); text && !capture(*text))
+        {
+            error = "Cannot prepare component resource: " + *text;
+            return false;
+        }
+        if (const auto* items = field.as_array())
+        {
+            for (const auto& item : *items)
+            {
+                const auto text = item.value<std::string>();
+                if (!text || !capture(*text))
+                {
+                    error = "Cannot prepare component resource array";
+                    return false;
+                }
+            }
+        }
     }
     return true;
 }

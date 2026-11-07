@@ -1,21 +1,26 @@
-# 虚拟文件访问
+# 核心文件类
 
-[类图索引](../../class-diagrams/index.md) · [资源系统](resource-system.md) · [目录](resource-catalog.md)
+[类图索引](../../class-diagrams/index.md) · [统一生命周期](resource-lifecycle.md) · [资源读取](resource-system.md) · [目录](resource-catalog.md)
 
-VirtualFileSystem 是资源模块内部的文件访问对象，不继承 System、不独立参与引擎生命周期。
+**状态：已按用户确认的文件读取契约实现同步、异步及取消；验证结果见[测试文档](../../testing.md)。** 沿用 VirtualFileSystem，补足独立异步操作及取消契约；文件层不包含资源计数、GUID、资源解析或依赖图。
+
+## 文件读取与任务
 
 ```mermaid
 classDiagram
     class VirtualFileSystem {
+        <<final>>
         +VirtualFileSystem()
         +~VirtualFileSystem()
         +configure(const MountList& mounts) bool
         +configure_async(TaskSystem& tasks, const FileAsyncConfig& config) bool
-        +read_async(const FileLocationT& location, uint64_t offset, uint64_t size, function~void(bool, ByteBuffer)~ completed) FileReadStatus
-        +poll_async(size_t max_callbacks) size_t
+        +read(const FileLocationT& location, uint64_t offset, uint64_t size, ByteBuffer& output) bool
+        +begin_read(const FileLocationT& location, uint64_t offset, uint64_t size, unique_ptr~FileRead~& output) bool
+        +poll_async(uint32_t completion_budget) uint32_t
         +shutdown_async() void
         +mounts() const MountList&
-        +read(const FileLocationT& location, uint64_t offset, uint64_t size, ByteBuffer& output) bool
+        +error() FileError
+        +last_error() string_view
         +read_file(const Path& path, ByteBuffer& output) bool$
         +hash_file(const Path& path, uint64_t& hash, uint64_t& size) bool$
     }
@@ -24,58 +29,81 @@ classDiagram
         +string name
         +Path root
     }
+    class FileAsyncConfig {
+        <<struct>>
+        +uint32_t max_in_flight = 4
+        +uint64_t max_in_flight_bytes = 67108864
+    }
+    class TaskSystem
     class FileLocationT
+    class FileRead
+    class FileError
     class SDL3 {
         <<library>>
     }
-    VirtualFileSystem *-- ResourceMount : 按值保存挂载配置
-    VirtualFileSystem ..> FileLocationT : 文件及实体范围输入
-    VirtualFileSystem ..> SDL3 : 打开定位读取关闭
+    VirtualFileSystem *-- ResourceMount : 挂载值
+    VirtualFileSystem *-- FileAsyncConfig
+    VirtualFileSystem --> TaskSystem : 借用独立文件任务域
+    VirtualFileSystem ..> FileLocationT : 范围定位输入
+    VirtualFileSystem ..> FileRead : 转交独占操作
+    VirtualFileSystem ..> FileError
+    VirtualFileSystem ..> SDL3 : 私有文件及异步 I/O 后端
 ```
+
+MountList 为 vector<ResourceMount>，Path 为 filesystem::path，ByteBuffer 为 vector<byte>，不是新框架类。FileLocationT 沿用 schema 生成模型。
+
+- 普通类，不继承 System；拥有者 ResourceSystem 统一初始化、轮询及关闭。构造/析构 noexcept，不允许复制；存在异步操作时不能移动对象。
+- configure 校验并原子更新挂载，失败保留旧值，不扫描/打开文件。已受理操作持有自己的挂载快照，更新后不改变其来源；资源目录换代取消由上一层决定。
+- read 的 offset 相对实体起点，size 是字节数；校验加法溢出、实体范围、实际文件边界和平台 size_t 容量。成功输出独占缓冲，失败清空；精确范围未读满视为失败。零长度合法范围成功返回空缓冲。
+- read_file 是工具所需的整文件同步能力，不要求 ResourceSystem 初始化；资源包成员统一用范围 read。hash_file 保持固定 64 KiB 缓冲的 FNV-1a 64 位整文件摘要，失败 hash/size 清零，不整包载入内存。
+- begin_read 只受理请求，要求操作输出为空，非空则拒绝并保留原值；合法输入失败时输出空且不会产生晚到结果。未配置返回 unavailable，暂时满额返回 busy，单项超过字节上限返回 budget_exceeded。命令错误通过 error/last_error 获取。
+- configure_async 借用已初始化 TaskSystem，在活动请求清空后才可重配。TaskSystem 负责打开和路径校验等短任务，实际传输使用 SDL 异步 I/O；不新建线程池，不让 CPU worker 主动等待传输。
+- poll_async 非阻塞收集最多 completion_budget 项完成结果，仅由所属系统推进；业务查询 FileRead 不会推动工作。宿主统一派发 TaskSystem 完成委托。
+- 普通取消不等待底层；若后端无法中断，则标记撤销并忽略晚到结果，I/O 完成前保留缓冲和句柄。只有 shutdown_async/析构等待收尾，关闭可重复；将仍未交付的 reading/ready 操作取消并回收结果，停止后不能发布新的完成结果。
+- read/error/last_error 和异步提交在协调线程使用；mounts/error/last_error 为 const noexcept。read 更新最近命令错误，因此不声明 const；状态返回标注 nodiscard。
+- SDL 类型、队列与平台路径实现私有；散文件和未压缩包内范围共用契约。Android 使用 APK assets 的真实 AAsset 来源，不能被同名私有文件遮挡；UTF-8 转换复用 PathUtils，保留越界、权限与符号链接检查。
+- 文件层不选择持久版本、不回退旧包、不解码资源、不处理业务卸载。
+
+## 单次异步操作
 
 ```mermaid
 classDiagram
-    direction TB
-    class VirtualFileSystem
-    class ResourceMount
-    class PathUtils
-    class Path["std::filesystem::path"]
-    class ByteBuffer["std::vector&lt;std::byte&gt;"]
-    VirtualFileSystem ..> Path : 文件读取与摘要输入
-    VirtualFileSystem ..> PathUtils : 存储相对路径转原生路径
-    VirtualFileSystem ..> ByteBuffer : 读取输出
-    ResourceMount *-- Path : 宿主提供的存储根
-```
-
-MountList 是 `std::vector<ResourceMount>`。挂载是运行配置，清单只保存挂载名称，不能包含构建电脑的绝对路径。
-
-- configure 校验并整体保存配置，失败保持旧值。ResourceSystem 按完整目录换代提交挂载；旧已加载数据独立存活，新读取仅按新目录，业务不得绕过它改写文件访问对象。
-- read 的 offset 相对于实体起点，size 是本次字节数。检查无符号溢出、实体范围和文件边界后同步读；成功输出由调用者拥有，失败清空。方法为 const，状态返回标注 nodiscard。
-- 散文件是一个文件范围，合并包成员是包文件的一个范围；读取实体不读整包。第一版用未压缩条目，不引入压缩选择或后台解压调度。
-- read_file 保留现有工具所需的整文件同步能力，不要求 System/App 初始化；平台环境由宿主建立。资源加载用有边界的 read，整包不交给整文件接口。
-- hash_file 使用固定 64 KiB 缓冲计算整个文件的 FNV-1a 64 位摘要与字节数，不将包整体载入内存，也不受 read_file 的 64 MiB 上限限制。打开方式与 APK 来源检查复用同一实现；读取、长度或关闭失败时返回 false，hash 和 size 均清零。
-- 同步读取拥有局部 SDL_IOStream；异步读取共用一个 SDL_AsyncIOQueue，每项拥有独立缓冲和句柄。TaskSystem 只执行打开与路径校验的短准备工作，实际读写交由 SDL 官方异步 I/O 后端，不占用 CPU worker 等待传输。
-- FileAsyncConfig 限制在途数量与字节；read_async 返回 accepted/busy/failed，busy 不执行回调。poll_async 非阻塞派发已完成回调，回调可重新提交。析构抑制尚未派发回调，SDL 队列负责等待剩余 I/O 收尾；取消普通加载操作无需等待。
-- Android 复用 SDL generic AsyncIO 的 SDL_IOFromFile/AAsset 路径，打开前继续验证真实 AAsset 来源；桌面和 APK 均禁止以私有同名文件代替包内来源。
-- Android 包内根由现有 App 提供，继续核验实际 AAsset 来源，避免同名私有文件遮挡。物理路径以 UTF-8 传给 SDL，保留非法路径、符号链接与越界检查。
-- 不认识 GUID、资源类型、依赖或项目设置；不判断编辑器/真机，不自行选择持久版本或回退内置内容。来源由提交的挂载和目录明确决定。
-
-```mermaid
-classDiagram
-    class VirtualFileSystem
-    class TaskSystem
-    class FileAsyncConfig {
-        <<struct>>
-        +size_t max_in_flight = 4
-        +uint64_t max_in_flight_bytes = 67108864
+    class FileRead {
+        <<final>>
+        +~FileRead()
+        +status() FileReadStatus
+        +take(ByteBuffer& output) bool
+        +cancel() bool
+        +error() FileError
+        +last_error() string_view
     }
     class FileReadStatus {
         <<enumeration>>
-        accepted
-        busy
+        reading
+        ready
+        delivered
         failed
+        cancelled
     }
-    VirtualFileSystem --> TaskSystem : 借用短准备任务域
-    VirtualFileSystem *-- FileAsyncConfig : 在途预算
-    VirtualFileSystem ..> FileReadStatus : 提交结果
+    class FileError {
+        <<enumeration>>
+        none
+        unavailable
+        busy
+        budget_exceeded
+        invalid_location
+        invalid_range
+        io_failed
+        cancelled
+    }
+    class ByteBuffer
+    FileRead *-- ByteBuffer : 未领取的独占结果
+    FileRead ..> FileReadStatus
+    FileRead ..> FileError
 ```
+
+FileRead 只能由 VFS 创建，调用方用 unique_ptr 独占；对象禁止复制/移动。查询 const noexcept，析构 noexcept，可能失败的返回 nodiscard。
+
+reading → ready/failed/cancelled；ready → delivered（take）或 cancelled。take 只能成功一次，转移字节缓冲，不复制；失败输出空且保留原终态错误。cancel 对 reading/ready 生效，重复取消成功，对 delivered/failed 返回 false。销毁未领取操作即放弃；独立状态可以晚于 VFS 销毁，关闭后查询/取消/析构不解引用 VFS。
+
+本设计用 FileRead 替代公开 function 回调式 read_async，便于上层按请求取消和接管所有权，不建立通用 Future、JobManager 或额外线程系统。

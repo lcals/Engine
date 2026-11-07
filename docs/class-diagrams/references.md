@@ -283,7 +283,7 @@ classDiagram
 | GameplaySession | PhysicsSystem / AudioSystem | 可空借用；停止脚本后先清音频/物理，再销毁场景与 GPU |
 | AudioImporter | AudioClipDataT | 编辑器将 WAV/meta 转交错 PCM，无设备或运行播放策略 |
 | SceneComponentCodec | Collider/RigidBody/AudioSource/AudioListener 生成载荷 | 逐类型 TOML 读写，音源 clip GUID 进入场景依赖 |
-| ComponentEdit | ComponentDataT | 编辑器独立前后快照，不持有组件或 ResourcePtr |
+| ComponentEdit | ComponentDataT | 编辑器独立前后快照，不持有组件或资源获取 |
 | 物理/音频 MCP 注册函数 | EditorMcpTools | 回调借用固定目标通道，只提交命令；不链接模拟或播放实现 |
 | 逐类脚本绑定 | 对应运行时组件 | 插件核验句柄后调用普通接口，不复制运行逻辑 |
 
@@ -637,14 +637,14 @@ VirtualFileSystem 的 SDL 打开文件操作保留原生 `path.u8string()` 编�
 | 独立单例根系统     | LogSystem                                                                | EngineConfig、LogLevel、日志文本；返回日志路径借用                                             |
 | 编辑器根系统       | ProjectSystem、EditorSystem                                              | EngineConfig；项目根目录字符串；EditorSystem 构造借用 EditorEnvironment 和可空 GameplaySession |
 | 资产工具根系统     | AssetPipelineSystem、AssetBuildSystem、AssetSyncSystem                   | EngineConfig；项目、清单及运行目录 Path；AssetBuildSystem 借用管线                             |
-| 运行时插件根系统 | ResourceGraphSystem | EngineConfig；借用 ResourceSystem，实现 ResourceLoader，返回 ResourcePtr |
+| 运行时插件根系统 | ResourceGraphSystem | EngineConfig；借用 ResourceSystem，实现 ResourceLoader，返回 ResourceHandle |
 | 编辑器协议根系统 | McpSystem                                                                | EngineConfig；McpTool 登记值、JSON 参数及 McpCallStatus 返回状态，不依赖项目                   |
 
 App 不参与 System 继承，初始化参数为 AppConfig。McpTarget 是普通配置结构，按值保存运行目录、adb 路径、设备序列号与包名，ProjectMcpTools 与 EditorMcpTools 各自按值保存目标，字段关系见[项目工具图](../plugins/editor/class-diagrams/project-mcp-tools.md)。这两个业务模块以及 EditorCommands、SceneCommands 均不继承 System。ResourceSystem 的同步读取参数使用 Path 与调用者的文本或二进制输出缓冲区；AssetSyncSystem 返回的版本、错误字符串也是所属对象的只读借用。
 
 ## 类型登记与框架分派
 
-JSON 资源使用统一导入插件内的 [JsonImporter](../plugins/editor/class-diagrams/json-importer.md) 与脚本 [JsonBinding / Json](../plugins/runtime/class-diagrams/json-script-api.md)。JsonImporter 继承 AssetImporter，由宿主创建后转交 AssetImporterRegistry 独占；借用 ImportAsset、ImportContext，私有调用 nlohmann/json 严格校验。JsonBinding 继承 ScriptBinding，由 ScriptBindingRegistry 独占，借用 BindingContext 验证活动回调，通过 ResourceSystem / ResourceLoader 取得本次 ResourcePtr 并检查 json 类型后读取 bytes；JS 门面解析为当前 VM 的普通值。核心只追加 AssetKind 与 BinaryResourceCodec 登记，不拥有 JSON 解析器或配置业务。完整参数、返回类型及所有权关系仅在两份新独立图定义；已按评审契约实现。
+JSON 资源使用统一导入插件内的 [JsonImporter](../plugins/editor/class-diagrams/json-importer.md) 与脚本 [JsonBinding / Json](../plugins/runtime/class-diagrams/json-script-api.md)。JsonImporter 继承 AssetImporter，由宿主创建后转交 AssetImporterRegistry 独占；借用 ImportAsset、ImportContext，私有调用 nlohmann/json 严格校验。JsonBinding 继承 ScriptBinding，由 ScriptBindingRegistry 独占，借用 BindingContext 验证活动回调，通过注入的 ResourceLoader 检查业务已加载的 ResourceHandle 类型并读取不可变 JSON 载荷；JS 门面解析为当前 VM 的普通值。核心使用独立 JsonResourceCodec 进行字节校验，不拥有 JSON 解析器或配置业务。完整参数、返回类型及所有权关系仅在两份新独立图定义；已按评审契约实现。
 
 脚本、组件、资源实体和资源导入分别使用本模块的最小契约。框架组织生命周期或批次，具体类型在自己的文件实现；登记表显式列出实现，不使用 RTTI、宏反射或跨模块 Manager。
 
@@ -865,69 +865,43 @@ GuidMap 属于纯标准库核心模块；SQLite 与 toml++ 仅用于编辑器导
 
 ## 资源调用关系
 
-方法只在[资源独立类图](index.md#资源系统)维护；本节说明跨层调用方向。
+**2026-11-06 目标设计，待评审，尚未实现。** 方法分别在[资源类图](index.md#资源系统)维护；本节只定义关系。插件属于高级封装，业务依赖可替换的高层契约，不能直接拼装底层读取流程。
 
 ```mermaid
 classDiagram
-    direction TB
-    class EditorHost["编辑器宿主"] {
-        <<host>>
-    }
-    class RuntimeHost["运行宿主"] {
-        <<host>>
-    }
-    class AssetPipelineSystem
-    class AssetBuildSystem
-    class ResourceSystem
-    EditorHost *-- AssetPipelineSystem : 全量扫描与增量导入
-    EditorHost *-- AssetBuildSystem : 可选发布打包
-    AssetBuildSystem --> AssetPipelineSystem : 借用导入能力
-    EditorHost ..> ResourceSystem : 直接更新完整目录
-    RuntimeHost ..> ResourceSystem : 真机启动提交精简目录一次
-```
-
-运行宿主节点表示平台入口与现有 RuntimeHost 的装配流程，不为运行时添加项目扫描或编辑器配置。ResourceSystem 可由 Engine 拥有，或由外部可执行宿主初始化后借给 RuntimeHost；编辑器无需调用 AssetBuildSystem 即可运行项目。核心没有反向箭头指向编辑器。
-
-```mermaid
-classDiagram
-    direction TB
-    class ProjectMcpTools
-    class AssetBuildSystem
-    class AssetSyncSystem
-    class AssetCatalogDataT
-    ProjectMcpTools --> AssetBuildSystem : 调用清单构建
-    ProjectMcpTools --> AssetSyncSystem : 调用显式部署
-    AssetBuildSystem ..> AssetCatalogDataT : 生成统一运行清单
-    AssetSyncSystem ..> AssetCatalogDataT : 按完整清单准备输出
-```
-
-MCP 的构建、部署、项目启停仍是不同操作。同步成功仅说明候选资源已准备，应用由编辑器或运行宿主协调；核心不轮询发布文件。正常真机运行不自行扩展资源集合。
-
-```mermaid
-classDiagram
-    direction TB
+    class ExecutableHost
+    class Business
+    class ResourceLoader
+    class ResourceGraphSystem
     class ResourceSystem
     class ResourceCatalog
     class GuidMap
     class VirtualFileSystem
+    class ResourceCodec
     class Resource
-    ResourceSystem *-- ResourceCatalog : 独占元数据目录
-    ResourceCatalog *-- GuidMap : 独占身份索引
-    ResourceSystem *-- VirtualFileSystem : 独占存储映射
-    class ResourceLoader
-    class ResourceGraphSystem
-    class ResourceBundle["Bundle（插件私有）"]
-    ResourceLoader <|-- ResourceSystem
+    class AssetPipelineSystem
+    class AssetBuildSystem
+    class AssetSyncSystem
+    ExecutableHost ..> ResourceGraphSystem : 选择默认实现或同契约替代实现
+    ExecutableHost ..> Business : 注入 ResourceLoader
+    Business --> ResourceLoader : 加载 使用 释放
     ResourceLoader <|-- ResourceGraphSystem
-    ResourceSystem --> ResourceLoader : 借用宿主指定实现
-    ResourceSystem ..> Resource : 单项读取解析
-    ResourceGraphSystem --> ResourceSystem : 借用底层和代际
-    ResourceGraphSystem --> Resource : weak别名缓存不保活
-    ResourceBundle o-- Resource : 当前资源与直接依赖
-    ResourceGraphSystem ..> ResourceBundle : 创建共享所有权组
+    ResourceGraphSystem --> ResourceSystem : 组合包装单项读取
+    ResourceGraphSystem *-- Resource : 私有记录拥有并计数
+    ResourceSystem *-- ResourceCatalog : 独占目录
+    ResourceCatalog *-- GuidMap : 身份映射
+    ResourceSystem *-- VirtualFileSystem : 独占文件访问
+    ResourceSystem *-- ResourceCodec : 显式登记的类型处理器
+    ResourceSystem ..> Resource : 转交单项候选所有权
+    ExecutableHost ..> ResourceSystem : 提交选定完整目录与挂载
+    AssetBuildSystem --> AssetPipelineSystem : 借用增量导入
+    AssetBuildSystem ..> ResourceCatalog : 生成运行目录
+    AssetSyncSystem ..> ResourceCatalog : 部署完整资源版本
 ```
 
-Scene、MaterialState、MeshRendererRuntime 与脚本运行持有实际使用对象的共享引用，关系见[领域使用者](../runtime/class-diagrams/resource-system.md#领域使用者)。资源清单借用仅在下次更新前有效，已加载对象独立保存元数据及代际。合法更新原子切换目录；新请求使用新代际，旧 ResourcePtr 和旧依赖闭包保留至引用释放。插件输出 ResourcePtr 以别名构造保活 Bundle，最后引用释放时先销毁本项再反向释放依赖。RenderSystem 继续独立管理 GPU 生命周期。
+可执行宿主表示装配入口；现有 RuntimeHost/GameplaySession 借用抽象加载契约，不直接 include 默认插件。编辑器可提交完整可用集合，真机提交精简已发布集合；核心不反向依赖编辑器，不自动发现/回退版本。MCP 构建、同步与应用仍是不同操作。
+
+核心读取对象只交付独占单项数据；插件持有数据、闭包、在途请求与计数。业务获得 ResourceHandle，每次获取独立释放，模块实例另行 retain。旧代际 ready 闭包继续存活，新请求只读当前代际。文件、资源解析、插件组织与使用模块分属自己的任务域，底层共享 ThreadSystem；完整关系见[业务与任务](../runtime/class-diagrams/resource-consumers.md)。
 
 ## 贴图与渲染基础
 

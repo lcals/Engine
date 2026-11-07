@@ -12,7 +12,7 @@ export const MovieState = Object.freeze({ preparing: 0, playing: 1, paused: 2, c
 export const MovieStopReason = Object.freeze({ none: 0, stopped: 1, skipped: 2 });
 export class Movie {
     constructor() { throw new TypeError('Movie is static'); }
-    static Play(path) { return native.MoviePlay(path); }
+    static Play(resource) { return native.MoviePlay(resourceToken(resource)); }
     static SetPaused(handle, paused) { return native.MovieSetPaused(handle?.id, handle?.generation, paused); }
     static Stop(handle, reason = MovieStopReason.stopped) { return native.MovieStop(handle?.id, handle?.generation, reason); }
     static Status(handle) { return native.MovieStatus(handle?.id, handle?.generation); }
@@ -34,10 +34,11 @@ bool get_handle(const Arguments& arguments, BindingContext*& context, MoviePlayb
 void play(const Arguments& arguments)
 {
     auto* context = BindingContext::current(arguments);
-    std::string path;
+    std::uint64_t token = 0;
     MoviePlaybackHandle handle;
     if (!context || !context->movies() || arguments.count() != 1 ||
-        !BindingContext::text(arguments, 0, path) || !context->movies()->play(path, handle))
+        !BindingContext::identifier(arguments, 0, token) ||
+        !context->movies()->play(context->resource_handle(token), handle))
     {
         arguments.set_return({});
         return;

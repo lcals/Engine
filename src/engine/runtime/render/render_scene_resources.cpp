@@ -153,11 +153,18 @@ bool RenderSystem::prepare_scene(Camera camera)
                 mesh->revision != renderer.mesh_revision())
             {
                 ENGINE_PROFILE_ZONE("Render.rebuildMeshResource");
-                const auto source = renderer.mesh_resource();
+                const Resource* source = nullptr;
+                if (!world_->resource_loader() ||
+                    world_->resource_loader()->get(renderer.mesh_resource(), source) !=
+                        ResourceError::none)
+                {
+                    release_scene();
+                    return false;
+                }
                 std::shared_ptr<render_detail::GpuGeometry> geometry;
                 if (source)
                 {
-                    const auto cached = resources.geometries.find(source.get());
+                    const auto cached = resources.geometries.find(source);
                     if (cached != resources.geometries.end())
                     {
                         geometry = cached->second.lock();
@@ -173,7 +180,7 @@ bool RenderSystem::prepare_scene(Camera camera)
                     }
                     if (source)
                     {
-                        resources.geometries[source.get()] = geometry;
+                        resources.geometries[source] = geometry;
                     }
                 }
                 if (!mesh->create(renderer, std::move(geometry)))
@@ -187,13 +194,22 @@ bool RenderSystem::prepare_scene(Camera camera)
                 release_scene();
                 return false;
             }
-            const auto lightmap = renderer.lightmap_resource();
-            if (lightmap && needed_textures.insert(lightmap.get()).second &&
-                std::none_of(textures.begin(), textures.end(),
-                             [&lightmap](const auto& item) { return item.resource == lightmap; }))
+            const auto lightmap_handle = renderer.lightmap_resource();
+            const Resource* lightmap = nullptr;
+            if (lightmap_handle.id &&
+                (!world_->resource_loader() ||
+                 world_->resource_loader()->get(lightmap_handle, lightmap) != ResourceError::none))
+            {
+                release_scene();
+                return false;
+            }
+            if (lightmap && needed_textures.insert(lightmap).second &&
+                std::none_of(textures.begin(), textures.end(), [&lightmap](const auto& item)
+                             { return item.resource.get() == lightmap; }))
             {
                 missing_textures.emplace_back();
-                if (!missing_textures.back().describe(lightmap, *bgfx::getCaps(),
+                if (!missing_textures.back().describe(world_->resource_loader(), lightmap_handle,
+                                                      *bgfx::getCaps(),
                                                       config_.texture_staging_bytes))
                 {
                     release_scene();
@@ -254,18 +270,21 @@ bool RenderSystem::prepare_scene(Camera camera)
                     {
                         continue;
                     }
-                    const auto& source = material.texture(sampler->name);
-                    if (!source || source->texture() == nullptr)
+                    const auto handle = material.texture(sampler->name);
+                    const TextureResource* source = nullptr;
+                    if (!world_->resource_loader() ||
+                        world_->resource_loader()->get(handle, source) != ResourceError::none)
                     {
                         release_scene();
                         return false;
                     }
-                    if (needed_textures.insert(source.get()).second &&
+                    if (needed_textures.insert(source).second &&
                         std::none_of(textures.begin(), textures.end(), [&source](const auto& item)
-                                     { return item.resource == source; }))
+                                     { return item.resource.get() == source; }))
                     {
                         missing_textures.emplace_back();
-                        if (!missing_textures.back().describe(source, *bgfx::getCaps(),
+                        if (!missing_textures.back().describe(world_->resource_loader(), handle,
+                                                              *bgfx::getCaps(),
                                                               config_.texture_staging_bytes))
                         {
                             SDL_LogError(SDL_LOG_CATEGORY_RENDER,

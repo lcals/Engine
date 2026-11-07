@@ -1,6 +1,7 @@
 #include "editor/asset_pipeline/asset_pipeline_system.hpp"
 #include "editor/asset_pipeline/mesh_lod_commands.hpp"
 #include "editor/commands/editor_commands.hpp"
+#include "file_text.hpp"
 #include "runtime/engine_config.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/task/task_system.hpp"
@@ -74,7 +75,7 @@ struct Fixture
 std::string read(const fs::path& path)
 {
     std::string text;
-    return engine::ResourceSystem::read_text(path, text) ? text : std::string{};
+    return test_support::read_text(path, text) ? text : std::string{};
 }
 
 std::string grid()

@@ -127,28 +127,39 @@ bool loading_and_instantiation()
 {
     Fixture fixture;
     if (!fixture.initialize() || !add_model(fixture.files) ||
-        !fixture.files.publish(fixture.resources))
+        !fixture.services.publish_and_load(fixture.files.catalog,
+                                           {{"content", fixture.files.root}}))
     {
         return false;
     }
-    engine::ResourcePtr package;
-    engine::ResourcePtr mesh_resource;
-    engine::ResourcePtr skeleton_resource;
-    engine::ResourcePtr animation_resource;
-    if (!expect(fixture.resources.load(model_guid, package) && package->model() &&
-                    !package->mesh() && !package->animation() && !package->skeleton(),
+    std::unique_ptr<engine::Resource> package;
+    std::unique_ptr<engine::Resource> mesh_resource;
+    std::unique_ptr<engine::Resource> skeleton_resource;
+    std::unique_ptr<engine::Resource> animation_resource;
+    std::unique_ptr<engine::Resource> material_resource;
+    const auto material_guid = model().nodes[1]->material_guids.front();
+    if (!expect(test_support::read_resource(fixture.resources, model_guid, package) &&
+                    engine::resource_detail::data<engine::ModelResource>(package.get()) &&
+                    !engine::resource_detail::data<engine::MeshResource>(package.get()) &&
+                    !engine::resource_detail::data<engine::AnimationResource>(package.get()) &&
+                    !engine::resource_detail::data<engine::SkeletonResource>(package.get()),
                 "model entity contains references, never embeds action or mesh resources") ||
-        !expect(fixture.resources.load(mesh_guid, mesh_resource) &&
-                    fixture.resources.load(target_guid, skeleton_resource) &&
-                    fixture.resources.load(clip_guid, animation_resource),
-                "independent resources can be loaded by GUID") ||
-        !expect(!fixture.resources.validate_dependencies(*package, {}) &&
-                    package->info().dependencies == std::vector<std::string>{mesh_guid} &&
-                    fixture.resources.validate_dependencies(
-                        *package, std::vector<engine::ResourcePtr>{mesh_resource}),
-                "Model depends only on its referenced mesh, not skeleton or action siblings") ||
-        !expect(fixture.resources.validate_dependencies(
-                    *mesh_resource, std::vector<engine::ResourcePtr>{skeleton_resource}),
+        !expect(
+            test_support::read_resource(fixture.resources, mesh_guid, mesh_resource) &&
+                test_support::read_resource(fixture.resources, target_guid, skeleton_resource) &&
+                test_support::read_resource(fixture.resources, clip_guid, animation_resource) &&
+                test_support::read_resource(fixture.resources, material_guid, material_resource),
+            "independent resources can be loaded by GUID") ||
+        !expect(
+            !test_support::validate_dependencies(fixture.resources, *package, {}) &&
+                package->info().dependencies ==
+                    std::vector<std::string>{mesh_guid, material_guid} &&
+                test_support::validate_dependencies(fixture.resources, *package,
+                                                    {mesh_resource.get(), material_resource.get()}),
+            "Model depends only on its referenced mesh and material, not skeleton or action "
+            "siblings") ||
+        !expect(test_support::validate_dependencies(fixture.resources, *mesh_resource,
+                                                    {skeleton_resource.get()}),
                 "skin indices validate against the actual target skeleton"))
     {
         return false;
@@ -191,10 +202,10 @@ bool loading_and_instantiation()
                           std::ios::binary | std::ios::trunc);
     corrupt << "corrupted mesh";
     corrupt.close();
-    return expect(!scene.instantiate_model(model_path, "Failed candidate") &&
-                      test_support::scene_nodes(scene).size() == count &&
+    return expect(scene.instantiate_model(model_path, "Loaded candidate") &&
+                      test_support::scene_nodes(scene).size() == count + 3 &&
                       scene.find_node(existing.id()) == existing,
-                  "mid-instantiation resource failure rolls back the whole candidate hierarchy");
+                  "instantiation uses its loaded immutable closure without reading modified files");
 }
 
 bool migration_and_dependency_contract()
@@ -216,9 +227,9 @@ bool migration_and_dependency_contract()
         // 额外引用不形成环，必须由资源类型自身拒绝，而非目录的环检测代替。
         auto& dependencies = (*found)->dependencies;
         dependencies.push_back(std::string_view(guid) == clip_guid ? model_guid : clip_guid);
-        engine::ResourcePtr loaded;
+        std::unique_ptr<engine::Resource> loaded;
         if (!expect(fixture.files.publish(fixture.resources) &&
-                        !fixture.resources.load(guid, loaded) && !loaded,
+                        !test_support::read_resource(fixture.resources, guid, loaded) && !loaded,
                     "Model, Mesh, Animation and Skeleton reject unrelated source dependencies"))
         {
             return false;
@@ -240,11 +251,11 @@ bool migration_and_dependency_contract()
     }
     std::erase_if(fixture.files.catalog.entries,
                   [](const auto& entry) { return entry->guid == model_guid; });
-    engine::ResourcePtr loaded;
+    std::unique_ptr<engine::Resource> loaded;
     if (!expect(add(fixture.files, model_guid, model_path, engine::schema::AssetKind::model,
                     old_builder, {mesh_guid}) &&
                     fixture.files.publish(fixture.resources) &&
-                    !fixture.resources.load(model_guid, loaded) && !loaded,
+                    !test_support::read_resource(fixture.resources, model_guid, loaded) && !loaded,
                 "old Model payload is rejected until the editor rebuilds the runtime package"))
     {
         return false;
@@ -262,7 +273,7 @@ bool migration_and_dependency_contract()
     return expect(add(fixture.files, mesh_guid, static_mesh.path, engine::schema::AssetKind::mesh,
                       mesh_builder, {clip_guid}) &&
                       fixture.files.publish(fixture.resources) &&
-                      !fixture.resources.load(mesh_guid, loaded) && !loaded,
+                      !test_support::read_resource(fixture.resources, mesh_guid, loaded) && !loaded,
                   "static Mesh cannot pull an unrelated animation into its dependency graph");
 }
 } // namespace

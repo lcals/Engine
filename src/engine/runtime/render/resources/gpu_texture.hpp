@@ -1,5 +1,8 @@
 #pragma once
 
+#include "runtime/resource/resource_reference.hpp"
+#include "runtime/resource/types/texture_resource.hpp"
+
 #include <bgfx/bgfx.h>
 
 #include <cstddef>
@@ -18,12 +21,13 @@ namespace engine::render_detail
 struct PreparedTexture
 {
     // 主线程只读 GPU 能力并计算准确输出字节；此阶段不分配 mip 输出。
-    [[nodiscard]] bool describe(const std::shared_ptr<const Resource>& source,
+    [[nodiscard]] bool describe(ResourceLoader* loader, ResourceHandle source,
                                 const bgfx::Caps& caps, std::size_t max_bytes);
     // 仅访问本对象和不可变资源；可在 worker 执行，不调用 bgfx。
     [[nodiscard]] bool prepare();
 
-    std::shared_ptr<const Resource> resource;
+    resource_detail::ResourceReference resource;
+    const schema::TextureDataT* data = nullptr;
     bgfx::TextureFormat::Enum format = bgfx::TextureFormat::RGBA8;
     std::uint64_t flags = 0;
     std::size_t bytes = 0;
@@ -44,8 +48,14 @@ struct GpuTexture
     // 调用前释放旧句柄；失败后的部分初始化由 release 或析构清理。
     [[nodiscard]] bool create(const PreparedTexture& prepared);
     void release() noexcept;
+    [[nodiscard]] bool matches(ResourceHandle source) const noexcept
+    {
+        const Resource* value = nullptr;
+        return resource.loader() && resource.loader()->get(source, value) == ResourceError::none &&
+               value == resource.get();
+    }
 
-    std::shared_ptr<const Resource> resource;
+    resource_detail::ResourceReference resource;
     bgfx::TextureHandle handle = BGFX_INVALID_HANDLE;
     std::uint32_t sampler_flags = 0;
 };

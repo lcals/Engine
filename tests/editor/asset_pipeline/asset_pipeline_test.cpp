@@ -1,9 +1,12 @@
 #include "editor/asset_pipeline/asset_pipeline_system.hpp"
 #include "editor/asset_pipeline/project_lock.hpp"
 #include "editor/asset_pipeline/scene_importer.hpp"
+#include "file_text.hpp"
+#include "resource_codecs.hpp"
 #include "runtime/core/guid_map.hpp"
 #include "runtime/engine_config.hpp"
 #include "runtime/resource/resource_system.hpp"
+#include "runtime/resource/virtual_file_system.hpp"
 #include "runtime/schema/asset_catalog_generated.h"
 #include "runtime/task/task_system.hpp"
 #include "runtime/task/thread_system.hpp"
@@ -56,7 +59,7 @@ bool write(const std::filesystem::path& path, const std::string& content)
 std::string read(const std::filesystem::path& path)
 {
     std::string output;
-    if (!engine::ResourceSystem::read_text(path, output))
+    if (!test_support::read_text(path, output))
     {
         return {};
     }
@@ -147,7 +150,7 @@ struct Fixture
 bool load_catalog(const Fixture& fixture, engine::schema::AssetCatalogDataT& output)
 {
     std::vector<std::byte> bytes;
-    if (!engine::ResourceSystem::read_binary(fixture.root / "cache/catalog.bin", bytes))
+    if (!engine::VirtualFileSystem::read_file(fixture.root / "cache/catalog.bin", bytes))
     {
         return false;
     }
@@ -291,19 +294,24 @@ bool scene_effects(engine::ResourceSystem& resources,
                    const engine::editor::AssetPipelineSystem& pipeline, const Fixture& fixture,
                    const engine::schema::SceneDataT& source)
 {
-    engine::ResourcePtr loaded;
+    std::unique_ptr<engine::Resource> loaded;
     if (!expect(
             resources.update_catalog(pipeline.catalog(), {{"content", fixture.root / "cache"}}) &&
-                resources.load(scene_guid, loaded) && loaded->scene() != nullptr &&
-                *loaded->scene() == source,
+                test_support::read_resource(resources, scene_guid, loaded) &&
+                engine::resource_detail::data<engine::SceneResource>(loaded.get()) != nullptr &&
+                *engine::resource_detail::data<engine::SceneResource>(loaded.get()) == source,
             "TOML effects import to GUID bytes and load as identical runtime scene data"))
     {
         return false;
     }
-    const auto& camera_components = loaded->scene()->nodes[0]->components;
+    const auto& camera_components =
+        engine::resource_detail::data<engine::SceneResource>(loaded.get())->nodes[0]->components;
     const auto* post_process = camera_components[2]->payload.AsPostProcessData();
     const auto* environment = camera_components[3]->payload.AsEnvironmentData();
-    const auto* light = loaded->scene()->nodes[1]->components[2]->payload.AsLightData();
+    const auto* light = engine::resource_detail::data<engine::SceneResource>(loaded.get())
+                            ->nodes[1]
+                            ->components[2]
+                            ->payload.AsLightData();
     if (!expect(
             environment != nullptr && post_process != nullptr && light != nullptr &&
                 environment->ambient_color.a() == 1.0F && environment->ambient_intensity == 0.75F &&
@@ -473,7 +481,7 @@ bool tests()
     const engine::EngineConfig config;
     if (!expect(!pipeline.build_assets(fixture.root), "uninitialized build rejected") ||
         !expect(!pipeline.initialize(config), "pipeline requires an initialized task domain") ||
-        !expect(resources.initialize(config),
+        !expect((test_support::register_resource_codecs(resources) && resources.initialize(config)),
                 "resource definitions live for the complete fixture") ||
         !expect(threads.initialize(config) && tasks.initialize(config) &&
                     pipeline.initialize(config),

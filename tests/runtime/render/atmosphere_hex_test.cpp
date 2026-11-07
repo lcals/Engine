@@ -1,4 +1,5 @@
 #include "resource_fixture.hpp"
+#include "resource_services.hpp"
 
 #include "runtime/engine_config.hpp"
 #include "runtime/render/render_system.hpp"
@@ -145,8 +146,9 @@ bool test()
     config.width = 192;
     config.height = 108;
     config.window_title = "Upstream atmosphere and Hex PBR";
-    engine::ResourceSystem resources;
-    engine::WorldSystem world;
+    test_support::ResourceServices services;
+    engine::ResourceSystem& resources = services.core;
+    engine::WorldSystem world{&services.loader};
     engine::WindowSystem window;
     engine::RenderSystem renderer(window, &world);
     test_support::ResourceFixture fixture;
@@ -171,9 +173,11 @@ bool test()
             checker.data.insert(checker.data.end(), {value, value, value, 255});
         }
     }
-    if (!resources.initialize(config) || !world.initialize(config) || !window.initialize(config) ||
-        !renderer.initialize(config) || !fixture.add(checker) || !fixture.add(normal_texture) ||
-        !fixture.add(tangent_normal) || !fixture.add(rotated_normal) || !fixture.publish(resources))
+    if (!(services.initialize(config) && services.prepare_builtins()) ||
+        !world.initialize(config) || !window.initialize(config) || !renderer.initialize(config) ||
+        !fixture.add(checker) || !fixture.add(normal_texture) || !fixture.add(tangent_normal) ||
+        !fixture.add(rotated_normal) ||
+        !services.publish_and_load(fixture.catalog, {{"content", fixture.root}}))
     {
         return false;
     }

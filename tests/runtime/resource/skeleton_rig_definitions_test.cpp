@@ -145,10 +145,13 @@ bool exercise()
     }
     test_support::ResourceFixture fixture;
     engine::ResourceSystem resources;
-    engine::ResourcePtr loaded;
-    return expect(resources.initialize({}) && fixture.add(valid) && fixture.publish(resources) &&
-                      fixture.load(valid.path, loaded) && loaded && loaded->skeleton() &&
-                      *loaded->skeleton() == valid,
+    std::unique_ptr<engine::Resource> loaded;
+    return expect(test_support::register_resource_codecs(resources) && resources.initialize({}) &&
+                      fixture.add(valid) && fixture.publish(resources) &&
+                      fixture.read(resources, valid.path, loaded) && loaded &&
+                      engine::resource_detail::data<engine::SkeletonResource>(loaded.get()) &&
+                      *engine::resource_detail::data<engine::SkeletonResource>(loaded.get()) ==
+                          valid,
                   "formal skeleton entity round-trips all rig definitions through the same codec");
 }
 } // namespace

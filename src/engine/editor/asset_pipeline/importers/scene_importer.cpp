@@ -1,4 +1,5 @@
 #include "editor/asset_pipeline/importers/scene_importer.hpp"
+#include "runtime/resource/virtual_file_system.hpp"
 
 #include "editor/asset_pipeline/asset_io.hpp"
 #include "editor/asset_pipeline/importer_utils.hpp"
@@ -94,7 +95,7 @@ bool retain_generated_mappings(const ImportAsset& asset, const ImportContext& co
         return true;
     }
     std::vector<std::byte> entity, payload;
-    if (filesystem_error || !ResourceSystem::read_binary(path, entity) ||
+    if (filesystem_error || !VirtualFileSystem::read_file(path, entity) ||
         !ResourceSystem::decode_resource(**found, entity, payload))
     {
         error = "Cannot preserve previous scene instance identities: " + asset.guid;

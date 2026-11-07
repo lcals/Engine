@@ -1,11 +1,11 @@
 #include "runtime/resource/codecs/skeleton_resource_codec.hpp"
 
 #include "runtime/resource/codecs/model_value_utils.hpp"
+#include <set>
 
 #include <cmath>
 #include <flatbuffers/verifier.h>
 #include <map>
-#include <set>
 #include <string>
 #include <utility>
 
@@ -116,20 +116,55 @@ bool SkeletonResourceCodec::validate(const schema::SkeletonDataT& data)
     return true;
 }
 
-bool SkeletonResourceCodec::decode(const ResourceCatalog&, ByteView payload, Resource& output) const
+schema::AssetKind SkeletonResourceCodec::kind() const noexcept
 {
+    return schema::AssetKind::skeleton;
+}
+
+bool SkeletonResourceCodec::decode(const schema::AssetEntryT& entry, ByteView payload,
+                                   std::unique_ptr<Resource>& output, std::string& error) const
+{
+    if (output)
+    {
+        error = "Resource output must be empty";
+        return false;
+    }
+    error.clear();
+    if (entry.kind != kind() || payload.empty() || payload.size() > 64U * 1024U * 1024U)
+    {
+        error = "Invalid resource kind or payload size";
+        return false;
+    }
     const auto* bytes = reinterpret_cast<const std::uint8_t*>(payload.data());
     flatbuffers::Verifier verifier(bytes, payload.size());
-    if (!schema::VerifySkeletonDataBuffer(verifier) || !output.info().dependencies.empty())
+    if (!schema::VerifySkeletonDataBuffer(verifier))
     {
+        error = "Invalid Skeleton FlatBuffer";
         return false;
     }
     auto data = schema::UnPackSkeletonData(bytes);
-    if (data->path != output.info().path || !validate(*data))
+    output = std::make_unique<ResourceType>(entry, std::move(*data));
+    return true;
+}
+
+bool SkeletonResourceCodec::validate_data(const Resource& resource, std::string& error) const
+{
+    const auto* data = resource_detail::data<ResourceType>(&resource);
+    if (!data || !(resource.info().dependencies.empty() && data->path == resource.info().path &&
+                   validate(*data)))
     {
+        error = "Invalid Skeleton data or declared dependencies";
         return false;
     }
-    store(output, std::move(data));
+    error.clear();
     return true;
+}
+
+bool SkeletonResourceCodec::validate_dependencies(const Resource& resource,
+                                                  ResourceView dependencies,
+                                                  std::string& error) const
+{
+    error.clear();
+    return resource.info().dependencies.empty() && dependencies.empty();
 }
 } // namespace engine

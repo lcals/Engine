@@ -4,6 +4,7 @@
 #include "editor/asset_pipeline/prefab_importer.hpp"
 #include "editor/asset_pipeline/scene_importer.hpp"
 #include "runtime/resource/resource_system.hpp"
+#include "runtime/resource/virtual_file_system.hpp"
 #include "scene_snapshot.hpp"
 
 #include <algorithm>
@@ -297,7 +298,7 @@ bool dependencies(const std::filesystem::path& directory)
     const auto publish_scene = [&](bool legacy_node_layout = false)
     {
         std::vector<std::byte> payload, entity;
-        if (!ResourceSystem::read_binary(directory / scene_guid, payload))
+        if (!VirtualFileSystem::read_file(directory / scene_guid, payload))
         {
             return false;
         }
@@ -369,7 +370,7 @@ bool dependencies(const std::filesystem::path& directory)
         return false;
     }
     std::vector<std::byte> rebuilt;
-    if (!ResourceSystem::read_binary(directory / scene_guid, rebuilt))
+    if (!VirtualFileSystem::read_file(directory / scene_guid, rebuilt))
     {
         return false;
     }
@@ -385,7 +386,7 @@ bool dependencies(const std::filesystem::path& directory)
         return false;
     }
     std::vector<std::byte> payload, entity;
-    if (!ResourceSystem::read_binary(directory / prefab_guid, payload))
+    if (!VirtualFileSystem::read_file(directory / prefab_guid, payload))
     {
         return false;
     }
@@ -411,7 +412,7 @@ bool dependencies(const std::filesystem::path& directory)
     {
         return false;
     }
-    if (!ResourceSystem::read_binary(directory / scene_guid, payload))
+    if (!VirtualFileSystem::read_file(directory / scene_guid, payload))
     {
         return false;
     }

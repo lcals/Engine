@@ -9,25 +9,24 @@ classDiagram
     System <|-- FontSystem
     Component <|-- TextComponent
     FontSystem ..> Resource : 借用字体数据并缓存GPU数据
-    FontSystem ..> ResourceLoader : 加载字体
+    FontSystem --> ResourceLoader : 可空借用 只访问已加载字体
     FontSystem ..> FontGeometry : 生成和提交
     FontSystem ..> FontLayout : 排布参数
     FontSystem ..> FontDraw : 绘制参数
     FontSystem ..> Scene : 遍历文字组件
     TextComponentRuntime o-- Resource : 共享字体及Shader
-    TextComponent ..> ResourceLoader : 加载字体与Shader资源
+    TextComponent ..> ResourceLoader : 获取已加载字体与Shader
     FontSystem ..> TextComponent : 读取已发布ECS数据并生成排布和绘制
     Node ..> Component : 按类型返回值句柄
     class FontSystem {
-        +FontSystem()
+        +FontSystem(ResourceLoader#42; resources)
         +~FontSystem()
-        +load_font(string_view path_or_guid, ResourcePtr& output) bool
         +glyph(const FontDataT& data, uint32_t codepoint) const FontGlyphT#42;$
         +kerning(const FontDataT& data, uint32_t left, uint32_t right) float$
         +measure(const FontDataT& data, string_view text, float size, float letter_spacing = 0) float$
-        +layout(const Resource& font, string_view text, const FontLayout& settings, FontGeometry& output) bool$
+        +layout(const FontResource& font, string_view text, const FontLayout& settings, FontGeometry& output) bool$
         +append_glyph(const FontDataT& data, const FontGlyphT& glyph, float x, float y, float size, uint32_t color, bool y_down, FontGeometry& output) bool$
-        +draw(const ResourcePtr& font, const FontGeometry& geometry, const FontDraw& settings) bool
+        +draw(const ResourceHandle& font, const FontGeometry& geometry, const FontDraw& settings) bool
         +render_scene(const Scene& scene, uint16_t view_id, bool linear_output = false) bool
         +release_scene() void
         +gpu_resource_count() uint32
@@ -47,8 +46,8 @@ classDiagram
         +get_settings(TextDataT& output) bool
         +set_settings(const TextDataT& settings) bool
         +set_font(string_view path) bool
-        +font() ResourcePtr
-        +shader() ResourcePtr
+        +font() ResourceHandle
+        +shader() ResourceHandle
         +restore_data(const ComponentDataT& data) bool
     }
     class ComponentRegistry
@@ -104,19 +103,19 @@ classDiagram
         +bool use_scissor
         +bool depth_test
         +bool linear_output = false
-        +ResourcePtr shader
+        +ResourceHandle shader
     }
     FontGeometry *-- FontVertex : 临时顶点
     FontSystem ..> FontLayout : 排布输入
     FontSystem ..> FontGeometry : 输出与绘制输入
     FontSystem ..> FontDraw : 单次绘制输入
-    FontDraw o-- Resource : 共享已加载Shader
+    FontDraw ..> ResourceHandle : 借用已加载Shader获取身份
 ```
 
-- `ResourcePtr` 表达共享 CPU 资源；字体 GPU 曲线纹理按资源身份和代际共享，字号不产生新字体资源。GPU 字体与 Shader 缓存只保存资源弱引用，每次 tick 回收已失效的条目；普通场景切换不会全清，常驻文档和文字组件继续共享原 GPU 数据。完整停止/设备释放仍使用 `release_scene()`。
+- 字体与 Shader 由组件或 UI 文档独立 retain。GPU 缓存保存借用身份及 GPU 副本，每次 tick 通过加载器检查身份并回收失效条目；缓存不持有 CPU 数据裸指针。字号不产生新字体资源，完整停止使用 `release_scene()`。
 - `FontGeometry` 是临时绘制数据，顶点保存位置、预乘颜色、字形坐标与曲线范围；不成为新的持久资源模型。
 - `FontVertex.dilation` 保存局部向外方向与字体 XY 缩放的倒数，公开 Slug 顶点算法据此在透视与正交视图中扩张像素边界，保持曲线覆盖率抗锯齿。
-- `FontDraw` 保存当前帧的视图、模型矩阵与裁剪信息，持有调用方已加载的 Shader 引用；绘制不重新查询目录，目录更新不会把旧字体和新 Shader 混用。UI 和 3D 共用同一绘制能力。RmlUi 在正常渲染顺序中调用，排版阶段不提交 GPU 命令。
+- `FontDraw` 保存当前帧的视图、模型矩阵与裁剪信息，借用调用方已加载的 Shader 获取身份；绘制不重新查询目录，目录更新不会把旧字体和新 Shader 混用。UI 和 3D 共用同一绘制能力。RmlUi 在正常渲染顺序中调用，排版阶段不提交 GPU 命令。
 - 默认 `builtin://shaders/font` Shader 由引擎提供；项目 Shader 通过标准资源目录加载并遵守相同顶点、曲线纹理及预乘颜色契约。
 - `TextComponent` 是普通节点组件；宿主协调场景停止和 GPU 释放，不向 Engine 增加字体专用接口。
 

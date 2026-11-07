@@ -275,8 +275,10 @@ bool capture_snapshot(const WorldSystem& world, const SceneCaptureRequest& reque
                 {
                     return false;
                 }
-                append_value(output, reinterpret_cast<std::uintptr_t>(
-                                         material.texture(sampler->name).get()));
+                const auto handle = material.texture(sampler->name);
+                append_value(output, handle.owner);
+                append_value(output, handle.id);
+                append_value(output, handle.generation);
             }
         }
     }

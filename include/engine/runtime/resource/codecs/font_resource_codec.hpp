@@ -1,6 +1,7 @@
 #pragma once
 
 #include "runtime/resource/resource_codec.hpp"
+#include "runtime/resource/types/font_resource.hpp"
 
 namespace engine
 {
@@ -8,8 +9,14 @@ namespace engine
 class FontResourceCodec final : public ResourceCodec
 {
 public:
-    [[nodiscard]] bool decode(const ResourceCatalog& catalog, ByteView payload,
-                              Resource& output) const override;
+    using ResourceType = FontResource;
+    [[nodiscard]] schema::AssetKind kind() const noexcept override;
+    [[nodiscard]] bool decode(const schema::AssetEntryT& entry, ByteView payload,
+                              std::unique_ptr<Resource>& output, std::string& error) const override;
+    [[nodiscard]] bool validate_data(const Resource& resource, std::string& error) const override;
+    [[nodiscard]] bool validate_dependencies(const Resource& resource, ResourceView dependencies,
+                                             std::string& error) const override;
+
     [[nodiscard]] static bool validate(const schema::FontDataT& data) noexcept;
 };
 

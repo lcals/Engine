@@ -203,7 +203,7 @@ classDiagram
         +get_settings(LightProbeVolumeSettings& output) bool
         +set_settings(const LightProbeVolumeSettings& settings) bool
         +restore_data(const ComponentDataT& data) bool
-        +resource() shared_ptr~const Resource~
+        +resource() ResourceHandle
     }
     class LightProbeVolumeSettings {
         <<generated>>

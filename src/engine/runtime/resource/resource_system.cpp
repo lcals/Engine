@@ -1,24 +1,17 @@
 #include "runtime/resource/resource_system.hpp"
 
-#include "runtime/performance/profiling.hpp"
-#include "runtime/resource/builtin_resources.hpp"
-#include "runtime/resource/codecs/material_resource_codec.hpp"
-#include "runtime/resource/codecs/mesh_resource_codec.hpp"
-#include "runtime/resource/codecs/shader_resource_codec.hpp"
-#include "runtime/resource/codecs/texture_resource_codec.hpp"
-#include "runtime/resource/resource_codec.hpp"
+#include "runtime/resource/resource_read_state.hpp"
 #include "runtime/task/task_system.hpp"
 
 #include <SDL3/SDL_stdinc.h>
-#include <flatbuffers/idl.h>
 #include <flatbuffers/verifier.h>
 
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <chrono>
 #include <cstring>
 #include <limits>
-#include <map>
 #include <set>
 #include <utility>
 
@@ -26,32 +19,7 @@ namespace engine
 {
 namespace
 {
-
 constexpr std::uint64_t maximum_read_size = 64U * 1024U * 1024U;
-std::map<std::string, std::unique_ptr<schema::ShaderDataT>, std::less<>> shaders;
-std::map<std::string, std::unique_ptr<schema::MaterialDataT>, std::less<>> materials;
-std::map<std::string, std::unique_ptr<schema::MeshDataT>, std::less<>> meshes;
-std::map<std::string, std::unique_ptr<schema::TextureDataT>, std::less<>> textures;
-ResourceSystem* definition_owner = nullptr;
-
-const GuidMap& builtin_identities()
-{
-    static const GuidMap identities = []
-    {
-        GuidMap result;
-        for (const auto& entry : builtin_resource_catalog().entries)
-        {
-            if (!result.add(entry->path, entry->guid))
-            {
-                result.clear();
-                break;
-            }
-        }
-        return result;
-    }();
-    return identities;
-}
-
 std::string_view target_platform() noexcept
 {
 #if defined(SDL_PLATFORM_ANDROID)
@@ -132,367 +100,577 @@ const ResourceMount* find_mount(const MountList& mounts, std::string_view name)
     return found == mounts.end() ? nullptr : &*found;
 }
 
+ResourceError file_error(FileError value)
+{
+    if (value == FileError::busy)
+    {
+        return ResourceError::busy;
+    }
+    if (value == FileError::budget_exceeded)
+    {
+        return ResourceError::budget_exceeded;
+    }
+    if (value == FileError::unavailable)
+    {
+        return ResourceError::unavailable;
+    }
+    return ResourceError::io_failed;
+}
 } // namespace
 
-struct ResourceSystem::AsyncState
+struct ResourceSystem::ReadState
 {
-    TaskSystem* tasks = nullptr;
-    ResourceAsyncConfig config;
-    std::shared_ptr<const ResourceCatalog> catalog;
-    std::atomic<std::size_t> in_flight{0};
-    std::atomic<std::uint64_t> in_flight_bytes{0};
-    bool active = true;
-};
-
-class ResourceSystem::AsyncLoad final : public ResourceLoad
-{
-public:
-    AsyncLoad(ResourceSystem& owner, std::string guid)
-        : owner_(owner), state_(owner.async_), catalog_(state_->catalog), guid_(std::move(guid)),
-          generation_(owner.generation_), loader_(&owner.loader())
-    {
-    }
-
-    ~AsyncLoad() noexcept override
-    {
-        if (work_)
-        {
-            work_->cancelled.store(true, std::memory_order_relaxed);
-        }
-    }
-
-    ResourceLoadStatus step(std::uint32_t budget, ResourceLoadProgress& output) override
-    {
-        if (status_ == ResourceLoadStatus::loading &&
-            (!state_->active || !owner_.is_initialized() || owner_.generation_ != generation_ ||
-             &owner_.loader() != loader_))
-        {
-            fail("Resource catalog or loader changed, or asynchronous loading stopped");
-        }
-        if (status_ != ResourceLoadStatus::loading || budget == 0)
-        {
-            output = {status_ == ResourceLoadStatus::ready ? 1U : 0U, 1};
-            return status_;
-        }
-        const auto* entry = catalog_->find(guid_);
-        if (entry->location == nullptr)
-        {
-            // 内置注册表属于协调线程，不能在后台访问活动系统的全局定义。
-            if (owner_.load(guid_, root_))
-            {
-                status_ = ResourceLoadStatus::ready;
-            }
-            else
-            {
-                fail(owner_.last_error());
-            }
-        }
-        else
-        {
-            advance(*entry);
-        }
-        output = {status_ == ResourceLoadStatus::ready ? 1U : 0U, 1};
-        return status_;
-    }
-
-    ResourcePtr resource() const noexcept override
-    {
-        return root_;
-    }
-    std::string_view last_error() const noexcept override
-    {
-        return error_;
-    }
-
-private:
     struct Work
     {
-        std::shared_ptr<AsyncState> state;
+        std::shared_ptr<ResourceRead::State> result;
+        schema::AssetEntryT entry;
+        const ResourceCodec* codec = nullptr;
+        std::uint64_t generation = 0;
         std::uint64_t cost = 0;
-        std::atomic<bool> cancelled{false};
+        bool memory = false;
+        std::unique_ptr<FileRead> file;
         ByteBuffer bytes;
-        ResourcePtr resource;
-        bool reading = false;
-        bool read_done = false;
-        bool decoding = false;
-        bool decoded = false;
-        bool success = false;
-
-        ~Work() noexcept
-        {
-            state->in_flight.fetch_sub(1, std::memory_order_relaxed);
-            state->in_flight_bytes.fetch_sub(cost, std::memory_order_relaxed);
-        }
+        std::unique_ptr<Resource> candidate;
+        std::string message;
+        std::future<bool> decoding;
     };
+    TaskSystem* tasks = nullptr;
+    ResourceReadConfig config;
+    std::uint64_t in_flight_bytes = 0;
+    std::vector<std::shared_ptr<Work>> pending;
+    std::vector<std::weak_ptr<ResourceRead::State>> operations;
 
-    void fail(std::string_view error)
+    bool has_operations() const noexcept
     {
-        error_ = error;
-        status_ = ResourceLoadStatus::failed;
-        if (work_)
-        {
-            work_->cancelled.store(true, std::memory_order_relaxed);
-            work_.reset();
-        }
+        return !pending.empty() ||
+               std::any_of(operations.begin(), operations.end(),
+                           [](const auto& weak)
+                           {
+                               const auto value = weak.lock();
+                               return value && (value->status == ResourceReadStatus::reading ||
+                                                value->status == ResourceReadStatus::ready);
+                           });
     }
-
-    void advance(const schema::AssetEntryT& entry)
-    {
-        if (!work_)
-        {
-            if (entry.content_size > state_->config.max_in_flight_bytes)
-            {
-                fail("Resource exceeds asynchronous byte budget: " + entry.path);
-                return;
-            }
-            if (state_->in_flight.load(std::memory_order_relaxed) >= state_->config.max_in_flight ||
-                entry.content_size > state_->config.max_in_flight_bytes -
-                                         state_->in_flight_bytes.load(std::memory_order_relaxed))
-            {
-                return;
-            }
-            work_ = std::make_shared<Work>();
-            work_->state = state_;
-            work_->cost = entry.content_size;
-            state_->in_flight.fetch_add(1, std::memory_order_relaxed);
-            state_->in_flight_bytes.fetch_add(entry.content_size, std::memory_order_relaxed);
-        }
-        const auto work = work_;
-        if (!work->reading)
-        {
-            const auto result = owner_.files_.read_async(*entry.location, 0, entry.content_size,
-                                                         [work](bool success, ByteBuffer bytes)
-                                                         {
-                                                             work->bytes = std::move(bytes);
-                                                             work->success = success;
-                                                             work->read_done = true;
-                                                         });
-            if (result == FileReadStatus::failed)
-            {
-                fail("Cannot start asynchronous resource read: " + entry.path);
-                return;
-            }
-            work->reading = result == FileReadStatus::accepted;
-        }
-        if (!work->read_done)
-        {
-            return;
-        }
-        if (!work->success)
-        {
-            fail("Cannot read asynchronous resource: " + entry.path);
-            return;
-        }
-        if (!work->decoding)
-        {
-            work->decoding = state_->tasks->submit(
-                "Resource.decode",
-                [work, catalog = catalog_, guid = guid_, generation = generation_]()
-                {
-                    ENGINE_PROFILE_ZONE("Resource.decode");
-                    if (work->cancelled.load(std::memory_order_relaxed))
-                    {
-                        return false;
-                    }
-                    const bool result =
-                        decode_loaded(*catalog, generation, guid, work->bytes, work->resource);
-                    ByteBuffer{}.swap(work->bytes);
-                    return result;
-                },
-                [work](bool success)
-                {
-                    work->success = success;
-                    work->decoded = true;
-                },
-                TaskPriority::normal);
-        }
-        if (work->decoded)
-        {
-            if (!work->success)
-            {
-                fail("Invalid asynchronous resource: " + entry.path);
-                return;
-            }
-            root_ = work->resource;
-            status_ = ResourceLoadStatus::ready;
-            work_.reset();
-        }
-    }
-
-    ResourceSystem& owner_;
-    std::shared_ptr<AsyncState> state_;
-    std::shared_ptr<const ResourceCatalog> catalog_;
-    std::string guid_;
-    std::uint64_t generation_ = 0;
-    ResourceLoader* loader_ = nullptr;
-    std::shared_ptr<Work> work_;
-    ResourcePtr root_;
-    ResourceLoadStatus status_ = ResourceLoadStatus::loading;
-    std::string error_;
 };
 
-bool ResourceSystem::configure_async(TaskSystem& tasks, const ResourceAsyncConfig& config)
-{
-    if (!is_initialized() || !tasks.is_initialized() || config.max_in_flight == 0 ||
-        config.max_in_flight_bytes == 0 || config.completion_budget == 0 ||
-        (async_ && async_->in_flight.load(std::memory_order_relaxed) != 0))
-    {
-        last_error_ = "Invalid asynchronous resource configuration or active requests";
-        return false;
-    }
-    if (!files_.configure_async(tasks, {config.max_in_flight, config.max_in_flight_bytes}))
-    {
-        last_error_ = "Cannot initialize asynchronous resource I/O";
-        return false;
-    }
-    if (async_)
-    {
-        async_->active = false;
-    }
-    async_ = std::make_shared<AsyncState>();
-    async_->tasks = &tasks;
-    async_->config = config;
-    async_->catalog = std::make_shared<const ResourceCatalog>(catalog_);
-    return true;
-}
-
-void ResourceSystem::shutdown_async() noexcept
-{
-    if (async_)
-    {
-        async_->active = false;
-    }
-    files_.shutdown_async();
-    async_.reset();
-}
-
-bool ResourceSystem::async_enabled() const noexcept
-{
-    return async_ && async_->active;
-}
-
-bool ResourceSystem::begin_load(std::string_view guid, std::unique_ptr<ResourceLoad>& output)
-{
-    const std::string identity(guid);
-    output.reset();
-    if (!is_initialized() || !async_enabled() || catalog_.find(identity) == nullptr)
-    {
-        last_error_ = "Unknown resource or asynchronous loading not configured: " + identity;
-        return false;
-    }
-    output = std::make_unique<AsyncLoad>(*this, identity);
-    return true;
-}
-
-void ResourceSystem::poll_async()
-{
-    if (async_enabled())
-    {
-        files_.poll_async(async_->config.completion_budget);
-    }
-}
-
-bool ResourceSystem::on_tick(double)
-{
-    poll_async();
-    return true;
-}
-
 ResourceSystem::ResourceSystem() noexcept = default;
-
 ResourceSystem::~ResourceSystem() noexcept
 {
     shutdown();
 }
-
-ResourceSystem* ResourceSystem::instance() noexcept
-{
-    return definition_owner;
-}
-
 const ResourceCatalog& ResourceSystem::catalog() const noexcept
 {
     return catalog_;
 }
-
 std::uint64_t ResourceSystem::generation() const noexcept
 {
     return generation_;
 }
-
-void ResourceSystem::set_loader(ResourceLoader* loader) noexcept
+ResourceError ResourceSystem::error() const noexcept
 {
-    loader_ = loader == this ? nullptr : loader;
+    return error_;
 }
-
-ResourceLoader& ResourceSystem::loader() noexcept
-{
-    return loader_ != nullptr ? *loader_ : *this;
-}
-
-ResourcePtr ResourceSystem::find(std::string_view) const noexcept
-{
-    // 单项核心不保存已加载对象；驻留查询由可选加载器实现。
-    return {};
-}
-
-const std::string& ResourceSystem::last_error() const noexcept
+std::string_view ResourceSystem::last_error() const noexcept
 {
     return last_error_;
 }
 
+bool ResourceSystem::fail(ResourceError error, std::string message)
+{
+    error_ = error;
+    last_error_ = std::move(message);
+    return false;
+}
+
+const ResourceCodec* ResourceSystem::codec(schema::AssetKind kind) const noexcept
+{
+    const auto found = codecs_.find(kind);
+    return found == codecs_.end() ? nullptr : found->second.get();
+}
+
+bool ResourceSystem::configure_async(TaskSystem& file_tasks, TaskSystem& read_tasks,
+                                     const ResourceReadConfig& config)
+{
+    if (!is_initialized() || !file_tasks.is_initialized() || !read_tasks.is_initialized() ||
+        &file_tasks == &read_tasks || config.max_in_flight == 0 ||
+        config.max_in_flight_bytes == 0 || config.completion_budget == 0)
+    {
+        return fail(ResourceError::unavailable, "Invalid resource read task domains or budgets");
+    }
+    if (reads_ && reads_->has_operations())
+    {
+        return fail(ResourceError::busy, "Resource reads still own work or unclaimed results");
+    }
+    if (!files_.configure_async(file_tasks, config.files))
+    {
+        return fail(file_error(files_.error()), std::string(files_.last_error()));
+    }
+    reads_ = std::make_shared<ReadState>();
+    reads_->tasks = &read_tasks;
+    reads_->config = config;
+    error_ = ResourceError::none;
+    last_error_.clear();
+    return true;
+}
+
 bool ResourceSystem::update_catalog(const schema::AssetCatalogDataT& data, const MountList& mounts)
 {
-    last_error_.clear();
     ResourceCatalog candidate;
-    VirtualFileSystem files;
+    VirtualFileSystem validation;
     if (generation_ == std::numeric_limits<std::uint64_t>::max() ||
         data.target_platform != target_platform() || !candidate.assign(data) ||
-        !files.configure(mounts))
+        !validation.configure(mounts))
     {
-        last_error_ = "Invalid resource catalog, platform or mounts";
-        return false;
+        return fail(ResourceError::invalid_data, "Invalid resource catalog, platform or mounts");
     }
     for (const auto& entry : candidate.data().entries)
     {
-        if (find_mount(mounts, entry->location->mount) == nullptr)
+        if (entry->location && !find_mount(mounts, entry->location->mount))
         {
-            last_error_ = "Missing resource mount: " + entry->location->mount;
-            return false;
+            return fail(ResourceError::invalid_data,
+                        "Missing resource mount: " + entry->location->mount);
         }
     }
     if (!files_.configure(mounts))
     {
-        last_error_ = "Invalid resource mounts";
-        return false;
+        return fail(ResourceError::invalid_data, "Invalid resource mounts");
     }
     catalog_ = std::move(candidate);
     ++generation_;
-    if (async_)
+    error_ = ResourceError::none;
+    last_error_.clear();
+    return true;
+}
+
+bool ResourceSystem::read(std::string_view guid, std::unique_ptr<Resource>& output)
+{
+    if (output)
     {
-        async_->catalog = std::make_shared<const ResourceCatalog>(catalog_);
+        return fail(ResourceError::busy, "Resource output must be empty");
+    }
+    if (!is_initialized())
+    {
+        return fail(ResourceError::unavailable, "Resource system is unavailable");
+    }
+    const auto* entry = catalog_.find(guid);
+    if (!entry)
+    {
+        return fail(ResourceError::not_found, "Unknown resource: " + std::string(guid));
+    }
+    const auto* handler = codec(entry->kind);
+    if (!handler)
+    {
+        return fail(ResourceError::unsupported_type, "Resource codec is not registered");
+    }
+    if (!entry->location)
+    {
+        return fail(ResourceError::not_loaded,
+                    "Resource has no file location; load its memory definition explicitly");
+    }
+    ByteBuffer entity;
+    if (!files_.read(*entry->location, 0, entry->content_size, entity))
+    {
+        return fail(file_error(files_.error()), std::string(files_.last_error()));
+    }
+    if (!decode_single(*entry, *handler, generation_, entity, output, last_error_))
+    {
+        error_ = ResourceError::invalid_data;
+        return false;
+    }
+    error_ = ResourceError::none;
+    last_error_.clear();
+    return true;
+}
+
+bool ResourceSystem::begin_read(std::string_view guid, std::unique_ptr<ResourceRead>& output)
+{
+    if (output)
+    {
+        return fail(ResourceError::busy, "Read operation output must be empty");
+    }
+    if (!is_initialized() || !reads_)
+    {
+        return fail(ResourceError::unavailable, "Resource async reads are unavailable");
+    }
+    const auto* entry = catalog_.find(guid);
+    if (!entry)
+    {
+        return fail(ResourceError::not_found, "Unknown resource: " + std::string(guid));
+    }
+    const auto* handler = codec(entry->kind);
+    if (!handler)
+    {
+        return fail(ResourceError::unsupported_type, "Resource codec is not registered");
+    }
+    if (!entry->location)
+    {
+        return fail(ResourceError::not_loaded, "Resource has no physical location");
+    }
+    if (entry->content_size > reads_->config.max_in_flight_bytes)
+    {
+        return fail(ResourceError::budget_exceeded, "Resource exceeds single-read byte budget");
+    }
+    if (reads_->pending.size() >= reads_->config.max_in_flight ||
+        entry->content_size > reads_->config.max_in_flight_bytes - reads_->in_flight_bytes)
+    {
+        return fail(ResourceError::busy, "Resource read budget is temporarily full");
+    }
+    auto work = std::make_shared<ReadState::Work>();
+    work->result = std::make_shared<ResourceRead::State>();
+    work->entry = *entry;
+    work->codec = handler;
+    work->generation = generation_;
+    work->cost = entry->content_size;
+    if (!files_.begin_read(*entry->location, 0, entry->content_size, work->file))
+    {
+        return fail(file_error(files_.error()), std::string(files_.last_error()));
+    }
+    reads_->in_flight_bytes += work->cost;
+    reads_->pending.push_back(work);
+    reads_->operations.push_back(work->result);
+    output = std::unique_ptr<ResourceRead>(new ResourceRead(work->result));
+    error_ = ResourceError::none;
+    last_error_.clear();
+    return true;
+}
+
+bool ResourceSystem::validate_memory_info(const Resource& resource)
+{
+    if (!is_initialized())
+    {
+        return fail(ResourceError::unavailable, "Resource system is unavailable");
+    }
+    const auto& info = resource.info();
+    if (!GuidMap::valid_guid(info.guid) || !GuidMap::valid_path(info.path) ||
+        info.path.starts_with("editor://") || info.kind != resource.kind() || info.location ||
+        info.format_version != 1 || info.content_size != 0 || info.header_size != 0 ||
+        !info.content_hash.empty())
+    {
+        return fail(ResourceError::invalid_data, "Invalid memory resource metadata");
+    }
+    if (!codec(info.kind))
+    {
+        return fail(ResourceError::unsupported_type, "Resource codec is not registered");
+    }
+    const auto* current = catalog_.find(info.guid);
+    Guid existing;
+    if ((current && (current->location || *current != info)) ||
+        (catalog_.identities().path_to_guid(info.path, existing) && existing != info.guid))
+    {
+        return fail(ResourceError::identity_conflict,
+                    "Memory identity conflicts with the current catalog");
+    }
+    std::set<std::string_view> dependencies;
+    for (const auto& guid : info.dependencies)
+    {
+        if (!GuidMap::valid_guid(guid) || guid == info.guid || !dependencies.insert(guid).second)
+        {
+            return fail(ResourceError::invalid_data,
+                        "Invalid memory resource dependency declaration");
+        }
     }
     return true;
 }
 
-bool ResourceSystem::read_binary(const std::filesystem::path& path, ByteBuffer& output)
+bool ResourceSystem::validate_memory(Resource& candidate)
 {
-    return VirtualFileSystem::read_file(path, output);
-}
-
-bool ResourceSystem::read_text(const std::filesystem::path& path, std::string& output)
-{
-    output.clear();
-    ByteBuffer bytes;
-    if (!read_binary(path, bytes))
+    if (!validate_memory_info(candidate))
     {
         return false;
     }
-    if (!bytes.empty())
+    if (!codec(candidate.kind())->validate_data(candidate, last_error_))
     {
-        output.assign(reinterpret_cast<const char*>(bytes.data()), bytes.size());
+        if (last_error_.empty())
+        {
+            last_error_ = "Invalid memory resource data";
+        }
+        error_ = ResourceError::invalid_data;
+        return false;
+    }
+    candidate.generation_ = generation_;
+    error_ = ResourceError::none;
+    last_error_.clear();
+    return true;
+}
+
+bool ResourceSystem::begin_read_memory(std::unique_ptr<Resource>& candidate,
+                                       std::unique_ptr<ResourceRead>& output)
+{
+    if (output)
+    {
+        return fail(ResourceError::busy, "Read operation output must be empty");
+    }
+    if (!is_initialized() || !reads_)
+    {
+        return fail(ResourceError::unavailable, "Resource async reads are unavailable");
+    }
+    if (!candidate)
+    {
+        return fail(ResourceError::invalid_data, "Memory resource is empty");
+    }
+    if (!validate_memory_info(*candidate))
+    {
+        return false;
+    }
+    if (reads_->pending.size() >= reads_->config.max_in_flight)
+    {
+        return fail(ResourceError::busy, "Resource read budget is temporarily full");
+    }
+    auto work = std::make_shared<ReadState::Work>();
+    work->result = std::make_shared<ResourceRead::State>();
+    work->entry = candidate->info();
+    work->codec = codec(candidate->kind());
+    work->generation = generation_;
+    work->memory = true;
+    work->candidate = std::move(candidate);
+    reads_->pending.push_back(work);
+    reads_->operations.push_back(work->result);
+    output = std::unique_ptr<ResourceRead>(new ResourceRead(work->result));
+    error_ = ResourceError::none;
+    last_error_.clear();
+    return true;
+}
+
+bool ResourceSystem::decode_single(const schema::AssetEntryT& entry, const ResourceCodec& handler,
+                                   std::uint64_t generation, ByteView entity,
+                                   std::unique_ptr<Resource>& output, std::string& message)
+{
+    ByteBuffer payload;
+    message.clear();
+    if (!decode_resource(entry, entity, payload))
+    {
+        message = "Invalid resource envelope or hash: " + entry.path;
+        return false;
+    }
+    std::unique_ptr<Resource> candidate;
+    if (!handler.decode(entry, payload, candidate, message) || !candidate ||
+        candidate->info() != entry || candidate->kind() != entry.kind ||
+        !handler.validate_data(*candidate, message))
+    {
+        if (message.empty())
+        {
+            message = "Invalid resource payload: " + entry.path;
+        }
+        return false;
+    }
+    candidate->generation_ = generation;
+    output = std::move(candidate);
+    return true;
+}
+
+bool ResourceSystem::validate_dependencies(const Resource& resource, ResourceView dependencies,
+                                           ResourceError& error, std::string& message) const
+{
+    error = ResourceError::none;
+    message.clear();
+    if (!is_initialized())
+    {
+        error = ResourceError::unavailable;
+        message = "Resource system is unavailable";
+        return false;
+    }
+    const auto* handler = codec(resource.kind());
+    if (!handler)
+    {
+        error = ResourceError::unsupported_type;
+        message = "Resource codec is not registered";
+        return false;
+    }
+    std::set<std::string_view> references;
+    for (const auto* item : dependencies)
+    {
+        if (!item || item->generation() != resource.generation() ||
+            !references.insert(item->info().guid).second)
+        {
+            error = ResourceError::dependency_failed;
+            message = "Duplicate or mixed-generation dependency";
+            return false;
+        }
+    }
+    if (dependencies.size() != resource.info().dependencies.size() ||
+        !std::all_of(resource.info().dependencies.begin(), resource.info().dependencies.end(),
+                     [&references](const auto& guid) { return references.contains(guid); }) ||
+        !handler->validate_dependencies(resource, dependencies, message))
+    {
+        error = ResourceError::dependency_failed;
+        if (message.empty())
+        {
+            message = "Invalid resource dependency contract: " + resource.info().path;
+        }
+        return false;
     }
     return true;
+}
+
+void ResourceSystem::poll_reads()
+{
+    const auto state = reads_;
+    if (!state)
+    {
+        return;
+    }
+    std::uint32_t completed = 0;
+    for (std::size_t index = 0;
+         index < state->pending.size() && completed < state->config.completion_budget;)
+    {
+        const auto work = state->pending[index];
+        auto& result = *work->result;
+        auto fail = [&result](ResourceError error, std::string_view message)
+        {
+            result.cancelled.store(true, std::memory_order_relaxed);
+            result.status = ResourceReadStatus::failed;
+            result.error = error;
+            result.message = message;
+        };
+        if (result.status == ResourceReadStatus::reading && generation_ != work->generation)
+        {
+            fail(ResourceError::generation_changed, "Resource catalog changed during reading");
+        }
+        if (result.status == ResourceReadStatus::reading && work->file)
+        {
+            if (work->file->status() == FileReadStatus::ready)
+            {
+                if (!work->file->take(work->bytes))
+                {
+                    fail(ResourceError::io_failed, "Cannot take completed file data");
+                }
+                work->file.reset();
+            }
+            else if (work->file->status() != FileReadStatus::reading)
+            {
+                fail(ResourceError::io_failed, work->file->last_error());
+            }
+        }
+        if (result.status == ResourceReadStatus::reading && !work->file && !work->decoding.valid())
+        {
+            work->decoding = state->tasks->submit(
+                "Resource.read.decode",
+                [work]()
+                {
+                    if (work->result->cancelled.load(std::memory_order_relaxed))
+                    {
+                        return false;
+                    }
+                    bool success = false;
+                    if (work->memory)
+                    {
+                        success = work->codec->validate_data(*work->candidate, work->message);
+                        if (success)
+                        {
+                            work->candidate->generation_ = work->generation;
+                        }
+                    }
+                    else
+                    {
+                        success = decode_single(work->entry, *work->codec, work->generation,
+                                                work->bytes, work->candidate, work->message);
+                    }
+                    ByteBuffer{}.swap(work->bytes);
+                    return success;
+                });
+        }
+        if (result.status == ResourceReadStatus::reading && !work->file && !work->decoding.valid())
+        {
+            fail(ResourceError::busy, "Resource decode task domain rejected work");
+        }
+        const bool decoding = work->decoding.valid();
+        const bool done = decoding && work->decoding.wait_for(std::chrono::seconds(0)) ==
+                                          std::future_status::ready;
+        if (done)
+        {
+            const bool success = work->decoding.get();
+            if (result.status == ResourceReadStatus::reading)
+            {
+                if (success)
+                {
+                    result.resource = std::move(work->candidate);
+                    result.status = ResourceReadStatus::ready;
+                }
+                else
+                {
+                    fail(ResourceError::invalid_data,
+                         work->message.empty() ? "Invalid resource entity: " + work->entry.guid
+                                               : work->message);
+                }
+            }
+        }
+        if (result.status != ResourceReadStatus::reading)
+        {
+            if (work->file)
+            {
+                (void)work->file->cancel();
+            }
+            if (!decoding || done)
+            {
+                state->in_flight_bytes -= work->cost;
+                state->pending.erase(state->pending.begin() + static_cast<std::ptrdiff_t>(index));
+                ++completed;
+                continue;
+            }
+        }
+        ++index;
+    }
+    std::erase_if(state->operations,
+                  [](const auto& weak)
+                  {
+                      const auto result = weak.lock();
+                      return !result || result->status == ResourceReadStatus::delivered ||
+                             result->status == ResourceReadStatus::cancelled ||
+                             result->status == ResourceReadStatus::failed;
+                  });
+}
+
+void ResourceSystem::shutdown_reads() noexcept
+{
+    const auto state = std::move(reads_);
+    if (!state)
+    {
+        return;
+    }
+    for (const auto& weak : state->operations)
+    {
+        if (const auto result = weak.lock())
+        {
+            (void)result->cancel();
+        }
+    }
+    for (const auto& work : state->pending)
+    {
+        if (work->file)
+        {
+            (void)work->file->cancel();
+        }
+    }
+    (void)state->tasks->wait();
+}
+
+bool ResourceSystem::on_initialize(const EngineConfig&)
+{
+    schema::AssetCatalogDataT data;
+    data.schema_version = 2;
+    data.revision = "builtin-only";
+    data.target_platform = target_platform();
+    return update_catalog(data, {});
+}
+
+bool ResourceSystem::on_tick(double)
+{
+    if (reads_)
+    {
+        (void)files_.poll_async(reads_->config.completion_budget);
+        poll_reads();
+    }
+    return true;
+}
+
+void ResourceSystem::on_shutdown() noexcept
+{
+    shutdown_reads();
+    files_.shutdown_async();
+    files_ = {};
+    catalog_ = {};
+    error_ = ResourceError::none;
+    last_error_.clear();
 }
 
 bool ResourceSystem::read_catalog(const std::filesystem::path& root, ResourceCatalog& output)
@@ -516,7 +694,7 @@ bool ResourceSystem::read_catalog(const std::filesystem::path& root, ResourceCat
             return false;
         }
     }
-    if (!read_binary(root / "catalog.bin", bytes))
+    if (!VirtualFileSystem::read_file(root / "catalog.bin", bytes))
     {
         return false;
     }
@@ -602,336 +780,22 @@ bool ResourceSystem::read_resource(const ResourceCatalog& catalog, const MountLi
 bool ResourceSystem::read_header(std::string_view guid, schema::ResourceHeaderDataT& output)
 {
     output = {};
+    error_ = ResourceError::none;
     last_error_.clear();
+    if (!is_initialized())
+    {
+        return fail(ResourceError::unavailable, "Resource reader is unavailable");
+    }
     const auto* entry = catalog_.find(guid);
     ByteBuffer bytes;
     if (entry == nullptr || !entry->location ||
         !files_.read(*entry->location, 0, entry->header_size, bytes) ||
         !parse_header(*entry, bytes, output))
     {
-        last_error_ = "Cannot read resource header: " + std::string(guid);
-        return false;
+        output = {};
+        return fail(ResourceError::io_failed, "Cannot read resource header: " + std::string(guid));
     }
     return true;
-}
-
-bool ResourceSystem::load(std::string_view guid, ResourcePtr& output)
-{
-    // GUID 可能借用自 output 的元数据；先保存再清空调用方引用。
-    const Guid identity(guid);
-    guid = identity;
-    output.reset();
-    last_error_.clear();
-    if (!is_initialized() || !GuidMap::valid_guid(guid) || catalog_.find(guid) == nullptr)
-    {
-        last_error_ = "Unknown resource or resource system not initialized: " + std::string(guid);
-        return false;
-    }
-    const auto* entry = catalog_.find(guid);
-    ByteBuffer entity;
-    if (entry->location || !entry->path.starts_with("builtin://"))
-    {
-        if (!entry->location || !files_.read(*entry->location, 0, entry->content_size, entity))
-        {
-            last_error_ = "Invalid resource entity: " + entry->path;
-            return false;
-        }
-    }
-    if (!decode_loaded(catalog_, generation_, guid, entity, output))
-    {
-        last_error_ = "Invalid resource entity or declared reference: " + entry->path;
-        return false;
-    }
-    return true;
-}
-
-bool ResourceSystem::decode_loaded(const ResourceCatalog& catalog, std::uint64_t generation,
-                                   std::string_view guid, ByteView entity, ResourcePtr& output)
-{
-    output.reset();
-    const auto* entry = catalog.find(guid);
-    if (entry == nullptr)
-    {
-        return false;
-    }
-    ByteBuffer payload;
-    if ((entry->location || !entry->path.starts_with("builtin://")) &&
-        !decode_resource(*entry, entity, payload))
-    {
-        return false;
-    }
-    auto resource = std::shared_ptr<Resource>(new Resource());
-    resource->generation_ = generation;
-    resource->info_ = *entry;
-    const auto* codec = find_resource_codec(entry->kind);
-    if (!codec || !codec->decode(catalog, payload, *resource))
-    {
-        return false;
-    }
-    output = std::move(resource);
-    return true;
-}
-
-bool ResourceSystem::validate_dependencies(const Resource& resource,
-                                           std::span<const ResourcePtr> dependencies) const
-{
-    const auto& info = resource.info();
-    const auto* current = catalog_.find(info.guid);
-    if (!is_initialized() || resource.generation() != generation_ || current == nullptr ||
-        *current != info || dependencies.size() != info.dependencies.size())
-    {
-        return false;
-    }
-    std::map<std::string_view, const Resource*, std::less<>> references;
-    for (const auto& dependency : dependencies)
-    {
-        if (!dependency || dependency->generation() != generation_ ||
-            !references.emplace(dependency->info().guid, dependency.get()).second)
-        {
-            return false;
-        }
-        const auto* declared = catalog_.find(dependency->info().guid);
-        if (declared == nullptr || *declared != dependency->info())
-        {
-            return false;
-        }
-    }
-    for (const auto& guid : info.dependencies)
-    {
-        if (!references.contains(guid))
-        {
-            return false;
-        }
-    }
-    const auto* codec = find_resource_codec(info.kind);
-    return codec && codec->validate_dependencies(catalog_, resource, dependencies);
-}
-
-bool ResourceSystem::path_to_guid(std::string_view path, Guid& output)
-{
-    return (definition_owner &&
-            definition_owner->catalog_.identities().path_to_guid(path, output)) ||
-           builtin_identities().path_to_guid(path, output);
-}
-
-bool ResourceSystem::guid_to_path(std::string_view guid, std::string& output)
-{
-    return (definition_owner &&
-            definition_owner->catalog_.identities().guid_to_path(guid, output)) ||
-           builtin_identities().guid_to_path(guid, output);
-}
-
-bool ResourceSystem::register_texture(const schema::TextureDataT& data)
-{
-    if (!data.path.starts_with("builtin://") || !TextureResourceCodec::validate(data) ||
-        meshes.contains(data.path) || materials.contains(data.path) || shaders.contains(data.path))
-    {
-        return false;
-    }
-    const auto existing = textures.find(data.path);
-    if (existing != textures.end())
-    {
-        return *existing->second == data;
-    }
-    textures.emplace(data.path, std::make_unique<schema::TextureDataT>(data));
-    return true;
-}
-
-const schema::TextureDataT* ResourceSystem::find_texture(std::string_view path) noexcept
-{
-    Guid guid;
-    if (definition_owner && path_to_guid(path, guid))
-    {
-        const auto* entry = definition_owner->catalog_.find(guid);
-        if (entry && entry->location)
-        {
-            const auto resource = definition_owner->loader().find(guid);
-            return resource ? resource->texture() : nullptr;
-        }
-    }
-    const auto builtin = textures.find(path);
-    if (builtin != textures.end())
-    {
-        return builtin->second.get();
-    }
-    return nullptr;
-}
-
-bool ResourceSystem::register_mesh(const schema::MeshDataT& data)
-{
-    if (!data.path.starts_with("builtin://") || !MeshResourceCodec::validate(data) ||
-        shaders.contains(data.path) || materials.contains(data.path) ||
-        textures.contains(data.path))
-    {
-        return false;
-    }
-    const auto existing = meshes.find(data.path);
-    if (existing != meshes.end())
-    {
-        return *existing->second == data;
-    }
-    meshes.emplace(data.path, std::make_unique<schema::MeshDataT>(data));
-    return true;
-}
-
-bool ResourceSystem::register_shader(const schema::ShaderDataT& data)
-{
-    if (!data.path.starts_with("builtin://") || !ShaderResourceCodec::validate(data) ||
-        meshes.contains(data.path) || materials.contains(data.path) || textures.contains(data.path))
-    {
-        return false;
-    }
-    const auto existing = shaders.find(data.path);
-    if (existing != shaders.end())
-    {
-        return *existing->second == data;
-    }
-    shaders.emplace(data.path, std::make_unique<schema::ShaderDataT>(data));
-    return true;
-}
-
-bool ResourceSystem::register_material(const schema::MaterialDataT& data)
-{
-    const auto shader = shaders.find(data.shader_path);
-    if (!data.type_path.starts_with("builtin://") || shader == shaders.end() ||
-        !MaterialResourceCodec::validate(data, shader->second.get()) ||
-        meshes.contains(data.type_path) || shaders.contains(data.type_path) ||
-        textures.contains(data.type_path))
-    {
-        return false;
-    }
-    const auto existing = materials.find(data.type_path);
-    if (existing != materials.end())
-    {
-        return *existing->second == data;
-    }
-    materials.emplace(data.type_path, std::make_unique<schema::MaterialDataT>(data));
-    return true;
-}
-
-const schema::MeshDataT* ResourceSystem::find_mesh(std::string_view path) noexcept
-{
-    Guid guid;
-    if (definition_owner && path_to_guid(path, guid))
-    {
-        const auto* entry = definition_owner->catalog_.find(guid);
-        if (entry && entry->location)
-        {
-            const auto resource = definition_owner->loader().find(guid);
-            return resource ? resource->mesh() : nullptr;
-        }
-    }
-    const auto builtin = meshes.find(path);
-    if (builtin != meshes.end())
-    {
-        return builtin->second.get();
-    }
-    return nullptr;
-}
-
-const schema::ShaderDataT* ResourceSystem::find_shader(std::string_view path) noexcept
-{
-    Guid guid;
-    if (definition_owner && path_to_guid(path, guid))
-    {
-        const auto* entry = definition_owner->catalog_.find(guid);
-        if (entry && entry->location)
-        {
-            const auto resource = definition_owner->loader().find(guid);
-            return resource ? resource->shader() : nullptr;
-        }
-    }
-    const auto builtin = shaders.find(path);
-    if (builtin != shaders.end())
-    {
-        return builtin->second.get();
-    }
-    return nullptr;
-}
-
-const schema::MaterialDataT* ResourceSystem::find_material(std::string_view path) noexcept
-{
-    Guid guid;
-    if (definition_owner && path_to_guid(path, guid))
-    {
-        const auto* entry = definition_owner->catalog_.find(guid);
-        if (entry && entry->location)
-        {
-            const auto resource = definition_owner->loader().find(guid);
-            return resource ? resource->material() : nullptr;
-        }
-    }
-    const auto builtin = materials.find(path);
-    if (builtin != materials.end())
-    {
-        return builtin->second.get();
-    }
-    return nullptr;
-}
-
-bool ResourceSystem::on_initialize(const EngineConfig&)
-{
-    if (definition_owner != nullptr)
-    {
-        return false;
-    }
-    flatbuffers::Parser parser;
-    if (!parser.Parse("table DependencyProbe { value:uint; } root_type DependencyProbe;"))
-    {
-        return false;
-    }
-    std::set<std::string> old_paths;
-    for (const auto& [path, unused] : shaders)
-    {
-        old_paths.insert(path);
-    }
-    for (const auto& [path, unused] : materials)
-    {
-        old_paths.insert(path);
-    }
-    for (const auto& [path, unused] : meshes)
-    {
-        old_paths.insert(path);
-    }
-    for (const auto& [path, unused] : textures)
-    {
-        old_paths.insert(path);
-    }
-    schema::AssetCatalogDataT empty;
-    empty.schema_version = 2;
-    empty.revision = "builtin-only";
-    empty.target_platform = target_platform();
-    if (!register_builtin_render_resources() || !update_catalog(empty, {}))
-    {
-        std::erase_if(textures,
-                      [&old_paths](const auto& item) { return !old_paths.contains(item.first); });
-        std::erase_if(materials,
-                      [&old_paths](const auto& item) { return !old_paths.contains(item.first); });
-        std::erase_if(shaders,
-                      [&old_paths](const auto& item) { return !old_paths.contains(item.first); });
-        std::erase_if(meshes,
-                      [&old_paths](const auto& item) { return !old_paths.contains(item.first); });
-        return false;
-    }
-    definition_owner = this;
-    return true;
-}
-
-void ResourceSystem::on_shutdown() noexcept
-{
-    shutdown_async();
-    if (definition_owner == this)
-    {
-        loader_ = nullptr;
-        catalog_ = {};
-        files_ = {};
-        textures.clear();
-        meshes.clear();
-        materials.clear();
-        shaders.clear();
-        definition_owner = nullptr;
-        last_error_.clear();
-    }
 }
 
 } // namespace engine

@@ -1,5 +1,7 @@
 # 音频系统
 
+**资源接入状态：已按用户确认的统一资源契约迁移；验证结果见[测试文档](../../testing.md)。** 音频接收已加载句柄并通过注入的高层接口保活；不直接依赖核心读取或默认资源插件。其他设备、时钟与场景行为沿用既有契约，见[统一资源生命周期](resource-lifecycle.md)。
+
 独立影片声部与场景声部复用同一设备；状态及时间语义见[影片复用音频](movie-audio.md)。本页统一维护 AudioSystem 的公开方法。
 
 [类图索引](../../class-diagrams/index.md) · [音频组件](audio-components.md) · [运行时音频](../audio.md)
@@ -9,10 +11,10 @@ classDiagram
     direction TB
     class AudioSystem {
         <<final>>
-        +AudioSystem(WorldSystem#42; world)
+        +AudioSystem(ResourceLoader& resources, WorldSystem#42; world)
         +~AudioSystem()
         +set_world(WorldSystem#42; world) bool
-        +play(ResourcePtr clip, AudioVoiceHandle& output) bool
+        +play(const ResourceHandle& clip, AudioVoiceHandle& output) bool
         +set_paused(AudioVoiceHandle handle, bool paused) bool
         +stop(AudioVoiceHandle handle) bool
         +playback(AudioVoiceHandle handle, AudioPlaybackStatus& output) bool
@@ -40,6 +42,10 @@ classDiagram
     class Transform
     class EngineConfig
     class Resource
+    class ResourceLoader
+    class ResourceHandle
+    AudioSystem --> ResourceLoader : 必需借用 生命周期覆盖音频系统
+    AudioSystem *-- ResourceHandle : 每个声部独立获取
     class SDL_AudioStream {
         <<external>>
     }
@@ -50,14 +56,14 @@ classDiagram
     AudioSystem --> "0..1" WorldSystem : 借用至关闭
     AudioSystem *-- "0..*" SDL_AudioStream : 独占声源流
     AudioSystem *-- "0..1" SDL_AudioDevice : 按需打开并关闭
-    AudioSystem o-- "0..*" Resource : voice共享拥有不可变PCM至流销毁
+    AudioSystem ..> Resource : 通过有效获取借用PCM至流销毁
     AudioSystem ..> AudioSource : 执行请求并回写状态
     AudioSystem ..> AudioListener : 读取首个启用监听器
     AudioSystem ..> Transform : 读取世界位置和朝向
     AudioSystem ..> EngineConfig : 初始化参数
 ```
 
-`AudioSystem` 属于 `engine`，SDL 类型仅出现在私有实现。构造参数允许空世界，此时初始化和空更新不打开音频。设备或流失败通过返回值和 `last_error()` 表达；不会自动选 dummy 输出。所有公开操作由宿主主线程调用，`clear()` 与析构为 `noexcept`。
+`AudioSystem` 属于 `engine`，SDL 类型仅出现在私有实现。世界参数允许为空，此时初始化和空更新不打开音频；ResourceLoader 为必需借用。play 先 get 检查 AudioClip 类型并 retain 声部获取，失败输出空且不读取文件；流销毁并同步回调后才释放该获取。设备或流失败通过返回值和 `last_error()` 表达；不会自动选 dummy 输出。所有公开操作由宿主主线程调用，`clear()` 与析构为 `noexcept`。
 
 暂停或停用声源仍占一个 voice；停用组件或其节点解除设备绑定，保留游标和播放意图，恢复激活后继续。隐藏不影响播放。停止或删除在音频更新时释放，宿主主动 `clear()` 同步释放。后台暂停同样保留游标与组件状态。节点引用每帧通过世界级节点 ID 查找，系统不持有悬空节点指针。Voice 同时校验基类 Component 的实例身份与声源修订号，同节点重新添加组件不能继承旧流或游标。自然播放完毕后保留已打开的设备至 `clear()` 或关闭，防止截断输出缓冲中的尾音。
 

@@ -1,10 +1,13 @@
 #include "runtime/ui/ui_system.hpp"
+#include "runtime/resource/types/shader_resource.hpp"
+#include "runtime/resource/types/texture_resource.hpp"
+#include "runtime/resource/types/ui_resource.hpp"
 #include "runtime/scene/ecs_scene.hpp"
 #include "runtime/scene/ecs_storage.hpp"
 
 #include "runtime/font/font_system.hpp"
 #include "runtime/performance/profiling.hpp"
-#include "runtime/resource/resource.hpp"
+#include "runtime/resource/resource_reference.hpp"
 #include "runtime/scene/node.hpp"
 #include "runtime/scene/scene.hpp"
 #include "runtime/scene/ui_component.hpp"
@@ -190,7 +193,7 @@ struct UiSystem::State final : Rml::EventListener
         std::uint64_t revision = 0;
         std::uint64_t order = 0;
         std::uint64_t id = 0;
-        ResourcePtr resource;
+        resource_detail::ResourceReference resource;
         std::string key;
         Rml::Context* context = nullptr;
         Rml::ElementDocument* markup = nullptr;
@@ -486,8 +489,11 @@ bool UiSystem::synchronize()
     {
         const auto node = world_.find_node(document.node);
         const auto ui = node ? node.get_component<UiComponent>() : UiComponent{};
-        return ui && node.scene()->id() == document.scene && ui.instance_id() == document.view &&
-               ui.document_revision() == document.revision && ui.document() == document.resource;
+        const Resource* current = nullptr;
+        return ui && world_.resource_loader() &&
+               world_.resource_loader()->get(ui.document(), current) == ResourceError::none &&
+               node.scene()->id() == document.scene && ui.instance_id() == document.view &&
+               ui.document_revision() == document.revision && current == document.resource.get();
     };
     bool changed = false;
     std::erase_if(state_->documents,
@@ -511,7 +517,7 @@ bool UiSystem::synchronize()
             (void)stored;
 
             const auto ui = node.get_component<UiComponent>();
-            if (!ui || !ui.document())
+            if (!ui || ui.document().id == 0)
             {
                 return true;
             }
@@ -529,7 +535,10 @@ bool UiSystem::synchronize()
             candidate.id = next_document_id();
             candidate.order = state.order;
             candidate.persistent = node.persistent();
-            candidate.resource = ui.document();
+            if (!candidate.resource.retain(world_.resource_loader(), ui.document()))
+            {
+                return false;
+            }
             candidate.key = candidate.resource->info().guid + "-" +
                             std::to_string(candidate.resource->generation());
             if (candidate.id == 0 || !state_->activate(candidate))
@@ -545,7 +554,7 @@ bool UiSystem::synchronize()
                 return false;
             }
             candidate.markup = candidate.context->LoadDocumentFromMemory(
-                candidate.resource->ui()->markup,
+                candidate.resource.data<UiResource>()->markup,
                 "engine-ui/" + candidate.key + "/" + candidate.resource->info().path);
             if (!candidate.markup)
             {

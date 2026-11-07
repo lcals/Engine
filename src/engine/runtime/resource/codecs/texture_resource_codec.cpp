@@ -1,8 +1,8 @@
 #include "runtime/resource/codecs/texture_resource_codec.hpp"
 
+#include "runtime/core/guid_map.hpp"
 #include "runtime/resource/ktx_texture.hpp"
-#include "runtime/resource/resource_catalog.hpp"
-#include "runtime/resource/resource_system.hpp"
+#include <set>
 
 #include <basisu/transcoder/basisu_transcoder.h>
 #include <flatbuffers/verifier.h>
@@ -95,35 +95,55 @@ bool TextureResourceCodec::validate(const schema::TextureDataT& data)
     return true;
 }
 
-bool TextureResourceCodec::decode(const ResourceCatalog&, ByteView payload, Resource& output) const
+schema::AssetKind TextureResourceCodec::kind() const noexcept
 {
-    const auto& entry = output.info();
-    std::unique_ptr<schema::TextureDataT> data;
-    if (entry.path.starts_with("builtin://") && !entry.location)
+    return schema::AssetKind::texture;
+}
+
+bool TextureResourceCodec::decode(const schema::AssetEntryT& entry, ByteView payload,
+                                  std::unique_ptr<Resource>& output, std::string& error) const
+{
+    if (output)
     {
-        const auto* builtin = ResourceSystem::find_texture(entry.path);
-        if (!builtin)
-        {
-            return false;
-        }
-        data = std::make_unique<schema::TextureDataT>(*builtin);
-    }
-    else
-    {
-        const auto* bytes = reinterpret_cast<const std::uint8_t*>(payload.data());
-        flatbuffers::Verifier verifier(bytes, payload.size());
-        if (!schema::VerifyTextureDataBuffer(verifier))
-        {
-            return false;
-        }
-        data = schema::UnPackTextureData(bytes);
-    }
-    if (data->path != entry.path || !validate(*data))
-    {
+        error = "Resource output must be empty";
         return false;
     }
-    store(output, std::move(data));
+    error.clear();
+    if (entry.kind != kind() || payload.empty() || payload.size() > 64U * 1024U * 1024U)
+    {
+        error = "Invalid resource kind or payload size";
+        return false;
+    }
+    const auto* bytes = reinterpret_cast<const std::uint8_t*>(payload.data());
+    flatbuffers::Verifier verifier(bytes, payload.size());
+    if (!schema::VerifyTextureDataBuffer(verifier))
+    {
+        error = "Invalid Texture FlatBuffer";
+        return false;
+    }
+    auto data = schema::UnPackTextureData(bytes);
+    output = std::make_unique<ResourceType>(entry, std::move(*data));
     return true;
 }
 
+bool TextureResourceCodec::validate_data(const Resource& resource, std::string& error) const
+{
+    const auto* data = resource_detail::data<ResourceType>(&resource);
+    if (!data || !(resource.info().dependencies.empty() && data->path == resource.info().path &&
+                   validate(*data)))
+    {
+        error = "Invalid Texture data or declared dependencies";
+        return false;
+    }
+    error.clear();
+    return true;
+}
+
+bool TextureResourceCodec::validate_dependencies(const Resource& resource,
+                                                 ResourceView dependencies,
+                                                 std::string& error) const
+{
+    error.clear();
+    return resource.info().dependencies.empty() && dependencies.empty();
+}
 } // namespace engine

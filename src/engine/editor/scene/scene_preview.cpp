@@ -1,4 +1,6 @@
 #include "editor/scene/scene_preview.hpp"
+#include "editor/resource_access.hpp"
+#include "runtime/resource/virtual_file_system.hpp"
 
 #include "editor/asset_pipeline/project_lock.hpp"
 #include "editor/commands/editor_commands.hpp"
@@ -205,6 +207,7 @@ struct ScenePreview::State
     std::int64_t catalog_checked_at = 0;
     fs::file_time_type catalog_stamp{};
     std::string resource_revision;
+    ResourceCatalog preview_catalog;
     std::string path;
     std::string error;
     std::map<std::string, SceneSavedResource, std::less<>> saved_resources;
@@ -315,17 +318,18 @@ struct ScenePreview::State
         return true;
     }
 
-    void checkpoint()
+    bool checkpoint()
     {
         if (commands)
         {
             commands->clear_history();
             saved_revision = commands->mutation_revision();
         }
-        if (const auto* resources = ResourceSystem::instance())
+        if (!ResourceSystem::read_catalog(project_root / "cache", preview_catalog))
         {
-            resource_revision = resources->catalog().revision();
+            return fail("Cannot checkpoint preview resource directory");
         }
+        resource_revision = preview_catalog.revision();
         std::error_code ignored;
         catalog_stamp = fs::last_write_time(project_root / "cache/catalog.bin", ignored);
         saved_resources.clear();
@@ -333,6 +337,7 @@ struct ScenePreview::State
         saved_import_complete = false;
         reload_pending = false;
         error.clear();
+        return true;
     }
 
     bool open(std::string_view requested, const Json& arguments)
@@ -369,6 +374,11 @@ struct ScenePreview::State
         if (!environment.refresh_resources(gameplay))
         {
             return fail("Cannot refresh the editor resource directory");
+        }
+        resource_access::ResourceReference root;
+        if (!resource_access::load(world.resource_loader(), requested, root))
+        {
+            return fail("Cannot prepare preview scene: " + std::string(requested));
         }
         auto* scene = world.load_scene(requested);
         if (!scene)
@@ -408,8 +418,7 @@ struct ScenePreview::State
             close();
             return fail("Cannot prepare preview rendering resources");
         }
-        checkpoint();
-        return true;
+        return checkpoint();
     }
 
     bool refresh(bool discard_changes, bool rebuild)
@@ -439,7 +448,8 @@ struct ScenePreview::State
             reload_pending = true;
             return false;
         }
-        if (!world.load_scene(path))
+        resource_access::ResourceReference root;
+        if (!resource_access::load(world.resource_loader(), path, root) || !world.load_scene(path))
         {
             reload_pending = true;
             return fail("Cannot reload preview scene; the current scene was retained");
@@ -450,8 +460,7 @@ struct ScenePreview::State
             close();
             return fail("Cannot prepare refreshed preview rendering resources");
         }
-        checkpoint();
-        return true;
+        return checkpoint();
     }
 
     bool configure_input()
@@ -577,12 +586,11 @@ struct ScenePreview::State
     bool matches_saved_catalog(const ResourceCatalog& catalog) const
     {
 #if ENGINE_HAS_ASSET_PIPELINE
-        const auto* resources = ResourceSystem::instance();
-        if (!saved_import_pending || !saved_import_complete || resources == nullptr)
+        if (!saved_import_pending || !saved_import_complete)
         {
             return false;
         }
-        const auto& previous = resources->catalog();
+        const auto& previous = preview_catalog;
         if (previous.data().schema_version != catalog.data().schema_version ||
             previous.data().target_platform != catalog.data().target_platform)
         {
@@ -611,8 +619,8 @@ struct ScenePreview::State
             auto meta_path = saved.source;
             meta_path += ".meta";
             if (catalog.find(guid) == nullptr ||
-                !ResourceSystem::read_binary(saved.source, source) ||
-                !ResourceSystem::read_binary(meta_path, meta) ||
+                !VirtualFileSystem::read_file(saved.source, source) ||
+                !VirtualFileSystem::read_file(meta_path, meta) ||
                 asset_pipeline::hash_bytes(source) != saved.source_hash ||
                 asset_pipeline::hash_bytes(meta) != saved.meta_hash)
             {
@@ -688,6 +696,7 @@ struct ScenePreview::State
                     return;
                 }
                 resource_revision = catalog.revision();
+                preview_catalog = catalog;
                 catalog_stamp = stamp;
                 saved_resources.clear();
                 saved_import_pending = false;

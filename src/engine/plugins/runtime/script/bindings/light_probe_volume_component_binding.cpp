@@ -1,9 +1,9 @@
 #include "plugins/runtime/script/bindings/light_probe_volume_component_binding.hpp"
 
 #include "plugins/runtime/script/bindings/binding_context.hpp"
-#include "runtime/resource/resource_system.hpp"
 #include "runtime/scene/light_probe_volume_component.hpp"
 #include "runtime/scene/node.hpp"
+#include "runtime/scene/resource_binding.hpp"
 
 namespace engine::plugins::script::bindings
 {
@@ -36,7 +36,7 @@ void resource(const Arguments& arguments)
     std::string path;
     LightProbeVolumeSettings settings;
     if (component && arguments.count() == 3 && BindingContext::text(arguments, 2, path) &&
-        (path.empty() || ResourceSystem::path_to_guid(path, settings.probes_guid)))
+        (path.empty() || ecs_detail::resource_guid(node, path, settings.probes_guid)))
     {
         arguments.set_return(component.set_settings(settings));
     }

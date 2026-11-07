@@ -1,5 +1,6 @@
+import { resourceStub } from "./resource_mock.mjs";
 // 仅模拟已有宿主契约；不实现渲染、物理、资源异步调度或 RmlUi 布局。
-export const engineStub = String.raw`
+export const engineStub = resourceStub + String.raw`
 export const fixture = {
     scene: null,
     failDocument: false, failRefreshOnce: false, views: [], nodes: [], loads: [],
@@ -9,7 +10,7 @@ export const fixture = {
         for (const node of this.nodes) node.live = false;
         this.scene = null; this.failDocument = false; this.failRefreshOnce = false;
         this.views = []; this.nodes = []; this.loads = []; this.pendingLoad = null;
-        this.loadStatus = "ready"; this.failCommit = false; this.cancellations = 0;
+        this.pendingResource = null; this.loadStatus = "ready"; this.failCommit = false; this.cancellations = 0;
         this.movie = null; this.movieReleased = 0;
     },
     element(id) {
@@ -133,7 +134,7 @@ export const MovieState = { preparing: 0, playing: 1, paused: 2, completed: 3, c
 export const MovieStopReason = { none: 0, stopped: 1, skipped: 2 };
 export const Movie = {
     lastError: "fixture rejection",
-    Play(path) { if (fixture.movie) return null; fixture.movie = { id: 1n, generation: 1n, path, state: MovieState.preparing }; return fixture.movie; },
+    Play(resource) { const path = acquisitions.get(resource); if (!path || fixture.movie) return null; fixture.movie = { id: 1n, generation: 1n, path, state: MovieState.preparing }; return fixture.movie; },
     Status(handle) { return fixture.movie === handle ? { state: handle.state, error: "" } : null; },
     Stop(handle) { if (fixture.movie !== handle) return false; handle.state = MovieState.cancelled; return true; },
     Release(handle) { if (fixture.movie !== handle) return false; fixture.movie = null; ++fixture.movieReleased; return true; },

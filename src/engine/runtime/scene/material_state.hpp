@@ -1,5 +1,6 @@
 #pragma once
 
+#include "runtime/resource/resource_reference.hpp"
 #include "runtime/scene/material.hpp"
 
 namespace engine
@@ -8,6 +9,9 @@ struct MaterialState
 {
 public:
     MaterialState() noexcept = default;
+    explicit MaterialState(Node owner) noexcept : owner_(owner)
+    {
+    }
     std::uint64_t identity = 0;
 
     [[nodiscard]] std::string type_path() const noexcept;
@@ -32,7 +36,8 @@ public:
     // 输出借用当前资源路径；失败输出空视图。
     [[nodiscard]] bool get_texture(std::string_view name, std::string_view& output) const noexcept;
     // 借用共享引用，未知名称返回空引用；修改材质后重新查询。
-    [[nodiscard]] std::shared_ptr<const Resource> texture(std::string_view name) const noexcept;
+    [[nodiscard]] const Resource* texture(std::string_view name) const noexcept;
+    [[nodiscard]] ResourceHandle texture_handle(std::string_view name) const noexcept;
     // 查询失败时输出零值。
     [[nodiscard]] bool get_float(std::string_view name, float& output) const noexcept;
     [[nodiscard]] bool get_v2(std::string_view name, Vec2& output) const noexcept;
@@ -41,15 +46,16 @@ public:
 
 private:
     friend class MeshRenderer;
+    Node owner_;
 
     [[nodiscard]] schema::MaterialParameterT* find_parameter(std::string_view name,
                                                              schema::MaterialValue type) noexcept;
     [[nodiscard]] const schema::MaterialParameterT*
     find_parameter(std::string_view name, schema::MaterialValue type) const noexcept;
 
-    std::shared_ptr<const Resource> material_resource_;
-    std::shared_ptr<const Resource> shader_resource_;
+    resource_detail::ResourceReference material_resource_;
+    resource_detail::ResourceReference shader_resource_;
     schema::MaterialDataT data_;
-    std::map<std::string, std::shared_ptr<const Resource>, std::less<>> textures_;
+    std::map<std::string, resource_detail::ResourceReference, std::less<>> textures_;
 };
 } // namespace engine

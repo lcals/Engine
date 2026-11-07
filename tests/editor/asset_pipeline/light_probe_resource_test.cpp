@@ -1,4 +1,5 @@
 #include "resource_fixture.hpp"
+#include "runtime/resource/virtual_file_system.hpp"
 
 #include "editor/asset_pipeline/asset_io.hpp"
 #include "editor/asset_pipeline/importers/light_probe_importer.hpp"
@@ -73,15 +74,18 @@ bool exercise()
     }
     test_support::ResourceFixture fixture;
     ResourceSystem resources;
-    if (!check(!fixture.root.empty() && resources.initialize({}) && fixture.add(data) &&
-                   fixture.publish(resources),
+    if (!check(!fixture.root.empty() && test_support::register_resource_codecs(resources) &&
+                   resources.initialize({}) && fixture.add(data) && fixture.publish(resources),
                "resource catalog publication succeeds"))
     {
         return false;
     }
-    ResourcePtr loaded;
-    if (!check(fixture.load(data.path, loaded) && loaded && loaded->light_probe() &&
-                   loaded->light_probe()->coefficients[63].x() == 7.5,
+    std::unique_ptr<Resource> loaded;
+    if (!check(fixture.read(resources, data.path, loaded) && loaded &&
+                   engine::resource_detail::data<engine::LightProbeResource>(loaded.get()) &&
+                   engine::resource_detail::data<engine::LightProbeResource>(loaded.get())
+                           ->coefficients[63]
+                           .x() == 7.5,
                "typed resource preserves x-fastest probe order and radiance SH"))
     {
         return false;
@@ -106,7 +110,7 @@ bool exercise()
                             std::as_bytes(std::span(builder.GetBufferPointer(), builder.GetSize())),
                             error) &&
                 importer.convert(asset, context, error) &&
-                ResourceSystem::read_binary(context.output / asset.guid, bytes),
+                VirtualFileSystem::read_file(context.output / asset.guid, bytes),
             "probe source imports"))
     {
         return false;

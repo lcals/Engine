@@ -3,8 +3,8 @@
 #include "runtime/scene/ecs_storage.hpp"
 
 #include "runtime/render/render_constants.hpp"
-#include "runtime/resource/resource_system.hpp"
 #include "runtime/scene/environment_component.hpp"
+#include "runtime/scene/environment_component_runtime.hpp"
 #include "runtime/scene/scene.hpp"
 
 #include <SDL3/SDL.h>
@@ -400,6 +400,7 @@ bool RenderSystem::SceneGpuResources::prepare_ibl(const Scene* scene, std::size_
 {
     EnvironmentSettings snapshot;
     const EnvironmentSettings* environment = nullptr;
+    std::array<ResourceHandle, 3> sources{};
     if (scene)
     {
         if (!scene->world().refresh_scene_state())
@@ -409,17 +410,22 @@ bool RenderSystem::SceneGpuResources::prepare_ibl(const Scene* scene, std::size_
         auto query =
             flecs::world(scene->world().native_world())
                 .query_builder<const ecs_detail::ComponentStorage<EnvironmentComponent::Data>,
-                               const ecs_detail::NodeRuntime>()
+                               const EnvironmentRuntime, const ecs_detail::NodeRuntime>()
                 .with<ecs_detail::Published>()
                 .build();
         query.each(
-            [&](const auto& stored, const ecs_detail::NodeRuntime& state)
+            [&](const auto& stored, const EnvironmentRuntime& runtime,
+                const ecs_detail::NodeRuntime& state)
             {
                 if (state.scene == scene && state.active && state.visible_in_hierarchy &&
                     stored.state.flags.enabled && stored.state.flags.visible)
                 {
                     snapshot = stored.data;
                     environment = &snapshot;
+                    for (std::size_t index = 0; index < sources.size(); ++index)
+                    {
+                        sources[index] = runtime.ibl[index].handle();
+                    }
                 }
             });
     }
@@ -432,18 +438,17 @@ bool RenderSystem::SceneGpuResources::prepare_ibl(const Scene* scene, std::size_
         ibl_generation = 0;
         return true;
     }
-    auto* resources = ResourceSystem::instance();
+    auto* resources = scene->world().resource_loader();
     if (resources == nullptr)
     {
         return false;
     }
     const std::array guids = {&environment->ibl_irradiance_guid, &environment->ibl_prefilter_guid,
                               &environment->ibl_lut_guid};
-    bool changed = ibl_generation != resources->generation();
+    bool changed = false;
     for (std::size_t index = 0; index < guids.size(); ++index)
     {
-        changed = changed || !ibl_textures[index].resource ||
-                  ibl_textures[index].resource->info().guid != *guids[index];
+        changed = changed || !ibl_textures[index].matches(sources[index]);
     }
     if (!changed)
     {
@@ -452,16 +457,16 @@ bool RenderSystem::SceneGpuResources::prepare_ibl(const Scene* scene, std::size_
     std::array<render_detail::GpuTexture, 3> candidate;
     for (std::size_t index = 0; index < guids.size(); ++index)
     {
-        ResourcePtr source;
-        const bool loaded = resources->loader().load(*guids[index], source);
-        const auto* texture = source ? source->texture() : nullptr;
+        const TextureResource* source = nullptr;
+        const bool loaded = resources->get(sources[index], source) == ResourceError::none;
+        const auto* texture = source ? &source->data() : nullptr;
         const bool cube = index < 2;
         const auto format = cube ? schema::TextureFormat::rgba16f : schema::TextureFormat::rg16f;
         render_detail::PreparedTexture prepared;
         if (!loaded || texture == nullptr || texture->cube_map != cube || texture->srgb ||
             texture->format != format ||
-            !prepared.describe(source, *bgfx::getCaps(), staging_bytes) || !prepared.prepare() ||
-            !candidate[index].create(prepared))
+            !prepared.describe(resources, sources[index], *bgfx::getCaps(), staging_bytes) ||
+            !prepared.prepare() || !candidate[index].create(prepared))
         {
             for (auto& item : candidate)
             {
@@ -477,7 +482,7 @@ bool RenderSystem::SceneGpuResources::prepare_ibl(const Scene* scene, std::size_
         ibl_textures[index].release();
         ibl_textures[index] = std::move(candidate[index]);
     }
-    ibl_generation = resources->generation();
+
     return true;
 }
 

@@ -91,8 +91,10 @@ if(TARGET engine_physics)
     set_tests_properties(engine.character_motor PROPERTIES TIMEOUT 60)
 endif()
 
-if(TARGET engine_audio)
+if(TARGET engine_audio AND TARGET engine_resource_graph)
     add_executable(engine_audio_test runtime/audio/audio_test.cpp)
+    target_link_libraries(engine_audio_test PRIVATE engine::resource_graph)
+    target_include_directories(engine_audio_test PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
     target_link_libraries(engine_audio_test PRIVATE engine::audio engine::world engine::resource
                                                     SDL3::SDL3)
     engine_apply_options(engine_audio_test)
@@ -100,11 +102,12 @@ if(TARGET engine_audio)
     set_tests_properties(engine.audio PROPERTIES TIMEOUT 60)
 endif()
 
-if(TARGET engine_ui_editor AND TARGET engine_asset_import)
+if(TARGET engine_ui_editor AND TARGET engine_asset_import AND TARGET engine_resource_graph)
     add_executable(engine_ui_editor_test plugins/editor/ui/ui_editor_test.cpp)
+    target_link_libraries(engine_ui_editor_test PRIVATE engine::resource_graph)
+    target_include_directories(engine_ui_editor_test PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
     target_link_libraries(engine_ui_editor_test PRIVATE engine::ui_editor engine::asset_import
         engine::render engine::font engine::input engine::world engine::resource SDL3::SDL3)
-    target_include_directories(engine_ui_editor_test PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
     engine_apply_options(engine_ui_editor_test)
     if(ENGINE_ENABLE_GPU_TESTS)
         add_test(NAME editor.ui_editor COMMAND engine_ui_editor_test
@@ -122,35 +125,37 @@ if(TARGET engine_script)
     add_test(NAME engine.project_script COMMAND engine_project_script_test)
     set_tests_properties(engine.project_script PROPERTIES TIMEOUT 60)
 
-    add_executable(engine_script_runtime_test plugins/runtime/script/script_runtime_test.cpp)
-    target_link_libraries(
-        engine_script_runtime_test
-        PRIVATE engine::script
-                engine::input
-                engine::window
-                SDL3::SDL3
-                engine::app
-                engine::log
-                engine::resource
-                engine::world
-                engine::render
-                nlohmann_json::nlohmann_json)
-    target_compile_definitions(engine_script_runtime_test PRIVATE JSON_NOEXCEPTION=1)
-    if(TARGET engine_effects)
-        target_link_libraries(engine_script_runtime_test PRIVATE engine::effects)
-        target_compile_definitions(engine_script_runtime_test PRIVATE ENGINE_TEST_EFFECTS_PLUGIN=1)
-    endif()
-    engine_apply_options(engine_script_runtime_test)
-    engine_copy_script_data(engine_script_runtime_test)
     if(TARGET engine_resource_graph)
+        add_executable(engine_script_runtime_test plugins/runtime/script/script_runtime_test.cpp)
         target_link_libraries(engine_script_runtime_test PRIVATE engine::resource_graph)
-        target_compile_definitions(engine_script_runtime_test PRIVATE ENGINE_TEST_RESOURCE_GRAPH=1)
-    endif()
-    add_test(NAME engine.script_runtime
-             COMMAND engine_script_runtime_test
-                     "${CMAKE_CURRENT_BINARY_DIR}/script-runtime-test-output")
-    set_tests_properties(engine.script_runtime PROPERTIES TIMEOUT 60)
+        target_include_directories(engine_script_runtime_test PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+        target_link_libraries(engine_script_runtime_test PRIVATE unofficial::libvpx::libvpx)
+        target_link_libraries(
+            engine_script_runtime_test
+            PRIVATE engine::script
+                    engine::input
+                    engine::window
+                    SDL3::SDL3
+                    engine::app
+                    engine::log
+                    engine::resource
+                    engine::world
+                    engine::render
+                    nlohmann_json::nlohmann_json)
+        target_compile_definitions(engine_script_runtime_test PRIVATE JSON_NOEXCEPTION=1)
+        if(TARGET engine_effects)
+            target_link_libraries(engine_script_runtime_test PRIVATE engine::effects)
+            target_compile_definitions(engine_script_runtime_test PRIVATE ENGINE_TEST_EFFECTS_PLUGIN=1)
+        endif()
+        engine_apply_options(engine_script_runtime_test)
+        engine_copy_script_data(engine_script_runtime_test)
 
+        target_compile_definitions(engine_script_runtime_test PRIVATE ENGINE_TEST_RESOURCE_GRAPH=1)
+        add_test(NAME engine.script_runtime
+                 COMMAND engine_script_runtime_test
+                         "${CMAKE_CURRENT_BINARY_DIR}/script-runtime-test-output")
+        set_tests_properties(engine.script_runtime PROPERTIES TIMEOUT 60)
+    endif()
 endif()
 
 if(TARGET engine_asset_sync)
@@ -252,9 +257,9 @@ if(TARGET mcp_app)
 endif()
 
 if(ENGINE_ENABLE_RUNTIME_DEPS
-   OR ENGINE_ENABLE_EDITOR_DEPS
-   OR ENGINE_ENABLE_ASSET_PIPELINE_DEPS
-   OR ENGINE_ENABLE_V8)
+    OR ENGINE_ENABLE_EDITOR_DEPS
+    OR ENGINE_ENABLE_ASSET_PIPELINE_DEPS
+    OR ENGINE_ENABLE_V8)
     add_executable(engine_dependency_systems_test build/dependency_systems_test.cpp)
     target_link_libraries(engine_dependency_systems_test PRIVATE engine::core)
     target_compile_definitions(
@@ -311,17 +316,21 @@ if(TARGET engine_modeling)
 endif()
 
 if(TARGET engine_modeling_editor)
-    add_executable(engine_modeling_commands_test plugins/editor/modeling/modeling_commands_test.cpp)
-    target_link_libraries(
-        engine_modeling_commands_test PRIVATE engine::modeling_editor engine::modeling
-                                              engine::editor engine::world engine::resource)
-    if(TARGET engine_modeling_mcp_tools)
-        target_link_libraries(engine_modeling_commands_test PRIVATE engine::modeling_mcp_tools)
-        target_compile_definitions(engine_modeling_commands_test PRIVATE ENGINE_TEST_MODELING_MCP=1)
+    if(TARGET engine_resource_graph)
+        add_executable(engine_modeling_commands_test plugins/editor/modeling/modeling_commands_test.cpp)
+        target_link_libraries(engine_modeling_commands_test PRIVATE engine::resource_graph)
+        target_include_directories(engine_modeling_commands_test PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+        target_link_libraries(
+            engine_modeling_commands_test PRIVATE engine::modeling_editor engine::modeling
+                                                  engine::editor engine::world engine::resource)
+        if(TARGET engine_modeling_mcp_tools)
+            target_link_libraries(engine_modeling_commands_test PRIVATE engine::modeling_mcp_tools)
+            target_compile_definitions(engine_modeling_commands_test PRIVATE ENGINE_TEST_MODELING_MCP=1)
+        endif()
+        engine_apply_options(engine_modeling_commands_test)
+        add_test(NAME modeling.commands COMMAND engine_modeling_commands_test)
+        set_tests_properties(modeling.commands PROPERTIES TIMEOUT 60)
     endif()
-    engine_apply_options(engine_modeling_commands_test)
-    add_test(NAME modeling.commands COMMAND engine_modeling_commands_test)
-    set_tests_properties(modeling.commands PROPERTIES TIMEOUT 60)
 endif()
 
 if(TARGET engine_asset_pipeline AND TARGET engine_modeling_importer)
@@ -335,10 +344,10 @@ if(TARGET engine_asset_pipeline AND TARGET engine_modeling_importer)
 endif()
 
 if(ENGINE_ENABLE_GPU_TESTS
-   AND TARGET editor_app
-   AND TARGET mcp_app
-   AND TARGET engine_script
-   AND TARGET engine_modeling_mcp_tools)
+    AND TARGET editor_app
+    AND TARGET mcp_app
+    AND TARGET engine_script
+    AND TARGET engine_modeling_mcp_tools)
     add_test(
         NAME modeling.mcp
         COMMAND
@@ -357,27 +366,37 @@ if(ENGINE_ENABLE_GPU_TESTS
 endif()
 
 if(TARGET engine_editor)
-    add_executable(engine_physics_audio_commands_test
-                   editor/commands/physics_audio_commands_test.cpp)
-    target_link_libraries(engine_physics_audio_commands_test PRIVATE engine::editor engine::world
-                                                                     engine::resource)
-    engine_apply_options(engine_physics_audio_commands_test)
-    add_test(NAME editor.physics_audio_commands COMMAND engine_physics_audio_commands_test)
-    set_tests_properties(editor.physics_audio_commands PROPERTIES TIMEOUT 30)
-    add_executable(engine_editor_commands_test editor/commands/editor_commands_test.cpp)
-    target_include_directories(engine_editor_commands_test
-                               PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
-    target_link_libraries(engine_editor_commands_test PRIVATE engine::editor engine::world
-                                                              engine::resource)
-    engine_apply_options(engine_editor_commands_test)
-    add_test(NAME editor.commands COMMAND engine_editor_commands_test)
-    set_tests_properties(editor.commands PROPERTIES TIMEOUT 30)
-    add_executable(engine_editor_environment_test editor/host/editor_environment_test.cpp)
-    target_link_libraries(engine_editor_environment_test PRIVATE engine::editor engine::project
-                                                                 engine::app engine::resource)
-    engine_apply_options(engine_editor_environment_test)
-    add_test(NAME engine.editor_environment COMMAND engine_editor_environment_test
-                                                    "${CMAKE_CURRENT_BINARY_DIR}")
+    if(TARGET engine_resource_graph)
+        add_executable(engine_physics_audio_commands_test
+                       editor/commands/physics_audio_commands_test.cpp)
+        target_link_libraries(engine_physics_audio_commands_test PRIVATE engine::resource_graph)
+        target_include_directories(engine_physics_audio_commands_test PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+        target_link_libraries(engine_physics_audio_commands_test PRIVATE engine::editor engine::world
+                                                                         engine::resource)
+        engine_apply_options(engine_physics_audio_commands_test)
+        add_test(NAME editor.physics_audio_commands COMMAND engine_physics_audio_commands_test)
+        set_tests_properties(editor.physics_audio_commands PROPERTIES TIMEOUT 30)
+        add_executable(engine_editor_commands_test editor/commands/editor_commands_test.cpp)
+        target_link_libraries(engine_editor_commands_test PRIVATE engine::resource_graph)
+        target_include_directories(engine_editor_commands_test PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+        target_include_directories(engine_editor_commands_test
+                                   PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+        target_link_libraries(engine_editor_commands_test PRIVATE engine::editor engine::world
+                                                                  engine::resource)
+        engine_apply_options(engine_editor_commands_test)
+        add_test(NAME editor.commands COMMAND engine_editor_commands_test)
+        set_tests_properties(editor.commands PROPERTIES TIMEOUT 30)
+
+        add_executable(engine_editor_environment_test editor/host/editor_environment_test.cpp)
+        target_link_libraries(engine_editor_environment_test PRIVATE engine::resource_graph)
+        target_include_directories(engine_editor_environment_test PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+        target_link_libraries(engine_editor_environment_test PRIVATE engine::editor engine::project
+                                                                     engine::app engine::resource)
+        engine_apply_options(engine_editor_environment_test)
+        add_test(NAME engine.editor_environment COMMAND engine_editor_environment_test
+                                                        "${CMAKE_CURRENT_BINARY_DIR}")
+    endif()
+
     add_executable(engine_editor_test editor/host/editor_system_test.cpp)
     target_link_libraries(engine_editor_test PRIVATE engine::editor engine::project imgui::imgui)
     engine_apply_options(engine_editor_test)
@@ -398,7 +417,7 @@ if(TARGET editor_app)
                          editor.cli_invalid_frames PROPERTIES WILL_FAIL TRUE TIMEOUT 10)
 endif()
 
-if(ENGINE_ENABLE_RUNTIME_DEPS)
+if(ENGINE_ENABLE_RUNTIME_DEPS AND TARGET engine_resource_graph)
     add_executable(engine_mesh_lod_selection_test runtime/render/mesh_lod_selection_test.cpp)
     target_include_directories(engine_mesh_lod_selection_test
                                PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
@@ -417,27 +436,42 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
     target_link_libraries(engine_planar_reflection_test PRIVATE engine::render bgfx::bx)
     engine_apply_options(engine_planar_reflection_test)
     add_test(NAME engine.planar_reflection COMMAND engine_planar_reflection_test)
-    add_executable(engine_render_foundation_test runtime/render/render_foundation_test.cpp)
-    target_link_libraries(engine_render_foundation_test PRIVATE engine::world engine::resource
-                                                                engine::render)
     if(TARGET engine_resource_graph)
+        add_executable(engine_render_foundation_test runtime/render/render_foundation_test.cpp)
         target_link_libraries(engine_render_foundation_test PRIVATE engine::resource_graph)
+        target_include_directories(engine_render_foundation_test PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+        target_link_libraries(engine_render_foundation_test PRIVATE engine::world engine::resource
+                                                                    engine::render)
+
         target_compile_definitions(engine_render_foundation_test
                                    PRIVATE ENGINE_TEST_RESOURCE_GRAPH=1)
+        engine_apply_options(engine_render_foundation_test)
+        add_test(NAME engine.render_foundation COMMAND engine_render_foundation_test)
+        set_tests_properties(engine.render_foundation PROPERTIES TIMEOUT 30)
+        add_executable(engine_window_render_test runtime/render/window_render_test.cpp)
+        target_link_libraries(engine_window_render_test PRIVATE engine::resource_graph)
+        target_include_directories(engine_window_render_test PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
     endif()
-    engine_apply_options(engine_render_foundation_test)
-    add_test(NAME engine.render_foundation COMMAND engine_render_foundation_test)
-    set_tests_properties(engine.render_foundation PROPERTIES TIMEOUT 30)
-    add_executable(engine_window_render_test runtime/render/window_render_test.cpp)
-    add_executable(engine_scene_hdr_capture_test runtime/render/scene_hdr_capture_test.cpp)
-    target_link_libraries(engine_scene_hdr_capture_test PRIVATE engine::runtime engine::window
-                          engine::render engine::world engine::resource SDL3::SDL3 bgfx::bgfx
-                          bgfx::bimg)
-    engine_apply_options(engine_scene_hdr_capture_test)
-    add_executable(engine_scene_hdr_transparency_test runtime/render/scene_hdr_transparency_test.cpp)
-    target_link_libraries(engine_scene_hdr_transparency_test PRIVATE engine::runtime engine::window
-                          engine::render engine::world engine::resource SDL3::SDL3)
-    engine_apply_options(engine_scene_hdr_transparency_test)
+
+    if(TARGET engine_resource_graph)
+        add_executable(engine_scene_hdr_capture_test runtime/render/scene_hdr_capture_test.cpp)
+        target_link_libraries(engine_scene_hdr_capture_test PRIVATE engine::resource_graph)
+        target_include_directories(engine_scene_hdr_capture_test PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+        target_link_libraries(engine_scene_hdr_capture_test PRIVATE engine::runtime engine::window
+                              engine::render engine::world engine::resource SDL3::SDL3 bgfx::bgfx
+                              bgfx::bimg)
+        engine_apply_options(engine_scene_hdr_capture_test)
+    endif()
+
+    if(TARGET engine_resource_graph)
+        add_executable(engine_scene_hdr_transparency_test runtime/render/scene_hdr_transparency_test.cpp)
+        target_link_libraries(engine_scene_hdr_transparency_test PRIVATE engine::resource_graph)
+        target_include_directories(engine_scene_hdr_transparency_test PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+        target_link_libraries(engine_scene_hdr_transparency_test PRIVATE engine::runtime engine::window
+                              engine::render engine::world engine::resource SDL3::SDL3)
+        engine_apply_options(engine_scene_hdr_transparency_test)
+    endif()
+
     add_executable(engine_hdr_extension_test runtime/render/hdr_extension_test.cpp)
     set(_extension_shader_dir "${CMAKE_CURRENT_BINARY_DIR}/generated/hdr-extension-test")
     engine_render_shader_profile(_extension_shader_platform _extension_shader_profile)
@@ -519,7 +553,7 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
     target_compile_definitions(engine_window_render_test PRIVATE
                                ENGINE_TEST_RUNTIME_SETTINGS="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/runtime-settings.json")
     if(TARGET engine_resource_graph)
-        target_link_libraries(engine_window_render_test PRIVATE engine::resource_graph)
+
         target_compile_definitions(engine_window_render_test PRIVATE ENGINE_TEST_RESOURCE_GRAPH=1)
     endif()
     if(ENGINE_ENABLE_GPU_TESTS)
@@ -567,18 +601,23 @@ if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
     engine_apply_options(engine_audio_pipeline_test)
     add_test(NAME editor.audio_pipeline COMMAND engine_audio_pipeline_test)
     set_tests_properties(editor.audio_pipeline PROPERTIES TIMEOUT 120)
-    add_executable(engine_texture_pipeline_test editor/asset_pipeline/texture_pipeline_test.cpp)
-    target_link_libraries(
-        engine_texture_pipeline_test PRIVATE engine::asset_pipeline engine::resource engine::world
-                                             engine::scene_data engine::render basisu::basisu_encoder
-                                             bgfx::bimg)
-    target_include_directories(engine_texture_pipeline_test
-                               PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
-    target_compile_definitions(engine_texture_pipeline_test
-                               PRIVATE ENGINE_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
-    engine_apply_options(engine_texture_pipeline_test)
-    add_test(NAME editor.texture_pipeline COMMAND engine_texture_pipeline_test)
-    set_tests_properties(editor.texture_pipeline PROPERTIES TIMEOUT 120)
+    if(TARGET engine_resource_graph)
+        add_executable(engine_texture_pipeline_test editor/asset_pipeline/texture_pipeline_test.cpp)
+        target_link_libraries(engine_texture_pipeline_test PRIVATE engine::resource_graph)
+        target_include_directories(engine_texture_pipeline_test PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+        target_link_libraries(
+            engine_texture_pipeline_test PRIVATE engine::asset_pipeline engine::resource engine::world
+                                                 engine::scene_data engine::render basisu::basisu_encoder
+                                                 bgfx::bimg)
+        target_include_directories(engine_texture_pipeline_test
+                                   PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+        target_compile_definitions(engine_texture_pipeline_test
+                                   PRIVATE ENGINE_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+        engine_apply_options(engine_texture_pipeline_test)
+        add_test(NAME editor.texture_pipeline COMMAND engine_texture_pipeline_test)
+        set_tests_properties(editor.texture_pipeline PROPERTIES TIMEOUT 120)
+    endif()
+
     add_executable(engine_prefab_fields_test editor/asset_pipeline/prefab_fields_test.cpp)
     target_link_libraries(engine_prefab_fields_test PRIVATE engine::asset_pipeline)
     engine_apply_options(engine_prefab_fields_test)
@@ -711,58 +750,77 @@ if(ENGINE_ENABLE_V8)
 endif()
 
 if(TARGET engine_world)
-    add_executable(engine_resource_catalog_test runtime/resource/resource_catalog_test.cpp)
-    target_link_libraries(engine_resource_catalog_test PRIVATE engine::world engine::resource)
-    engine_apply_options(engine_resource_catalog_test)
-    add_test(NAME engine.resource_catalog
-             COMMAND engine_resource_catalog_test
-                     "${CMAKE_CURRENT_BINARY_DIR}/resource-catalog-test-output")
-    set_tests_properties(engine.resource_catalog PROPERTIES TIMEOUT 30)
-    add_executable(engine_scene_test runtime/scene/scene_test.cpp)
-    target_link_libraries(engine_scene_test PRIVATE engine::world)
-    engine_apply_options(engine_scene_test)
-    add_test(NAME engine.scene COMMAND engine_scene_test)
-    set_tests_properties(engine.scene PROPERTIES TIMEOUT 30)
-    add_executable(engine_ecs_scene_test runtime/scene/ecs_scene_test.cpp)
-    target_link_libraries(engine_ecs_scene_test PRIVATE engine::world engine::scene_ecs)
-    engine_apply_options(engine_ecs_scene_test)
-    add_test(NAME engine.ecs_scene COMMAND engine_ecs_scene_test)
-    set_tests_properties(engine.ecs_scene PROPERTIES TIMEOUT 30)
+    if(TARGET engine_resource_graph)
+        add_executable(engine_resource_catalog_test runtime/resource/resource_catalog_test.cpp)
+        target_link_libraries(engine_resource_catalog_test PRIVATE engine::resource_graph)
+        target_include_directories(engine_resource_catalog_test PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+        target_link_libraries(engine_resource_catalog_test PRIVATE engine::world engine::resource)
+        engine_apply_options(engine_resource_catalog_test)
+        add_test(NAME engine.resource_catalog
+                 COMMAND engine_resource_catalog_test
+                         "${CMAKE_CURRENT_BINARY_DIR}/resource-catalog-test-output")
+        set_tests_properties(engine.resource_catalog PROPERTIES TIMEOUT 30)
 
-    add_executable(engine_prefab_test runtime/scene/prefab_test.cpp)
-    target_link_libraries(engine_prefab_test PRIVATE engine::world engine::resource)
-    if(TARGET engine_character_controller)
-        target_link_libraries(engine_prefab_test PRIVATE engine::character_controller)
-        target_compile_definitions(engine_prefab_test PRIVATE ENGINE_TEST_CHARACTER_CONTROLLER=1)
+        add_executable(engine_scene_test runtime/scene/scene_test.cpp)
+        target_link_libraries(engine_scene_test PRIVATE engine::resource_graph)
+        target_include_directories(engine_scene_test PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+
+        target_link_libraries(engine_scene_test PRIVATE engine::world)
+        engine_apply_options(engine_scene_test)
+        add_test(NAME engine.scene COMMAND engine_scene_test)
+        set_tests_properties(engine.scene PROPERTIES TIMEOUT 30)
     endif()
-    engine_apply_options(engine_prefab_test)
-    add_test(NAME engine.prefab COMMAND engine_prefab_test)
 
-    add_executable(engine_scene_data_test runtime/scene/scene_data_test.cpp)
-    target_link_libraries(engine_scene_data_test PRIVATE engine::world engine::resource)
-    engine_apply_options(engine_scene_data_test)
-    add_test(NAME engine.scene_data COMMAND engine_scene_data_test)
-    if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS AND ENGINE_NODE_EXECUTABLE)
-        find_package(
-            Python3
-            COMPONENTS Interpreter
-            REQUIRED)
-        add_test(
-            NAME engine.scene_schema_cross_language
-            COMMAND
-                "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/runtime/scene/scene_schema_test.py" --binary
-                "$<TARGET_FILE:engine_scene_data_test>" --generated
-                "${PROJECT_BINARY_DIR}/generated/typescript" --settings
-                "${PROJECT_SOURCE_DIR}/projects/showcase/settings" --work-dir
-                "${CMAKE_CURRENT_BINARY_DIR}" --node "${ENGINE_NODE_EXECUTABLE}")
-        set_tests_properties(engine.scene_schema_cross_language PROPERTIES TIMEOUT 180)
+    if(TARGET engine_resource_graph)
+        add_executable(engine_ecs_scene_test runtime/scene/ecs_scene_test.cpp)
+        target_link_libraries(engine_ecs_scene_test PRIVATE engine::resource_graph)
+        target_include_directories(engine_ecs_scene_test PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+        target_link_libraries(engine_ecs_scene_test PRIVATE engine::world engine::scene_ecs)
+        engine_apply_options(engine_ecs_scene_test)
+        add_test(NAME engine.ecs_scene COMMAND engine_ecs_scene_test)
+        set_tests_properties(engine.ecs_scene PROPERTIES TIMEOUT 30)
+    endif()
+
+    if(TARGET engine_resource_graph)
+        add_executable(engine_prefab_test runtime/scene/prefab_test.cpp)
+        target_link_libraries(engine_prefab_test PRIVATE engine::resource_graph)
+        target_include_directories(engine_prefab_test PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+        target_link_libraries(engine_prefab_test PRIVATE engine::world engine::resource)
+        if(TARGET engine_character_controller)
+            target_link_libraries(engine_prefab_test PRIVATE engine::character_controller)
+            target_compile_definitions(engine_prefab_test PRIVATE ENGINE_TEST_CHARACTER_CONTROLLER=1)
+        endif()
+        engine_apply_options(engine_prefab_test)
+        add_test(NAME engine.prefab COMMAND engine_prefab_test)
+
+        add_executable(engine_scene_data_test runtime/scene/scene_data_test.cpp)
+        target_link_libraries(engine_scene_data_test PRIVATE engine::resource_graph)
+        target_include_directories(engine_scene_data_test PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+        target_link_libraries(engine_scene_data_test PRIVATE engine::world engine::resource)
+        engine_apply_options(engine_scene_data_test)
+        add_test(NAME engine.scene_data COMMAND engine_scene_data_test)
+        if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS AND ENGINE_NODE_EXECUTABLE)
+            find_package(
+                Python3
+                COMPONENTS Interpreter
+                REQUIRED)
+            add_test(
+                NAME engine.scene_schema_cross_language
+                COMMAND
+                    "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/runtime/scene/scene_schema_test.py" --binary
+                    "$<TARGET_FILE:engine_scene_data_test>" --generated
+                    "${PROJECT_BINARY_DIR}/generated/typescript" --settings
+                    "${PROJECT_SOURCE_DIR}/projects/showcase/settings" --work-dir
+                    "${CMAKE_CURRENT_BINARY_DIR}" --node "${ENGINE_NODE_EXECUTABLE}")
+            set_tests_properties(engine.scene_schema_cross_language PROPERTIES TIMEOUT 180)
+        endif()
     endif()
 endif()
 
 if(TARGET editor_app
-   AND TARGET mcp_app
-   AND TARGET engine_script
-   AND ENGINE_ENABLE_GPU_TESTS)
+    AND TARGET mcp_app
+    AND TARGET engine_script
+    AND ENGINE_ENABLE_GPU_TESTS)
     add_test(
         NAME editor.project_lifecycle
         COMMAND
@@ -780,10 +838,10 @@ if(TARGET editor_app
 endif()
 
 if(TARGET editor_app
-   AND TARGET mcp_app
-   AND TARGET engine_asset_pipeline
-   AND NOT TARGET engine_script
-   AND ENGINE_ENABLE_GPU_TESTS)
+    AND TARGET mcp_app
+    AND TARGET engine_asset_pipeline
+    AND NOT TARGET engine_script
+    AND ENGINE_ENABLE_GPU_TESTS)
     add_test(
         NAME editor.without_script
         COMMAND
@@ -804,15 +862,19 @@ if(TARGET engine_asset_pipeline)
 endif()
 
 if(TARGET engine_modeling_editor AND TARGET engine_modeling_importer)
-    add_executable(engine_scene_persistence_test editor/scene/scene_persistence_test.cpp)
-    target_include_directories(engine_scene_persistence_test
-                               PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
-    target_link_libraries(
-        engine_scene_persistence_test
-        PRIVATE engine::modeling_editor engine::modeling_importer engine::editor
-                engine::asset_pipeline engine::world engine::resource)
-    engine_apply_options(engine_scene_persistence_test)
-    add_test(NAME editor.scene_persistence COMMAND engine_scene_persistence_test)
+    if(TARGET engine_resource_graph)
+        add_executable(engine_scene_persistence_test editor/scene/scene_persistence_test.cpp)
+        target_link_libraries(engine_scene_persistence_test PRIVATE engine::resource_graph)
+        target_include_directories(engine_scene_persistence_test PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+        target_include_directories(engine_scene_persistence_test
+                                   PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+        target_link_libraries(
+            engine_scene_persistence_test
+            PRIVATE engine::modeling_editor engine::modeling_importer engine::editor
+                    engine::asset_pipeline engine::world engine::resource)
+        engine_apply_options(engine_scene_persistence_test)
+        add_test(NAME editor.scene_persistence COMMAND engine_scene_persistence_test)
+    endif()
 endif()
 
 if(TARGET engine_resource_graph)
@@ -850,18 +912,27 @@ add_test(NAME engine.architecture_rules
          COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/build/architecture_rules_test.py")
 
 if(TARGET engine_world)
-    add_executable(engine_component_registry_test runtime/scene/component_registry_test.cpp)
-    target_link_libraries(engine_component_registry_test PRIVATE engine::world engine::resource engine::scene_ecs)
-    engine_apply_options(engine_component_registry_test)
-    add_test(NAME engine.component_registry COMMAND engine_component_registry_test)
+    if(TARGET engine_resource_graph)
+        add_executable(engine_component_registry_test runtime/scene/component_registry_test.cpp)
+        target_link_libraries(engine_component_registry_test PRIVATE engine::resource_graph)
+        target_include_directories(engine_component_registry_test PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+        target_link_libraries(engine_component_registry_test PRIVATE engine::world engine::resource engine::scene_ecs)
+        engine_apply_options(engine_component_registry_test)
+        add_test(NAME engine.component_registry COMMAND engine_component_registry_test)
+    endif()
 endif()
 
 if(TARGET engine_resource)
-    add_executable(engine_movie_player_test runtime/movie/movie_player_test.cpp)
-    target_link_libraries(engine_movie_player_test PRIVATE engine::movie engine::resource engine::task engine::audio unofficial::libvpx::libvpx)
-    engine_apply_options(engine_movie_player_test)
-    add_test(NAME resource.movie_player COMMAND engine_movie_player_test)
-    set_tests_properties(resource.movie_player PROPERTIES TIMEOUT 30)
+    if(TARGET engine_resource_graph)
+        add_executable(engine_movie_player_test runtime/movie/movie_player_test.cpp)
+        target_link_libraries(engine_movie_player_test PRIVATE engine::resource_graph)
+        target_include_directories(engine_movie_player_test PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+        target_link_libraries(engine_movie_player_test PRIVATE engine::movie engine::resource engine::task engine::audio unofficial::libvpx::libvpx)
+        engine_apply_options(engine_movie_player_test)
+        add_test(NAME resource.movie_player COMMAND engine_movie_player_test)
+        set_tests_properties(resource.movie_player PROPERTIES TIMEOUT 30)
+    endif()
+
     add_executable(engine_resource_codecs_test runtime/resource/resource_codecs_test.cpp)
     target_link_libraries(engine_resource_codecs_test PRIVATE engine::resource)
     engine_apply_options(engine_resource_codecs_test)
@@ -887,28 +958,34 @@ if(TARGET engine_animation)
     engine_apply_options(engine_animation_event_interval_test)
     add_test(NAME engine.animation_event_interval COMMAND engine_animation_event_interval_test)
 
-    add_executable(engine_animation_test runtime/animation/animation_test.cpp)
-    target_link_libraries(engine_animation_test PRIVATE engine::animation engine::world
-                                                        engine::resource)
-    engine_apply_options(engine_animation_test)
-    add_test(NAME engine.animation COMMAND engine_animation_test)
+    if(TARGET engine_resource_graph)
+        add_executable(engine_animation_test runtime/animation/animation_test.cpp)
+        target_link_libraries(engine_animation_test PRIVATE engine::resource_graph)
+        target_include_directories(engine_animation_test PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+        target_link_libraries(engine_animation_test PRIVATE engine::animation engine::world
+                                                            engine::resource)
+        engine_apply_options(engine_animation_test)
+        add_test(NAME engine.animation COMMAND engine_animation_test)
+    endif()
 endif()
 if(TARGET engine_asset_import)
-    add_executable(engine_fbx_pipeline_test plugins/editor/asset_import/fbx_pipeline_test.cpp)
-    target_link_libraries(engine_fbx_pipeline_test PRIVATE engine::asset_import engine::resource)
-    if(TARGET engine_asset_build)
-        target_link_libraries(engine_fbx_pipeline_test PRIVATE engine::asset_build)
-        target_compile_definitions(engine_fbx_pipeline_test PRIVATE ENGINE_FBX_TEST_BUILD=1)
-    endif()
     if(TARGET engine_resource_graph)
+        add_executable(engine_fbx_pipeline_test plugins/editor/asset_import/fbx_pipeline_test.cpp)
         target_link_libraries(engine_fbx_pipeline_test PRIVATE engine::resource_graph)
+        target_include_directories(engine_fbx_pipeline_test PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+        target_link_libraries(engine_fbx_pipeline_test PRIVATE engine::asset_import engine::resource)
+        if(TARGET engine_asset_build)
+            target_link_libraries(engine_fbx_pipeline_test PRIVATE engine::asset_build)
+            target_compile_definitions(engine_fbx_pipeline_test PRIVATE ENGINE_FBX_TEST_BUILD=1)
+        endif()
+
         target_compile_definitions(engine_fbx_pipeline_test PRIVATE ENGINE_FBX_TEST_GRAPH=1)
+        target_compile_definitions(
+            engine_fbx_pipeline_test
+            PRIVATE ENGINE_FBX_TEST_DATA_DIR="${PROJECT_SOURCE_DIR}/projects/showcase/assets/models")
+        engine_apply_options(engine_fbx_pipeline_test)
+        add_test(NAME editor.fbx_pipeline COMMAND engine_fbx_pipeline_test)
     endif()
-    target_compile_definitions(
-        engine_fbx_pipeline_test
-        PRIVATE ENGINE_FBX_TEST_DATA_DIR="${PROJECT_SOURCE_DIR}/projects/showcase/assets/models")
-    engine_apply_options(engine_fbx_pipeline_test)
-    add_test(NAME editor.fbx_pipeline COMMAND engine_fbx_pipeline_test)
 
     add_executable(engine_fbx_bind_pose_test plugins/editor/asset_import/fbx_bind_pose_test.cpp)
     target_link_libraries(engine_fbx_bind_pose_test PRIVATE engine::asset_import engine_ufbx)
@@ -965,63 +1042,75 @@ if(TARGET engine_asset_import)
 endif()
 
 if(TARGET engine_asset_import
-   AND TARGET engine_ui
-   AND TARGET engine_font
-   AND TARGET engine_render
-   AND TARGET engine_window
-   AND TARGET engine_world)
-    add_executable(engine_font_ui_render_test runtime/ui/font_ui_render_test.cpp)
-    target_link_libraries(
-        engine_font_ui_render_test
-        PRIVATE engine::asset_import
-                engine::resource
-                engine::world
-                engine::window
-                engine::render
-                engine::font
-                engine::ui
-                SDL3::SDL3
-                bgfx::bgfx)
-    target_compile_definitions(
-        engine_font_ui_render_test
-        PRIVATE
-            ENGINE_FONT_TEST_SHADER_DIR="${PROJECT_SOURCE_DIR}/src/engine/runtime/render/shaders")
-    engine_apply_options(engine_font_ui_render_test)
-    if(ENGINE_ENABLE_GPU_TESTS)
-        add_test(NAME engine.font_ui_render COMMAND engine_font_ui_render_test
-                                                    "${PROJECT_SOURCE_DIR}/projects/showcase")
-        set_tests_properties(engine.font_ui_render PROPERTIES TIMEOUT 120 RUN_SERIAL TRUE)
+    AND TARGET engine_ui
+    AND TARGET engine_font
+    AND TARGET engine_render
+    AND TARGET engine_window
+    AND TARGET engine_world)
+    if(TARGET engine_resource_graph)
+        add_executable(engine_font_ui_render_test runtime/ui/font_ui_render_test.cpp)
+        target_link_libraries(engine_font_ui_render_test PRIVATE engine::resource_graph)
+        target_include_directories(engine_font_ui_render_test PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+        target_link_libraries(
+            engine_font_ui_render_test
+            PRIVATE engine::asset_import
+                    engine::resource
+                    engine::world
+                    engine::window
+                    engine::render
+                    engine::font
+                    engine::ui
+                    SDL3::SDL3
+                    bgfx::bgfx)
+        target_compile_definitions(
+            engine_font_ui_render_test
+            PRIVATE
+                ENGINE_FONT_TEST_SHADER_DIR="${PROJECT_SOURCE_DIR}/src/engine/runtime/render/shaders")
+        engine_apply_options(engine_font_ui_render_test)
+        if(ENGINE_ENABLE_GPU_TESTS)
+            add_test(NAME engine.font_ui_render COMMAND engine_font_ui_render_test
+                                                        "${PROJECT_SOURCE_DIR}/projects/showcase")
+            set_tests_properties(engine.font_ui_render PROPERTIES TIMEOUT 120 RUN_SERIAL TRUE)
+        endif()
     endif()
 endif()
 
 if(TARGET engine_editor AND TARGET engine_animation)
-    add_executable(engine_animation_commands_test editor/commands/animation_commands_test.cpp)
-    target_link_libraries(engine_animation_commands_test PRIVATE engine::editor engine::animation
-                                                                 engine::world engine::resource)
-    engine_apply_options(engine_animation_commands_test)
-    add_test(NAME editor.animation_commands COMMAND engine_animation_commands_test)
+    if(TARGET engine_resource_graph)
+        add_executable(engine_animation_commands_test editor/commands/animation_commands_test.cpp)
+        target_link_libraries(engine_animation_commands_test PRIVATE engine::resource_graph)
+        target_include_directories(engine_animation_commands_test PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+        target_link_libraries(engine_animation_commands_test PRIVATE engine::editor engine::animation
+                                                                     engine::world engine::resource)
+        engine_apply_options(engine_animation_commands_test)
+        add_test(NAME editor.animation_commands COMMAND engine_animation_commands_test)
+    endif()
 endif()
 
 if(TARGET engine_character_controller)
-    add_executable(engine_character_controller_test
-                   plugins/runtime/character_controller/character_controller_test.cpp)
-    target_link_libraries(engine_character_controller_test PRIVATE engine::character_controller)
-    engine_apply_options(engine_character_controller_test)
-    add_test(NAME engine.character_controller COMMAND engine_character_controller_test)
-    if(TARGET engine_runtime)
-        add_executable(engine_character_host_test
-                       plugins/runtime/character_controller/character_host_test.cpp)
-        target_link_libraries(
-            engine_character_host_test PRIVATE engine::runtime engine::character_controller
-                                               engine::resource engine::render SDL3::SDL3)
-        target_include_directories(engine_character_host_test PRIVATE "${PROJECT_SOURCE_DIR}/src")
-        target_compile_definitions(engine_character_host_test
-                                   PRIVATE ENGINE_HAS_CHARACTER_CONTROLLER=1
-                                   ENGINE_TEST_RUNTIME_SETTINGS="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/runtime-settings.json")
-        engine_apply_options(engine_character_host_test)
-        if(ENGINE_ENABLE_GPU_TESTS)
-            add_test(NAME engine.character_host COMMAND engine_character_host_test)
-            set_tests_properties(engine.character_host PROPERTIES TIMEOUT 60 RUN_SERIAL TRUE)
+    if(TARGET engine_resource_graph)
+        add_executable(engine_character_controller_test
+                       plugins/runtime/character_controller/character_controller_test.cpp)
+        target_link_libraries(engine_character_controller_test PRIVATE engine::resource_graph)
+        target_include_directories(engine_character_controller_test PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+        target_link_libraries(engine_character_controller_test PRIVATE engine::character_controller)
+        engine_apply_options(engine_character_controller_test)
+        add_test(NAME engine.character_controller COMMAND engine_character_controller_test)
+        if(TARGET engine_runtime)
+            add_executable(engine_character_host_test
+                           plugins/runtime/character_controller/character_host_test.cpp)
+            target_link_libraries(
+                engine_character_host_test PRIVATE engine::runtime engine::character_controller
+                                                   engine::resource engine::render SDL3::SDL3)
+            target_include_directories(engine_character_host_test PRIVATE "${PROJECT_SOURCE_DIR}/src")
+            target_compile_definitions(engine_character_host_test
+                                       PRIVATE ENGINE_HAS_CHARACTER_CONTROLLER=1
+                                       ENGINE_TEST_RUNTIME_SETTINGS="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/runtime-settings.json")
+            engine_apply_options(engine_character_host_test)
+            if(ENGINE_ENABLE_GPU_TESTS)
+                add_test(NAME engine.character_host COMMAND engine_character_host_test)
+                set_tests_properties(engine.character_host PROPERTIES TIMEOUT 60 RUN_SERIAL TRUE)
+            endif()
         endif()
     endif()
 endif()
@@ -1038,47 +1127,59 @@ if(TARGET engine_asset_import)
     add_test(NAME editor.usd_pipeline COMMAND engine_usd_pipeline_test)
 endif()
 if(TARGET engine_animation)
-    add_executable(engine_model_resource_test runtime/resource/model_resource_test.cpp)
-    target_link_libraries(engine_model_resource_test PRIVATE engine::world engine::resource
-                                                             engine::animation)
-    engine_apply_options(engine_model_resource_test)
-    add_test(NAME engine.model_resource COMMAND engine_model_resource_test)
+    if(TARGET engine_resource_graph)
+        add_executable(engine_model_resource_test runtime/resource/model_resource_test.cpp)
+        target_link_libraries(engine_model_resource_test PRIVATE engine::resource_graph)
+        target_include_directories(engine_model_resource_test PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+        target_link_libraries(engine_model_resource_test PRIVATE engine::world engine::resource
+                                                                 engine::animation)
+        engine_apply_options(engine_model_resource_test)
+        add_test(NAME engine.model_resource COMMAND engine_model_resource_test)
+    endif()
 endif()
 if(TARGET engine_script
-   AND TARGET engine_asset_import
-   AND TARGET engine_ui
-   AND TARGET engine_font
-   AND TARGET engine_render)
-    add_executable(engine_ui_script_test plugins/runtime/script/ui_script_test.cpp)
-    target_link_libraries(
-        engine_ui_script_test
-        PRIVATE engine::script
-                engine::app
-                engine::log
-                engine::asset_import
-                engine::resource
-                engine::world
-                engine::window
-                engine::render
-                engine::font
-                engine::ui
-                SDL3::SDL3
-                bgfx::bgfx)
-    engine_apply_options(engine_ui_script_test)
-    engine_copy_script_data(engine_ui_script_test)
-    if(ENGINE_ENABLE_GPU_TESTS)
-        add_test(NAME engine.ui_script COMMAND engine_ui_script_test
-                                               "${PROJECT_SOURCE_DIR}/projects/showcase")
-        set_tests_properties(engine.ui_script PROPERTIES TIMEOUT 120 RUN_SERIAL TRUE)
+    AND TARGET engine_asset_import
+    AND TARGET engine_ui
+    AND TARGET engine_font
+    AND TARGET engine_render)
+    if(TARGET engine_resource_graph)
+        add_executable(engine_ui_script_test plugins/runtime/script/ui_script_test.cpp)
+        target_link_libraries(engine_ui_script_test PRIVATE engine::resource_graph)
+        target_include_directories(engine_ui_script_test PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+        target_link_libraries(
+            engine_ui_script_test
+            PRIVATE engine::script
+                    engine::app
+                    engine::log
+                    engine::asset_import
+                    engine::resource
+                    engine::world
+                    engine::window
+                    engine::render
+                    engine::font
+                    engine::ui
+                    SDL3::SDL3
+                    bgfx::bgfx)
+        engine_apply_options(engine_ui_script_test)
+        engine_copy_script_data(engine_ui_script_test)
+        if(ENGINE_ENABLE_GPU_TESTS)
+            add_test(NAME engine.ui_script COMMAND engine_ui_script_test
+                                                   "${PROJECT_SOURCE_DIR}/projects/showcase")
+            set_tests_properties(engine.ui_script PROPERTIES TIMEOUT 120 RUN_SERIAL TRUE)
+        endif()
     endif()
 endif()
 
 if(TARGET engine_editor AND TARGET engine_animation)
-    add_executable(engine_model_commands_test editor/commands/model_commands_test.cpp)
-    target_link_libraries(engine_model_commands_test PRIVATE engine::editor engine::world
-                                                             engine::resource engine::animation)
-    engine_apply_options(engine_model_commands_test)
-    add_test(NAME editor.model_commands COMMAND engine_model_commands_test)
+    if(TARGET engine_resource_graph)
+        add_executable(engine_model_commands_test editor/commands/model_commands_test.cpp)
+        target_link_libraries(engine_model_commands_test PRIVATE engine::resource_graph)
+        target_include_directories(engine_model_commands_test PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+        target_link_libraries(engine_model_commands_test PRIVATE engine::editor engine::world
+                                                                 engine::resource engine::animation)
+        engine_apply_options(engine_model_commands_test)
+        add_test(NAME editor.model_commands COMMAND engine_model_commands_test)
+    endif()
 endif()
 
 if(TARGET engine_character_controller_editor AND TARGET engine_editor)
@@ -1090,21 +1191,30 @@ if(TARGET engine_character_controller_editor AND TARGET engine_editor)
     add_test(NAME editor.character_controller COMMAND engine_character_controller_editor_test)
 endif()
 if(TARGET engine_script AND TARGET engine_animation)
-    add_executable(engine_model_animation_script_test
-                   plugins/runtime/script/model_animation_script_test.cpp)
-    target_link_libraries(
-        engine_model_animation_script_test PRIVATE engine::script engine::animation engine::world
-                                                   engine::resource engine::app engine::log)
-    engine_apply_options(engine_model_animation_script_test)
-    add_test(NAME engine.model_animation_script COMMAND engine_model_animation_script_test)
+    if(TARGET engine_resource_graph)
+        add_executable(engine_model_animation_script_test
+                       plugins/runtime/script/model_animation_script_test.cpp)
+        target_link_libraries(engine_model_animation_script_test PRIVATE engine::resource_graph)
+        target_include_directories(engine_model_animation_script_test PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+        target_link_libraries(
+            engine_model_animation_script_test PRIVATE engine::script engine::animation engine::world
+                                                       engine::resource engine::app engine::log)
+        engine_apply_options(engine_model_animation_script_test)
+        add_test(NAME engine.model_animation_script COMMAND engine_model_animation_script_test)
+    endif()
 endif()
 
 if(TARGET engine_font)
-    add_executable(engine_font_system_test runtime/font/font_system_test.cpp)
-    target_link_libraries(engine_font_system_test PRIVATE engine::font engine::world
-                                                          engine::resource)
-    engine_apply_options(engine_font_system_test)
-    add_test(NAME engine.font_system COMMAND engine_font_system_test)
+    if(TARGET engine_resource_graph)
+        add_executable(engine_font_system_test runtime/font/font_system_test.cpp)
+        target_link_libraries(engine_font_system_test PRIVATE engine::resource_graph)
+        target_include_directories(engine_font_system_test PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+
+        target_link_libraries(engine_font_system_test PRIVATE engine::font engine::world
+                                                              engine::resource)
+        engine_apply_options(engine_font_system_test)
+        add_test(NAME engine.font_system COMMAND engine_font_system_test)
+    endif()
 endif()
 
 if(TARGET engine_effects_editor)
@@ -1118,14 +1228,18 @@ if(TARGET engine_effects_editor)
 endif()
 
 if(TARGET engine_effects)
-    add_executable(engine_effects_runtime_test plugins/runtime/effects/effects_runtime_test.cpp)
-    target_link_libraries(engine_effects_runtime_test
-                          PRIVATE engine::effects engine::effects_backend SDL3::SDL3 bgfx::bgfx)
-    engine_apply_options(engine_effects_runtime_test)
-    if(ENGINE_ENABLE_GPU_TESTS)
-        add_test(NAME engine.effects_runtime COMMAND engine_effects_runtime_test
-                                                     "${PROJECT_SOURCE_DIR}")
-        set_tests_properties(engine.effects_runtime PROPERTIES TIMEOUT 60 RUN_SERIAL TRUE)
+    if(TARGET engine_resource_graph)
+        add_executable(engine_effects_runtime_test plugins/runtime/effects/effects_runtime_test.cpp)
+        target_link_libraries(engine_effects_runtime_test PRIVATE engine::resource_graph)
+        target_include_directories(engine_effects_runtime_test PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+        target_link_libraries(engine_effects_runtime_test
+                              PRIVATE engine::effects engine::effects_backend SDL3::SDL3 bgfx::bgfx)
+        engine_apply_options(engine_effects_runtime_test)
+        if(ENGINE_ENABLE_GPU_TESTS)
+            add_test(NAME engine.effects_runtime COMMAND engine_effects_runtime_test
+                                                         "${PROJECT_SOURCE_DIR}")
+            set_tests_properties(engine.effects_runtime PROPERTIES TIMEOUT 60 RUN_SERIAL TRUE)
+        endif()
     endif()
 endif()
 
@@ -1138,13 +1252,17 @@ if(TARGET engine_navigation)
 endif()
 
 if(TARGET engine_navigation AND TARGET engine_script)
-    add_executable(engine_navigation_script_test plugins/runtime/script/navigation_script_test.cpp)
-    target_link_libraries(
-        engine_navigation_script_test PRIVATE engine::script engine::navigation engine::world
-                                              engine::resource engine::app engine::log)
-    engine_apply_options(engine_navigation_script_test)
-    add_test(NAME engine.navigation_script COMMAND engine_navigation_script_test)
-    set_tests_properties(engine.navigation_script PROPERTIES TIMEOUT 60)
+    if(TARGET engine_resource_graph)
+        add_executable(engine_navigation_script_test plugins/runtime/script/navigation_script_test.cpp)
+        target_link_libraries(engine_navigation_script_test PRIVATE engine::resource_graph)
+        target_include_directories(engine_navigation_script_test PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+        target_link_libraries(
+            engine_navigation_script_test PRIVATE engine::script engine::navigation engine::world
+                                                  engine::resource engine::app engine::log)
+        engine_apply_options(engine_navigation_script_test)
+        add_test(NAME engine.navigation_script COMMAND engine_navigation_script_test)
+        set_tests_properties(engine.navigation_script PROPERTIES TIMEOUT 60)
+    endif()
 endif()
 
 if(TARGET engine_navigation AND TARGET engine_terrain)
@@ -1156,11 +1274,15 @@ if(TARGET engine_navigation AND TARGET engine_terrain)
 endif()
 
 if(TARGET engine_terrain)
-    add_executable(engine_terrain_runtime_test plugins/runtime/terrain/terrain_runtime_test.cpp)
-    target_link_libraries(engine_terrain_runtime_test PRIVATE engine::terrain)
-    engine_apply_options(engine_terrain_runtime_test)
-    add_test(NAME engine.terrain_runtime COMMAND engine_terrain_runtime_test)
-    set_tests_properties(engine.terrain_runtime PROPERTIES TIMEOUT 60)
+    if(TARGET engine_resource_graph)
+        add_executable(engine_terrain_runtime_test plugins/runtime/terrain/terrain_runtime_test.cpp)
+        target_link_libraries(engine_terrain_runtime_test PRIVATE engine::resource_graph)
+        target_include_directories(engine_terrain_runtime_test PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+        target_link_libraries(engine_terrain_runtime_test PRIVATE engine::terrain)
+        engine_apply_options(engine_terrain_runtime_test)
+        add_test(NAME engine.terrain_runtime COMMAND engine_terrain_runtime_test)
+        set_tests_properties(engine.terrain_runtime PROPERTIES TIMEOUT 60)
+    endif()
 
     add_executable(engine_terrain_collision_benchmark
                    plugins/runtime/terrain/terrain_collision_benchmark.cpp)
@@ -1178,9 +1300,16 @@ endif()
 
 if(TARGET engine_destruction)
     foreach(_test graph runtime)
+        if(_test STREQUAL "runtime" AND NOT TARGET engine_resource_graph)
+            continue()
+        endif()
         add_executable(engine_destruction_${_test}_test
                        plugins/runtime/destruction/destruction_${_test}_test.cpp)
         target_link_libraries(engine_destruction_${_test}_test PRIVATE engine::destruction)
+        if(_test STREQUAL "runtime")
+            target_link_libraries(engine_destruction_${_test}_test PRIVATE engine::resource_graph)
+            target_include_directories(engine_destruction_${_test}_test PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+        endif()
         engine_apply_options(engine_destruction_${_test}_test)
         add_test(NAME engine.destruction_${_test} COMMAND engine_destruction_${_test}_test)
         set_tests_properties(engine.destruction_${_test} PROPERTIES TIMEOUT 60)
@@ -1197,14 +1326,18 @@ if(TARGET engine_destruction_editor)
     endforeach()
 endif()
 if(TARGET engine_destruction_editor AND TARGET engine_editor)
-    add_executable(engine_destruction_commands_test
-                   plugins/editor/destruction/destruction_commands_test.cpp)
-    target_link_libraries(engine_destruction_commands_test PRIVATE engine::destruction_editor
-                                                                   engine::editor)
-    target_compile_definitions(engine_destruction_commands_test PRIVATE JSON_NOEXCEPTION=1)
-    engine_apply_options(engine_destruction_commands_test)
-    add_test(NAME editor.destruction_commands COMMAND engine_destruction_commands_test)
-    set_tests_properties(editor.destruction_commands PROPERTIES TIMEOUT 60)
+    if(TARGET engine_resource_graph)
+        add_executable(engine_destruction_commands_test
+                       plugins/editor/destruction/destruction_commands_test.cpp)
+        target_link_libraries(engine_destruction_commands_test PRIVATE engine::resource_graph)
+        target_include_directories(engine_destruction_commands_test PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+        target_link_libraries(engine_destruction_commands_test PRIVATE engine::destruction_editor
+                                                                       engine::editor)
+        target_compile_definitions(engine_destruction_commands_test PRIVATE JSON_NOEXCEPTION=1)
+        engine_apply_options(engine_destruction_commands_test)
+        add_test(NAME editor.destruction_commands COMMAND engine_destruction_commands_test)
+        set_tests_properties(editor.destruction_commands PROPERTIES TIMEOUT 60)
+    endif()
 endif()
 
 if(TARGET engine_navigation_crowd)
@@ -1217,26 +1350,30 @@ if(TARGET engine_navigation_crowd)
 endif()
 
 if(TARGET engine_navigation_crowd AND TARGET engine_script)
-    add_executable(engine_navigation_agent_script_test
-                   plugins/runtime/script/navigation_agent_script_test.cpp)
-    target_link_libraries(
-        engine_navigation_agent_script_test
-        PRIVATE engine::script
-                engine::navigation_crowd
-                engine::world
-                engine::physics
-                engine::window
-                engine::render
-                engine::resource
-                engine::app
-                engine::log)
-    target_include_directories(engine_navigation_agent_script_test
-                               PRIVATE "${PROJECT_SOURCE_DIR}/src")
-    target_compile_definitions(engine_navigation_agent_script_test
-                               PRIVATE ENGINE_HAS_NAVIGATION_CROWD_PLUGIN=1)
-    engine_apply_options(engine_navigation_agent_script_test)
-    add_test(NAME engine.navigation_agent_script COMMAND engine_navigation_agent_script_test)
-    set_tests_properties(engine.navigation_agent_script PROPERTIES TIMEOUT 60)
+    if(TARGET engine_resource_graph)
+        add_executable(engine_navigation_agent_script_test
+                       plugins/runtime/script/navigation_agent_script_test.cpp)
+        target_link_libraries(engine_navigation_agent_script_test PRIVATE engine::resource_graph)
+        target_include_directories(engine_navigation_agent_script_test PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+        target_link_libraries(
+            engine_navigation_agent_script_test
+            PRIVATE engine::script
+                    engine::navigation_crowd
+                    engine::world
+                    engine::physics
+                    engine::window
+                    engine::render
+                    engine::resource
+                    engine::app
+                    engine::log)
+        target_include_directories(engine_navigation_agent_script_test
+                                   PRIVATE "${PROJECT_SOURCE_DIR}/src")
+        target_compile_definitions(engine_navigation_agent_script_test
+                                   PRIVATE ENGINE_HAS_NAVIGATION_CROWD_PLUGIN=1)
+        engine_apply_options(engine_navigation_agent_script_test)
+        add_test(NAME engine.navigation_agent_script COMMAND engine_navigation_agent_script_test)
+        set_tests_properties(engine.navigation_agent_script PROPERTIES TIMEOUT 60)
+    endif()
 endif()
 
 if(TARGET engine_navigation_crowd_editor)
@@ -1250,25 +1387,31 @@ if(TARGET engine_navigation_crowd_editor)
 endif()
 
 if(TARGET engine_runtime)
-    add_executable(engine_runtime_host_test runtime/app/runtime_host_test.cpp)
-    target_link_libraries(engine_runtime_host_test PRIVATE engine::runtime engine::app
-                                                          engine::resource engine::task
-                                                          nlohmann_json::nlohmann_json SDL3::SDL3)
-    target_compile_definitions(engine_runtime_host_test PRIVATE
-                               JSON_NOEXCEPTION=1
-                               ENGINE_TEST_RUNTIME_SETTINGS="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/runtime-settings.json")
-    target_link_libraries(engine_runtime_host_test PRIVATE unofficial::libvpx::libvpx)
-    engine_apply_options(engine_runtime_host_test)
-    if(ENGINE_ENABLE_GPU_TESTS)
-        add_test(NAME engine.runtime_host COMMAND engine_runtime_host_test)
-        set_tests_properties(engine.runtime_host PROPERTIES TIMEOUT 60 RUN_SERIAL TRUE)
-    endif()
+    if(TARGET engine_resource_graph)
+        add_executable(engine_runtime_host_test runtime/app/runtime_host_test.cpp)
+        target_link_libraries(engine_runtime_host_test PRIVATE engine::resource_graph)
+        target_include_directories(engine_runtime_host_test PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+        target_link_libraries(engine_runtime_host_test PRIVATE engine::runtime engine::app
+                                                              engine::resource engine::task
+                                                              nlohmann_json::nlohmann_json SDL3::SDL3)
+        target_compile_definitions(engine_runtime_host_test PRIVATE
+                                   JSON_NOEXCEPTION=1
+                                   ENGINE_TEST_RUNTIME_SETTINGS="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/runtime-settings.json")
+        target_link_libraries(engine_runtime_host_test PRIVATE unofficial::libvpx::libvpx)
+        engine_apply_options(engine_runtime_host_test)
+        if(ENGINE_ENABLE_GPU_TESTS)
+            add_test(NAME engine.runtime_host COMMAND engine_runtime_host_test)
+            set_tests_properties(engine.runtime_host PROPERTIES TIMEOUT 60 RUN_SERIAL TRUE)
+        endif()
 
-    add_executable(engine_gameplay_session_test runtime/gameplay/gameplay_session_test.cpp)
-    target_link_libraries(engine_gameplay_session_test PRIVATE engine::runtime)
-    engine_apply_options(engine_gameplay_session_test)
-    add_test(NAME engine.gameplay_session COMMAND engine_gameplay_session_test)
-    set_tests_properties(engine.gameplay_session PROPERTIES TIMEOUT 60)
+        add_executable(engine_gameplay_session_test runtime/gameplay/gameplay_session_test.cpp)
+        target_link_libraries(engine_gameplay_session_test PRIVATE engine::resource_graph)
+        target_include_directories(engine_gameplay_session_test PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+        target_link_libraries(engine_gameplay_session_test PRIVATE engine::runtime)
+        engine_apply_options(engine_gameplay_session_test)
+        add_test(NAME engine.gameplay_session COMMAND engine_gameplay_session_test)
+        set_tests_properties(engine.gameplay_session PROPERTIES TIMEOUT 60)
+    endif()
 
     add_executable(engine_runtime_settings_test runtime/app/runtime_settings_test.cpp)
     target_link_libraries(engine_runtime_settings_test PRIVATE engine::runtime
@@ -1290,15 +1433,19 @@ if(TARGET engine_editor)
 endif()
 
 if(TARGET engine_script AND TARGET engine_terrain AND TARGET engine_destruction)
-    add_executable(engine_terrain_destruction_script_test
-                   plugins/runtime/script/terrain_destruction_script_test.cpp)
-    target_link_libraries(engine_terrain_destruction_script_test PRIVATE
-        engine::script engine::terrain engine::destruction engine::task
-        engine::physics engine::world engine::resource engine::app engine::log)
-    engine_apply_options(engine_terrain_destruction_script_test)
-    engine_copy_script_data(engine_terrain_destruction_script_test)
-    add_test(NAME engine.terrain_destruction_script COMMAND engine_terrain_destruction_script_test)
-    set_tests_properties(engine.terrain_destruction_script PROPERTIES TIMEOUT 60)
+    if(TARGET engine_resource_graph)
+        add_executable(engine_terrain_destruction_script_test
+                       plugins/runtime/script/terrain_destruction_script_test.cpp)
+        target_link_libraries(engine_terrain_destruction_script_test PRIVATE engine::resource_graph)
+        target_include_directories(engine_terrain_destruction_script_test PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+        target_link_libraries(engine_terrain_destruction_script_test PRIVATE
+            engine::script engine::terrain engine::destruction engine::task
+            engine::physics engine::world engine::resource engine::app engine::log)
+        engine_apply_options(engine_terrain_destruction_script_test)
+        engine_copy_script_data(engine_terrain_destruction_script_test)
+        add_test(NAME engine.terrain_destruction_script COMMAND engine_terrain_destruction_script_test)
+        set_tests_properties(engine.terrain_destruction_script PROPERTIES TIMEOUT 60)
+    endif()
 endif()
 
 if(TARGET lightmapper::lightmapper)
@@ -1321,17 +1468,21 @@ endif()
 
 if(TARGET engine_scene_bake)
     # This executable deliberately neither links nor constructs the optional dependency loader.
-    add_executable(engine_scene_bake_core_loader_test
-                   plugins/editor/scene_bake/core_loader_gpu_test.cpp)
-    target_link_libraries(engine_scene_bake_core_loader_test PRIVATE engine::scene_bake
-        engine::render engine::window engine::world engine::resource engine::task SDL3::SDL3
-        bgfx::bgfx bgfx::bx)
-    target_include_directories(engine_scene_bake_core_loader_test
-        PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
-    engine_apply_options(engine_scene_bake_core_loader_test)
-    if(ENGINE_ENABLE_GPU_TESTS AND NOT CMAKE_CROSSCOMPILING)
-        add_test(NAME editor.scene_bake_core_loader COMMAND engine_scene_bake_core_loader_test)
-        set_tests_properties(editor.scene_bake_core_loader PROPERTIES TIMEOUT 90 RUN_SERIAL TRUE)
+    if(TARGET engine_resource_graph)
+        add_executable(engine_scene_bake_core_loader_test
+                       plugins/editor/scene_bake/core_loader_gpu_test.cpp)
+        target_link_libraries(engine_scene_bake_core_loader_test PRIVATE engine::resource_graph)
+        target_include_directories(engine_scene_bake_core_loader_test PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+        target_link_libraries(engine_scene_bake_core_loader_test PRIVATE engine::scene_bake
+            engine::render engine::window engine::world engine::resource engine::task SDL3::SDL3
+            bgfx::bgfx bgfx::bx)
+        target_include_directories(engine_scene_bake_core_loader_test
+            PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+        engine_apply_options(engine_scene_bake_core_loader_test)
+        if(ENGINE_ENABLE_GPU_TESTS AND NOT CMAKE_CROSSCOMPILING)
+            add_test(NAME editor.scene_bake_core_loader COMMAND engine_scene_bake_core_loader_test)
+            set_tests_properties(editor.scene_bake_core_loader PROPERTIES TIMEOUT 90 RUN_SERIAL TRUE)
+        endif()
     endif()
 
     add_executable(engine_scene_lighting_files_test plugins/editor/scene_bake/scene_lighting_files_test.cpp
@@ -1355,34 +1506,44 @@ foreach(_target IN LISTS _engine_test_targets)
 endforeach()
 
 if(TARGET engine_editor AND TARGET engine_asset_pipeline)
-    add_executable(engine_prefab_commands_test editor/commands/prefab_commands_test.cpp)
-    target_include_directories(engine_prefab_commands_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/support")
-    target_link_libraries(engine_prefab_commands_test PRIVATE engine::editor engine::asset_pipeline
-                                                             engine::world engine::resource)
-    engine_apply_options(engine_prefab_commands_test)
-    add_test(NAME editor.prefab_commands COMMAND engine_prefab_commands_test)
+    if(TARGET engine_resource_graph)
+        add_executable(engine_prefab_commands_test editor/commands/prefab_commands_test.cpp)
+        target_link_libraries(engine_prefab_commands_test PRIVATE engine::resource_graph)
+        target_include_directories(engine_prefab_commands_test PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+        target_include_directories(engine_prefab_commands_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/support")
+        target_link_libraries(engine_prefab_commands_test PRIVATE engine::editor engine::asset_pipeline
+                                                                 engine::world engine::resource)
+        engine_apply_options(engine_prefab_commands_test)
+        add_test(NAME editor.prefab_commands COMMAND engine_prefab_commands_test)
+    endif()
 endif()
 
 if(TARGET engine_runtime AND TARGET engine_render)
-    add_executable(engine_atmosphere_hex_test runtime/render/atmosphere_hex_test.cpp)
-    target_include_directories(engine_atmosphere_hex_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/support")
-    target_link_libraries(engine_atmosphere_hex_test PRIVATE engine::runtime engine::window
-        engine::render engine::world engine::resource SDL3::SDL3 bgfx::bimg)
-    engine_apply_options(engine_atmosphere_hex_test)
-    if(NOT CMAKE_CROSSCOMPILING)
-        add_test(NAME engine.atmosphere_hex COMMAND engine_atmosphere_hex_test)
-        set_tests_properties(engine.atmosphere_hex PROPERTIES TIMEOUT 90 RUN_SERIAL TRUE)
+    if(TARGET engine_resource_graph)
+        add_executable(engine_atmosphere_hex_test runtime/render/atmosphere_hex_test.cpp)
+        target_link_libraries(engine_atmosphere_hex_test PRIVATE engine::resource_graph)
+        target_include_directories(engine_atmosphere_hex_test PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+        target_include_directories(engine_atmosphere_hex_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/support")
+        target_link_libraries(engine_atmosphere_hex_test PRIVATE engine::runtime engine::window
+            engine::render engine::world engine::resource SDL3::SDL3 bgfx::bimg)
+        engine_apply_options(engine_atmosphere_hex_test)
+        if(NOT CMAKE_CROSSCOMPILING)
+            add_test(NAME engine.atmosphere_hex COMMAND engine_atmosphere_hex_test)
+            set_tests_properties(engine.atmosphere_hex PROPERTIES TIMEOUT 90 RUN_SERIAL TRUE)
+        endif()
     endif()
 endif()
 
 if(TARGET engine_runtime AND TARGET engine_render AND TARGET engine_resource_graph)
     add_executable(engine_render_submission_test runtime/render/render_submission_test.cpp)
+    target_link_libraries(engine_render_submission_test PRIVATE engine::resource_graph)
+    target_include_directories(engine_render_submission_test PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
     target_include_directories(engine_render_submission_test
                                PRIVATE "${PROJECT_SOURCE_DIR}/src/engine"
                                        "${CMAKE_CURRENT_SOURCE_DIR}/support")
     target_link_libraries(engine_render_submission_test
                           PRIVATE engine::runtime engine::window engine::render engine::world
-                                  engine::resource engine::resource_graph SDL3::SDL3)
+                                  engine::resource SDL3::SDL3)
     engine_apply_options(engine_render_submission_test)
     if(ENGINE_ENABLE_GPU_TESTS)
         add_test(NAME engine.render_submission COMMAND engine_render_submission_test)
@@ -1415,8 +1576,10 @@ endif()
 if(TARGET engine_script AND TARGET engine_animation AND TARGET engine_resource_graph)
     add_executable(engine_animation_state_machine_script_test
         plugins/runtime/script/animation_state_machine_script_test.cpp)
+    target_link_libraries(engine_animation_state_machine_script_test PRIVATE engine::resource_graph)
+    target_include_directories(engine_animation_state_machine_script_test PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
     target_link_libraries(engine_animation_state_machine_script_test
-        PRIVATE engine::script engine::animation engine::world engine::resource_graph)
+        PRIVATE engine::script engine::animation engine::world)
     engine_apply_options(engine_animation_state_machine_script_test)
     add_test(NAME engine.animation_state_machine_script COMMAND engine_animation_state_machine_script_test)
 endif()
@@ -1432,23 +1595,31 @@ if(TARGET engine_resource)
 endif()
 
 if(TARGET engine_script AND TARGET engine_animation)
-    add_executable(engine_animation_events_script_test
-        plugins/runtime/script/animation_events_script_test.cpp)
-    target_link_libraries(engine_animation_events_script_test PRIVATE engine::script
-        engine::animation engine::world engine::resource engine::app engine::log)
-    target_include_directories(engine_animation_events_script_test
-        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/support")
-    engine_apply_options(engine_animation_events_script_test)
-    add_test(NAME engine.animation_events_script COMMAND engine_animation_events_script_test)
+    if(TARGET engine_resource_graph)
+        add_executable(engine_animation_events_script_test
+            plugins/runtime/script/animation_events_script_test.cpp)
+        target_link_libraries(engine_animation_events_script_test PRIVATE engine::resource_graph)
+        target_include_directories(engine_animation_events_script_test PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+        target_link_libraries(engine_animation_events_script_test PRIVATE engine::script
+            engine::animation engine::world engine::resource engine::app engine::log)
+        target_include_directories(engine_animation_events_script_test
+            PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/support")
+        engine_apply_options(engine_animation_events_script_test)
+        add_test(NAME engine.animation_events_script COMMAND engine_animation_events_script_test)
+    endif()
 endif()
 
 if(TARGET engine_animation)
-    add_executable(engine_animation_rigging_events_test
-        runtime/animation/animation_rigging_events_test.cpp)
-    target_link_libraries(engine_animation_rigging_events_test
-        PRIVATE engine::animation engine::world engine::resource)
-    engine_apply_options(engine_animation_rigging_events_test)
-    add_test(NAME engine.animation_rigging_events COMMAND engine_animation_rigging_events_test)
+    if(TARGET engine_resource_graph)
+        add_executable(engine_animation_rigging_events_test
+            runtime/animation/animation_rigging_events_test.cpp)
+        target_link_libraries(engine_animation_rigging_events_test PRIVATE engine::resource_graph)
+        target_include_directories(engine_animation_rigging_events_test PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+        target_link_libraries(engine_animation_rigging_events_test
+            PRIVATE engine::animation engine::world engine::resource)
+        engine_apply_options(engine_animation_rigging_events_test)
+        add_test(NAME engine.animation_rigging_events COMMAND engine_animation_rigging_events_test)
+    endif()
 endif()
 
 foreach(_animation_test engine_animation_state_machine_script_test engine_animation_rigging_events_test)

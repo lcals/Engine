@@ -1,5 +1,7 @@
 #include "plugins/editor/destruction/destruction_codec.hpp"
 
+#include "runtime/resource/builtin_resources.hpp"
+
 #include "editor/asset_pipeline/importer_utils.hpp"
 #include "editor/asset_pipeline/toml_helpers.hpp"
 #include "plugins/runtime/destruction/destruction_component.hpp"
@@ -77,6 +79,22 @@ bool DestructionCodec::read(const toml::table& table, schema::ComponentDataT& co
     {
         error = "Invalid destruction GUIDs, density, friction or restitution";
         return false;
+    }
+    if (!value.destruction_guid.empty() && value.material_guid.empty())
+    {
+        for (const auto& entry : builtin_resource_catalog().entries)
+        {
+            if (entry->path == "builtin://materials/default-pbr")
+            {
+                value.material_guid = entry->guid;
+                break;
+            }
+        }
+        if (value.material_guid.empty())
+        {
+            error = "Default material is unavailable";
+            return false;
+        }
     }
     component.payload.Set(std::move(value));
     return true;

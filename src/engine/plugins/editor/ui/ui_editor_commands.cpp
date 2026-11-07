@@ -1,4 +1,6 @@
 #include "plugins/editor/ui/ui_editor_commands.hpp"
+#include "editor/resource_access.hpp"
+#include "runtime/resource/types/ui_resource.hpp"
 
 #include "editor/commands/components/component_edit.hpp"
 #include "editor/commands/scene_commands.hpp"
@@ -288,9 +290,11 @@ bool UiEditorCommands::State::query(std::string_view name, const Json& args, Jso
                 if (const auto component = node.get_component<UiComponent>())
                 {
                     std::string path;
-                    (void)ResourceSystem::guid_to_path(component.settings().document_guid, path);
+                    (void)editor::resource_access::path(world.resource_loader(),
+                                                        component.settings().document_guid, path);
                     const auto id = ui.document_id(node.id());
-                    const auto& resource = component.document();
+                    const auto* resource =
+                        editor::resource_access::get(world.resource_loader(), component.document());
                     Json entry{{"sceneId", std::to_string(scene->id())},
                                {"nodeId", std::to_string(node.id())},
                                {"documentId", id ? Json(std::to_string(id)) : Json(nullptr)},
@@ -525,8 +529,7 @@ bool UiEditorCommands::State::edit_document(editor::SceneCommands& scene_command
     auto node = editor::components::target(world, args, error);
     std::string path;
     Guid guid;
-    if (!node || !args.contains("document") || !bounded_text(args["document"], path, 4096) ||
-        !ResourceSystem::path_to_guid(path, guid))
+    if (!node || !args.contains("document") || !bounded_text(args["document"], path, 4096))
     {
         if (error.empty())
         {
@@ -534,13 +537,14 @@ bool UiEditorCommands::State::edit_document(editor::SceneCommands& scene_command
         }
         return false;
     }
-    auto* resources = ResourceSystem::instance();
-    ResourcePtr resource;
-    if (!resources || !resources->loader().load(guid, resource) || !resource || !resource->ui())
+    editor::resource_access::ResourceReference resource;
+    if (!editor::resource_access::load(world.resource_loader(), path, resource) ||
+        !resource.data<UiResource>())
     {
         error = "Cannot load UI resource";
         return false;
     }
+    guid = resource->info().guid;
     auto component = node.get_component<UiComponent>();
     std::optional<schema::ComponentDataT> before;
     if (component)
@@ -569,9 +573,12 @@ bool UiEditorCommands::State::edit_document(editor::SceneCommands& scene_command
         after.flags->enabled = args["enabled"].get<bool>();
     }
     std::vector<schema::AssetEntryT> versions{resource->info()};
-    if (component && component.document())
+    const auto* previous =
+        component ? editor::resource_access::get(world.resource_loader(), component.document())
+                  : nullptr;
+    if (previous)
     {
-        versions.push_back(component.document()->info());
+        versions.push_back(previous->info());
     }
     edit = std::make_unique<editor::components::ComponentEdit>(
         world, node.scene()->id(), scene_commands.node_identity(node.id()), std::move(before),

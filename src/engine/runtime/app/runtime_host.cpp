@@ -60,11 +60,12 @@ RuntimeHost::~RuntimeHost() noexcept
 }
 
 bool RuntimeHost::initialize(const EngineConfig& config, ResourceSystem* resources,
-                             ScriptRuntimeFactory script_factory, RuntimeSetup setup,
-                             ThreadSystem* threads, const RuntimeParallelConfig& parallel,
+                             ResourceLoader* loader, ScriptRuntimeFactory script_factory,
+                             RuntimeSetup setup, ThreadSystem* threads,
+                             const RuntimeParallelConfig& parallel,
                              AnimationRetargeterFactory retargeter_factory)
 {
-    if (!initialize_presentation(config, resources, threads, parallel))
+    if (!initialize_presentation(config, resources, loader, threads, parallel))
     {
         return false;
     }
@@ -79,14 +80,12 @@ bool RuntimeHost::initialize(const EngineConfig& config, ResourceSystem* resourc
 }
 
 bool RuntimeHost::initialize_presentation(const EngineConfig& config, ResourceSystem* resources,
-                                          ThreadSystem* threads,
+                                          ResourceLoader* loader, ThreadSystem* threads,
                                           const RuntimeParallelConfig& parallel)
 {
     if (initialized_ || owns_engine_ || engine_.is_initialized() || engine_.system_count() != 0 ||
-        (resources != nullptr &&
-         (!resources->is_initialized() || ResourceSystem::instance() != resources)) ||
+        (resources != nullptr && !resources->is_initialized()) ||
         (threads != nullptr && !threads->is_initialized()) ||
-        (resources != nullptr && resources->async_enabled()) ||
         !std::isfinite(parallel.completion_budget_seconds) ||
         parallel.completion_budget_seconds < 0.0)
     {
@@ -115,7 +114,8 @@ bool RuntimeHost::initialize_presentation(const EngineConfig& config, ResourceSy
         return domain->initialize(config);
     };
     if (!create_domain(tasks_, parallel.runtime) ||
-        !create_domain(loading_tasks_, parallel.loading) ||
+        !create_domain(render_tasks_, parallel.render) ||
+        !create_domain(movie_tasks_, parallel.movie) ||
         !create_domain(background_tasks_, parallel.background) ||
         !create_domain(physics_tasks_, parallel.physics) ||
         !create_domain(animation_tasks_, parallel.animation) ||
@@ -148,9 +148,9 @@ bool RuntimeHost::initialize_presentation(const EngineConfig& config, ResourceSy
     }
 
     owned_renderer_ = std::make_unique<RenderSystem>(*window_, nullptr, nullptr, nullptr,
-                                                     loading_tasks_.get(), parallel.render);
+                                                     render_tasks_.get(), parallel.rendering);
     renderer_ = owned_renderer_.get();
-    owned_audio_ = std::make_unique<AudioSystem>();
+    owned_audio_ = std::make_unique<AudioSystem>(loader);
     audio_ = owned_audio_.get();
     if (!owned_renderer_->initialize(config) || !owned_audio_->initialize(config))
     {
@@ -158,13 +158,11 @@ bool RuntimeHost::initialize_presentation(const EngineConfig& config, ResourceSy
         return false;
     }
     resources_ = resources;
-    if (!resources_->configure_async(*loading_tasks_, parallel.resources))
+    loader_ = loader;
+    if (loader_)
     {
-        resources_ = nullptr;
-        shutdown();
-        return false;
+        movie_player_ = std::make_unique<MoviePlayer>(*loader_, *movie_tasks_, *audio_);
     }
-    movie_player_ = std::make_unique<MoviePlayer>(*resources_, *loading_tasks_, *audio_);
 
     window_->set_event_handler(
         [](void* context, const SDL_Event& event)
@@ -201,7 +199,7 @@ bool RuntimeHost::initialize_gameplay(const EngineConfig& config,
     tracy::SetThreadName("Engine main");
 #endif
 
-    auto world = std::make_unique<WorldSystem>(parallel_.scene_restore);
+    auto world = std::make_unique<WorldSystem>(loader_, parallel_.scene_restore);
     auto physics_system = std::make_unique<PhysicsSystem>(world.get(), physics_tasks_.get());
     physics_ = physics_system.get();
     std::unique_ptr<System> physics = std::move(physics_system);
@@ -219,7 +217,7 @@ bool RuntimeHost::initialize_gameplay(const EngineConfig& config,
         world.get(), animation_tasks_.get(), parallel_.animation_sampling, std::move(retargeter));
     animation_ = animation_system.get();
     std::unique_ptr<System> animation = std::move(animation_system);
-    auto font_system = std::make_unique<FontSystem>();
+    auto font_system = std::make_unique<FontSystem>(loader_);
     fonts_ = font_system.get();
     std::unique_ptr<System> fonts = std::move(font_system);
     auto ui_system = std::make_unique<UiSystem>(*window_, *world, *fonts_);
@@ -266,8 +264,9 @@ bool RuntimeHost::initialize_gameplay(const EngineConfig& config,
         reset_gameplay();
         return false;
     }
-    gameplay_ = std::make_unique<GameplaySession>(*world_, *renderer_, script, physics_, audio_,
-                                                  animation_, fonts_, ui_, background_tasks_.get());
+    gameplay_ =
+        std::make_unique<GameplaySession>(*resources_, *world_, *renderer_, script, physics_,
+                                          audio_, animation_, fonts_, ui_, background_tasks_.get());
     return true;
 }
 
@@ -308,7 +307,7 @@ RuntimeStartupStatus RuntimeHost::step_gameplay(double max_seconds)
     if (!gameplay_)
     {
         MoviePlaybackHandle current;
-        if (movie_player_->current_handle(current) &&
+        if (movie_player_ && movie_player_->current_handle(current) &&
             (current.id != presented_movie_id_ ||
              current.generation != presented_movie_generation_))
         {
@@ -386,7 +385,7 @@ FrameStatus RuntimeHost::tick(double delta_time)
         failed_ = true;
         return FrameStatus::failed;
     }
-    if (!movie_player_->update(movie_delta))
+    if (movie_player_ && !movie_player_->update(movie_delta))
     {
         failed_ = true;
         return FrameStatus::failed;
@@ -395,7 +394,7 @@ FrameStatus RuntimeHost::tick(double delta_time)
     MoviePlaybackStatus movie_status;
     MovieFrame movie_frame;
     const bool showing_movie =
-        movie_player_->current_handle(movie_handle) &&
+        movie_player_ && movie_player_->current_handle(movie_handle) &&
         movie_player_->status(movie_handle, movie_status) &&
         (movie_status.state == MovieState::playing || movie_status.state == MovieState::paused ||
          movie_status.state == MovieState::completed) &&
@@ -448,7 +447,8 @@ FrameStatus RuntimeHost::poll_events(double delta_time)
                              animation_tasks_.get(),
                              navigation_tasks_.get(),
                              background_tasks_.get(),
-                             loading_tasks_.get()};
+                             render_tasks_.get(),
+                             movie_tasks_.get()};
     std::size_t idle_domains = 0;
     while (remaining != 0 && idle_domains < domains.size())
     {
@@ -466,7 +466,6 @@ FrameStatus RuntimeHost::poll_events(double delta_time)
         remaining -= completed;
         idle_domains = completed == 0 ? idle_domains + 1 : 0;
     }
-    resources_->poll_async();
     // 上一回调可能改变文档 / 可见性；没有 SDL 事件也必须刷新持续占用事实。
     if (window_->can_render() && gameplay_active_ && ui_ && !ui_->synchronize())
     {
@@ -585,11 +584,8 @@ void RuntimeHost::shutdown() noexcept
     reset_gameplay();
     owns_engine_ = false;
     movie_player_.reset();
-    if (resources_ != nullptr)
-    {
-        resources_->shutdown_async();
-        resources_ = nullptr;
-    }
+    resources_ = nullptr;
+    loader_ = nullptr;
     owned_audio_.reset();
     owned_renderer_.reset();
     audio_ = nullptr;
@@ -601,7 +597,8 @@ void RuntimeHost::shutdown() noexcept
     animation_tasks_.reset();
     physics_tasks_.reset();
     background_tasks_.reset();
-    loading_tasks_.reset();
+    movie_tasks_.reset();
+    render_tasks_.reset();
     tasks_.reset();
     owned_threads_.reset();
     initialized_ = false;

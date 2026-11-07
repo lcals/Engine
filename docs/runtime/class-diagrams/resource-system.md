@@ -1,10 +1,10 @@
-# 资源系统
+# 核心资源读取系统
 
-[类图索引](../../class-diagrams/index.md) · [设计说明](../resource-loading.md) · [目录](resource-catalog.md) · [已加载资源](resource.md) · [文件访问](virtual-file-system.md)
+[类图索引](../../class-diagrams/index.md) · [统一生命周期](resource-lifecycle.md) · [文件读取](virtual-file-system.md) · [类型处理器](resource-codecs.md) · [目录](resource-catalog.md) · [资源插件](../../plugins/runtime/class-diagrams/resource-graph.md)
 
-资源核心提供元数据目录、单项同步或异步读取与加载接口选择；逐类型解码和契约校验由[资源解码器](resource-codecs.md)负责；依赖树和共享缓存由[运行时资源依赖图插件](../../plugins/runtime/class-diagrams/resource-graph.md)实现。使用方式见[资源加载](../resource-loading.md)。
+**状态：统一资源契约及业务接入补充已按确认类图实现；验证范围见测试文档。** 核心的“资源读取类”沿用 ResourceSystem，负责目录与单项资源读取/解析。它不实现 ResourceLoader，不加载依赖树，不缓存共享资源，不维护业务引用计数。
 
-## 核心接口
+## 单项读取能力
 
 ```mermaid
 classDiagram
@@ -12,177 +12,122 @@ classDiagram
         <<final>>
         +ResourceSystem()
         +~ResourceSystem()
-        +instance() ResourceSystem#42;$
+        +add~TCodec~() bool
         +update_catalog(const AssetCatalogDataT& data, const MountList& mounts) bool
         +catalog() const ResourceCatalog&
         +generation() uint64_t
-        +loader() ResourceLoader&
-        +set_loader(ResourceLoader#42; loader) void
-        +read_header(string_view guid, ResourceHeaderDataT& output) bool
-        +load(string_view guid, ResourcePtr& output) bool
-        +configure_async(TaskSystem& tasks, const ResourceAsyncConfig& config) bool
-        +begin_load(string_view guid, unique_ptr~ResourceLoad~& output) bool
-        +poll_async() void
-        +shutdown_async() void
-        +async_enabled() bool
-        +find(string_view guid) ResourcePtr
-        +validate_dependencies(const Resource& resource, span~const ResourcePtr~ dependencies) bool
-        +last_error() const string&
+        +configure_async(TaskSystem& file_tasks, TaskSystem& read_tasks, const ResourceReadConfig& config) bool
+        +read(string_view guid, unique_ptr~Resource~& output) bool
+        +begin_read(string_view guid, unique_ptr~ResourceRead~& output) bool
+        +validate_memory(Resource& candidate) bool
+        +begin_read_memory(unique_ptr~Resource~& candidate, unique_ptr~ResourceRead~& output) bool
+        +validate_dependencies(const Resource& resource, ResourceView dependencies, ResourceError& error, string& message) bool
+        +error() ResourceError
+        +last_error() string_view
         #on_initialize(const EngineConfig& config) bool
+        #on_tick(double delta_time) bool
         #on_shutdown() void
     }
     class System
-    class ResourceLoader
-    System <|-- ResourceSystem
-    ResourceLoader <|-- ResourceSystem
-```
-
-`ResourcePtr` 是 `std::shared_ptr<const Resource>` 别名，`MountList` 是 `std::vector<ResourceMount>`，不新增包装类。领域模块、编辑器与宿主借用同一资源根系统；不向 Engine 添加资源便利接口。
-
-接口服从[调用方驱动核心](../../architecture.md#调用方驱动核心)的统一原则。目录更新不是编辑器专用机制；业务、编辑器和宿主可以在满足同一生命周期约束时调用，频率和流程均由调用方决定。
-
-- `update_catalog()` 接收已解码的完整目录及部署挂载，校验唯一身份、运行平台、格式、位置和必要依赖，成功整体替换，失败保留旧索引。编辑器直接提交内存数据，真机宿主启动提交一次；核心无模式参数或自动更新策略。
-- 合法 `update_catalog` 原子替换目录并递增代际，失败保留旧目录与代际。已有资源引用不阻止目录更新；旧对象拥有独立数据，依赖图插件继续保活其旧闭包。新加载只使用当前目录和挂载，不从旧代际回退。
-- `catalog()` 返回只读借用。路径/GUID 转换继续使用目录内的 GuidMap，查询不触发 I/O 或增加引用。
-- `read_header()` 按目录给出的头部长度读取实体头，校验身份、格式和边界；不读取载荷、不加载依赖。失败输出为空。建立目录无需逐个调用它。
-- `load()` 只读取请求的单个资源，核心校验信封并按登记表交给对应 ResourceCodec 解码与类型校验；不递归加载依赖，不建立共享缓存，失败输出为空。`find()` 的核心实现返回空。
-- `loader()` 返回宿主设置的加载器借用；未设置时返回本系统。`set_loader()` 接收可空借用，null 恢复单项实现；调用方负责实现对象有效期，核心不拥有或识别具体插件。
-- `validate_dependencies()` 为 const 方法，统一检查提供的资源引用、当前代际与目录身份，再委派对应 ResourceCodec 校验跨实体契约，不读取文件、不存储依赖。依赖插件在完成候选加载后调用。
-- `generation()` 为 const noexcept；成功加载的 Resource 记录其目录代际。旧引用保持有效，释放自己的 shared_ptr 即结束一次使用，不通过 GUID 强制销毁别人的对象。
-- `last_error()` 是最近失败上下文的借用，下一次操作可能改变文本；状态以返回值为准。
-- 目录更新、请求提交和结果发布在宿主协调线程执行。configure_async 借用已就绪 TaskSystem；请求固定目录快照和代际，文件传输由 SDL AsyncIO 执行，外置资源校验解码由任务域执行。poll_async 或系统 tick 只派发已完成文件事件，不等待。宿主先派发 TaskSystem 完成委托；shutdown_async 用于关闭边界，先使操作失效，再收尾 I/O 和任务后解除借用。借给运行宿主的资源系统必须在任务域关闭前调用它。目录换代或关闭使未完成操作失败，后台只持不可变输入和私有输出，不访问活动系统。
-- ResourceAsyncConfig 的 max_in_flight、max_in_flight_bytes 限制读取及解码中的候选；completion_budget 限制每次文件结果派发。无物理位置的内置定义在协调线程复制，避免访问活动全局注册表的线程竞争。load 保持明确同步模式。
-
-构造、析构与关闭钩子为 noexcept；钩子标注 override。状态和重要查询标注 nodiscard；catalog、generation、find、last_error 及依赖校验为 const，loader 返回可调用接口借用，为非 const noexcept。宿主先释放领域使用者再关闭资源系统；原 Basis Universal 初始化及依赖编译、链接职责保留。
-
-## 所有权和参数依赖
-
-```mermaid
-classDiagram
-    direction TB
-    class ResourceSystem
     class ResourceCatalog
     class VirtualFileSystem
-    class Resource
-    class ResourceLoader
     class ResourceCodec
-    ResourceSystem ..> ResourceCodec : 查询固定类型登记表
-    ResourceSystem *-- ResourceCatalog : 独占元数据和索引
-    ResourceSystem *-- VirtualFileSystem : 独占挂载配置
-    ResourceSystem --> ResourceLoader : 可空借用并回退自身
-    ResourceSystem ..> Resource : 创建单项独立数据
+    class Resource
+    class ResourceRead
+    class TaskSystem
+    class ResourceReadConfig {
+        <<struct>>
+        +FileAsyncConfig files
+        +uint32_t max_in_flight = 4
+        +uint64_t max_in_flight_bytes = 67108864
+        +uint32_t completion_budget = 16
+    }
+    System <|-- ResourceSystem
+    ResourceSystem *-- ResourceCatalog : 独占元数据
+    ResourceSystem *-- VirtualFileSystem : 独占挂载与文件操作
+    ResourceSystem *-- ResourceCodec : 独占冻结后的登记表
+    ResourceSystem --> TaskSystem : 借用文件及单项解析两个任务域
+    ResourceSystem ..> ResourceRead : 转交独占请求
+    ResourceSystem ..> Resource : 同步成功转交独占数据
+    ResourceSystem *-- ResourceReadConfig : 独立保存配置
+    class FileAsyncConfig
+    ResourceReadConfig *-- FileAsyncConfig
 ```
+
+ResourceView 是 span<const Resource* const> 的标准别名，只包含本次调用借用，不另造依赖容器。
+
+- 构造建立安全空状态，可能失败的初始化经返回值报告；析构/on_shutdown 为 noexcept，重复关闭安全，钩子 override。状态与重要查询标注 nodiscard。
+- add<TCodec> 只在初始化前登记，检查规范类型映射及 Kind 唯一性；重复/冲突登记失败，不覆盖。处理器生命周期覆盖所有任务。宿主登记核心类型及选中的插件类型，核心不 include 具体插件。
+- update_catalog 校验完整目录与挂载后原子替换，成功递增目录代际，失败保持原状态。旧目录快照由正在收尾的操作独立保活；目录查询借用不跨更新保存。
+- read 仅读取 GUID 对应的一项实体：定位、读取、校验信封/哈希/类型、解码、校验本项数据。成功转交 unique_ptr；不读取依赖，也不返回业务 ResourceHandle。重复调用可以重复读取，去重是插件职责。
+- validate_dependencies 只检查传入依赖数据与本项声明/跨实体约束；不读文件、不保留借用、不增计数。校验基于资源独立元数据与其同代际依赖，不能拿当前目录替换旧资源的依赖。该方法为 const，失败输出明确 error/message。
+- read/begin_read 请求输入是规范 GUID；路径解析属于 ResourceCatalog。catalog/generation/error/last_error 为 const noexcept 查询。命令失败清空输出；最近错误文本由下一次命令覆盖，异步错误归独立操作。
+- configure_async 借用两个已就绪且不同的 TaskSystem 域；已有活动请求时不可重配。未配置时同步 read 可用，begin_read 返回 unavailable；不能用同步工作冒充异步受理。
+- on_tick 先处理文件结果，再提交/接收解码任务，最后在协调线程发布单项结果；不等待 I/O。宿主统一派发 TaskSystem 完成委托，核心只处理自身队列。后台只访问冻结输入、类型处理器和私有候选。
+- 目录换代时未完成单项操作以 generation_changed 失败；晚到结果丢弃。已取出的旧数据是独立值，仍由所有者管理。shutdown 取消请求、等待文件/任务收尾后才销毁处理器。
+- ResourceReadConfig 分别限制单项数、候选输入字节和每 tick 完成数；超过单项允许上限返回 budget_exceeded，不能永久排队。容量暂满返回 busy，由插件有界排队重试。字节预算不冒充总驻留内存上限。
+
+## 单项异步读取
 
 ```mermaid
 classDiagram
-    direction TB
-    class ResourceSystem
-    class AssetCatalogDataT
-    class ResourceHeaderDataT
-    class ResourceMount
-    class EngineConfig
+    class ResourceRead {
+        <<final>>
+        +~ResourceRead()
+        +status() ResourceReadStatus
+        +take(unique_ptr~Resource~& output) bool
+        +cancel() bool
+        +error() ResourceError
+        +last_error() string_view
+    }
+    class ResourceReadStatus {
+        <<enumeration>>
+        reading
+        ready
+        delivered
+        failed
+        cancelled
+    }
     class Resource
-    ResourceSystem ..> AssetCatalogDataT : 更新输入
-    ResourceSystem ..> ResourceMount : 挂载列表输入
-    ResourceSystem ..> ResourceHeaderDataT : 读取输出
-    ResourceSystem ..> EngineConfig : 生命周期参数
-    ResourceSystem ..> Resource : 输出共享引用
+    class ResourceError
+    ResourceRead *-- Resource : 未领取候选独占所有权
+    ResourceRead ..> ResourceReadStatus
+    ResourceRead ..> ResourceError
 ```
 
-## 领域使用者
+ResourceSystem 创建操作，调用方不能直接构造；不可复制/移动对象本身。status/error/last_error 为 const noexcept 纯查询，析构 noexcept，状态返回 nodiscard。输出 unique_ptr 必须为空；非空时拒绝且保留原值。ready 只表示单项已校验，不表示依赖闭包就绪；插件取得全部依赖并校验后才能交付业务句柄。
 
-领域模块按以下关系持有共享资源。公开方法在各自类图维护。
+take 仅 ready 时成功一次，转交独占候选并变为 delivered；其他状态失败输出空，不改变终态错误。cancel 对 reading/ready 撤销并返回 true，重复取消 true，delivered/failed 返回 false。销毁未领取操作取消并回收结果，不阻塞；独立操作状态可以晚于系统销毁，但此后不能回调系统。
 
-```mermaid
-classDiagram
-    direction TB
-    class WorldSystem
-    class Scene
-    class MeshRenderer
-    class Material
-    class ResourceLoader
-    class Resource
-    WorldSystem ..> ResourceLoader : 加载场景根资源
-    WorldSystem *-- Scene : 独占活动场景
-    Scene o-- Resource : 场景根资源引用
-    class MeshRendererRuntime
-    class MaterialState
-    MeshRenderer ..> Material : 按槽返回身份句柄
-    MeshRendererRuntime o-- Resource : ECS运行列持有网格
-    MeshRendererRuntime *-- MaterialState : 材质槽数据
-    MaterialState o-- Resource : 材质及当前Shader引用
-```
+begin_read_memory 与文件读取共用操作，只跳过 I/O；受理时取得候选所有权，未受理保留。validate_memory 为同步入口，校验候选元数据/规范类型/本项数据并设置当前代际，失败不消费对象；依赖仍由插件提供并另行校验。两者禁止用内存候选替换当前目录的物理条目。
 
-```mermaid
-classDiagram
-    direction TB
-    class ScriptSystem
-    class RenderSystem
-    class ResourceLoader
-    class Resource
-    ScriptSystem ..> ResourceLoader : 按 GUID 加载脚本
-    ScriptSystem o-- Resource : 脚本运行期间持有
-    RenderSystem --> Resource : 准备 GPU 时借用数据
-```
-
-`o--` 表示持有共享所有权。候选场景失败时释放候选引用，保留旧场景。动态组件换资源先取得新引用再替换。GPU 创建和退役继续由 RenderSystem 管理，CPU 加载成功不等于 GPU 已就绪。
-
-## 资源文件工具与内置初始化
+## 保留的实体工具与移除的旁路
 
 ```mermaid
 classDiagram
     class ResourceSystem {
-        +read_binary(const Path& path, ByteBuffer& output) bool$
-        +read_text(const Path& path, string& output) bool$
         +read_catalog(const Path& root, ResourceCatalog& output) bool$
         +read_resource(const ResourceCatalog& catalog, const MountList& mounts, string_view guid, ByteBuffer& payload) bool$
         +decode_resource(const AssetEntryT& entry, ByteView entity, ByteBuffer& payload) bool$
         +encode_resource(string_view guid, AssetKind kind, ByteView payload, ByteBuffer& output, uint32_t& header_size) bool$
+        +read_header(string_view guid, ResourceHeaderDataT& output) bool
     }
+    class AssetEntryT
+    class AssetCatalogDataT
+    class ResourceHeaderDataT
+    class ResourceMount
+    class EngineConfig
+    class ResourceError
+    ResourceSystem ..> AssetEntryT
+    ResourceSystem ..> AssetCatalogDataT
+    ResourceSystem ..> ResourceHeaderDataT
+    ResourceSystem ..> ResourceMount
+    ResourceSystem ..> EngineConfig
+    ResourceSystem ..> ResourceError
 ```
 
-文件工具不建立资源对象。`read_catalog` 只读元数据；`read_resource` 只校验并读取一个实体的载荷，供导入复用和候选脚本预检，不递归加载依赖。`encode_resource` 和 `decode_resource` 统一实体格式，避免编辑器、脚本或平台工具各自实现格式。失败输出为空。
+Path 为 filesystem::path。实体工具服务编辑器构建/导入复用，只处理目录或单项信封，不是业务加载入口；失败输出安全空值。read_header 不加载载荷和依赖。所有文件实际读取复用 VFS。
 
-```mermaid
-classDiagram
-    class ResourceSystem {
-        +path_to_guid(string_view path, Guid& output) bool$
-        +guid_to_path(string_view guid, string& output) bool$
-        +register_texture(const TextureDataT& data) bool$
-        +find_texture(string_view path) const TextureDataT#42;$
-        +register_mesh(const MeshDataT& data) bool$
-        +register_shader(const ShaderDataT& data) bool$
-        +register_material(const MaterialDataT& data) bool$
-        +find_mesh(string_view path) const MeshDataT#42;$
-        +find_shader(string_view path) const ShaderDataT#42;$
-        +find_material(string_view path) const MaterialDataT#42;$
-    }
-```
+目标移除 ResourceSystem 的 ResourceLoader 继承、loader/set_loader、find、register_texture/mesh/shader/material、find_* 以及通过全局 instance 取得加载器的旁路。路径/GUID 通过 ResourceCatalog 查询；原始 read_binary/read_text 调用移到 VFS 的文件读取能力及调用方文本解码。
 
-`instance` 返回已初始化的单宿主根系统借用，未就绪时为空。身份转换只查询目录和固定内置映射。`register_*` 仅供引擎 bootstrap 初始化，允许引擎无项目启动。`load()` 对有物理位置的条目一律读取当前挂载并校验实体，包括 `builtin://`；损坏或缺失时返回失败，不回退编入定义。只有无物理位置的固定内置条目才使用 bootstrap 定义。
-
-`register_*` 对完全相同的定义重复登记返回成功，已有路径的不同数据或跨类型冲突返回失败；注册校验仅使用 bootstrap 表，不查询活动目录或加载器。
-
-`find_*` 对已外置条目只查询所选加载器的当前代际对象；未外置的内置定义查询 bootstrap 注册表。查询不执行 I/O、不增加常驻引用；从加载器借用的数据必须由调用方持有的 ResourcePtr 保活。普通逻辑路径不附加 `project/`，编辑器专属 `editor://` 不进入运行目录。
-
-内置资源的固定身份、类型和依赖通过 `builtin_resource_catalog()` / `builtin_resource_info(guid)` 提供给核心与构建模块；它们不依赖渲染设备初始化，也不复制宿主平台的 Shader 字节码到其他平台。
-
-贴图由 TextureDataT 保存 CPU 缓存；register_texture/find_texture 服从相同的 builtin 注册与项目借用规则。Shader 默认贴图、材质覆盖贴图必须存在于直接依赖集合，类型、路径和 GUID 一致。缓存先校验 FlatBuffers、Basis 文件校验和、尺寸与 mip 元数据；渲染模块负责设备格式及实际转码，资源系统不创建 GPU 对象。
-
-`builtin_resource_payload(guid, output)` 是与 `builtin_resource_catalog()` 同级的自由函数：无需系统、窗口或 GPU 初始化，按固定 GUID 序列化引擎自带定义为对应 FlatBuffers 载荷；失败清空 `ByteBuffer`。它与启动备用定义共用构造，不读取活动项目的注册表。编辑器资源构建负责将 Shader 替换成目标平台字节码，再通过 `encode_resource()` 写出实体；该函数不承担平台选择、文件布局或打包策略。
-
-```mermaid
-classDiagram
-    class ResourceSystem
-    class TaskSystem
-    class ResourceAsyncConfig {
-        <<struct>>
-        +size_t max_in_flight = 4
-        +uint64_t max_in_flight_bytes = 67108864
-        +size_t completion_budget = 16
-    }
-    class ResourceLoad
-    ResourceSystem --> TaskSystem : 借用解码任务域
-    ResourceSystem ..> ResourceAsyncConfig : 预算输入
-    ResourceSystem ..> ResourceLoad : 单项异步操作
-```
+已有 builtin_resource_catalog/info/payload 等离线定义函数仍用于构建；运行时内置资源在宿主提交基线目录后通过加载器的内存入口接纳，或按当前外置条目正常加载。默认引用由宿主显式保留，不在核心另存一套有不同生命期的静态对象表。

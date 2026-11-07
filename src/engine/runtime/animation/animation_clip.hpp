@@ -1,5 +1,10 @@
 #pragma once
 
+#include "runtime/resource/resource_reference.hpp"
+#include "runtime/resource/types/animation_resource.hpp"
+#include "runtime/resource/types/animation_retarget_profile_resource.hpp"
+#include "runtime/resource/types/skeleton_resource.hpp"
+
 #include "runtime/animation/animation_binding.hpp"
 #include "runtime/animation/animation_math.hpp"
 #include "runtime/animation/animation_retargeter.hpp"
@@ -24,7 +29,7 @@ namespace engine::animation_detail
 // 打断时的临时局部姿态，不进入场景数据；由组件保留以支持停用后的恢复。
 struct AnimationPose
 {
-    ResourcePtr target;
+    resource_detail::ResourceReference target;
     std::vector<ozz::math::SoaTransform> locals;
 };
 
@@ -80,16 +85,17 @@ inline void build_joint(const schema::SkeletonDataT& data, std::size_t index,
 
 struct CompiledSkeleton
 {
-    ResourcePtr resource;
+    resource_detail::ResourceReference resource;
+    const schema::SkeletonDataT* data = nullptr;
     ozz::unique_ptr<ozz::animation::Skeleton> skeleton;
     std::vector<std::size_t> order;
     std::vector<std::string> paths;
     std::vector<std::string> readable_paths;
     std::vector<ozz::math::Float4x4> inverse_bind;
 
-    bool prepare(ResourcePtr target)
+    bool prepare(const resource_detail::ResourceReference& target)
     {
-        const auto* data = target ? target->skeleton() : nullptr;
+        const auto* data = target ? target.data<SkeletonResource>() : nullptr;
         if (data == nullptr || !joint_paths(*data, paths) ||
             !readable_joint_paths(*data, readable_paths))
         {
@@ -129,21 +135,26 @@ struct CompiledSkeleton
                 return false;
             }
         }
-        resource = std::move(target);
+        if (!resource.retain(target))
+        {
+            return false;
+        }
+        this->data = target.data<SkeletonResource>();
         return true;
     }
 };
 
 struct CompiledAnimation
 {
-    ResourcePtr resource;
-    ResourcePtr source;
+    resource_detail::ResourceReference resource;
+    resource_detail::ResourceReference source;
     std::shared_ptr<const CompiledSkeleton> target;
     std::shared_ptr<const CompiledSkeleton> sampling;
     std::shared_ptr<const AnimationRetargetBinding> retarget;
     ozz::unique_ptr<ozz::animation::Animation> animation;
 
-    bool prepare(ResourcePtr clip, ResourcePtr source_resource,
+    bool prepare(const resource_detail::ResourceReference& clip,
+                 const resource_detail::ResourceReference& source_resource,
                  std::shared_ptr<const CompiledSkeleton> skeleton,
                  std::shared_ptr<const CompiledSkeleton> sampling_skeleton = nullptr,
                  std::shared_ptr<const AnimationRetargetBinding> binding = nullptr)
@@ -153,8 +164,9 @@ struct CompiledAnimation
         {
             skeleton = sampling_skeleton;
         }
-        const auto* data = clip ? clip->animation() : nullptr;
-        const auto* source_data = source_resource ? source_resource->skeleton() : nullptr;
+        const auto* data = clip ? clip.data<AnimationResource>() : nullptr;
+        const auto* source_data =
+            source_resource ? source_resource.data<SkeletonResource>() : nullptr;
         if (data == nullptr || source_data == nullptr || !skeleton)
         {
             return false;
@@ -191,7 +203,7 @@ struct CompiledAnimation
                 return false;
             }
             const auto* track = tracks[found->second];
-            const auto& rest = *skeleton->resource->skeleton()->joints[target_index];
+            const auto& rest = *skeleton->data->joints[target_index];
             auto& result = raw.tracks[dfs];
             if (track != nullptr)
             {
@@ -234,8 +246,10 @@ struct CompiledAnimation
         {
             return false;
         }
-        resource = std::move(clip);
-        source = std::move(source_resource);
+        if (!resource.retain(clip) || !source.retain(source_resource))
+        {
+            return false;
+        }
         target = final_target;
         sampling = std::move(skeleton);
         retarget = std::move(binding);

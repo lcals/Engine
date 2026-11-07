@@ -1,5 +1,7 @@
 #pragma once
 
+#include "runtime/resource/resource_handle.hpp"
+
 #include "runtime/scene/component.hpp"
 #include "runtime/schema/material_generated.h"
 
@@ -53,7 +55,7 @@ public:
     // 输出借用当前资源路径；失败输出空视图。
     [[nodiscard]] bool get_texture(std::string_view name, std::string_view& output) const noexcept;
     // 借用共享引用，未知名称返回空引用；修改材质后重新查询。
-    [[nodiscard]] std::shared_ptr<const Resource> texture(std::string_view name) const noexcept;
+    [[nodiscard]] ResourceHandle texture(std::string_view name) const noexcept;
     // 查询失败时输出零值。
     [[nodiscard]] bool get_float(std::string_view name, float& output) const noexcept;
     [[nodiscard]] bool get_v2(std::string_view name, Vec2& output) const noexcept;

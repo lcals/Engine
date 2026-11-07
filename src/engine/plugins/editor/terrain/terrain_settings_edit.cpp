@@ -1,4 +1,5 @@
 #include "plugins/editor/terrain/terrain_settings_edit.hpp"
+#include "editor/resource_access.hpp"
 
 #include "plugins/runtime/terrain/terrain_component.hpp"
 #include "runtime/scene/node.hpp"
@@ -63,6 +64,19 @@ bool TerrainSettingsEdit::replace(const std::optional<schema::ComponentDataT>& e
             return false;
         }
         return true;
+    }
+    editor::resource_access::ResourceReference source, material;
+    const auto* data = replacement->payload.AsTerrainData();
+    if (!data ||
+        (!data->terrain_guid.empty() &&
+         (!editor::resource_access::load(world_.resource_loader(), data->terrain_guid, source) ||
+          !editor::resource_access::load(
+              world_.resource_loader(),
+              data->material_guid.empty() ? "builtin://materials/default-pbr" : data->material_guid,
+              material))))
+    {
+        error = "Cannot prepare terrain settings resources";
+        return false;
     }
     const bool created = !component;
     if (created)

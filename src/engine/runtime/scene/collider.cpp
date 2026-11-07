@@ -1,13 +1,14 @@
 #include "runtime/scene/collider.hpp"
 
+#include "runtime/resource/types/mesh_resource.hpp"
 #include "runtime/scene/collider_runtime.hpp"
 
 #include "runtime/scene/ecs_storage.hpp"
 
 #include "runtime/core/guid_map.hpp"
 #include "runtime/physics/mesh_collision_data.hpp"
-#include "runtime/resource/resource_system.hpp"
 #include "runtime/scene/node.hpp"
+#include "runtime/scene/resource_binding.hpp"
 #include "runtime/scene/rigid_body.hpp"
 
 #include <cmath>
@@ -111,7 +112,11 @@ bool Collider::set_settings(const schema::ColliderDataT& value)
     {
         return false;
     }
-    auto replacement = runtime()->mesh_;
+    resource_detail::ResourceReference replacement;
+    if (runtime()->mesh_ && !replacement.retain(runtime()->mesh_))
+    {
+        return false;
+    }
     auto transient = runtime()->transient_mesh_;
     auto parts = runtime()->mesh_parts_;
     if (value.shape == schema::ColliderShape::mesh)
@@ -127,9 +132,11 @@ bool Collider::set_settings(const schema::ColliderDataT& value)
         }
         else if (!replacement || value.mesh_guid != settings().mesh_guid)
         {
-            auto* resources = ResourceSystem::instance();
-            if (resources == nullptr || !resources->loader().load(value.mesh_guid, replacement) ||
-                !replacement || replacement->mesh() == nullptr)
+            replacement.reset();
+            auto* resources = node().world()->resource_loader();
+            if (resources == nullptr ||
+                !ecs_detail::acquire_resource(node(), value.mesh_guid, replacement) ||
+                !replacement || replacement.data<MeshResource>() == nullptr)
             {
                 return false;
             }
@@ -194,7 +201,7 @@ const schema::MeshDataT* Collider::mesh_data() const noexcept
         return {};
     }
     return runtime()->transient_mesh_ ? runtime()->transient_mesh_.get()
-           : runtime()->mesh_         ? runtime()->mesh_->mesh()
+           : runtime()->mesh_         ? runtime()->mesh_.data<MeshResource>()
                                       : nullptr;
 }
 
@@ -205,7 +212,7 @@ bool Collider::set_mesh(std::string_view path)
         return false;
     }
     auto replacement = settings();
-    if (!ResourceSystem::path_to_guid(path, replacement.mesh_guid))
+    if (!ecs_detail::resource_guid(node(), path, replacement.mesh_guid))
     {
         return false;
     }

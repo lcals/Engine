@@ -1,4 +1,5 @@
 #include "resource_fixture.hpp"
+#include "resource_services.hpp"
 
 #include "plugins/runtime/resource_graph/resource_graph_system.hpp"
 #include "runtime/engine_config.hpp"
@@ -228,22 +229,22 @@ int test()
     EngineConfig config;
     config.window_title = "Upstream rendering submission regression";
     config.width = config.height = 256;
-    ResourceSystem resources;
-    plugins::resource_graph::ResourceGraphSystem graph(resources);
-    WorldSystem world;
+    test_support::ResourceServices services;
+    auto& resources = services.core;
+    engine::WorldSystem world(&services.loader);
     WindowSystem window;
     RenderSystem renderer(window, &world);
     test_support::ResourceFixture fixture;
     const auto geometry = grid();
     const auto left_probes = probes("lighting/submission-left", true);
     const auto right_probes = probes("lighting/submission-right", false);
-    if (!resources.initialize(config) || !graph.initialize(config) || !world.initialize(config) ||
-        !window.initialize(config) || !renderer.initialize(config) || !fixture.add(geometry) ||
-        !fixture.add(left_probes) || !fixture.add(right_probes) || !fixture.publish(resources))
+    if (!(services.initialize(config) && services.prepare_builtins()) ||
+        !world.initialize(config) || !window.initialize(config) || !renderer.initialize(config) ||
+        !fixture.add(geometry) || !fixture.add(left_probes) || !fixture.add(right_probes) ||
+        !services.publish_and_load(fixture.catalog, {{"content", fixture.root}}))
     {
         return 1;
     }
-    resources.set_loader(&graph);
     if (bgfx::getCaps()->limits.maxInstanceData < 7)
     {
         std::fprintf(stderr, "render submission: device has fewer than 7 instance-data slots\n");
@@ -400,7 +401,8 @@ int test()
         auto node = scene->create_node(resource->path);
         auto volume = node.add_component<LightProbeVolumeComponent>();
         auto settings = volume.settings();
-        if (!volume || !ResourceSystem::path_to_guid(resource->path, settings.probes_guid) ||
+        if (!volume ||
+            !resources.catalog().identities().path_to_guid(resource->path, settings.probes_guid) ||
             !volume.set_settings(settings))
         {
             return 1;

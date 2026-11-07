@@ -8,14 +8,16 @@
 #include "runtime/physics/mesh_collision_data.hpp"
 #include "runtime/physics/physics_jobs.hpp"
 #include "runtime/resource/resource.hpp"
-#include "runtime/resource/resource_system.hpp"
+#include "runtime/resource/types/mesh_resource.hpp"
 #include "runtime/scene/character_motor.hpp"
 #include "runtime/scene/collider.hpp"
 #include "runtime/scene/ecs_storage.hpp"
+#include "runtime/scene/resource_binding.hpp"
 #include "runtime/scene/rigid_body.hpp"
 #include "runtime/scene/scene.hpp"
 #include "runtime/scene/transform.hpp"
 #include "runtime/world/world_system.hpp"
+#include <tuple>
 
 // Jolt 要求先包含基础定义，不能按文件名字母顺序重排。
 // clang-format off
@@ -576,7 +578,7 @@ struct BodySnapshot
     // 只用于根动态刚体：调用方未改写展示 TRS 时，保留 Jolt 原始姿态。
     // 不能把自身 Euler 回写的舍入或 q/-q 翻号当成下一帧的 teleport。
     std::optional<TransformSettings> written_transform;
-    ResourcePtr mesh;
+    std::tuple<std::uint64_t, std::uint64_t, std::uint64_t> mesh;
     std::shared_ptr<const schema::MeshDataT> transient_mesh;
     std::shared_ptr<const MeshCollisionData> mesh_parts;
     std::shared_ptr<const MeshPartShapes> part_shapes;
@@ -2213,16 +2215,21 @@ bool PhysicsSystem::set_collider_data(Collider collider, const schema::ColliderD
         return false;
     }
     BodySnapshot snapshot;
+    resource_detail::ResourceReference source;
     if (settings.shape == schema::ColliderShape::mesh)
     {
-        auto* resources = ResourceSystem::instance();
-        if (resources == nullptr || !resources->loader().load(settings.mesh_guid, snapshot.mesh) ||
-            !snapshot.mesh || snapshot.mesh->mesh() == nullptr)
+        const auto& current = engine::ecs_detail::component_runtime(collider)->mesh_;
+        const bool acquired = current && current->info().guid == settings.mesh_guid
+                                  ? source.retain(current)
+                                  : ecs_detail::acquire_resource(node, settings.mesh_guid, source);
+        if (!acquired || !source.data<MeshResource>())
         {
             return false;
         }
     }
-    const auto* mesh = snapshot.mesh ? snapshot.mesh->mesh() : nullptr;
+    const auto handle = source.handle();
+    snapshot.mesh = {handle.owner, handle.id, handle.generation};
+    const auto* mesh = source.data<MeshResource>();
     if (!read_snapshot(node, settings, mesh, rigid, snapshot))
     {
         return false;
@@ -2245,7 +2252,7 @@ bool PhysicsSystem::set_collider_data(Collider collider, const schema::ColliderD
     state_->mark_synchronized(node.scene()->id());
     *collider.write_data<Collider::Data>() = *snapshot.collider;
     collider.modified();
-    engine::ecs_detail::component_runtime(collider)->mesh_ = std::move(snapshot.mesh);
+    engine::ecs_detail::component_runtime(collider)->mesh_ = std::move(source);
     engine::ecs_detail::component_runtime(collider)->transient_mesh_.reset();
     engine::ecs_detail::component_runtime(collider)->mesh_parts_.reset();
     return true;
@@ -2469,7 +2476,9 @@ bool PhysicsSystem::on_tick(double delta_time)
                         return;
                     }
                     BodySnapshot snapshot;
-                    snapshot.mesh = engine::ecs_detail::component_runtime(collider)->mesh_;
+                    const auto handle =
+                        engine::ecs_detail::component_runtime(collider)->mesh_.handle();
+                    snapshot.mesh = {handle.owner, handle.id, handle.generation};
                     snapshot.transient_mesh =
                         engine::ecs_detail::component_runtime(collider)->transient_mesh_;
                     snapshot.mesh_parts =

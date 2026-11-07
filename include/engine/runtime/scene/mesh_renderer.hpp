@@ -1,5 +1,7 @@
 #pragma once
 
+#include "runtime/resource/resource_handle.hpp"
+
 #include "runtime/scene/component.hpp"
 #include "runtime/scene/material.hpp"
 #include "runtime/schema/mesh_generated.h"
@@ -39,7 +41,7 @@ public:
     // 完整校验后提交独立瞬时网格，失败不改变已有几何和材质槽。
     [[nodiscard]] bool set_mesh_data(const schema::MeshDataT& data);
     [[nodiscard]] const schema::MeshDataT* mesh_data() const noexcept;
-    [[nodiscard]] std::shared_ptr<const Resource> mesh_resource() const noexcept;
+    [[nodiscard]] ResourceHandle mesh_resource() const noexcept;
     [[nodiscard]] std::uint64_t mesh_revision() const noexcept;
     // 持久化的投影资格；实际阴影还要求 Light 开启，不停用组件或动画。
     [[nodiscard]] bool cast_shadows() const noexcept;
@@ -53,7 +55,7 @@ public:
     [[nodiscard]] std::string_view lightmap_path() const noexcept;
     [[nodiscard]] bool set_lightmap(std::string_view path);
     // 借用已校验姿态和网格版本的线性照明资源；绑定失效或不存在时为空。
-    [[nodiscard]] std::shared_ptr<const Resource> lightmap_resource() const noexcept;
+    [[nodiscard]] ResourceHandle lightmap_resource() const noexcept;
     // 瞬态顶点覆写，保留源资源身份、拓扑和材质；失败不改变已有变形。
     [[nodiscard]] bool set_deformation(std::span<const schema::MeshVertex> vertices,
                                        std::span<const Vec4> tangents);

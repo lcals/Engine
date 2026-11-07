@@ -4,7 +4,7 @@
 
 `scene.fbs` 定义场景节点及组件，`mesh.fbs`、`model.fbs`、`skeleton.fbs`、`animation.fbs`、`material.fbs`、`shader.fbs`、`audio.fbs` 和 `asset_catalog.fbs` 分别定义网格、模型资源、骨架、动作、材质、Shader、音频 PCM 与资源目录，`common.fbs` 提供共享数值类型。行为类使用生成数据，不另写一套持久化模型。场景中的资源引用使用 GUID，持久节点 ID 与运行实体 ID 分开。物理和音频组件只保存设置；Jolt/SDL 句柄、冲量请求和播放游标不序列化。
 
-编辑器将源资源转换为 `cache/gen/<完整GUID>` 二进制。运行时通过 `ResourceSystem` 的 SDL3 同步文件接口读取，校验数据结构、目录及引用后使用。资源目录只保存元数据；核心按需读取独立实体或包成员。ResourceGraphSystem 插件通过统一 ResourceLoader 接口组织必要依赖和共享缓存，实际使用者持有对象及其依赖闭包。内存映射读取尚未实现。
+编辑器将源资源转换为 `cache/gen/<完整GUID>` 二进制。核心 `VirtualFileSystem` 提供同步与异步范围读取，`ResourceSystem` 对单项资源进行解码和校验；目录只保存元数据。ResourceGraphSystem 插件实现统一 ResourceLoader 接口，组织必要依赖、共享与引用计数。业务先加载，再使用已加载数据，并显式释放获取；运行实例独立保活，未加载时使用失败。内存映射读取尚未实现。
 
 源资源描述及 meta 使用 TOML，增量索引使用 SQLite，脚本及未转换文件保留各自内容格式。SQLite 和源 meta 不进入运行资源包，详见[资源管线](../editor/asset-pipeline.md)。
 

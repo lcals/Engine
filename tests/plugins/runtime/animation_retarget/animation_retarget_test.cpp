@@ -1,3 +1,4 @@
+#include "resource_codecs.hpp"
 #include "resource_fixture.hpp"
 
 #include "plugins/runtime/animation_retarget/animation_retarget.hpp"
@@ -225,18 +226,20 @@ bool exercise()
     engine::EngineConfig config;
     engine::ResourceSystem resources;
     settings = profile();
-    engine::ResourcePtr loaded, loaded_source, loaded_target;
+    std::unique_ptr<engine::Resource> loaded, loaded_source, loaded_target;
     if (!expect(
-            resources.initialize(config) && fixture.add(source) && fixture.add(target) &&
-                fixture.add(settings) && fixture.publish(resources) &&
-                fixture.load(settings.path, loaded) && loaded && loaded->retarget_profile() &&
-                fixture.load(source.path, loaded_source) &&
-                fixture.load(target.path, loaded_target) &&
-                resources.validate_dependencies(
-                    *loaded, std::array<engine::ResourcePtr, 2>{loaded_source, loaded_target}) &&
+            (test_support::register_resource_codecs(resources) && resources.initialize(config)) &&
+                fixture.add(source) && fixture.add(target) && fixture.add(settings) &&
+                fixture.publish(resources) &&
+                test_support::read_resource(resources, settings.path, loaded) && loaded &&
+                engine::resource_detail::data<engine::AnimationRetargetResource>(loaded.get()) &&
+                test_support::read_resource(resources, source.path, loaded_source) &&
+                test_support::read_resource(resources, target.path, loaded_target) &&
+                test_support::validate_dependencies(resources, *loaded,
+                                                    {loaded_source.get(), loaded_target.get()}) &&
                 loaded->info().dependencies.size() == 2,
             "formal retarget resource loads by GUID/mount with precisely two skeleton dependencies",
-            resources.last_error()))
+            std::string(resources.last_error())))
     {
         return false;
     }

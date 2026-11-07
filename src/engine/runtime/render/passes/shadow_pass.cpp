@@ -195,8 +195,8 @@ bool ShadowPass::bind_material(const Material& material, const std::vector<GpuTe
         const auto& resource = material.texture("baseColorTexture");
         const auto found =
             std::find_if(textures.begin(), textures.end(),
-                         [&resource](const auto& item) { return item.resource == resource; });
-        if (!resource || found == textures.end())
+                         [&resource](const auto& item) { return item.matches(resource); });
+        if (resource.id == 0 || found == textures.end())
         {
             return false;
         }

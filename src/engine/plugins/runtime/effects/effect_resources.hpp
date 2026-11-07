@@ -23,7 +23,8 @@ public:
     [[nodiscard]] EffekseerRendererBGFX::InitArgs renderer_arguments(std::uint16_t view_id);
     // 只在官方 Effect::Create 的同步加载回调期间借用；完成后立即清空。
     const EffectBindings* loading = nullptr;
-    [[nodiscard]] bool resolve(std::string_view path, schema::AssetKind kind, ResourcePtr& output);
+    [[nodiscard]] bool resolve(std::string_view path, schema::AssetKind kind,
+                               resource_detail::ResourceReference& output);
     void release_textures() noexcept;
     void release_shaders() noexcept;
     std::string error;

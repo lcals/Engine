@@ -1,4 +1,5 @@
 #include "plugins/editor/animation_tools/animation_authoring_commands.hpp"
+#include "editor/file_text.hpp"
 
 #include "editor/asset_pipeline/asset_io.hpp"
 #include "editor/asset_pipeline/importer_utils.hpp"
@@ -50,7 +51,7 @@ bool snapshot(const fs::path& project, const std::string& path, std::string& sou
     fs::path source, meta;
     ByteBuffer bytes;
     if (!paths(project, path, source, meta, error) || !io::read_bytes(source, bytes, error) ||
-        !ResourceSystem::read_text(meta, metadata))
+        !engine::editor::file_detail::read_text(meta, metadata))
     {
         if (error.empty())
         {

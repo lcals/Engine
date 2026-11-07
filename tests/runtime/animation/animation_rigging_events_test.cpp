@@ -41,7 +41,9 @@ bool rigging()
     target.two_bone_ik.push_back(std::move(chain));
     std::erase_if(fixture.files.catalog.entries,
                   [](const auto& entry) { return entry->guid == target_guid; });
-    if (!add_skeleton(fixture, target_guid, target) || !fixture.files.publish(fixture.resources))
+    if (!add_skeleton(fixture, target_guid, target) ||
+        !fixture.services.publish_and_load(fixture.files.catalog,
+                                           {{"content", fixture.files.root}}))
     {
         return false;
     }
@@ -237,7 +239,8 @@ bool attachment_identity()
     std::erase_if(fixture.files.catalog.entries,
                   [](const auto& entry) { return entry->guid == target_guid; });
     if (!add_skeleton(fixture, target_guid, skeleton_data) ||
-        !fixture.files.publish(fixture.resources))
+        !fixture.services.publish_and_load(fixture.files.catalog,
+                                           {{"content", fixture.files.root}}))
     {
         return false;
     }
@@ -369,7 +372,8 @@ bool same_frame_attachment_ik()
             return false;
         }
     }
-    if (!fixture.files.publish(fixture.resources))
+    if (!fixture.services.publish_and_load(fixture.files.catalog,
+                                           {{"content", fixture.files.root}}))
     {
         return false;
     }

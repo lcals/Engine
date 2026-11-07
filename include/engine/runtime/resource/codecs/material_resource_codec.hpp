@@ -1,6 +1,8 @@
 #pragma once
 
 #include "runtime/resource/resource_codec.hpp"
+#include "runtime/resource/types/material_resource.hpp"
+#include "runtime/schema/shader_generated.h"
 
 namespace engine
 {
@@ -8,11 +10,14 @@ namespace engine
 class MaterialResourceCodec final : public ResourceCodec
 {
 public:
-    [[nodiscard]] bool decode(const ResourceCatalog& catalog, ByteView payload,
-                              Resource& output) const override;
-    [[nodiscard]] bool
-    validate_dependencies(const ResourceCatalog& catalog, const Resource& resource,
-                          std::span<const ResourcePtr> dependencies) const override;
+    using ResourceType = MaterialResource;
+    [[nodiscard]] schema::AssetKind kind() const noexcept override;
+    [[nodiscard]] bool decode(const schema::AssetEntryT& entry, ByteView payload,
+                              std::unique_ptr<Resource>& output, std::string& error) const override;
+    [[nodiscard]] bool validate_data(const Resource& resource, std::string& error) const override;
+    [[nodiscard]] bool validate_dependencies(const Resource& resource, ResourceView dependencies,
+                                             std::string& error) const override;
+
     [[nodiscard]] static bool validate(const schema::MaterialDataT& data,
                                        const schema::ShaderDataT* shader);
 

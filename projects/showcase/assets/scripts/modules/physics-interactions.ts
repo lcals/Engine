@@ -1,4 +1,4 @@
-import {
+import { Resources, ResourceHandle,
     Animator,
     CharacterMotor,
     Debug,
@@ -49,6 +49,7 @@ const region_center: Vector3 = { x: 0, y: 1, z: 0 };
 
 /** Native movement and native queries, with only technical display/routing decisions in TS. */
 export default class Game extends Gameplay {
+    private readonly resources: ResourceHandle[] = [];
     scene: Scene | null = null;
     private readonly model = new PhysicsInteractionsModel();
     private readonly actors: Actor[] = [];
@@ -70,6 +71,12 @@ export default class Game extends Gameplay {
     private initialized = false;
 
     override OnInitialize(): boolean {
+        for (const path of ["scenes/physics-interactions.scene", "prefabs/characters/player.prefab", "materials/character.material", "models/locomotions.fbx/animations/walk"]) {
+            const resource = Resources.Load(path);
+            if (!resource) { Debug.LogError(`Cannot load ${path}: ${Resources.lastError}`); return false; }
+            this.resources.push(resource);
+        }
+
         this.scene = Scene.Load("scenes/physics-interactions.scene");
         const scene = this.scene;
         const ground = scene?.FindNode("Interaction ground");
@@ -374,6 +381,10 @@ export default class Game extends Gameplay {
     }
 
     override OnShutdown(): void {
+        for (const resource of this.resources.splice(0)) {
+            if (!Resources.Release(resource)) Debug.LogError("Cannot release showcase resource");
+        }
+
         this.initialized = false;
         this.model.ready = false;
         this.model.pending = null;

@@ -1,4 +1,5 @@
 #include "plugins/editor/asset_build/asset_build_system.hpp"
+#include "editor/file_text.hpp"
 
 #include "plugins/editor/asset_build/builtin_resources.hpp"
 
@@ -122,7 +123,7 @@ bool read_startup_movie(const std::filesystem::path& root, std::string_view plat
     }
     const auto size = std::filesystem::file_size(path, code);
     std::string text;
-    if (code || size > 65536 || !ResourceSystem::read_text(path, text))
+    if (code || size > 65536 || !engine::editor::file_detail::read_text(path, text))
     {
         error = "cannot read runtime game settings within 64 KiB";
         return false;
@@ -227,7 +228,7 @@ bool read_manifest(const std::filesystem::path& root, const std::filesystem::pat
         return true;
     }
     std::string text;
-    if (!ResourceSystem::read_text(root / path, text))
+    if (!engine::editor::file_detail::read_text(root / path, text))
     {
         error = "cannot read resource build manifest";
         return false;

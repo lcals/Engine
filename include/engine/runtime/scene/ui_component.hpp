@@ -1,5 +1,7 @@
 #pragma once
 
+#include "runtime/resource/resource_handle.hpp"
+
 #include "runtime/resource/resource.hpp"
 #include "runtime/scene/component.hpp"
 
@@ -26,7 +28,7 @@ public:
     [[nodiscard]] bool get_settings(Data& output) const noexcept;
     [[nodiscard]] bool set_settings(const schema::UiDataT& settings);
     [[nodiscard]] bool set_document(std::string_view path);
-    [[nodiscard]] ResourcePtr document() const noexcept;
+    [[nodiscard]] ResourceHandle document() const noexcept;
     [[nodiscard]] std::uint64_t document_revision() const noexcept;
     [[nodiscard]] bool restore_data(const schema::ComponentDataT& data);
 

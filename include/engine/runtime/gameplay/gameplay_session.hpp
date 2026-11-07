@@ -15,6 +15,7 @@ namespace schema
 struct AssetCatalogDataT;
 }
 
+class ResourceSystem;
 class WorldSystem;
 class RenderSystem;
 class PhysicsSystem;
@@ -39,10 +40,11 @@ class GameplaySession final
 {
 public:
     // 系统由运行宿主装配并保持就绪，生命周期须覆盖此会话；script 可以为空。
-    GameplaySession(WorldSystem& world, RenderSystem& renderer, ScriptRuntime* script,
-                    PhysicsSystem* physics = nullptr, AudioSystem* audio = nullptr,
-                    AnimationSystem* animation = nullptr, FontSystem* fonts = nullptr,
-                    UiSystem* ui = nullptr, TaskSystem* background = nullptr) noexcept;
+    GameplaySession(ResourceSystem& resources, WorldSystem& world, RenderSystem& renderer,
+                    ScriptRuntime* script, PhysicsSystem* physics = nullptr,
+                    AudioSystem* audio = nullptr, AnimationSystem* animation = nullptr,
+                    FontSystem* fonts = nullptr, UiSystem* ui = nullptr,
+                    TaskSystem* background = nullptr) noexcept;
     ~GameplaySession() noexcept;
 
     GameplaySession(const GameplaySession&) = delete;
@@ -69,6 +71,7 @@ private:
     void release_scene() noexcept;
     struct State;
     std::unique_ptr<State> state_;
+    ResourceSystem& resources_;
     WorldSystem& world_;
     RenderSystem& renderer_;
     ScriptRuntime* script_ = nullptr;

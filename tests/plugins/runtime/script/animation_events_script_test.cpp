@@ -14,15 +14,16 @@ namespace
 {
 using namespace test_support::animation;
 
-bool check(engine::plugins::script::ScriptSystem& script, std::string_view body,
-           const char* message)
+bool check(test_support::ResourceServices& services, engine::plugins::script::ScriptSystem& script,
+           std::string_view body, const char* message)
 {
     std::string source = "exports.default=()=>{";
     source += body;
     source += "};";
     std::string result, error;
-    const bool passed = script.execute_project_script(
-        {script.status().run_id, "scripts/event-check.js", source, "null"}, result, error);
+    const bool passed = test_support::execute_script(
+        services, script, {script.status().run_id, "scripts/event-check.js", source, "null"},
+        result, error);
     if (!passed || result != "true")
     {
         std::fprintf(stderr, "animation events: %s; result=%s error=%s\n", message, result.c_str(),
@@ -103,14 +104,15 @@ export default class extends Gameplay {
         return false;
     }
     fixture.world.destroy_scene();
-    engine::plugins::script::ScriptSystem script(&fixture.world, nullptr, nullptr, nullptr, nullptr,
-                                                 nullptr, nullptr, &fixture.animation);
+    engine::plugins::script::ScriptSystem script(&fixture.services.loader, &fixture.world, nullptr,
+                                                 nullptr, nullptr, nullptr, nullptr, nullptr,
+                                                 &fixture.animation);
     if (!expect(script.initialize({}) &&
-                    test_support::start_script(script, fixture.resources,
+                    test_support::start_script(script, fixture.services,
                                                {{"content", fixture.files.root}}, path),
                 "start a real Run with the AnimationSystem event sink") ||
         !expect(fixture.animation.tick(.5), "sample, commit poses and deliver the first batch") ||
-        !check(script, R"js(
+        !check(fixture.services, script, R"js(
 const p=globalThis.eventProbe;
 return p.aEvents.length===3 && p.bEvents.length===1 &&
     p.aEvents[0].id===1 && p.aEvents[0].payload===null &&
@@ -120,7 +122,7 @@ return p.aEvents.length===3 && p.bEvents.length===1 &&
                "callbacks execute synchronously after pose commit and isolate actor payloads") ||
         !expect(fixture.animation.tick(2), "advance across two complete animation loops") ||
         !check(
-            script, R"js(
+            fixture.services, script, R"js(
 const p=globalThis.eventProbe;
 return p.aEvents.map(e=>e.id).join(',')==='1,2,3,4,5,1,2,3,4,5,1,2,3' &&
     p.aEvents.map(e=>e.cycle).join(',')==='0,0,0,0,0,1,1,1,1,1,2,2,2' &&
@@ -130,7 +132,7 @@ return p.aEvents.map(e=>e.id).join(',')==='1,2,3,4,5,1,2,3,4,5,1,2,3' &&
 )js",
             "loop crossings retain stable identity/order and subscriptions belong to one actor") ||
         !expect(fixture.animation.tick(1), "advance after removing Alpha's subscription") ||
-        !check(script, R"js(
+        !check(fixture.services, script, R"js(
 const p=globalThis.eventProbe;
 if(p.aEvents.length!==13 || p.bEvents.length!==4) return false;
 if(!p.a.ClearEventMarkers() || !p.a.PlayAnimation({animation:'animations/move.animation',loop:false,restart:true}) ||
@@ -140,7 +142,7 @@ return p.clearToken!==null;
 )js",
                "unsubscribing never affects another actor; prepare mutation during dispatch") ||
         !expect(fixture.animation.tick(1), "clear an event track from its first callback") ||
-        !check(script, R"js(
+        !check(fixture.services, script, R"js(
 const p=globalThis.eventProbe;
 if(p.clear.join(',')!=='20' || !p.a.GetPlaybackInfo().completed ||
    !p.a.UnsubscribeEvents(p.clearToken) ||
@@ -154,7 +156,7 @@ return p.replayToken!==null;
 )js",
                "track revision invalidates the remainder of an already queued event batch") ||
         !expect(fixture.animation.tick(1), "restart playback within its event callback") ||
-        !check(script, R"js(
+        !check(fixture.services, script, R"js(
 const p=globalThis.eventProbe;
 if(p.replay.join(',')!=='30' || p.a.GetPlaybackInfo().time!==0 ||
    p.a.GetPlaybackInfo().completed || !p.a.UnsubscribeEvents(p.replayToken)) return false;
@@ -165,7 +167,7 @@ return true;
 )js",
                "playback identity invalidates old events even when replaying the same clip") ||
         !expect(fixture.animation.tick(.5), "destroy a component's node from its callback") ||
-        !check(script, R"js(
+        !check(fixture.services, script, R"js(
 const p=globalThis.eventProbe;
 if(p.destroy.join(',')!=='40' || p.c.IsValid() || !p.b.IsValid() ||
    !p.b.UnsubscribeEvents(p.bToken)) return false;
@@ -179,7 +181,7 @@ return true;
                "destroyed identities cannot deliver later events; prepare deactivation during "
                "dispatch") ||
         !expect(fixture.animation.tick(.5), "disable an animator from the first event listener") ||
-        !check(script, R"js(
+        !check(fixture.services, script, R"js(
 const p=globalThis.eventProbe;
 return p.disabled.join(',')==='45' && p.after===0 && !p.d.active &&
     p.a.ClearEventMarkers() &&

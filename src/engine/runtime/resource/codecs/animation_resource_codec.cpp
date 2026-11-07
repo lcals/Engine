@@ -2,10 +2,11 @@
 
 #include "runtime/core/guid_map.hpp"
 #include "runtime/resource/codecs/model_value_utils.hpp"
+#include "runtime/resource/types/skeleton_resource.hpp"
+#include <set>
 
 #include <flatbuffers/verifier.h>
 #include <limits>
-#include <set>
 #include <utility>
 
 namespace engine
@@ -132,37 +133,64 @@ bool AnimationResourceCodec::validate(const schema::AnimationDataT& data)
     }
     return true;
 }
-bool AnimationResourceCodec::decode(const ResourceCatalog& catalog, ByteView payload,
-                                    Resource& output) const
+schema::AssetKind AnimationResourceCodec::kind() const noexcept
 {
+    return schema::AssetKind::animation;
+}
+
+bool AnimationResourceCodec::decode(const schema::AssetEntryT& entry, ByteView payload,
+                                    std::unique_ptr<Resource>& output, std::string& error) const
+{
+    if (output)
+    {
+        error = "Resource output must be empty";
+        return false;
+    }
+    error.clear();
+    if (entry.kind != kind() || payload.empty() || payload.size() > 64U * 1024U * 1024U)
+    {
+        error = "Invalid resource kind or payload size";
+        return false;
+    }
     const auto* bytes = reinterpret_cast<const std::uint8_t*>(payload.data());
     flatbuffers::Verifier verifier(bytes, payload.size());
     if (!schema::VerifyAnimationDataBuffer(verifier))
     {
+        error = "Invalid Animation FlatBuffer";
         return false;
     }
     auto data = schema::UnPackAnimationData(bytes);
-    if (data->path != output.info().path || !validate(*data) ||
-        output.info().dependencies.size() != 1 ||
-        !declares(catalog, output, data->skeleton_guid, schema::AssetKind::skeleton))
-    {
-        return false;
-    }
-    store(output, std::move(data));
+    output = std::make_unique<ResourceType>(entry, std::move(*data));
     return true;
 }
-bool AnimationResourceCodec::validate_dependencies(const ResourceCatalog&, const Resource& resource,
-                                                   std::span<const ResourcePtr> dependencies) const
+
+bool AnimationResourceCodec::validate_data(const Resource& resource, std::string& error) const
 {
-    const auto* data = resource.animation();
+    const auto* data = resource_detail::data<ResourceType>(&resource);
+    if (!data ||
+        !(data->path == resource.info().path && validate(*data) &&
+          resource.info().dependencies.size() == 1 && declares(resource, data->skeleton_guid)))
+    {
+        error = "Invalid Animation data or declared dependencies";
+        return false;
+    }
+    error.clear();
+    return true;
+}
+
+bool AnimationResourceCodec::validate_dependencies(const Resource& resource,
+                                                   ResourceView dependencies,
+                                                   std::string& error) const
+{
+    const auto* data = resource_detail::data<AnimationResource>(&resource);
     const auto* skeleton = data ? dependency(dependencies, data->skeleton_guid) : nullptr;
-    if (!skeleton || !skeleton->skeleton())
+    if (!skeleton || !resource_detail::data<SkeletonResource>(skeleton))
     {
         return false;
     }
     for (const auto& track : data->tracks)
     {
-        if (track->joint >= skeleton->skeleton()->joints.size())
+        if (track->joint >= resource_detail::data<SkeletonResource>(skeleton)->joints.size())
         {
             return false;
         }

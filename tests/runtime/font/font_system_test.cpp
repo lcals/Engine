@@ -1,3 +1,4 @@
+#include "resource_services.hpp"
 #include "scene_snapshot.hpp"
 
 #include "resource_fixture.hpp"
@@ -157,20 +158,22 @@ int main()
     {
         return 1;
     }
-    engine::ResourceSystem resources;
-    engine::FontSystem fonts;
+    test_support::ResourceServices resources;
+    engine::FontSystem fonts(&resources.loader);
     test_support::ResourceFixture fixture;
-    engine::ResourcePtr font;
+    engine::resource_detail::ResourceReference font;
     if (!expect(resources.initialize({}) && fonts.initialize({}), "CPU systems initialize") ||
-        !expect(publish_font(fixture, resources, data), "publish independent font resource") ||
-        !expect(fonts.load_font("fonts/test.ttf", font), "load font through catalog"))
+        !expect(publish_font(fixture, resources.core, data), "publish independent font resource") ||
+        !expect(resources.load("fonts/test.ttf", font), "load font through catalog"))
     {
         return 1;
     }
     engine::FontLayout settings;
     settings.size = 10;
     engine::FontGeometry geometry;
-    if (!expect(engine::FontSystem::layout(*font, "AV\nA", settings, geometry),
+    if (!expect(engine::FontSystem::layout(
+                    *engine::resource_detail::cast<engine::FontResource>(font.get()), "AV\nA",
+                    settings, geometry),
                 "layout independent font resource") ||
         !expect(geometry.vertices.size() == 12 && geometry.indices.size() == 18,
                 "newlines have no quad") ||
@@ -181,7 +184,9 @@ int main()
         return 1;
     }
     settings.size = std::numeric_limits<float>::quiet_NaN();
-    if (!expect(!engine::FontSystem::layout(*font, "A", settings, geometry) &&
+    if (!expect(!engine::FontSystem::layout(
+                    *engine::resource_detail::cast<engine::FontResource>(font.get()), "A", settings,
+                    geometry) &&
                     geometry.vertices.empty() && geometry.indices.empty(),
                 "failed layout clears output"))
     {
@@ -201,8 +206,8 @@ int main()
     {
         return 1;
     }
-    engine::ResourcePtr missing = font;
-    if (!expect(!fonts.load_font("fonts/missing.ttf", missing) && !missing,
+    engine::resource_detail::ResourceReference missing;
+    if (!expect(!resources.load("fonts/missing.ttf", missing) && !missing,
                 "failed font load resets output"))
     {
         return 1;
@@ -211,8 +216,10 @@ int main()
     shader_data.path = "shaders/font.shader";
     shader_data.vertex_code = {1};
     shader_data.fragment_code = {2};
-    engine::WorldSystem world;
-    if (!expect(fixture.add(shader_data) && fixture.publish(resources) && world.initialize({}),
+    engine::WorldSystem world(&resources.loader);
+    if (!expect(fixture.add(shader_data) && fixture.publish(resources.core) &&
+                    resources.load("fonts/test.ttf") && resources.load(shader_data.path) &&
+                    world.initialize({}),
                 "publish text shader and initialize scene"))
     {
         return 1;
@@ -224,7 +231,7 @@ int main()
     component.size = 1;
     component.font_guid = font->info().guid;
     component.shader_path = shader_data.path;
-    if (!expect(text.valid() && text.set_settings(component) && text.shader(),
+    if (!expect(text.valid() && text.set_settings(component) && text.shader().id != 0,
                 "text component retains its loaded shader"))
     {
         return 1;
@@ -232,16 +239,20 @@ int main()
     const auto held_shader = text.shader();
     fixture.catalog.entries.pop_back();
     shader_data.fragment_code = {3};
-    engine::ResourcePtr newer_shader;
-    if (!expect(fixture.add(shader_data) && fixture.publish(resources) &&
-                    fixture.load(shader_data.path, newer_shader) && newer_shader != held_shader,
+    engine::resource_detail::ResourceReference newer_shader;
+    if (!expect(fixture.add(shader_data) && fixture.publish(resources.core) &&
+                    resources.load(shader_data.path, newer_shader) &&
+                    newer_shader.handle().id != held_shader.id,
                 "catalog update creates a new shader generation"))
     {
         return 1;
     }
     engine::FontDraw draw;
     draw.shader = text.shader();
-    if (!expect(draw.shader == held_shader && draw.shader->shader()->fragment_code[0] == 2,
+    const engine::ShaderResource* held = nullptr;
+    if (!expect(draw.shader.id == held_shader.id &&
+                    resources.loader.get(draw.shader, held) == engine::ResourceError::none &&
+                    held->data().fragment_code[0] == 2,
                 "existing text draws with retained shader, not current catalog generation"))
     {
         return 1;

@@ -1,6 +1,7 @@
 #include "runtime/scene/scene.hpp"
 
 #include "runtime/log/log_system.hpp"
+#include "runtime/resource/resource_loader.hpp"
 #include "runtime/scene/camera.hpp"
 #include "runtime/scene/ecs_storage.hpp"
 #include "runtime/scene/transform.hpp"
@@ -36,6 +37,10 @@ Scene::~Scene() noexcept
         ecs_is_alive(world_.native_world(), metadata_entity_))
     {
         ecs_delete(world_.native_world(), metadata_entity_);
+    }
+    if (auto* loader = world_.resource_loader())
+    {
+        (void)loader->release(resource_);
     }
 }
 std::uint64_t Scene::id() const noexcept
@@ -271,7 +276,10 @@ void Scene::retain_persistent()
             (void)destroy_node(node.id());
         }
     }
-    resource_.reset();
+    if (auto* loader = world_.resource_loader())
+    {
+        (void)loader->release(resource_);
+    }
 }
 Camera Scene::active_camera() const noexcept
 {

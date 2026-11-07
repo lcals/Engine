@@ -59,7 +59,7 @@ bool collect_ik_operations(Animator actor, const CompiledSkeleton& skeleton,
     {
         return false;
     }
-    const auto& data = *skeleton.resource->skeleton();
+    const auto& data = *skeleton.data;
     std::vector<Definition> resolved;
     if (!definitions(data, skeleton.readable_paths, resolved))
     {

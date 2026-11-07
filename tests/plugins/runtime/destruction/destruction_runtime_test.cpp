@@ -1,3 +1,5 @@
+#include "plugins/runtime/destruction/codecs/destruction_resource_codec.hpp"
+#include "resource_services.hpp"
 #include "scene_snapshot.hpp"
 
 #include "plugins/runtime/destruction/destruction_component.hpp"
@@ -212,15 +214,13 @@ bool generated_tangents_valid(const Scene& scene, bool alternate_frames = false)
                 const auto& vertex = mesh->vertices[i];
                 const bool has_source_uv = alternate_frames ? chunk == 1 : chunk != 1;
                 const Vec2 expected_uv = has_source_uv ? Vec2(vertex.x(), vertex.z())
-                                                      : Vec2(vertex.x() * 0.2, vertex.y() * 0.2);
+                                                       : Vec2(vertex.x() * 0.2, vertex.y() * 0.2);
                 if ((chunk == 0 && tangent != Vec4(0, 0, 1, -1)) ||
                     (!alternate_frames && chunk == 2 && tangent != Vec4(1, 0, 0, 1)) ||
-                    mesh->texcoords[i] != expected_uv ||
-                    !std::isfinite(tangent.x()) || !std::isfinite(tangent.y()) ||
-                    !std::isfinite(tangent.z()) ||
+                    mesh->texcoords[i] != expected_uv || !std::isfinite(tangent.x()) ||
+                    !std::isfinite(tangent.y()) || !std::isfinite(tangent.z()) ||
                     std::abs(std::hypot(tangent.x(), tangent.y(), tangent.z()) - 1) > 1e-5 ||
-                    std::abs(tangent.y()) > 1e-5 ||
-                    (tangent.w() != -1 && tangent.w() != 1))
+                    std::abs(tangent.y()) > 1e-5 || (tangent.w() != -1 && tangent.w() != 1))
                 {
                     return false;
                 }
@@ -267,18 +267,23 @@ bool generated_enabled(const Scene& scene, bool enabled)
 
 struct Fixture
 {
-    ResourceSystem resources;
-    WorldSystem world;
+    test_support::ResourceServices services;
+    ResourceSystem& resources = services.core;
+    WorldSystem world{&services.loader};
     PhysicsSystem physics{&world};
     DestructionSystem* destruction = nullptr;
     test_support::ResourceFixture files;
+
+    explicit Fixture(ThreadSystem* threads = nullptr) : services(threads)
+    {
+    }
 
     ~Fixture()
     {
         // 子系统借用 PhysicsSystem，显式先关闭世界，包含失败提前返回的路径。
         world.shutdown();
         physics.shutdown();
-        resources.shutdown();
+        services.shutdown();
     }
 
     bool initialize(TaskSystem* tasks = nullptr, std::size_t max_pending_requests = 64,
@@ -289,8 +294,11 @@ struct Fixture
         destruction = owned.get();
         std::unique_ptr<System> child = std::move(owned);
         return !destruction->synchronize() && world.add_subsystem(child) &&
-               resources.initialize({}) && physics.initialize({}) && world.initialize({}) &&
-               add_asset(files, alternate_frames) && files.publish(resources);
+               (resources.add<engine::plugins::destruction::DestructionResourceCodec>() &&
+                services.initialize({})) &&
+               physics.initialize({}) && world.initialize({}) &&
+               add_asset(files, alternate_frames) &&
+               services.publish_and_load(files.catalog, {{"content", files.root}});
     }
 
     bool advance(unsigned frames)
@@ -332,8 +340,8 @@ bool mixed_tangent_sources_contract()
     {
         return false;
     }
-    return expect(component.damage_sphere({0.5, 0, 0}, 0.1F, 1) &&
-                      component.group_count() == 2 && generated_tangents_valid(*scene, true),
+    return expect(component.damage_sphere({0.5, 0, 0}, 0.1F, 1) && component.group_count() == 2 &&
+                      generated_tangents_valid(*scene, true),
                   "mixed UV and tangent inputs survive a synchronous split",
                   component.last_error());
 }
@@ -1350,7 +1358,7 @@ bool asynchronous_damage_contract()
 {
     ThreadSystem threads({.worker_limit = 1});
     TaskSystem tasks(threads, {.name = "Destruction asynchronous tests", .max_concurrency = 1});
-    Fixture fixture;
+    Fixture fixture(&threads);
     if (!expect(threads.initialize({}) && tasks.initialize({}) && fixture.initialize(&tasks, 2),
                 "initialize asynchronous destruction task budget"))
     {
@@ -1556,7 +1564,7 @@ bool asynchronous_damage_fairness(std::size_t concurrency)
 {
     ThreadSystem threads({.worker_limit = concurrency});
     TaskSystem tasks(threads, {.name = "Destruction fairness", .max_concurrency = concurrency});
-    Fixture fixture;
+    Fixture fixture(&threads);
     if (!threads.initialize({}) || !tasks.initialize({}) || !fixture.initialize(&tasks, 4))
     {
         return false;
@@ -1616,7 +1624,7 @@ bool persistent_destruction_contract()
 {
     ThreadSystem threads({.worker_limit = 1});
     TaskSystem tasks(threads, {.name = "Persistent destruction", .max_concurrency = 1});
-    Fixture fixture;
+    Fixture fixture(&threads);
     if (!threads.initialize({}) || !tasks.initialize({}) || !fixture.initialize(&tasks))
     {
         return false;

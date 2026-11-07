@@ -413,9 +413,10 @@ bool GpuProgram::bind_material(const Material& material, const std::vector<GpuTe
         const auto& resource = material.texture(sampler.name);
         const auto texture =
             std::find_if(textures.begin(), textures.end(),
-                         [&resource](const auto& item) { return item.resource == resource; });
-        if (!resource || resource->texture() == nullptr || resource->texture()->cube_map ||
-            texture == textures.end())
+                         [&resource](const auto& item) { return item.matches(resource); });
+        if (resource.id == 0 || texture == textures.end() ||
+            !texture->resource.data<TextureResource>() ||
+            texture->resource.data<TextureResource>()->cube_map)
         {
             return false;
         }

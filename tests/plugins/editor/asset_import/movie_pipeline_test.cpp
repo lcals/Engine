@@ -1,6 +1,7 @@
 #include "editor/asset_pipeline/asset_pipeline_system.hpp"
 #include "editor/asset_pipeline/import_tool.hpp"
 #include "plugins/editor/asset_import/movie_importer.hpp"
+#include "resource_fixture.hpp"
 #include "runtime/utils/path_utils.hpp"
 #if ENGINE_TEST_MOVIE_BUILD
 #include "plugins/editor/asset_build/asset_build_system.hpp"
@@ -90,7 +91,8 @@ int main(int argc, char** argv)
     editor::AssetPipelineSystem pipeline(tasks);
     std::unique_ptr<editor::asset_pipeline::AssetImporter> importer =
         std::make_unique<plugins::asset_import::MovieImporter>();
-    if (!threads.initialize({}) || !tasks.initialize({}) || !resources.initialize({}) ||
+    if (!threads.initialize({}) || !tasks.initialize({}) ||
+        !(test_support::register_resource_codecs(resources) && resources.initialize({})) ||
         !pipeline.initialize({}) || !pipeline.add_importer(importer) ||
         !pipeline.build_assets(fixture.root))
     {
@@ -113,20 +115,23 @@ int main(int argc, char** argv)
     }
     const auto movie_guid = (*movie)->guid;
     const auto audio_guid = (*audio)->guid;
-    ResourcePtr movie_resource;
-    ResourcePtr audio_resource;
+    std::unique_ptr<Resource> movie_resource;
+    std::unique_ptr<Resource> audio_resource;
     if (!expect(
             resources.update_catalog(pipeline.catalog(), {{"content", fixture.root / "cache"}}) &&
-                resources.load(movie_guid, movie_resource) && movie_resource &&
-                resources.load(audio_guid, audio_resource) && audio_resource,
+                resources.read(movie_guid, movie_resource) && movie_resource &&
+                resources.read(audio_guid, audio_resource) && audio_resource,
             "both resources decode through the catalog"))
     {
         return 1;
     }
-    const auto* video = schema::GetMovieData(movie_resource->bytes().data())->video();
-    if (!expect(video && video->width() == 1280 && video->height() == 720 &&
-                    video->frame_count() == 150 && audio_resource->audio() &&
-                    audio_resource->audio()->frames == 240000,
+    const auto* video =
+        engine::resource_detail::data<MovieResource>(movie_resource.get())->video.get();
+    if (!expect(video && video->width == 1280 && video->height == 720 &&
+                    video->frame_count == 150 &&
+                    engine::resource_detail::data<engine::AudioResource>(audio_resource.get()) &&
+                    engine::resource_detail::data<engine::AudioResource>(audio_resource.get())
+                            ->frames == 240000,
                 "five-second movie and audio have matching duration") ||
         !expect(pipeline.build_assets(fixture.root) && pipeline.last_build().imported == 0 &&
                     pipeline.last_build().reused == 2,
@@ -209,15 +214,16 @@ int main(int argc, char** argv)
     audio_resource.reset();
     if (error || !pipeline.build_assets(fixture.root) ||
         !resources.update_catalog(pipeline.catalog(), {{"content", fixture.root / "cache"}}) ||
-        !resources.load(movie_guid, movie_resource) || !resources.load(audio_guid, audio_resource))
+        !(movie_resource.reset(), resources.read(movie_guid, movie_resource)) ||
+        !(audio_resource.reset(), resources.read(audio_guid, audio_resource)))
     {
         std::fprintf(stderr, "anamorphic import failed: %s\n", pipeline.last_error().c_str());
         return 1;
     }
-    video = schema::GetMovieData(movie_resource->bytes().data())->video();
-    if (!expect(video && video->width() == 1920 && video->height() == 540 &&
-                    audio_resource->audio()->frames ==
-                        static_cast<std::uint64_t>(video->frame_count()) * 1600,
+    video = engine::resource_detail::data<MovieResource>(movie_resource.get())->video.get();
+    if (!expect(video && video->width == 1920 && video->height == 540 &&
+                    engine::resource_detail::data<engine::AudioResource>(audio_resource.get())
+                            ->frames == static_cast<std::uint64_t>(video->frame_count) * 1600,
                 "non-square source pixels preserve 32:9 display aspect and matching audio"))
     {
         return 1;

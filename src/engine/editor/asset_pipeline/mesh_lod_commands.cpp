@@ -1,4 +1,5 @@
 #include "editor/asset_pipeline/mesh_lod_commands.hpp"
+#include "editor/file_text.hpp"
 
 #include "editor/asset_pipeline/asset_io.hpp"
 #include "editor/asset_pipeline/asset_pipeline_system.hpp"
@@ -71,7 +72,7 @@ bool source_meta(const fs::path& project, const Json& arguments, bool writing, f
         return false;
     }
     std::string text;
-    if (!ResourceSystem::read_text(meta_path, text))
+    if (!engine::editor::file_detail::read_text(meta_path, text))
     {
         error = "Mesh LOD import requires existing adjacent meta and stable GUID";
         return false;

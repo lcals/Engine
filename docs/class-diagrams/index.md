@@ -12,20 +12,24 @@
 
 ## 资源系统
 
-各图分开维护核心单项能力、加载抽象接口、运行时资源依赖图插件以及编辑器构建插件。说明见[资源目录与同步加载](../runtime/resource-loading.md)。
+**统一资源设计及业务签名已由用户确认，代码按该契约一次迁移。** 核心提供文件与单项资源读取，资源插件组织依赖、共享、引用计数和卸载，业务显式加载、使用和释放。资源插件可由遵守同一契约的其他实现替代；核心和业务不绑定默认插件。脚本入口见 [Resources](../plugins/runtime/class-diagrams/resources-script-api.md)，实际验证范围见[测试记录](../testing.md)。
 
-| 独立类图                                                         | 评审内容                                      |
-| ---------------------------------------------------------------- | --------------------------------------------- |
-| [资源系统](../runtime/class-diagrams/resource-system.md) | 目录换代、单项读取解析及加载器借用 |
-| [资源解码器](../runtime/class-diagrams/resource-codecs.md) | 逐资源类型解码、生成数据与声明依赖校验 |
-| [加载接口](../runtime/class-diagrams/resource-loader.md) | 核心声明的 load/find/error 契约 |
-| [资源依赖图插件](../plugins/runtime/class-diagrams/resource-graph.md) | 同代际共享、依赖闭包及反向释放 |
-| [资源目录](../runtime/class-diagrams/resource-catalog.md)        | 只存元数据、GUID/路径索引、运行依赖与存储定位 |
-| [已加载资源](../runtime/class-diagrams/resource.md) | 单项独立载荷、目录代际及只读数据借用 |
-| [虚拟文件访问](../runtime/class-diagrams/virtual-file-system.md) | SDL3 散文件与包内范围读取，不认识编辑器业务   |
-| [编辑器资源构建](../plugins/editor/class-diagrams/asset-build-system.md) | 项目打包清单、增量输出和精简运行清单          |
+| 独立类图 | 评审内容 |
+| --- | --- |
+| [统一生命周期总图](../runtime/class-diagrams/resource-lifecycle.md) | 三层职责、可替换装配、就绪状态、计数、换代与释放 |
+| [核心文件类](../runtime/class-diagrams/virtual-file-system.md) | 同步/异步范围读取、FileRead、取消及文件任务域 |
+| [核心资源读取](../runtime/class-diagrams/resource-system.md) | 单项解析/校验、ResourceRead、独占候选，不维护业务计数 |
+| [资源对象](../runtime/class-diagrams/resource.md) | Resource 基类与规范类型载荷，不集中增加类型字段 |
+| [逐类型处理器](../runtime/class-diagrams/resource-codecs.md) | 21 种 AssetKind 的载荷、校验、登记与插件归属 |
+| [高层加载契约](../runtime/class-diagrams/resource-loader.md) | ResourceLoader、显式 load/release、获取身份、异步结果与内存资源 |
+| [资源生命周期插件](../plugins/runtime/class-diagrams/resource-graph.md) | 组合包装底层、依赖计划、在途合并、内部计数及反向卸载 |
+| [业务与模块任务](../runtime/class-diagrams/resource-consumers.md) | 全类型加载/使用/释放、禁止隐式读取、模块独立任务域 |
+| [资源目录](../runtime/class-diagrams/resource-catalog.md) | 既有元数据、GUID/路径索引、真实依赖与物理定位 |
+| [编辑器资源构建](../plugins/editor/class-diagrams/asset-build-system.md) | 既有构建、增量输出和精简运行清单 |
 
-核心不扫描、监听、导入或打包，也不区分编辑器模式。编辑器扫描全部 assets，直接更新核心目录；真机启动提交固定精简清单一次。两端共用加载接口和选中的资源依赖图插件，编辑器无需打包即可运行。跨层调用见[资源调用关系](references.md#资源调用关系)。
+核心不扫描、监听、导入、打包或区分调用方身份。编辑器提交完整目录，真机提交选定精简清单；业务统一请求高层接口。存储约定见[资源加载说明](../runtime/resource-loading.md)，跨层关系见[资源调用关系](references.md#资源调用关系)。
+
+本组已确认契约统一采用显式加载、句柄获取及释放。各领域按[业务边界](../runtime/class-diagrams/resource-consumers.md)接入，脚本调用见[资源脚本接口](../plugins/runtime/class-diagrams/resources-script-api.md)。
 
 ## 当前宿主与导入模块
 

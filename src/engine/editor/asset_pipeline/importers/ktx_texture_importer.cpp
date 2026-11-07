@@ -1,4 +1,6 @@
 #include "editor/asset_pipeline/importers/ktx_texture_importer.hpp"
+#include "editor/file_text.hpp"
+#include "runtime/resource/virtual_file_system.hpp"
 
 #include "editor/asset_pipeline/asset_io.hpp"
 #include "editor/asset_pipeline/importer_utils.hpp"
@@ -23,7 +25,7 @@ bool settings(const std::filesystem::path& source, const resource_detail::KtxTex
     auto meta_path = source;
     meta_path += ".meta";
     std::string text;
-    if (!ResourceSystem::read_text(meta_path, text))
+    if (!engine::editor::file_detail::read_text(meta_path, text))
     {
         error = "cannot read KTX texture meta";
         return false;
@@ -117,7 +119,7 @@ bool KtxTextureImporter::convert(const ImportAsset& asset, const ImportContext& 
 {
     ByteBuffer bytes;
     resource_detail::KtxTextureInfo info;
-    if (!ResourceSystem::read_binary(asset.source, bytes) ||
+    if (!VirtualFileSystem::read_file(asset.source, bytes) ||
         !resource_detail::read_ktx_info(bytes, info))
     {
         error = "invalid KTX1: requires linear RGBA16F/RG16F, 2D or cube, single/full mip chain, "

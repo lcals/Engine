@@ -1,10 +1,15 @@
 #include "runtime/resource/builtin_resources.hpp"
+#include "runtime/resource/builtin_resource_candidate.hpp"
+#include "runtime/resource/types/material_resource.hpp"
+#include "runtime/resource/types/mesh_resource.hpp"
+#include "runtime/resource/types/shader_resource.hpp"
+#include "runtime/resource/types/texture_resource.hpp"
 
-#include "runtime/resource/resource_system.hpp"
 #include "runtime/schema/asset_catalog_generated.h"
 #include "runtime/schema/material_generated.h"
 #include "runtime/schema/mesh_generated.h"
 #include "runtime/schema/shader_generated.h"
+#include "runtime/schema/texture_generated.h"
 
 #include "fs_cube.bin.h"
 #include "fs_font.bin.h"
@@ -190,10 +195,10 @@ schema::ShaderDataT surface_shader(const char* shader_path, float lighting_mode)
     shader.parameters.push_back(std::move(uv_transform));
     // Optional UV0 de-tiling is a named PBR capability, with no fixed material kind.
     const bool hex_exposed = std::string_view(shader_path) == "builtin://shaders/pbr";
-    shader.parameters.push_back(scalar_parameter("hexTilingEnabled", "u_hex_tiling", 0, 0.0F,
-                                                 hex_exposed));
-    shader.parameters.push_back(scalar_parameter("hexTilingRotation", "u_hex_tiling", 1, 0.5F,
-                                                 hex_exposed));
+    shader.parameters.push_back(
+        scalar_parameter("hexTilingEnabled", "u_hex_tiling", 0, 0.0F, hex_exposed));
+    shader.parameters.push_back(
+        scalar_parameter("hexTilingRotation", "u_hex_tiling", 1, 0.5F, hex_exposed));
     auto hex_contrast = scalar_parameter("hexTilingContrast", "u_hex_tiling", 2, 0.7F, hex_exposed);
     hex_contrast->minimum = static_cast<double>(0.0001F);
     hex_contrast->maximum = static_cast<double>(0.9999F);
@@ -366,6 +371,43 @@ const BuiltinDefinitions& builtin_definitions()
 
 } // namespace
 
+bool resource_detail::builtin_candidate(std::string_view guid, std::unique_ptr<Resource>& output)
+{
+    const auto* entry = builtin_resource_info(guid);
+    if (!entry || output)
+    {
+        return false;
+    }
+    const auto create = [&]<typename T>(const auto& definitions)
+    {
+        for (const auto& data : definitions)
+        {
+            const auto& path = [&]() -> const std::string&
+            {
+                if constexpr (std::is_same_v<T, MaterialResource>)
+                {
+                    return data.type_path;
+                }
+                else
+                {
+                    return data.path;
+                }
+            }();
+            if (path == entry->path)
+            {
+                output = std::make_unique<T>(*entry, data);
+                return true;
+            }
+        }
+        return false;
+    };
+    const auto& values = builtin_definitions();
+    return create.operator()<TextureResource>(values.textures) ||
+           create.operator()<ShaderResource>(values.shaders) ||
+           create.operator()<MaterialResource>(values.materials) ||
+           create.operator()<MeshResource>(values.meshes);
+}
+
 bool builtin_resource_payload(std::string_view guid, ByteBuffer& output)
 {
     output.clear();
@@ -406,26 +448,6 @@ bool builtin_resource_payload(std::string_view guid, ByteBuffer& output)
     const auto* begin = reinterpret_cast<const std::byte*>(builder.GetBufferPointer());
     output.assign(begin, begin + builder.GetSize());
     return true;
-}
-
-bool register_builtin_render_resources()
-{
-    const auto register_all = [](const auto& definitions, auto add)
-    {
-        for (const auto& data : definitions)
-        {
-            if (!add(data))
-            {
-                return false;
-            }
-        }
-        return true;
-    };
-    const auto& definitions = builtin_definitions();
-    return register_all(definitions.textures, ResourceSystem::register_texture) &&
-           register_all(definitions.shaders, ResourceSystem::register_shader) &&
-           register_all(definitions.materials, ResourceSystem::register_material) &&
-           register_all(definitions.meshes, ResourceSystem::register_mesh);
 }
 
 } // namespace engine

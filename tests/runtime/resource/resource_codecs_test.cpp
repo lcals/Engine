@@ -53,6 +53,10 @@ bool add_payload(test_support::ResourceFixture& fixture, std::string path, schem
     entry->guid = guid.data();
     entry->path = std::move(path);
     entry->kind = kind;
+    if (kind == schema::AssetKind::script)
+    {
+        entry->module_path = "main.js";
+    }
     entry->dependencies = std::move(dependencies);
     if (kind == schema::AssetKind::script)
     {
@@ -91,15 +95,17 @@ bool add_payload(test_support::ResourceFixture& fixture, std::string path, schem
 bool codec_tests()
 {
     ResourceSystem resources;
-    if (!resources.initialize({}))
+    if (!test_support::register_resource_codecs(resources) || !resources.initialize({}))
     {
         return false;
     }
     test_support::ResourceFixture fixture;
-    const auto* builtin_mesh = ResourceSystem::find_mesh("builtin://meshes/cube");
-    const auto* builtin_texture = ResourceSystem::find_texture("builtin://textures/white-srgb");
-    const auto* builtin_shader = ResourceSystem::find_shader("builtin://shaders/pbr");
-    const auto* builtin_material = ResourceSystem::find_material("builtin://materials/default-pbr");
+    const auto builtin_mesh = test_support::builtin<MeshResourceCodec>("builtin://meshes/cube");
+    const auto builtin_texture =
+        test_support::builtin<TextureResourceCodec>("builtin://textures/white-srgb");
+    const auto builtin_shader = test_support::builtin<ShaderResourceCodec>("builtin://shaders/pbr");
+    const auto builtin_material =
+        test_support::builtin<MaterialResourceCodec>("builtin://materials/default-pbr");
     if (!builtin_mesh || !builtin_texture || !builtin_shader || !builtin_material)
     {
         return false;
@@ -164,49 +170,59 @@ bool codec_tests()
     {
         return false;
     }
-    ResourcePtr mesh_resource;
-    ResourcePtr texture_resource;
-    ResourcePtr shader_resource;
-    ResourcePtr material_resource;
-    ResourcePtr scene_resource;
-    ResourcePtr binary_resource;
-    ResourcePtr script_resource;
-    ResourcePtr json_resource;
-    if (!expect(fixture.load(mesh.path, mesh_resource) && mesh_resource->mesh() &&
-                    *mesh_resource->mesh() == mesh &&
-                    fixture.load(texture.path, texture_resource) && texture_resource->texture() &&
-                    *texture_resource->texture() == texture &&
-                    fixture.load(shader.path, shader_resource) && shader_resource->shader() &&
-                    *shader_resource->shader() == shader &&
-                    fixture.load(material.type_path, material_resource) &&
-                    material_resource->material() &&
-                    material_resource->material()->shader_path == shader.path &&
-                    fixture.load("main.scene", scene_resource) && scene_resource->scene() &&
-                    *scene_resource->scene() == scene,
+    ResourceError dependency_error{};
+    std::string message;
+    std::unique_ptr<Resource> mesh_resource;
+    std::unique_ptr<Resource> texture_resource;
+    std::unique_ptr<Resource> shader_resource;
+    std::unique_ptr<Resource> material_resource;
+    std::unique_ptr<Resource> scene_resource;
+    std::unique_ptr<Resource> binary_resource;
+    std::unique_ptr<Resource> script_resource;
+    std::unique_ptr<Resource> json_resource;
+    if (!expect(fixture.read(resources, mesh.path, mesh_resource) &&
+                    resource_detail::data<MeshResource>(mesh_resource.get()) &&
+                    *resource_detail::data<MeshResource>(mesh_resource.get()) == mesh &&
+                    fixture.read(resources, texture.path, texture_resource) &&
+                    resource_detail::data<TextureResource>(texture_resource.get()) &&
+                    *resource_detail::data<TextureResource>(texture_resource.get()) == texture &&
+                    fixture.read(resources, shader.path, shader_resource) &&
+                    resource_detail::data<ShaderResource>(shader_resource.get()) &&
+                    *resource_detail::data<ShaderResource>(shader_resource.get()) == shader &&
+                    fixture.read(resources, material.type_path, material_resource) &&
+                    resource_detail::data<MaterialResource>(material_resource.get()) &&
+                    resource_detail::data<MaterialResource>(material_resource.get())->shader_path ==
+                        shader.path &&
+                    fixture.read(resources, "main.scene", scene_resource) &&
+                    resource_detail::data<SceneResource>(scene_resource.get()) &&
+                    *resource_detail::data<SceneResource>(scene_resource.get()) == scene,
                 "all structured kinds decode to their FlatBuffers models") ||
-        !expect(fixture.load("data", binary_resource) && binary_resource->bytes().size() == 3 &&
-                    binary_resource->bytes()[0] == raw[0] &&
-                    binary_resource->bytes()[2] == raw[2] &&
-                    fixture.load("main.ts", script_resource) && script_resource->bytes().empty(),
+        !expect(fixture.read(resources, "data", binary_resource) &&
+                    (*resource_detail::data<SourceResource>(binary_resource.get())).size() == 3 &&
+                    (*resource_detail::data<SourceResource>(binary_resource.get()))[0] == raw[0] &&
+                    (*resource_detail::data<SourceResource>(binary_resource.get()))[2] == raw[2] &&
+                    fixture.read(resources, "main.ts", script_resource) &&
+                    (*resource_detail::data<ScriptResource>(script_resource.get())).empty(),
                 "raw source retains embedded zeros and empty script is a valid byte payload") ||
-        !expect(fixture.load("config/weapon.json", json_resource) &&
+        !expect(fixture.read(resources, "config/weapon.json", json_resource) &&
                     json_resource->info().kind == schema::AssetKind::json &&
                     json_resource->info().dependencies.empty() &&
-                    json_resource->bytes().size() == json.size() &&
-                    std::string_view(reinterpret_cast<const char*>(json_resource->bytes().data()),
-                                     json_resource->bytes().size()) == json,
+                    (*resource_detail::data<JsonResource>(json_resource.get())).size() ==
+                        json.size() &&
+                    std::string_view(
+                        reinterpret_cast<const char*>(
+                            (*resource_detail::data<JsonResource>(json_resource.get())).data()),
+                        (*resource_detail::data<JsonResource>(json_resource.get())).size()) == json,
                 "JSON is a distinct resource kind retaining its original text bytes") ||
-        !expect(resources.validate_dependencies(*scene_resource,
-                                                std::array{mesh_resource, material_resource}) &&
-                    !resources.validate_dependencies(*scene_resource,
-                                                     std::array{mesh_resource, texture_resource}),
+        !expect(resources.validate_dependencies(
+                    *scene_resource, std::array{mesh_resource.get(), material_resource.get()},
+                    dependency_error, message) &&
+                    !resources.validate_dependencies(
+                        *scene_resource, std::array{mesh_resource.get(), texture_resource.get()},
+                        dependency_error, message),
                 "type codec validates only explicitly supplied scene references") ||
-        !expect(find_resource_codec(schema::AssetKind::script) ==
-                        find_resource_codec(schema::AssetKind::source) &&
-                    find_resource_codec(schema::AssetKind::json) ==
-                        find_resource_codec(schema::AssetKind::source) &&
-                    !find_resource_codec(static_cast<schema::AssetKind>(255)),
-                "binary formats share one codec and unknown kinds have no decoder"))
+        !expect(!resources.add<SourceResourceCodec>() && !resources.add<JsonResourceCodec>(),
+                "codec registration is explicit and frozen after initialization"))
     {
         return false;
     }
@@ -219,8 +235,7 @@ bool codec_tests()
         schema::ShaderDataT reserved(*builtin_shader);
         reserved.path = "builtin://shaders/reserved-renderer";
         reserved.parameters.front()->uniform_name = uniform;
-        if (!expect(!ResourceSystem::register_shader(reserved) &&
-                        !ResourceSystem::find_shader(reserved.path),
+        if (!expect(!ShaderResourceCodec::validate(reserved),
                     "material parameters cannot claim renderer uniforms"))
         {
             return false;
@@ -228,8 +243,7 @@ bool codec_tests()
         reserved.parameters.front()->uniform_name =
             builtin_shader->parameters.front()->uniform_name;
         reserved.samplers.front()->uniform_name = uniform;
-        if (!expect(!ResourceSystem::register_shader(reserved) &&
-                        !ResourceSystem::find_shader(reserved.path),
+        if (!expect(!ShaderResourceCodec::validate(reserved),
                     "material samplers cannot claim renderer uniforms"))
         {
             return false;
@@ -312,40 +326,37 @@ bool codec_tests()
     for (const auto* path : {"invalid.mesh", "invalid.png", "invalid.shader", "invalid.material",
                              "invalid.scene", "wrong-kind.mesh"})
     {
-        auto output = mesh_resource;
-        if (!expect(!fixture.load(path, output) && !output && !resources.last_error().empty(),
+        std::unique_ptr<Resource> output;
+        if (!expect(!fixture.read(resources, path, output) && !output &&
+                        !resources.last_error().empty(),
                     "invalid typed entity clears the output resource"))
         {
             return false;
         }
     }
-    if (!expect(mesh_resource->mesh() && mesh_resource->mesh()->path == "cube.mesh" &&
+    if (!expect(resource_detail::data<MeshResource>(mesh_resource.get()) &&
+                    resource_detail::data<MeshResource>(mesh_resource.get())->path == "cube.mesh" &&
                     mesh_resource->generation() < resources.generation() &&
-                    scene_resource->scene()->schema_version == 1,
+                    resource_detail::data<SceneResource>(scene_resource.get())->schema_version == 1,
                 "failed new-generation decoding never mutates old live models"))
     {
         return false;
     }
 
-    mesh.path = "builtin://meshes/rejected";
-    texture.path = "builtin://textures/rejected";
-    shader.path = "builtin://shaders/rejected";
-    material.type_path = "builtin://materials/rejected";
-    material.shader_path = "builtin://shaders/pbr";
-    return expect(!ResourceSystem::register_mesh(mesh) && !ResourceSystem::find_mesh(mesh.path) &&
-                      !ResourceSystem::register_texture(texture) &&
-                      !ResourceSystem::find_texture(texture.path) &&
-                      !ResourceSystem::register_shader(shader) &&
-                      !ResourceSystem::find_shader(shader.path) &&
-                      !ResourceSystem::register_material(material) &&
-                      !ResourceSystem::find_material(material.type_path),
-                  "builtin registration reuses type validation and publishes nothing on failure");
+    schema::AssetEntryT memory_info;
+    memory_info.guid = "40000000-0000-4000-8000-000000000001";
+    memory_info.path = "builtin://meshes/rejected";
+    memory_info.kind = schema::AssetKind::mesh;
+    mesh.path = memory_info.path;
+    MeshResource invalid_memory(memory_info, mesh);
+    return expect(!resources.validate_memory(invalid_memory),
+                  "invalid native memory payload is rejected before graph admission");
 }
 
 bool movie_codec_tests()
 {
     ResourceSystem resources;
-    if (!resources.initialize({}))
+    if (!test_support::register_resource_codecs(resources) || !resources.initialize({}))
     {
         return false;
     }
@@ -382,14 +393,17 @@ bool movie_codec_tests()
     {
         return false;
     }
-    ResourcePtr value;
-    return expect(fixture.load("valid.mov", value) && value && !value->bytes().empty(),
+    ResourceError dependency_error{};
+    std::string message;
+    std::unique_ptr<Resource> value;
+    return expect(fixture.read(resources, "valid.mov", value) && value &&
+                      resource_detail::data<MovieResource>(value.get()) != nullptr,
                   "valid movie envelope loads") &&
-           expect(resources.validate_dependencies(*value, {}),
+           expect(resources.validate_dependencies(*value, {}, dependency_error, message),
                   "silent movie has no dependencies") &&
-           expect(!fixture.load("truncated.mov", value) && !value,
+           expect((value.reset(), !fixture.read(resources, "truncated.mov", value)) && !value,
                   "truncated IVF frame is rejected") &&
-           expect(!fixture.load("bad-time.mov", value) && !value,
+           expect(!fixture.read(resources, "bad-time.mov", value) && !value,
                   "invalid IVF timestamp is rejected");
 }
 

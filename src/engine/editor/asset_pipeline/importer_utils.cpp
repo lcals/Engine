@@ -1,4 +1,5 @@
 #include "editor/asset_pipeline/importer_utils.hpp"
+#include "editor/file_text.hpp"
 
 #include "editor/asset_pipeline/asset_io.hpp"
 #include "editor/asset_pipeline/editor_tools.hpp"
@@ -52,7 +53,7 @@ bool read_generated_payload(const Guid& guid, const ImportContext& context,
 bool read_table(const std::filesystem::path& path, toml::table& table, std::string& error)
 {
     std::string text;
-    if (!ResourceSystem::read_text(path, text))
+    if (!engine::editor::file_detail::read_text(path, text))
     {
         error = "cannot read resource descriptor: " + PathUtils::to_utf8(path);
         return false;

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "runtime/resource/resource_handle.hpp"
 #include "runtime/scene/component_registry.hpp"
 #include "runtime/system/system.hpp"
 
@@ -18,6 +19,11 @@ namespace engine
 class Scene;
 class Node;
 class Resource;
+class ResourceLoader;
+namespace ecs_detail
+{
+struct ResourceBindingScope;
+}
 
 enum class SceneRestoreStatus
 {
@@ -35,17 +41,19 @@ struct SceneRestoreConfig
 class WorldSystem final : public System
 {
 public:
-    explicit WorldSystem(const SceneRestoreConfig& config = {}) noexcept;
+    explicit WorldSystem(ResourceLoader* resources = nullptr,
+                         const SceneRestoreConfig& config = {}) noexcept;
     ~WorldSystem() noexcept override;
 
     [[nodiscard]] ComponentRegistry& component_registry() noexcept;
+    [[nodiscard]] ResourceLoader* resource_loader() const noexcept;
 
     // 返回借用；已有场景或世界未初始化时失败。
     [[nodiscard]] Scene* create_scene(std::string_view name);
-    // 从活动资源目录加载候选，失败保留当前场景。
+    // 只取得已加载的候选，失败保留当前场景；不读文件。
     [[nodiscard]] Scene* load_scene(std::string_view path);
     // 已加载资源的主线程分帧恢复；0 表示拒绝，过期请求不能影响新的候选。
-    [[nodiscard]] std::uint64_t begin_restore_scene(std::shared_ptr<const Resource> resource);
+    [[nodiscard]] std::uint64_t begin_restore_scene(const ResourceHandle& resource);
     // max_seconds 为 0 时使用配置；正数进一步收紧单次时间预算。
     [[nodiscard]] SceneRestoreStatus
     step_restore_scene(std::uint64_t request, std::size_t node_budget, double max_seconds = 0.0);
@@ -76,6 +84,9 @@ protected:
     void on_shutdown() noexcept override;
 
 private:
+    friend struct ecs_detail::ResourceBindingScope;
+    ResourceLoader* resources_ = nullptr;
+    ResourceHandle binding_owner_;
     void retain_persistent();
     SceneRestoreConfig restore_config_;
     std::unique_ptr<Scene> restoring_;

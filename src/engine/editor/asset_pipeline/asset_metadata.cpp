@@ -1,4 +1,5 @@
 #include "editor/asset_pipeline/asset_metadata.hpp"
+#include "editor/file_text.hpp"
 
 #include "editor/asset_pipeline/asset_database.hpp"
 #include "editor/asset_pipeline/asset_io.hpp"
@@ -25,7 +26,7 @@ namespace fs = std::filesystem;
 
 bool read_meta(const fs::path& path, std::string& text, std::string& guid, std::string& error)
 {
-    if (!ResourceSystem::read_text(path, text))
+    if (!engine::editor::file_detail::read_text(path, text))
     {
         error = "Cannot read asset metadata: " + PathUtils::to_utf8(path);
         return false;
@@ -251,7 +252,7 @@ bool update_subresource_meta(const ImportAsset& source, const fs::path& staging,
     auto meta = source.source;
     meta += ".meta";
     std::string current;
-    if (!ResourceSystem::read_text(meta, current) || current != text)
+    if (!engine::editor::file_detail::read_text(meta, current) || current != text)
     {
         error = "Source metadata changed during discovery; retry the build: " + source.path;
         identities.clear();

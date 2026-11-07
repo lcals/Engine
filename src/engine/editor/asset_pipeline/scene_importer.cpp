@@ -1,4 +1,5 @@
 #include "editor/asset_pipeline/scene_importer.hpp"
+#include "editor/file_text.hpp"
 
 #include "editor/asset_pipeline/asset_io.hpp"
 #include "editor/asset_pipeline/components/scene_component_codec.hpp"
@@ -300,7 +301,7 @@ bool SceneImporter::read(const std::filesystem::path& source, schema::SceneDataT
     output = {};
     error.clear();
     std::string text;
-    if (!ResourceSystem::read_text(source, text))
+    if (!engine::editor::file_detail::read_text(source, text))
     {
         error = "cannot read scene: " + PathUtils::to_utf8(source);
         return false;

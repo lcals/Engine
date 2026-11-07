@@ -1,5 +1,6 @@
 #include "editor/commands/editor_commands.hpp"
 #include "plugins/editor/modeling/modeling_commands.hpp"
+#include "resource_services.hpp"
 #include "runtime/engine_config.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/scene/mesh_renderer.hpp"
@@ -126,9 +127,10 @@ bool registry_test()
 
 bool run(const fs::path& project)
 {
-    engine::ResourceSystem resources;
-    engine::WorldSystem world;
-    if (!resources.initialize({}) || !world.initialize({}))
+    test_support::ResourceServices services;
+    engine::ResourceSystem& resources = services.core;
+    engine::WorldSystem world{&services.loader};
+    if (!(services.initialize({}) && services.prepare_builtins()) || !world.initialize({}))
     {
         return false;
     }

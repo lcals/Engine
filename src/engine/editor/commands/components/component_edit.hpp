@@ -2,6 +2,7 @@
 
 #include "editor/commands/editor_commands.hpp"
 #include "editor/commands/editor_edit.hpp"
+#include "editor/resource_access.hpp"
 #include "runtime/resource/resource.hpp"
 #include "runtime/scene/component_registry.hpp"
 #include "runtime/scene/scene.hpp"
@@ -106,6 +107,9 @@ struct Target
                           std::string& error);
 [[nodiscard]] bool number(const Json& input, float& value);
 [[nodiscard]] bool vector(const Json& input, Vec3& value);
+[[nodiscard]] bool resource_versions(WorldSystem& world, const schema::ComponentDataT& data,
+                                     std::vector<schema::AssetEntryT>& versions,
+                                     std::string& error);
 
 class ComponentEdit final : public EditorEdit
 {
@@ -190,9 +194,15 @@ template <typename T, typename Data, typename Read, typename Write>
                    auto identity = alias != aliases.end() && *alias->second == node.id()
                                        ? alias->second
                                        : std::make_shared<std::uint64_t>(node.id());
+                   std::vector<schema::AssetEntryT> versions;
+                   if ((before && !resource_versions(world, *before, versions, error)) ||
+                       !resource_versions(world, after, versions, error))
+                   {
+                       return false;
+                   }
                    edit = std::make_unique<ComponentEdit>(world, node.scene()->id(),
                                                           std::move(identity), std::move(before),
-                                                          std::move(after));
+                                                          std::move(after), std::move(versions));
                    return true;
                }) &&
            commands.register_command(

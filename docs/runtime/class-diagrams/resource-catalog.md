@@ -1,5 +1,7 @@
 # 资源元数据目录
 
+统一资源设计保留本页目录职责和持久模型；目录仅查询元数据，不证明资源已加载、不维护业务引用。新的单项读取与高层生命周期分工见[统一生命周期](resource-lifecycle.md)。
+
 [类图索引](../../class-diagrams/index.md) · [设计说明](../resource-loading.md) · [资源系统](resource-system.md)
 
 ResourceCatalog 只保存元数据和索引，不保存产物载荷。

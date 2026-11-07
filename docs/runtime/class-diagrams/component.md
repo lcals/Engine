@@ -72,7 +72,7 @@ classDiagram
         +set_material_count(size_t count) bool
         +set_mesh_data(const MeshDataT& data) bool
         +mesh_data() const MeshDataT#42;
-        +mesh_resource() shared_ptr~const Resource~
+        +mesh_resource() ResourceHandle
         +mesh_revision() uint64_t
         +cast_shadows() bool
         +set_cast_shadows(bool value) void
@@ -84,7 +84,7 @@ classDiagram
         +set_bake_static(bool enabled) bool
         +lightmap_path() string_view
         +set_lightmap(string_view path) bool
-        +lightmap_resource() shared_ptr~const Resource~
+        +lightmap_resource() ResourceHandle
         +set_deformation(span~const MeshVertex~ vertices, span~const Vec4~ tangents) bool
         +set_skinning_palette(span~const array_float_16~ transforms, span~const array_float_16~ normal_transforms) bool
         +skinning_palette() span~const array_float_16~

@@ -119,9 +119,9 @@ export default class extends Gameplay {
         return false;
     }
     fixture.world.destroy_scene();
-    engine::plugins::script::ScriptSystem script(&fixture.world);
+    engine::plugins::script::ScriptSystem script(&fixture.services.loader, &fixture.world);
     if (!expect(script.initialize({}) && test_support::start_script(
-                                             script, fixture.resources,
+                                             script, fixture.services,
                                              {{"content", fixture.files.root}}, "scripts/game.js"),
                 "selected script backend executes model instantiation and Animator bindings") ||
         !expect(fixture.animation.tick(0) && script.tick(0.25) && script.status().running,

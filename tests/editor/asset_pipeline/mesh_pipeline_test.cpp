@@ -1,6 +1,8 @@
 #include "editor/asset_pipeline/asset_pipeline_system.hpp"
+#include "file_text.hpp"
 #include "runtime/engine_config.hpp"
 #include "runtime/resource/resource_system.hpp"
+#include "runtime/schema/mesh_generated.h"
 #include "runtime/task/task_system.hpp"
 #include "runtime/task/thread_system.hpp"
 
@@ -39,7 +41,7 @@ bool write(const std::filesystem::path& path, std::string_view content)
 std::string read(const std::filesystem::path& path)
 {
     std::string text;
-    return ResourceSystem::read_text(path, text) ? text : std::string{};
+    return test_support::read_text(path, text) ? text : std::string{};
 }
 
 std::string meta(std::string_view guid, std::string_view importer)

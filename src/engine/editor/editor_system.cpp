@@ -1,4 +1,5 @@
 #include "editor/editor_system.hpp"
+#include "editor/file_text.hpp"
 
 #include "editor/commands/editor_command_channel.hpp"
 #include "editor/commands/editor_commands.hpp"
@@ -73,7 +74,7 @@ bool read_frame_rate(const fs::path& project_root, std::int32_t& target)
 {
     const auto path = project_root / "settings" / "editor-settings.toml";
     std::string source;
-    if (!ResourceSystem::read_text(path, source))
+    if (!engine::editor::file_detail::read_text(path, source))
     {
         LogSystem::write(LogLevel::error,
                          "Cannot read editor settings: " + PathUtils::to_utf8(path));

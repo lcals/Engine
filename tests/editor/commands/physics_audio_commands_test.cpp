@@ -1,4 +1,5 @@
 #include "resource_fixture.hpp"
+#include "resource_services.hpp"
 #include "scene_snapshot.hpp"
 
 #include "editor/commands/editor_commands.hpp"
@@ -92,8 +93,9 @@ bool add_clip(test_support::ResourceFixture& fixture)
 struct Fixture
 {
     test_support::ResourceFixture files;
-    engine::ResourceSystem resources;
-    engine::WorldSystem world;
+    test_support::ResourceServices services;
+    engine::ResourceSystem& resources = services.core;
+    engine::WorldSystem world{&services.loader};
     engine::editor::SceneCommands module{world};
     engine::editor::EditorCommands commands{[this]()
                                             { return world.scene() ? world.scene()->id() : 0; }};
@@ -103,8 +105,10 @@ struct Fixture
     bool initialize()
     {
         const engine::EngineConfig config;
-        return !files.root.empty() && resources.initialize(config) && world.initialize(config) &&
-               add_clip(files) && files.publish(resources) &&
+        return !files.root.empty() &&
+               (services.initialize(config) && services.prepare_builtins()) &&
+               world.initialize(config) && add_clip(files) &&
+               (files.publish(resources) && services.prepare_builtins()) &&
                world.create_scene("Physics and audio commands") &&
                module.register_commands(commands);
     }

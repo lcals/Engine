@@ -103,9 +103,12 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
         PRIVATE src/engine/runtime/resource/builtin_resources.cpp
                 src/engine/runtime/utils/mesh_utils.cpp
                 src/engine/runtime/resource/resource.cpp
+                src/engine/runtime/resource/resource_read.cpp
+                src/engine/runtime/resource/resource_loader.cpp
                 src/engine/runtime/resource/resource_codec.cpp
-                src/engine/runtime/resource/codecs/resource_codecs.cpp
-                src/engine/runtime/resource/codecs/binary_resource_codec.cpp
+                src/engine/runtime/resource/codecs/source_resource_codec.cpp
+                src/engine/runtime/resource/codecs/script_resource_codec.cpp
+                src/engine/runtime/resource/codecs/json_resource_codec.cpp
                 src/engine/runtime/resource/codecs/scene_resource_codec.cpp
                 src/engine/runtime/resource/codecs/prefab_resource_codec.cpp
                 src/engine/runtime/resource/codecs/mesh_resource_codec.cpp
@@ -129,7 +132,9 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
     target_link_libraries(
         engine_resource
         PUBLIC engine::scene_data
-        PRIVATE engine::task flatbuffers::flatbuffers basisu::basisu_encoder SDL3::SDL3 bgfx::bimg)
+        PRIVATE engine::task flatbuffers::flatbuffers basisu::basisu_encoder SDL3::SDL3 bgfx::bimg
+                nlohmann_json::nlohmann_json)
+    target_compile_definitions(engine_resource PRIVATE JSON_NOEXCEPTION=1)
 
     engine_add_system(runtime world)
     engine_enable_profiling(engine_world)
@@ -254,6 +259,7 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
     add_library(engine_gameplay STATIC src/engine/runtime/gameplay/gameplay_session.cpp
                                        src/engine/runtime/gameplay/deployment_selection.cpp)
     add_library(engine::gameplay ALIAS engine_gameplay)
+    target_include_directories(engine_gameplay PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
     target_link_libraries(
         engine_gameplay
         PUBLIC engine::core engine::scene_data
@@ -273,6 +279,7 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
     engine_apply_options(engine_gameplay)
 
     add_library(engine_movie STATIC src/engine/runtime/movie/movie_player.cpp)
+    target_include_directories(engine_movie PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
     add_library(engine::movie ALIAS engine_movie)
     target_link_libraries(engine_movie PUBLIC engine::core engine::scene_data
         PRIVATE engine::resource engine::task engine::audio unofficial::libvpx::libvpx)

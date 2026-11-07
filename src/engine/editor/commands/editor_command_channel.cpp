@@ -1,4 +1,5 @@
 #include "editor/commands/editor_command_channel.hpp"
+#include "editor/file_text.hpp"
 
 #include "editor/commands/editor_commands.hpp"
 #include "runtime/resource/resource_system.hpp"
@@ -139,7 +140,7 @@ bool EditorCommandChannel::poll()
     }
     const auto size = fs::file_size(input, code);
     std::string text;
-    if (code || size > message_limit || !ResourceSystem::read_text(input, text) ||
+    if (code || size > message_limit || !engine::editor::file_detail::read_text(input, text) ||
         text.size() > message_limit)
     {
         last_error_ = "Cannot read editor command input within the 1 MiB limit";
@@ -193,7 +194,8 @@ bool EditorCommandChannel::poll()
     {
         std::string content;
         const auto receipt_size = fs::file_size(original, code);
-        if (code || receipt_size > message_limit || !ResourceSystem::read_text(original, content) ||
+        if (code || receipt_size > message_limit ||
+            !engine::editor::file_detail::read_text(original, content) ||
             content.size() > message_limit)
         {
             last_error_ = "Cannot read original editor command receipt";

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "runtime/resource/resource_handle.hpp"
+
 #include "runtime/scene/component.hpp"
 #include <memory>
 
@@ -26,7 +28,7 @@ public:
     [[nodiscard]] bool get_settings(Data& output) const noexcept;
     [[nodiscard]] bool set_settings(const LightProbeVolumeSettings& settings);
     // 体积变换与烘焙位置不一致时返回空；引用独立资源版本。
-    [[nodiscard]] std::shared_ptr<const Resource> resource() const noexcept;
+    [[nodiscard]] ResourceHandle resource() const noexcept;
 
 private:
     template <class T> friend auto engine::ecs_detail::component_runtime(T component) noexcept;

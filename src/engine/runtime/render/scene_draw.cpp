@@ -2,7 +2,7 @@
 #include "runtime/render/render_constants.hpp"
 #include "runtime/render/render_math.hpp"
 #include "runtime/render/scene_gpu_resources.hpp"
-#include "runtime/resource/resource.hpp"
+#include "runtime/resource/types/light_probe_resource.hpp"
 #include "runtime/scene/camera.hpp"
 #include "runtime/scene/ecs_scene.hpp"
 #include "runtime/scene/ecs_storage.hpp"
@@ -30,7 +30,7 @@ template <typename T> void append_key(std::string& key, const T& value)
     key.append(reinterpret_cast<const char*>(&value), sizeof(value));
 }
 
-bool append_material_key(const Material& material, std::string& key)
+bool append_material_key(ResourceLoader* loader, const Material& material, std::string& key)
 {
     const auto* shader = material.shader_data();
     if (!shader || shader->instanced_vertex_code.empty())
@@ -102,7 +102,12 @@ bool append_material_key(const Material& material, std::string& key)
             return false;
         }
         const auto resource = material.texture(sampler->name);
-        const auto identity = reinterpret_cast<std::uintptr_t>(resource.get());
+        const Resource* value = nullptr;
+        if (!loader || loader->get(resource, value) != ResourceError::none)
+        {
+            return false;
+        }
+        const auto identity = reinterpret_cast<std::uintptr_t>(value);
         append_key(key, identity);
     }
     return true;
@@ -157,7 +162,11 @@ bool sample_probe(const WorldSystem& world, const std::array<float, 3>& point,
                 return true;
             }
             const auto resource = volume.resource();
-            const auto* data = resource ? resource->light_probe() : nullptr;
+            const LightProbeResource* probe = nullptr;
+            const auto* loader = world.resource_loader();
+            const auto* data = loader && loader->get(resource, probe) == ResourceError::none
+                                   ? &probe->data()
+                                   : nullptr;
             if (!data)
             {
                 return true;
@@ -474,7 +483,10 @@ bool RenderSystem::SceneGpuResources::draw_meshes(const WorldSystem& world,
     const float tone[]{settings.exposure, settings.filmic_tonemap ? 1.0F : 0.0F, 1, 0};
     const float ibl[]{
         ibl_ready ? 1.0F : 0.0F, settings.ibl_intensity,
-        ibl_ready ? static_cast<float>(ibl_textures[1].resource->texture()->mip_count - 1) : 0, 0};
+        ibl_ready
+            ? static_cast<float>(ibl_textures[1].resource.data<TextureResource>()->mip_count - 1)
+            : 0,
+        0};
     const float shadow_values[]{draw.shadow_bias, draw.inverse_shadow_size,
                                 static_cast<float>(draw.shadow_light),
                                 draw.shadow->tile_size ? 1.0F : 0.0F};
@@ -593,12 +605,12 @@ bool RenderSystem::SceneGpuResources::draw_meshes(const WorldSystem& world,
             const auto observer =
                 static_cast<std::uint16_t>(draw.reflection ? draw.id : render_detail::main_view);
             const auto selection_key = std::pair{renderer.instance_id(), observer};
-            item.instance_eligible = renderer.mesh_resource() && data->skin.empty() &&
+            item.instance_eligible = renderer.mesh_resource().id != 0 && data->skin.empty() &&
                                      renderer.deformed_vertices().empty() &&
                                      renderer.skinning_palette().empty() && !draw.capture;
             if (!transparent && !draw.capture)
             {
-                if (item.instance_eligible && all_opaque && !renderer.lightmap_resource() &&
+                if (item.instance_eligible && all_opaque && renderer.lightmap_resource().id == 0 &&
                     renderer.static_lod_enabled())
                 {
                     lod_applied = lod_applied || !data->lods.empty();
@@ -738,11 +750,11 @@ bool RenderSystem::SceneGpuResources::draw_meshes(const WorldSystem& world,
         else if (!capture)
         {
             const auto source = item.renderer.lightmap_resource();
-            if (source)
+            if (source.id)
             {
                 const auto texture =
                     std::find_if(textures.begin(), textures.end(),
-                                 [&source](const auto& entry) { return entry.resource == source; });
+                                 [&source](const auto& entry) { return entry.matches(source); });
                 if (texture == textures.end())
                 {
                     return false;
@@ -758,7 +770,7 @@ bool RenderSystem::SceneGpuResources::draw_meshes(const WorldSystem& world,
         const auto plane = item.renderer.node().get_component<PlanarReflectionComponent>();
         if (instancing && item.renderer.static_instancing_enabled() && !transparent && !capture &&
             item.instance_eligible && item.geometry == item.mesh->geometry.get() && !plane &&
-            append_material_key(item.material, item.batch_key))
+            append_material_key(world.resource_loader(), item.material, item.batch_key))
         {
             const auto geometry = reinterpret_cast<std::uintptr_t>(item.geometry);
             append_key(item.batch_key, geometry);

@@ -100,6 +100,7 @@
 #if ENGINE_HAS_RESOURCE_GRAPH_PLUGIN
 #include "plugins/runtime/resource_graph/resource_graph_system.hpp"
 #include "runtime/resource/resource_system.hpp"
+#include "runtime_resource_codecs.hpp"
 #endif
 
 #if ENGINE_HAS_ASSET_PIPELINE
@@ -153,7 +154,8 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
 #endif
 #if ENGINE_HAS_RESOURCE_GRAPH_PLUGIN
     engine::ResourceSystem resources;
-    engine::plugins::resource_graph::ResourceGraphSystem resource_graph(resources);
+    std::unique_ptr<engine::TaskSystem> file_tasks, read_tasks, graph_tasks;
+    std::unique_ptr<engine::plugins::resource_graph::ResourceGraphSystem> resource_graph;
 #endif
     engine::RuntimeHost runtime;
     engine::AnimationRetargeterFactory retargeter_factory = nullptr;
@@ -169,7 +171,8 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
                         engine::MoviePlayer* movies) -> std::unique_ptr<engine::ScriptRuntime>
     {
         return std::make_unique<engine::plugins::script::ScriptSystem>(
-            &world, &renderer, &ui, &physics, &navigation, &input, &window, &animation, movies);
+            world.resource_loader(), &world, &renderer, &ui, &physics, &navigation, &input, &window,
+            &animation, movies);
     };
 #endif
 #if ENGINE_HAS_MODELING_PLUGIN
@@ -321,19 +324,36 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
         }
 #endif
 #if ENGINE_HAS_RESOURCE_GRAPH_PLUGIN
-        if (!resources.initialize(config) || !resource_graph.initialize(config))
+        const auto domain = [&](engine::TaskConfig value)
+        {
+            if (!value.max_concurrency)
+            {
+                value.max_concurrency = threads.worker_count();
+            }
+            return value;
+        };
+        file_tasks = std::make_unique<engine::TaskSystem>(threads, domain(parallel.file));
+        read_tasks = std::make_unique<engine::TaskSystem>(threads, domain(parallel.resource_read));
+        graph_tasks =
+            std::make_unique<engine::TaskSystem>(threads, domain(parallel.resource_graph));
+        resource_graph = std::make_unique<engine::plugins::resource_graph::ResourceGraphSystem>(
+            resources, *graph_tasks, engine::plugins::resource_graph::ResourceGraphConfig{});
+        if (!file_tasks->initialize(config) || !read_tasks->initialize(config) ||
+            !graph_tasks->initialize(config) || !register_runtime_resource_codecs(resources) ||
+            !resources.initialize(config) ||
+            !resources.configure_async(*file_tasks, *read_tasks, parallel.resources) ||
+            !resource_graph->initialize(config))
         {
             LogSystem::write(LogLevel::error, "Resource services initialization failed");
             return 1;
         }
-        resources.set_loader(&resource_graph);
         const bool runtime_ready =
-            runtime.initialize(config, &resources, script_factory, configure_runtime_plugins,
-                               &threads, parallel, retargeter_factory);
+            runtime.initialize(config, &resources, resource_graph.get(), script_factory,
+                               configure_runtime_plugins, &threads, parallel, retargeter_factory);
 #else
         const bool runtime_ready =
-            runtime.initialize(config, nullptr, script_factory, configure_runtime_plugins, &threads,
-                               parallel, retargeter_factory);
+            runtime.initialize(config, nullptr, nullptr, script_factory, configure_runtime_plugins,
+                               &threads, parallel, retargeter_factory);
 #endif
         if (!runtime_ready)
         {
@@ -576,6 +596,13 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
                 modeling->synchronize_scene();
             }
 #endif
+#if ENGINE_HAS_RESOURCE_GRAPH_PLUGIN
+            if (!resources.tick(delta_time) || !resource_graph->tick(delta_time))
+            {
+                LogSystem::write(LogLevel::error, "Resource service update failed");
+                return 1;
+            }
+#endif
             auto status = engine::FrameStatus::running;
             if (preview->active())
             {
@@ -751,9 +778,11 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
     scene_bake.reset();
 #endif
 #if ENGINE_HAS_RESOURCE_GRAPH_PLUGIN
-    resources.set_loader(nullptr);
-    resource_graph.shutdown();
+    resource_graph.reset();
     resources.shutdown();
+    graph_tasks.reset();
+    read_tasks.reset();
+    file_tasks.reset();
 #endif
 #if ENGINE_HAS_ASSET_PIPELINE
     pipeline.shutdown();

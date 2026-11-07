@@ -2,8 +2,9 @@
 
 #include "runtime/log/log_system.hpp"
 #include "runtime/performance/profiling.hpp"
-#include "runtime/resource/resource_system.hpp"
+#include "runtime/resource/types/scene_resource.hpp"
 #include "runtime/scene/ecs_storage.hpp"
+#include "runtime/scene/resource_binding.hpp"
 #include "runtime/scene/scene.hpp"
 #include "runtime/scene/transform.hpp"
 
@@ -24,7 +25,8 @@
 namespace engine
 {
 
-WorldSystem::WorldSystem(const SceneRestoreConfig& config) noexcept : restore_config_(config)
+WorldSystem::WorldSystem(ResourceLoader* resources, const SceneRestoreConfig& config) noexcept
+    : resources_(resources), restore_config_(config)
 {
 }
 
@@ -52,40 +54,36 @@ Scene* WorldSystem::create_scene(std::string_view name)
     return scene_;
 }
 
+ResourceLoader* WorldSystem::resource_loader() const noexcept
+{
+    return resources_;
+}
+
 Scene* WorldSystem::load_scene(std::string_view path)
 {
-    if (!is_initialized() || !can_modify() ||
+    if (!is_initialized() || !can_modify() || !resources_ ||
         scene_sequence_ == std::numeric_limits<std::uint64_t>::max())
     {
         return nullptr;
     }
-    auto* resources = ResourceSystem::instance();
-    Guid guid;
-    ResourcePtr resource;
-    if (resources == nullptr || !ResourceSystem::path_to_guid(path, guid))
+    resource_detail::ResourceReference resource;
+    if (!resource.acquire(resources_, path))
     {
-        LogSystem::write(LogLevel::error, "Scene path is unavailable: " + std::string(path));
         return nullptr;
     }
-    if (!resources->loader().load(guid, resource))
-    {
-        LogSystem::write(LogLevel::error, "Cannot load scene " + std::string(path) + ": " +
-                                              resources->loader().last_error());
-        return nullptr;
-    }
-    const auto* data = resource->scene();
-    if (data == nullptr || !data->info)
+    const auto* data = resource.data<SceneResource>();
+    if (!data || !data->info)
     {
         return nullptr;
     }
     std::unique_ptr<Scene> candidate(new (std::nothrow) Scene(*this, scene_sequence_ + 1));
+    ecs_detail::ResourceBindingScope scope(*this, resource.handle());
     if (!candidate || !candidate->initialize(data->info->name) || !candidate->restore_data(*data) ||
         !candidate->publish())
     {
-        LogSystem::write(LogLevel::error, "Cannot restore scene: " + std::string(path));
         return nullptr;
     }
-    candidate->resource_ = std::move(resource);
+    candidate->resource_ = resource.detach();
     restoring_.reset();
     retain_persistent();
     scene_ = candidate.get();
@@ -95,27 +93,30 @@ Scene* WorldSystem::load_scene(std::string_view path)
     return scene_;
 }
 
-std::uint64_t WorldSystem::begin_restore_scene(std::shared_ptr<const Resource> resource)
+std::uint64_t WorldSystem::begin_restore_scene(const ResourceHandle& handle)
 {
-    if (!is_initialized() || !can_modify() || restoring_ || !resource || !resource->scene() ||
-        !resource->scene()->info || resource->scene()->schema_version != 1 ||
+    if (!is_initialized() || !can_modify() || restoring_ || !resources_ ||
         scene_sequence_ == std::numeric_limits<std::uint64_t>::max())
     {
         return 0;
     }
-    auto* resources = ResourceSystem::instance();
-    if (resources == nullptr || resources->generation() != resource->generation())
+    resource_detail::ResourceReference resource;
+    if (!resource.retain(resources_, handle))
     {
         return 0;
     }
-    const auto& data = *resource->scene();
+    const auto* data = resource.data<SceneResource>();
+    if (!data || !data->info || data->schema_version != 1)
+    {
+        return 0;
+    }
     restoring_.reset(new (std::nothrow) Scene(*this, ++scene_sequence_));
-    if (!restoring_ || !restoring_->initialize(data.info->name))
+    if (!restoring_ || !restoring_->initialize(data->info->name))
     {
         restoring_.reset();
         return 0;
     }
-    restoring_->resource_ = std::move(resource);
+    restoring_->resource_ = resource.detach();
     restore_nodes_ = 0;
     restore_parents_ = 0;
     restore_ready_ = false;
@@ -126,14 +127,14 @@ SceneRestoreStatus WorldSystem::step_restore_scene(std::uint64_t request, std::s
                                                    double max_seconds)
 {
     ENGINE_PROFILE_ZONE("World.restoreStep");
-    auto* resources = ResourceSystem::instance();
     if (!std::isfinite(max_seconds) || max_seconds < 0 || !can_modify() || !restoring_ ||
         restoring_->id() != request)
     {
         return SceneRestoreStatus::failed;
     }
-    if (!is_initialized() || resources == nullptr ||
-        resources->generation() != restoring_->resource_->generation())
+    const SceneResource* source = nullptr;
+    if (!is_initialized() || !resources_ ||
+        resources_->get(restoring_->resource_, source) != ResourceError::none)
     {
         cancel_restore_scene(request);
         return SceneRestoreStatus::failed;
@@ -142,7 +143,8 @@ SceneRestoreStatus WorldSystem::step_restore_scene(std::uint64_t request, std::s
     {
         return SceneRestoreStatus::ready;
     }
-    const auto& data = *restoring_->resource_->scene();
+    const auto& data = source->data();
+    ecs_detail::ResourceBindingScope scope(*this, restoring_->resource_);
     const auto started = std::chrono::steady_clock::now();
     const auto count = std::min(node_budget, restore_config_.nodes_per_step);
     const double time_budget = max_seconds > 0 ? std::min(max_seconds, restore_config_.max_seconds)

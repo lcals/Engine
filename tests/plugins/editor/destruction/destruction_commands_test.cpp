@@ -2,9 +2,11 @@
 #include "editor/commands/scene_commands.hpp"
 #include "plugins/editor/destruction/destruction_authoring.hpp"
 #include "plugins/editor/destruction/destruction_commands.hpp"
+#include "plugins/runtime/destruction/codecs/destruction_resource_codec.hpp"
 #include "plugins/runtime/destruction/destruction_component.hpp"
 #include "plugins/runtime/destruction/destruction_system.hpp"
 #include "resource_fixture.hpp"
+#include "resource_services.hpp"
 #include "runtime/engine_config.hpp"
 #include "runtime/physics/physics_system.hpp"
 #include "runtime/scene/collider.hpp"
@@ -96,8 +98,9 @@ bool add_asset(test_support::ResourceFixture& fixture)
 
 struct Fixture
 {
-    ResourceSystem resources;
-    WorldSystem world;
+    test_support::ResourceServices services;
+    engine::ResourceSystem& resources = services.core;
+    engine::WorldSystem world{&services.loader};
     PhysicsSystem physics{&world};
     DestructionSystem destruction{world, physics};
     test_support::ResourceFixture files;
@@ -107,13 +110,16 @@ struct Fixture
         destruction.shutdown();
         world.shutdown();
         physics.shutdown();
-        resources.shutdown();
+        services.shutdown();
     }
 
     bool initialize()
     {
-        return resources.initialize({}) && physics.initialize({}) && world.initialize({}) &&
-               destruction.initialize({}) && add_asset(files) && files.publish(resources);
+        return ((resources.add<engine::plugins::destruction::DestructionResourceCodec>() &&
+                 services.initialize({})) &&
+                services.prepare_builtins()) &&
+               physics.initialize({}) && world.initialize({}) && destruction.initialize({}) &&
+               add_asset(files) && (files.publish(resources) && services.prepare_builtins());
     }
 };
 

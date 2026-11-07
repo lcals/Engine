@@ -38,11 +38,16 @@ GpuTexture& GpuTexture::operator=(GpuTexture&& other) noexcept
     return *this;
 }
 
-bool PreparedTexture::describe(const ResourcePtr& source, const bgfx::Caps& caps,
-                               std::size_t max_bytes)
+bool PreparedTexture::describe(ResourceLoader* loader, ResourceHandle source,
+                               const bgfx::Caps& caps, std::size_t max_bytes)
 {
     *this = {};
-    const auto* data = source ? source->texture() : nullptr;
+    resource_detail::ResourceReference input;
+    if (!input.retain(loader, source))
+    {
+        return false;
+    }
+    const auto* data = input.data<TextureResource>();
     if (data == nullptr || data->width == 0 || data->height == 0 ||
         data->width > caps.limits.maxTextureSize || data->height > caps.limits.maxTextureSize ||
         data->width > std::numeric_limits<std::uint16_t>::max() ||
@@ -61,7 +66,8 @@ bool PreparedTexture::describe(const ResourcePtr& source, const bgfx::Caps& caps
         return false;
     }
     PreparedTexture candidate;
-    candidate.resource = source;
+    candidate.data = data;
+    candidate.resource = std::move(input);
     using Format = bgfx::TextureFormat;
     if (data->encoding == schema::TextureEncoding::ktx)
     {
@@ -194,7 +200,6 @@ bool PreparedTexture::prepare()
 {
     ENGINE_PROFILE_ZONE("Render.texturePrepare");
     levels.clear();
-    const auto* data = resource ? resource->texture() : nullptr;
     if (data == nullptr || bytes == 0)
     {
         return false;
@@ -255,7 +260,7 @@ bool PreparedTexture::prepare()
 bool GpuTexture::create(const PreparedTexture& prepared)
 {
     ENGINE_PROFILE_ZONE("Render.textureUpload");
-    const auto* data = prepared.resource ? prepared.resource->texture() : nullptr;
+    const auto* data = prepared.data;
     if (data == nullptr ||
         !bgfx::isTextureValid(0, data->cube_map, 1, prepared.format, prepared.flags))
     {
@@ -301,7 +306,11 @@ bool GpuTexture::create(const PreparedTexture& prepared)
             height = std::max(1U, height >> 1);
         }
     }
-    resource = prepared.resource;
+    if (!resource.retain(prepared.resource))
+    {
+        release();
+        return false;
+    }
     sampler_flags = static_cast<std::uint32_t>(prepared.flags & BGFX_SAMPLER_BITS_MASK);
     return true;
 }

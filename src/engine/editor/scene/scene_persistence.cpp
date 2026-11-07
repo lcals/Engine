@@ -1,4 +1,7 @@
 #include "editor/scene/scene_persistence.hpp"
+#include "editor/resource_access.hpp"
+#include "runtime/resource/types/model_resource.hpp"
+#include "runtime/resource/virtual_file_system.hpp"
 
 #include "editor/asset_pipeline/asset_io.hpp"
 #include "editor/asset_pipeline/asset_metadata.hpp"
@@ -170,8 +173,8 @@ public:
             ByteBuffer candidate;
             ByteBuffer previous;
             if (!fs::is_regular_file(path, ec) || ec ||
-                !ResourceSystem::read_binary(temporary, candidate) ||
-                !ResourceSystem::read_binary(path, previous))
+                !VirtualFileSystem::read_file(temporary, candidate) ||
+                !VirtualFileSystem::read_file(path, previous))
             {
                 error = "Cannot compare scene resource content";
                 return false;
@@ -220,11 +223,12 @@ public:
     }
 };
 
-bool write_material(const Material& material, const fs::path& path, std::string& error)
+bool write_material(ResourceLoader* loader, const Material& material, const fs::path& path,
+                    std::string& error)
 {
     const auto* shader = material.shader_data();
     Guid shader_guid;
-    if (!shader || !ResourceSystem::path_to_guid(material.shader_path(), shader_guid))
+    if (!shader || !resource_access::load_guid(loader, material.shader_path(), shader_guid))
     {
         error = "Cannot resolve material shader identity";
         return false;
@@ -300,17 +304,16 @@ bool write_material(const Material& material, const fs::path& path, std::string&
         {
             continue;
         }
-        std::string_view texture;
-        Guid guid;
-        if (!sampler || !material.get_texture(sampler->name, texture) ||
-            !ResourceSystem::path_to_guid(texture, guid))
+        const auto* texture =
+            sampler ? resource_access::get(loader, material.texture(sampler->name)) : nullptr;
+        if (!texture)
         {
             error = "Cannot resolve material texture identity";
             return false;
         }
         toml::table entry;
         entry.insert("name", sampler->name);
-        entry.insert("texture", guid);
+        entry.insert("texture", texture->info().guid);
         textures.push_back(std::move(entry));
     }
     document.insert("textures", std::move(textures));
@@ -328,7 +331,7 @@ bool write_material(const Material& material, const fs::path& path, std::string&
 bool source_digest(const fs::path& path, std::string& digest, std::string& error)
 {
     ByteBuffer content;
-    if (!no_symlinks(path) || !ResourceSystem::read_binary(path, content))
+    if (!no_symlinks(path) || !VirtualFileSystem::read_file(path, content))
     {
         error = "Cannot read saved scene resource: " + PathUtils::to_utf8(path);
         return false;
@@ -596,7 +599,8 @@ bool ScenePersistence::State::save(WorldSystem& world, const fs::path& project_r
                 PathUtils::to_utf8(path.lexically_relative(root / "assets").generic_u8string());
             std::string assigned_path;
             if ((known != sources.end() && guid != known->second.guid) ||
-                (ResourceSystem::guid_to_path(guid, assigned_path) && assigned_path != logical))
+                (resource_access::path(world.resource_loader(), guid, assigned_path) &&
+                 assigned_path != logical))
             {
                 error = "Saved scene resource identity changed or conflicts with another asset";
                 return false;
@@ -823,13 +827,20 @@ bool ScenePersistence::State::save(WorldSystem& world, const fs::path& project_r
                     return rollback();
                 }
                 const auto name = "node-" + std::to_string(node.info().properties->id);
+                schema::ComponentDataT bound_data;
+                const auto* bound_materials = renderer.build_data(bound_data)
+                                                  ? bound_data.payload.AsMeshRendererData()
+                                                  : nullptr;
                 if (!renderer.mesh_path().empty())
                 {
-                    if (!ResourceSystem::path_to_guid(renderer.mesh_path(), mesh->mesh_guid))
+                    const auto* resource =
+                        resource_access::get(world.resource_loader(), renderer.mesh_resource());
+                    if (!resource || !bound_materials)
                     {
                         error = "Cannot resolve mesh resource identity";
                         return rollback();
                     }
+                    mesh->mesh_guid = resource->info().guid;
                     ++reused_mesh_count;
                 }
                 else
@@ -884,7 +895,14 @@ bool ScenePersistence::State::save(WorldSystem& world, const fs::path& project_r
                     Guid material_guid;
                     if (!material.has_overrides())
                     {
-                        if (!ResourceSystem::path_to_guid(material.type_path(), material_guid))
+                        if (bound_materials)
+                        {
+                            material_guid =
+                                slot == 0 ? bound_materials->material_guid
+                                          : bound_materials->additional_material_guids[slot - 1];
+                        }
+                        else if (!resource_access::load_guid(world.resource_loader(),
+                                                             material.type_path(), material_guid))
                         {
                             error = "Cannot resolve material resource identity";
                             return rollback();
@@ -901,7 +919,8 @@ bool ScenePersistence::State::save(WorldSystem& world, const fs::path& project_r
                         if (!export_path(resource_root / "materials", material_name, ".material",
                                          material_path) ||
                             !matches_saved_source(material_path, scene_id, error) ||
-                            !write_material(material, staged_material, error) ||
+                            !write_material(world.resource_loader(), material, staged_material,
+                                            error) ||
                             !publish(staged_material, material_path, "material", material_guid,
                                      changed))
                         {
@@ -998,8 +1017,8 @@ bool ScenePersistence::State::save(WorldSystem& world, const fs::path& project_r
 
 namespace
 {
-bool create_model_prefab(const fs::path& project_root, const Json& arguments, Json& result,
-                         std::string& error)
+bool create_model_prefab(WorldSystem& world, const fs::path& project_root, const Json& arguments,
+                         Json& result, std::string& error)
 {
     if (!arguments.is_object() || arguments.size() != 2 || !arguments.contains("model") ||
         !arguments["model"].is_string() || !arguments.contains("path") ||
@@ -1008,21 +1027,21 @@ bool create_model_prefab(const fs::path& project_root, const Json& arguments, Js
         error = "create_prefab_from_model requires model and path resource paths";
         return false;
     }
-    auto* resources = ResourceSystem::instance();
-    Guid model_guid;
-    ResourcePtr resource;
-    if (!resources ||
-        !ResourceSystem::path_to_guid(arguments["model"].get<std::string>(), model_guid) ||
-        !resources->loader().load(model_guid, resource) || !resource || !resource->model())
+    resource_access::ResourceReference resource;
+    if (!resource_access::load(world.resource_loader(), arguments["model"].get<std::string>(),
+                               resource) ||
+        !resource.data<ModelResource>())
     {
         error = "Cannot load the imported Model resource";
         return false;
     }
+    const auto model_guid = resource->info().guid;
     schema::PrefabDataT data;
     data.model_guid = model_guid;
     Guid default_material;
-    (void)ResourceSystem::path_to_guid("builtin://materials/default-pbr", default_material);
-    if (!PrefabImporter::from_model(*resource->model(), default_material, data, error))
+    (void)resource_access::guid(world.resource_loader(), "builtin://materials/default-pbr",
+                                default_material);
+    if (!PrefabImporter::from_model(*resource.data<ModelResource>(), default_material, data, error))
     {
         return false;
     }
@@ -1094,7 +1113,7 @@ bool ScenePersistence::register_commands(EditorCommands& commands)
             "create_prefab_from_model", false,
             [this](const Json& arguments, Json& result, std::unique_ptr<EditorEdit>&,
                    std::string& error)
-            { return create_model_prefab(project_root_, arguments, result, error); }))
+            { return create_model_prefab(world_, project_root_, arguments, result, error); }))
     {
         return false;
     }

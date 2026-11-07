@@ -1,5 +1,9 @@
 #pragma once
 
+#include "runtime/schema/animation_generated.h"
+#include "runtime/schema/mesh_generated.h"
+#include "runtime/schema/skeleton_generated.h"
+
 #include "runtime/resource/codecs/model_value_utils.hpp"
 #include "runtime/resource/resource.hpp"
 

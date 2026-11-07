@@ -23,11 +23,6 @@
       "priority": "low",
       "max_pending": 128
     },
-    "loading": {
-      "max_concurrency": 4,
-      "priority": "low",
-      "max_pending": 256
-    },
     "physics": {
       "max_concurrency": 2,
       "priority": "high",
@@ -46,7 +41,11 @@
     "resources": {
       "max_in_flight": 3,
       "max_in_flight_bytes": 67108864,
-      "completion_budget": 16
+      "completion_budget": 16,
+      "files": {
+        "max_in_flight": 3,
+        "max_in_flight_bytes": 67108864
+      }
     },
     "animation_sampling": {
       "min_parallel_count": 8,
@@ -56,7 +55,10 @@
       "nodes_per_step": 64,
       "max_seconds": 0.001
     },
-    "render": {
+    "navigation_tile_threshold": 4,
+    "completions_per_frame": 16,
+    "completion_budget_seconds": 0.001,
+    "rendering": {
       "texture_batch_size": 2,
       "texture_staging_bytes": 67108864,
       "cluster_tile_size": 64,
@@ -68,8 +70,30 @@
       "maximum_local_shadow_faces": 24,
       "maximum_planar_reflections": 2
     },
-    "navigation_tile_threshold": 4,
-    "completions_per_frame": 16,
-    "completion_budget_seconds": 0.001
+    "file": {
+      "max_concurrency": 4,
+      "priority": "low",
+      "max_pending": 256
+    },
+    "resource_read": {
+      "max_concurrency": 4,
+      "priority": "low",
+      "max_pending": 256
+    },
+    "resource_graph": {
+      "max_concurrency": 4,
+      "priority": "low",
+      "max_pending": 256
+    },
+    "movie": {
+      "max_concurrency": 4,
+      "priority": "low",
+      "max_pending": 256
+    },
+    "render": {
+      "max_concurrency": 4,
+      "priority": "low",
+      "max_pending": 256
+    }
   }
 }

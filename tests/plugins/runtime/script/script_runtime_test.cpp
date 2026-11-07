@@ -1,4 +1,7 @@
+#include "file_text.hpp"
+#include "movie_fixture.hpp"
 #include "plugins/runtime/script/script_system.hpp"
+#include "resource_services.hpp"
 #include "scene_snapshot.hpp"
 #if defined(ENGINE_TEST_EFFECTS_PLUGIN)
 #include "plugins/runtime/effects/effect_component.hpp"
@@ -135,6 +138,11 @@ bool fixture(const fs::path& workspace, std::string_view revision,
         entry->path = std::move(path);
         entry->kind = kind;
         entry->module_path = std::move(module);
+        if (kind == engine::schema::AssetKind::scene)
+        {
+            const auto scene = engine::schema::UnPackSceneData(payload.data());
+            entry->dependencies = test_support::scene_dependencies(scene->nodes);
+        }
         engine::ByteBuffer entity;
         if (!engine::ResourceSystem::encode_resource(
                 entry->guid, kind,
@@ -186,21 +194,87 @@ bool fixture(const fs::path& workspace, std::string_view revision,
             return false;
         }
     }
+    for (auto& entry : data.entries)
+    {
+        if (entry->path != "scripts/game.js")
+        {
+            continue;
+        }
+        for (const auto& dependency : data.entries)
+        {
+            if (dependency->kind == engine::schema::AssetKind::script && dependency != entry)
+            {
+                entry->dependencies.push_back(dependency->guid);
+            }
+        }
+    }
     return expect(output.catalog.assign(data), "assign runtime fixture metadata");
 }
 
-bool apply(engine::plugins::script::ScriptSystem& script, const Fixture& candidate,
-           std::string_view entry = "scripts/game.js")
+bool prepare(test_support::ResourceServices& services,
+             engine::plugins::script::ScriptSystem& script, const engine::ResourceCatalog& catalog,
+             const engine::MountList& mounts, std::string_view entry = "scripts/game.js")
 {
-    if (!script.prepare_gameplay(candidate.catalog, candidate.mounts, entry))
+    if (!services.core.update_catalog(catalog.data(), mounts) || !services.prepare_builtins())
+    {
+        return false;
+    }
+    engine::resource_detail::ResourceReference root;
+    if (!services.load(entry, root))
+    {
+        return false;
+    }
+    for (const auto& item : catalog.data().entries)
+    {
+        if (item->kind == engine::schema::AssetKind::scene ||
+            item->kind == engine::schema::AssetKind::audio)
+        {
+            if (!services.load(item->path))
+            {
+                return false;
+            }
+        }
+    }
+    return script.prepare_gameplay(root.handle(), catalog.data().revision);
+}
+
+bool apply(test_support::ResourceServices& services, engine::plugins::script::ScriptSystem& script,
+           const Fixture& candidate, std::string_view entry = "scripts/game.js")
+{
+    if (!prepare(services, script, candidate.catalog, candidate.mounts, entry))
     {
         return false;
     }
     script.stop_gameplay();
-    auto* resources = engine::ResourceSystem::instance();
-    return resources != nullptr &&
-           resources->update_catalog(candidate.catalog.data(), candidate.mounts) &&
-           script.start_prepared_gameplay();
+    return script.start_prepared_gameplay();
+}
+
+bool execute(test_support::ResourceServices& services,
+             engine::plugins::script::ScriptSystem& script,
+             const engine::ProjectScriptRequest& request, std::string& result, std::string& error)
+{
+    engine::schema::AssetEntryT info;
+    static std::uint64_t next = 0;
+    info.guid = guid_for("project-request/" + std::to_string(++next));
+    info.path = "project-requests/" + info.guid + ".js";
+    info.module_path = request.module_path;
+    info.kind = engine::schema::AssetKind::script;
+    const auto* begin = reinterpret_cast<const std::byte*>(request.javascript.data());
+    std::unique_ptr<engine::Resource> resource = std::make_unique<engine::ScriptResource>(
+        std::move(info), engine::ByteBuffer(begin, begin + request.javascript.size()));
+    engine::ResourceHandle handle;
+    result.clear();
+    if (!services.loader.load_memory(resource, {}, handle))
+    {
+        error = services.loader.last_error();
+        return false;
+    }
+    engine::resource_detail::ResourceReference reference;
+    if (!reference.adopt(&services.loader, handle))
+    {
+        return false;
+    }
+    return script.execute_project_script(reference.handle(), request, result, error);
 }
 
 bool log_contains(std::string_view message)
@@ -227,9 +301,9 @@ std::string game_source(std::string_view name, int expected_value)
            std::string(name) + ":stop');}}";
 }
 
-bool run_prepared_catalog_cases(const fs::path& workspace)
+bool run_prepared_catalog_cases(test_support::ResourceServices& services, const fs::path& workspace)
 {
-    engine::plugins::script::ScriptSystem script;
+    engine::plugins::script::ScriptSystem script(&services.loader);
     Fixture first;
     Fixture second;
     const std::string source =
@@ -238,24 +312,20 @@ bool run_prepared_catalog_cases(const fs::path& workspace)
         !fixture(workspace, "prepared-first", {{"scripts/game.js", source}}, first) ||
         !fixture(workspace, "prepared-second", {{"scripts/game.js", source + "\n// next"}},
                  second) ||
-        !apply(script, first))
+        !apply(services, script, first))
     {
         return false;
     }
     const auto original_run = script.status().run_id;
-    if (!expect(!script.prepare_gameplay(second.catalog, {}) && script.status().running &&
+    if (!expect(!script.prepare_gameplay({}) && script.status().running &&
                     script.status().run_id == original_run,
-                "candidate preparation requires its mounts and does not fall back to active "
-                "resources") ||
-        !expect(script.prepare_gameplay(second.catalog, second.mounts) &&
-                    !script.start_prepared_gameplay() && !script.status().running &&
-                    script.status().last_error ==
-                        "Active script resources differ from the prepared catalog",
-                "starting an unpublished candidate rejects mismatched active script content") ||
-        !expect(apply(script, second) && script.status().running &&
+                "unloaded entry is rejected without affecting the running script") ||
+        !expect(prepare(services, script, second.catalog, second.mounts) &&
+                    services.core.update_catalog(first.catalog.data(), first.mounts) &&
+                    script.start_prepared_gameplay() && script.status().running &&
                     script.status().active_revision == "prepared-second" &&
                     script.status().run_id != original_run,
-                "publishing a prechecked candidate starts a fresh Run through the formal path"))
+                "prepared Run retains loaded source across a directory replacement"))
     {
         return false;
     }
@@ -263,16 +333,17 @@ bool run_prepared_catalog_cases(const fs::path& workspace)
     return true;
 }
 
-bool run_cases(const fs::path& workspace)
+bool run_cases(test_support::ResourceServices& services, const fs::path& workspace)
 {
-    engine::plugins::script::ScriptSystem script;
+    engine::plugins::script::ScriptSystem script(&services.loader);
     Fixture current;
     if (!expect(script.initialize({}), "initialize selected JavaScript VM") ||
         !fixture(workspace, "first",
                  {{"scripts/game.js", game_source("first", 2)},
                   {"scripts/lib/value.js", "export const value=2;"}},
                  current) ||
-        !expect(apply(script, current) && script.tick(.01) && log_contains("first:update:1"),
+        !expect(apply(services, script, current) && script.tick(.01) &&
+                    log_contains("first:update:1"),
                 "explicit catalog, ES imports and native logging execute"))
     {
         return false;
@@ -282,18 +353,17 @@ bool run_cases(const fs::path& workspace)
                  {{"scripts/game.js", game_source("second", 3)},
                   {"scripts/lib/value.js", "export const value=3;"}},
                  next) ||
-        !expect(script.prepare_gameplay(next.catalog, next.mounts),
+        !expect(prepare(services, script, next.catalog, next.mounts),
                 "prepare candidate without switching") ||
         !expect(script.status().active_revision == "first" && script.tick(.01) &&
                     log_contains("first:update:2") && !log_contains("first:stop"),
                 "candidate precheck neither stops old gameplay nor changes core directory") ||
-        !expect(
-            engine::ResourceSystem::instance()->update_catalog(next.catalog.data(), next.mounts) &&
-                engine::ResourceSystem::instance()->catalog().data().revision == "second" &&
-                script.status().active_revision == "first" && script.tick(.01) &&
-                log_contains("first:update:3") && !log_contains("first:stop") &&
-                !log_contains("second:start"),
-            "publishing a new directory keeps the old scripts running until explicit reload"))
+        !expect((&services.core)->update_catalog(next.catalog.data(), next.mounts) &&
+                    (&services.core)->catalog().data().revision == "second" &&
+                    script.status().active_revision == "first" && script.tick(.01) &&
+                    log_contains("first:update:3") && !log_contains("first:stop") &&
+                    !log_contains("second:start"),
+                "publishing a new directory keeps the old scripts running until explicit reload"))
     {
         return false;
     }
@@ -317,17 +387,18 @@ bool run_cases(const fs::path& workspace)
                 workspace, name,
                 {{"scripts/game.js", source}, {"scripts/lib/value.js", "export const value=9;"}},
                 bad) ||
-            !expect(!script.prepare_gameplay(bad.catalog, bad.mounts) && script.status().running &&
-                        script.status().active_revision == "first" && !log_contains("first:stop"),
+            !expect(!prepare(services, script, bad.catalog, bad.mounts) &&
+                        script.status().running && script.status().active_revision == "first" &&
+                        !log_contains("first:stop"),
                     "failed precheck preserves the old running context"))
         {
             return false;
         }
     }
-    if (!expect(!script.prepare_gameplay(next.catalog, next.mounts, "../outside.js") &&
-                    !script.prepare_gameplay(next.catalog, next.mounts, "/absolute.js"),
+    if (!expect(!prepare(services, script, next.catalog, next.mounts, "../outside.js") &&
+                    !prepare(services, script, next.catalog, next.mounts, "/absolute.js"),
                 "unsafe entry paths are rejected") ||
-        !expect(apply(script, next) && script.tick(.01) && log_contains("first:stop") &&
+        !expect(apply(services, script, next) && script.tick(.01) && log_contains("first:stop") &&
                     log_contains("second:update:1"),
                 "explicit application retires old code first"))
     {
@@ -352,7 +423,7 @@ bool run_cases(const fs::path& workspace)
     {
         Fixture bad;
         if (!fixture(workspace, name, {{"scripts/game.js", source}}, bad) ||
-            !expect(!apply(script, bad) && !script.status().running &&
+            !expect(!apply(services, script, bad) && !script.status().running &&
                         !script.status().last_error.empty(),
                     "post-precheck failure leaves gameplay stopped"))
         {
@@ -365,7 +436,7 @@ bool run_cases(const fs::path& workspace)
             {{"scripts/game.js", "import {Gameplay} from 'engine'; export default class extends "
                                  "Gameplay{Update(){throw new Error('update failed');}}"}},
             update) ||
-        !expect(apply(script, update) && script.tick(.01) && !script.status().running &&
+        !expect(apply(services, script, update) && script.tick(.01) && !script.status().running &&
                     script.status().last_error.find("update failed") != std::string::npos,
                 "Update failure is reported and stops gameplay without failing the engine tick") ||
         !expect(script.tick(.01) && !script.status().running,
@@ -374,7 +445,7 @@ bool run_cases(const fs::path& workspace)
         return false;
     }
     script.shutdown();
-    if (!expect(script.initialize({}) && apply(script, next) && script.tick(.01),
+    if (!expect(script.initialize({}) && apply(services, script, next) && script.tick(.01),
                 "script runtime can shut down and initialize again"))
     {
         return false;
@@ -385,9 +456,9 @@ bool run_cases(const fs::path& workspace)
     return true;
 }
 
-bool run_project_script_cases(const fs::path& workspace)
+bool run_project_script_cases(test_support::ResourceServices& services, const fs::path& workspace)
 {
-    engine::plugins::script::ScriptSystem script;
+    engine::plugins::script::ScriptSystem script(&services.loader);
     Fixture version;
     Fixture invalid;
     if (!script.initialize({}) ||
@@ -401,7 +472,7 @@ export default class Game extends Gameplay {
                  version) ||
         !fixture(workspace, "project-script-invalid",
                  {{"scripts/game.js", "export default class { syntax error }"}}, invalid) ||
-        !apply(script, version))
+        !apply(services, script, version))
     {
         return false;
     }
@@ -412,8 +483,8 @@ export default class Game extends Gameplay {
                                "({value:game.value+=args,delta:Time.deltaTime});";
     const auto execute = [&](std::uint64_t run, std::string_view code, std::string_view arguments)
     {
-        return script.execute_project_script({run, "scripts/mcp-check.js", code, arguments}, result,
-                                             error);
+        return ::execute(services, script, {run, "scripts/mcp-check.js", code, arguments}, result,
+                         error);
     };
     if (!expect(first_run != 0 && execute(first_run, source, "3") &&
                     result == R"({"value":7,"delta":0})" && error.empty(),
@@ -437,17 +508,16 @@ export default class Game extends Gameplay {
     for (const auto path :
          {"../escape.js", "/absolute.js", "scripts/./check.js", "scripts/check.ts"})
     {
-        if (!expect(
-                !script.execute_project_script({first_run, path, source, "10"}, result, error) &&
-                    result.empty() && script.status().run_id == first_run,
-                "invalid virtual paths are rejected before execution"))
+        if (!expect(!::execute(services, script, {first_run, path, source, "10"}, result, error) &&
+                        result.empty() && script.status().run_id == first_run,
+                    "invalid virtual paths are rejected before execution"))
         {
             return false;
         }
     }
     if (!expect(worker_rejected && script.status().run_id == first_run,
                 "project code cannot run on a worker thread") ||
-        !expect(!script.prepare_gameplay(invalid.catalog, invalid.mounts) &&
+        !expect(!prepare(services, script, invalid.catalog, invalid.mounts) &&
                     script.status().run_id == first_run && execute(first_run, source, "0"),
                 "candidate syntax failure keeps active Run callable"))
     {
@@ -456,7 +526,7 @@ export default class Game extends Gameplay {
     script.stop_gameplay();
     if (!expect(script.status().run_id == 0 && !execute(first_run, source, "0"),
                 "stop invalidates Run before further project calls") ||
-        !expect(apply(script, version) && script.status().run_id != 0 &&
+        !expect(apply(services, script, version) && script.status().run_id != 0 &&
                     script.status().run_id != first_run,
                 "restarting identical content obtains a distinct Run") ||
         !expect(!execute(first_run, source, "99") && execute(script.status().run_id, source, "0") &&
@@ -469,9 +539,9 @@ export default class Game extends Gameplay {
     return true;
 }
 
-bool run_module_contract_cases(const fs::path& workspace)
+bool run_module_contract_cases(test_support::ResourceServices& services, const fs::path& workspace)
 {
-    engine::plugins::script::ScriptSystem script;
+    engine::plugins::script::ScriptSystem script(&services.loader);
     Fixture circular;
     if (!script.initialize({}) ||
         !fixture(workspace, "module-cycle",
@@ -486,12 +556,11 @@ bool run_module_contract_cases(const fs::path& workspace)
                    "import {Debug} from 'engine';import {base} from './a.js';"
                    "Debug.Log('module-cycle:b');export function value(){return base+5;}"}},
                  circular) ||
-        !expect(script.prepare_gameplay(circular.catalog, circular.mounts) &&
+        !expect(prepare(services, script, circular.catalog, circular.mounts) &&
                     !script.status().running && !log_contains("module-cycle:entry") &&
                     !log_contains("module-cycle:a") && !log_contains("module-cycle:b"),
                 "cyclic module precheck resolves the graph without evaluating any top level") ||
-        !expect(engine::ResourceSystem::instance()->update_catalog(circular.catalog.data(),
-                                                                   circular.mounts) &&
+        !expect((&services.core)->update_catalog(circular.catalog.data(), circular.mounts) &&
                     script.start_prepared_gameplay() && log_contains("module-cycle:entry") &&
                     log_contains("module-cycle:a") && log_contains("module-cycle:b"),
                 "cyclic ES imports execute once started and preserve live bindings"))
@@ -510,7 +579,7 @@ bool run_module_contract_cases(const fs::path& workspace)
                                           "export default class extends Gameplay{}"},
                       {"scripts/lib/await.js", tail}},
                      asynchronous) ||
-            !expect(!script.prepare_gameplay(asynchronous.catalog, asynchronous.mounts) &&
+            !expect(!prepare(services, script, asynchronous.catalog, asynchronous.mounts) &&
                         script.status().running &&
                         script.status().active_revision == "module-cycle" &&
                         !log_contains("transitive-await:executed") && script.tick(.01),
@@ -523,9 +592,9 @@ bool run_module_contract_cases(const fs::path& workspace)
     return true;
 }
 
-bool run_job_contract_cases(const fs::path& workspace)
+bool run_job_contract_cases(test_support::ResourceServices& services, const fs::path& workspace)
 {
-    engine::plugins::script::ScriptSystem script;
+    engine::plugins::script::ScriptSystem script(&services.loader);
     if (!script.initialize({}))
     {
         return false;
@@ -541,7 +610,7 @@ bool run_job_contract_cases(const fs::path& workspace)
                 workspace, cached ? "dynamic-cached" : "dynamic-uncached",
                 {{"scripts/game.js", source}, {"scripts/lib/value.js", "export const value=1;"}},
                 dynamic) ||
-            !expect(!apply(script, dynamic) && !script.status().running &&
+            !expect(!apply(services, script, dynamic) && !script.status().running &&
                         !script.status().last_error.empty(),
                     "dynamic import is unsupported even when cached and its rejection is caught"))
         {
@@ -557,7 +626,7 @@ bool run_job_contract_cases(const fs::path& workspace)
                    "Update(){Promise.reject(new Error('handled-update'))"
                    ".catch(()=>Debug.Log('jobs:handled:update'));}}"}},
                  handled) ||
-        !expect(apply(script, handled) && log_contains("jobs:handled:initialize") &&
+        !expect(apply(services, script, handled) && log_contains("jobs:handled:initialize") &&
                     script.tick(.01) && log_contains("jobs:handled:update") &&
                     script.status().running && script.status().last_error.empty(),
                 "rejections handled during the same job checkpoint do not stop gameplay"))
@@ -571,7 +640,8 @@ bool run_job_contract_cases(const fs::path& workspace)
                    "Update(){Promise.reject(new Error('unhandled-job-marker'));}"
                    "OnShutdown(){Debug.Log('jobs:rejected:shutdown');}}"}},
                  rejection) ||
-        !expect(apply(script, rejection) && script.tick(.01) && !script.status().running &&
+        !expect(apply(services, script, rejection) && script.tick(.01) &&
+                    !script.status().running &&
                     script.status().last_error.find("unhandled-job-marker") != std::string::npos &&
                     log_contains("jobs:rejected:shutdown"),
                 "unhandled Promise rejection stops gameplay and still runs OnShutdown"))
@@ -598,7 +668,7 @@ export default class extends Gameplay {
 )js";
     Fixture old;
     if (!fixture(workspace, "jobs-old", {{"scripts/game.js", std::string(old_source)}}, old) ||
-        !expect(apply(script, old) && log_contains("jobs:old:1") && script.tick(.01) &&
+        !expect(apply(services, script, old) && log_contains("jobs:old:1") && script.tick(.01) &&
                     script.status().running && log_contains("jobs:old:2"),
                 "ordinary Promise jobs drain after their own gameplay callback"))
     {
@@ -621,7 +691,7 @@ export default class extends Gameplay {
 )js";
     Fixture next;
     if (!fixture(workspace, "jobs-new", {{"scripts/game.js", std::string(next_source)}}, next) ||
-        !expect(apply(script, next) && log_contains("jobs:old:shutdown") &&
+        !expect(apply(services, script, next) && log_contains("jobs:old:shutdown") &&
                     log_contains("jobs:new:1") && script.tick(.01) && script.tick(.01) &&
                     script.status().running && script.status().active_revision == "jobs-new" &&
                     !log_contains("jobs:old:3"),
@@ -633,7 +703,7 @@ export default class extends Gameplay {
     return true;
 }
 
-bool run_native_boundary_cases(const fs::path& workspace)
+bool run_native_boundary_cases(test_support::ResourceServices& services, const fs::path& workspace)
 {
     constexpr std::string_view source = R"js(
 import { Gameplay } from 'engine';
@@ -660,13 +730,13 @@ export default class extends Gameplay {
     }
 }
 )js";
-    engine::WorldSystem world;
-    engine::plugins::script::ScriptSystem script(&world);
+    engine::WorldSystem world(&services.loader);
+    engine::plugins::script::ScriptSystem script(&services.loader, &world);
     Fixture input;
     if (!world.initialize({}) || !script.initialize({}) ||
         !fixture(workspace, "native-boundaries", {{"scripts/game.js", std::string(source)}},
                  input) ||
-        !expect(apply(script, input),
+        !expect(apply(services, script, input),
                 "BigInt identities reject numeric and overflowing aliases without side effects"))
     {
         return false;
@@ -802,7 +872,7 @@ export default class Game extends Gameplay {
 }
 )js";
 
-bool run_scene_query_cases(const fs::path& workspace)
+bool run_scene_query_cases(test_support::ResourceServices& services, const fs::path& workspace)
 {
     constexpr std::string_view source = R"js(
 import {Gameplay,Scene,Debug} from 'engine';
@@ -851,12 +921,13 @@ export default class extends Gameplay {
     }
 }
 )js";
-    engine::WorldSystem world;
-    engine::plugins::script::ScriptSystem script(&world);
+    engine::WorldSystem world(&services.loader);
+    engine::plugins::script::ScriptSystem script(&services.loader, &world);
     Fixture input;
     if (!world.initialize({}) || !script.initialize({}) ||
         !fixture(workspace, "scene-query", {{"scripts/game.js", std::string(source)}}, input) ||
-        !expect(apply(script, input), "script queries delegate names, hierarchy and ambiguity"))
+        !expect(apply(services, script, input),
+                "script queries delegate names, hierarchy and ambiguity"))
     {
         return false;
     }
@@ -875,7 +946,8 @@ export default class extends Gameplay {
                   "query fixture cleanup leaves native scene ownership intact");
 }
 
-bool run_component_identity_and_state_cases(const fs::path& workspace)
+bool run_component_identity_and_state_cases(test_support::ResourceServices& services,
+                                            const fs::path& workspace)
 {
     constexpr std::string_view source = R"js(
 import { Gameplay, Scene, Component, Transform, Camera, Collider, MeshRenderer } from 'engine';
@@ -933,13 +1005,14 @@ export default class extends Gameplay {
     }
 }
 )js";
-    engine::WorldSystem world;
-    engine::plugins::script::ScriptSystem script(&world);
+    engine::WorldSystem world(&services.loader);
+    engine::plugins::script::ScriptSystem script(&services.loader, &world);
     Fixture input;
     if (!world.initialize({}) || !script.initialize({}) ||
         !fixture(workspace, "component-identities", {{"scripts/game.js", std::string(source)}},
                  input) ||
-        !expect(apply(script, input), "initialize common component identities and hierarchy flags"))
+        !expect(apply(services, script, input),
+                "initialize common component identities and hierarchy flags"))
     {
         return false;
     }
@@ -962,15 +1035,15 @@ export default class extends Gameplay {
     return true;
 }
 
-bool run_scene_cases(const fs::path& workspace)
+bool run_scene_cases(test_support::ResourceServices& services, const fs::path& workspace)
 {
-    engine::WorldSystem world;
-    engine::plugins::script::ScriptSystem script(&world);
+    engine::WorldSystem world(&services.loader);
+    engine::plugins::script::ScriptSystem script(&services.loader, &world);
     Fixture original;
     if (!expect(world.initialize({}) && script.initialize({}),
                 "initialize native scene bindings") ||
         !fixture(workspace, "scene-first", {{"scripts/game.js", scene_source}}, original) ||
-        !expect(apply(script, original) && world.scene() != nullptr &&
+        !expect(apply(services, script, original) && world.scene() != nullptr &&
                     test_support::scene_nodes(*world.scene()).size() == 3,
                 "scene, generic node components and typed materials execute"))
     {
@@ -991,10 +1064,11 @@ bool run_scene_cases(const fs::path& workspace)
     Fixture replacement;
     if (!fixture(workspace, "scene-bad", {{"scripts/game.js", "export default class { ??? }"}},
                  bad) ||
-        !expect(!script.prepare_gameplay(bad.catalog, bad.mounts) && world.scene()->id() == old_id,
+        !expect(!prepare(services, script, bad.catalog, bad.mounts) &&
+                    world.scene()->id() == old_id,
                 "failed candidate preserves the exact old scene") ||
         !fixture(workspace, "scene-next", {{"scripts/game.js", scene_source}}, replacement) ||
-        !expect(apply(script, replacement) && world.scene()->id() != old_id &&
+        !expect(apply(services, script, replacement) && world.scene()->id() != old_id &&
                     log_contains("scene:shutdown-valid"),
                 "old scene survives through its shutdown callback"))
     {
@@ -1008,7 +1082,7 @@ bool run_scene_cases(const fs::path& workspace)
               "s=null;OnInitialize(){this.s=Scene.Create('partial');return false;}"
               "OnShutdown(){if(this.s.IsValid())Debug.Log('partial-scene:shutdown');}}"}},
             partial) ||
-        !expect(!apply(script, partial) && world.scene() == nullptr &&
+        !expect(!apply(services, script, partial) && world.scene() == nullptr &&
                     log_contains("partial-scene:shutdown"),
                 "partial initialization releases its native scene after shutdown"))
     {
@@ -1032,7 +1106,7 @@ export default class extends Gameplay {
 )js";
     Fixture external;
     if (!fixture(workspace, "scene-external", {{"scripts/game.js", stale}}, external) ||
-        !expect(apply(script, external), "start stale wrapper fixture"))
+        !expect(apply(services, script, external), "start stale wrapper fixture"))
     {
         return false;
     }
@@ -1054,7 +1128,7 @@ export default class extends Gameplay {
     return true;
 }
 
-bool run_persistent_scene_cases(const fs::path& workspace)
+bool run_persistent_scene_cases(test_support::ResourceServices& services, const fs::path& workspace)
 {
     constexpr std::string_view source = R"js(
 import {Gameplay,Scene,Transform} from 'engine';
@@ -1095,13 +1169,13 @@ export default class extends Gameplay {
     }
 }
 )js";
-    engine::WorldSystem world;
-    engine::plugins::script::ScriptSystem script(&world);
+    engine::WorldSystem world(&services.loader);
+    engine::plugins::script::ScriptSystem script(&services.loader, &world);
     Fixture initial;
     if (!world.initialize({}) || !script.initialize({}) ||
         !fixture(workspace, "persistent-scene", {{"scripts/game.js", std::string(source)}},
                  initial) ||
-        !expect(apply(script, initial), "initialize persistent script nodes"))
+        !expect(apply(services, script, initial), "initialize persistent script nodes"))
     {
         return false;
     }
@@ -1122,8 +1196,8 @@ export default class extends Gameplay {
                    "const blocked=Scene.Create('forbidden')===null;"
                    "export default class extends Gameplay{OnInitialize(){return blocked;}}"}},
                  candidate) ||
-        !expect(script.prepare_gameplay(candidate.catalog, candidate.mounts) &&
-                    script.prepare_gameplay(candidate.catalog, candidate.mounts) &&
+        !expect(prepare(services, script, candidate.catalog, candidate.mounts) &&
+                    prepare(services, script, candidate.catalog, candidate.mounts) &&
                     world.find_node(root_id) == root && world.scenes().size() == 2,
                 "discarding an unactivated candidate cannot destroy another Run's scenes"))
     {
@@ -1146,10 +1220,10 @@ export default class extends Gameplay {
                   "Run shutdown clears every owned container and leaves native ownership intact");
 }
 
-bool run_guid_cases(const fs::path& workspace)
+bool run_guid_cases(test_support::ResourceServices& services, const fs::path& workspace)
 {
-    engine::WorldSystem world;
-    engine::plugins::script::ScriptSystem script(&world);
+    engine::WorldSystem world(&services.loader);
+    engine::plugins::script::ScriptSystem script(&services.loader, &world);
     if (!world.initialize({}) || !script.initialize({}))
     {
         return false;
@@ -1184,7 +1258,7 @@ export default class extends Gameplay {
     if (!fixture(workspace, "guid-first",
                  {{"scripts/game.js", source}, {"scripts/lib/value.js", "export const value=7;"}},
                  version, bytes) ||
-        !expect(apply(script, version) && log_contains("guid:start:7"),
+        !expect(apply(services, script, version) && log_contains("guid:start:7"),
                 "GUID scripts and Scene.Load execute") ||
         !write_file(version.root / "gen" / guid_for("scenes/main.scene"), "corrupt") ||
         !expect(script.tick(.01) && log_contains("guid:update:7"),
@@ -1194,7 +1268,7 @@ export default class extends Gameplay {
     }
     Fixture missing;
     if (!fixture(workspace, "guid-missing", {{"scripts/game.js", source}}, missing, bytes) ||
-        !expect(!script.prepare_gameplay(missing.catalog, missing.mounts) &&
+        !expect(!prepare(services, script, missing.catalog, missing.mounts) &&
                     script.status().active_revision == "guid-first" && world.scene() != nullptr,
                 "missing GUID module never falls back to another directory"))
     {
@@ -1210,7 +1284,8 @@ export default class extends Gameplay {
     return true;
 }
 
-bool run_physics_audio_binding_cases(const fs::path& workspace)
+bool run_physics_audio_binding_cases(test_support::ResourceServices& services,
+                                     const fs::path& workspace)
 {
     constexpr std::string_view source = R"js(
 import { Gameplay, Scene, Component, Collider, RigidBody, CharacterMotor, AudioSource, AudioListener, Physics } from 'engine';
@@ -1294,14 +1369,15 @@ export default class extends Gameplay {
                                               engine::schema::AudioClipData::Pack(builder, &clip));
     const std::string_view audio(reinterpret_cast<const char*>(builder.GetBufferPointer()),
                                  builder.GetSize());
-    engine::WorldSystem world;
-    engine::plugins::script::ScriptSystem script(&world);
+    engine::WorldSystem world(&services.loader);
+    engine::plugins::script::ScriptSystem script(&services.loader, &world);
     Fixture input;
     if (!expect(world.initialize({}) && script.initialize({}),
                 "initialize physics and audio bindings") ||
         !fixture(workspace, "physics-audio-bindings", {{"scripts/game.js", std::string(source)}},
                  input, {}, audio) ||
-        !expect(apply(script, input), "typed physics/audio bindings, validation and stale handles"))
+        !expect(apply(services, script, input),
+                "typed physics/audio bindings, validation and stale handles"))
     {
         return false;
     }
@@ -1361,7 +1437,7 @@ bool register_optional_effect_component(engine::WorldSystem& world)
 }
 #endif
 
-bool run_impact_binding_cases(const fs::path& workspace)
+bool run_impact_binding_cases(test_support::ResourceServices& services, const fs::path& workspace)
 {
     constexpr std::string_view source = R"js(
 import * as api from 'engine';
@@ -1413,16 +1489,17 @@ export default class extends Gameplay {
     }
 }
 )js";
-    engine::WorldSystem world;
+    engine::WorldSystem world(&services.loader);
     engine::PhysicsSystem physics(&world);
-    engine::plugins::script::ScriptSystem script(&world, nullptr, nullptr, &physics);
+    engine::plugins::script::ScriptSystem script(&services.loader, &world, nullptr, nullptr,
+                                                 &physics);
     Fixture input;
     if (!world.initialize({}) || !physics.initialize({}) || !script.initialize({}) ||
 #if defined(ENGINE_TEST_EFFECTS_PLUGIN)
         !register_optional_effect_component(world) ||
 #endif
         !fixture(workspace, "impact-bindings", {{"scripts/game.js", std::string(source)}}, input) ||
-        !expect(apply(script, input), "initialize impact and optional effect bindings"))
+        !expect(apply(services, script, input), "initialize impact and optional effect bindings"))
     {
         return false;
     }
@@ -1442,7 +1519,7 @@ export default class extends Gameplay {
                   "real drop delivers one validated snapshot and clears on stop");
 }
 
-bool run_shooting_query_cases(const fs::path& workspace)
+bool run_shooting_query_cases(test_support::ResourceServices& services, const fs::path& workspace)
 {
     constexpr std::string_view source = R"js(
 import { Gameplay, Scene, Transform, Camera, Collider, Physics, Render } from 'engine';
@@ -1529,14 +1606,15 @@ export default class extends Gameplay {
     }
 }
 )js";
-    engine::WorldSystem world;
+    engine::WorldSystem world(&services.loader);
     engine::PhysicsSystem physics(&world);
-    engine::plugins::script::ScriptSystem script(&world, nullptr, nullptr, &physics);
+    engine::plugins::script::ScriptSystem script(&services.loader, &world, nullptr, nullptr,
+                                                 &physics);
     Fixture input;
     if (!world.initialize({}) || !physics.initialize({}) || !script.initialize({}) ||
         !fixture(workspace, "shooting-queries", {{"scripts/game.js", std::string(source)}},
                  input) ||
-        !expect(apply(script, input), "initialize camera and shooting query bindings") ||
+        !expect(apply(services, script, input), "initialize camera and shooting query bindings") ||
         !expect(physics.tick(0) && script.tick(.016), "query closest targets from script"))
     {
         return false;
@@ -1563,7 +1641,8 @@ export default class extends Gameplay {
     return expect(complete, "camera and shooting query script lifecycle completes");
 }
 
-bool run_physics_interaction_binding_cases(const fs::path& workspace)
+bool run_physics_interaction_binding_cases(test_support::ResourceServices& services,
+                                           const fs::path& workspace)
 {
     constexpr std::string_view source = R"js(
 import { Gameplay, Scene, Transform, CharacterMotor, Collider, Physics } from 'engine';
@@ -1641,14 +1720,15 @@ export default class extends Gameplay {
     }
 }
 )js";
-    engine::WorldSystem world;
+    engine::WorldSystem world(&services.loader);
     engine::PhysicsSystem physics(&world);
-    engine::plugins::script::ScriptSystem script(&world, nullptr, nullptr, &physics);
+    engine::plugins::script::ScriptSystem script(&services.loader, &world, nullptr, nullptr,
+                                                 &physics);
     Fixture input;
     if (!world.initialize({}) || !physics.initialize({}) || !script.initialize({}) ||
         !fixture(workspace, "physics-interactions", {{"scripts/game.js", std::string(source)}},
                  input) ||
-        !expect(apply(script, input), "initialize physics interaction bindings"))
+        !expect(apply(services, script, input), "initialize physics interaction bindings"))
     {
         return false;
     }
@@ -1668,7 +1748,8 @@ export default class extends Gameplay {
     return expect(complete && physics.contacts().empty(), "clear contact bindings on stop");
 }
 
-bool run_physics_subscription_cases(const fs::path& workspace)
+bool run_physics_subscription_cases(test_support::ResourceServices& services,
+                                    const fs::path& workspace)
 {
     constexpr std::string_view source = R"js(
 import {Gameplay,Scene,Transform,Collider,RigidBody,CharacterMotor,Physics} from 'engine';
@@ -1829,14 +1910,16 @@ export default class extends Gameplay {
     }
 }
 )js";
-    engine::WorldSystem world;
+    engine::WorldSystem world(&services.loader);
     engine::PhysicsSystem physics(&world);
-    engine::plugins::script::ScriptSystem script(&world, nullptr, nullptr, &physics);
+    engine::plugins::script::ScriptSystem script(&services.loader, &world, nullptr, nullptr,
+                                                 &physics);
     Fixture input;
     if (!world.initialize({}) || !physics.initialize({}) || !script.initialize({}) ||
         !fixture(workspace, "physics-subscriptions", {{"scripts/game.js", std::string(source)}},
                  input) ||
-        !expect(apply(script, input), "subscribe to physics callbacks during initialization"))
+        !expect(apply(services, script, input),
+                "subscribe to physics callbacks during initialization"))
     {
         return false;
     }
@@ -1885,7 +1968,8 @@ export default class extends Gameplay {
     return expect(complete, "physics subscription lifecycle reaches completion");
 }
 
-bool run_physics_subscription_scene_cases(const fs::path& workspace)
+bool run_physics_subscription_scene_cases(test_support::ResourceServices& services,
+                                          const fs::path& workspace)
 {
     constexpr std::string_view source = R"js(
 import {Gameplay,Scene,Transform,Collider,CharacterMotor,Physics} from 'engine';
@@ -1928,9 +2012,10 @@ export default class extends Gameplay {
     }
 }
 )js";
-    engine::WorldSystem world;
+    engine::WorldSystem world(&services.loader);
     engine::PhysicsSystem physics(&world);
-    engine::plugins::script::ScriptSystem script(&world, nullptr, nullptr, &physics);
+    engine::plugins::script::ScriptSystem script(&services.loader, &world, nullptr, nullptr,
+                                                 &physics);
     if (!world.initialize({}) || !physics.initialize({}) || !script.initialize({}))
     {
         return false;
@@ -1941,7 +2026,7 @@ export default class extends Gameplay {
     {
         Fixture input;
         if (!fixture(workspace, revision, {{"scripts/game.js", std::string(source)}}, input) ||
-            !expect(apply(script, input) && script.tick(step) && physics.tick(3 * step) &&
+            !expect(apply(services, script, input) && script.tick(step) && physics.tick(3 * step) &&
                         script.tick(step) && script.tick(step) && physics.tick(step) &&
                         script.tick(step) && script.status().running &&
                         script.status().last_error.empty() && world.scene() &&
@@ -1958,7 +2043,8 @@ export default class extends Gameplay {
                   "stopped gameplay cannot retain or dispatch physics subscriptions");
 }
 
-bool run_persistent_physics_subscription_cases(const fs::path& workspace)
+bool run_persistent_physics_subscription_cases(test_support::ResourceServices& services,
+                                               const fs::path& workspace)
 {
     constexpr std::string_view source = R"js(
 import {Gameplay,Scene,Transform,Collider,CharacterMotor,Physics} from 'engine';
@@ -2014,14 +2100,15 @@ export default class extends Gameplay {
     }
 }
 )js";
-    engine::WorldSystem world;
+    engine::WorldSystem world(&services.loader);
     engine::PhysicsSystem physics(&world);
-    engine::plugins::script::ScriptSystem script(&world, nullptr, nullptr, &physics);
+    engine::plugins::script::ScriptSystem script(&services.loader, &world, nullptr, nullptr,
+                                                 &physics);
     Fixture input;
     if (!world.initialize({}) || !physics.initialize({}) || !script.initialize({}) ||
         !fixture(workspace, "persistent-physics", {{"scripts/game.js", std::string(source)}},
                  input) ||
-        !expect(apply(script, input), "initialize persistent contact receiver"))
+        !expect(apply(services, script, input), "initialize persistent contact receiver"))
     {
         return false;
     }
@@ -2040,7 +2127,8 @@ export default class extends Gameplay {
     return expect(complete && world.scenes().empty(), "stop releases persistent physics ownership");
 }
 
-bool run_physics_subscription_promise_case(const fs::path& workspace)
+bool run_physics_subscription_promise_case(test_support::ResourceServices& services,
+                                           const fs::path& workspace)
 {
     constexpr std::string_view source = R"js(
 import {Gameplay,Scene,Transform,Collider,CharacterMotor,Physics,Debug} from 'engine';
@@ -2057,15 +2145,16 @@ export default class extends Gameplay {
     OnShutdown() { Debug.Log('physics-subscription-promise:shutdown'); }
 }
 )js";
-    engine::WorldSystem world;
+    engine::WorldSystem world(&services.loader);
     engine::PhysicsSystem physics(&world);
-    engine::plugins::script::ScriptSystem script(&world, nullptr, nullptr, &physics);
+    engine::plugins::script::ScriptSystem script(&services.loader, &world, nullptr, nullptr,
+                                                 &physics);
     Fixture input;
     if (!world.initialize({}) || !physics.initialize({}) || !script.initialize({}) ||
         !fixture(workspace, "physics-subscription-promise",
                  {{"scripts/game.js", std::string(source)}}, input) ||
-        !expect(apply(script, input) && physics.tick(1.0 / 60.0) && script.tick(1.0 / 60.0) &&
-                    !script.status().running &&
+        !expect(apply(services, script, input) && physics.tick(1.0 / 60.0) &&
+                    script.tick(1.0 / 60.0) && !script.status().running &&
                     script.status().last_error.find("synchronous") != std::string::npos &&
                     log_contains("physics-subscription-promise:shutdown"),
                 "physics subscriptions reject Promise results before Update and run shutdown"))
@@ -2077,59 +2166,67 @@ export default class extends Gameplay {
     return true;
 }
 
-bool run_json_binding_cases(const fs::path& workspace)
+bool run_json_binding_cases(test_support::ResourceServices& services, const fs::path& workspace)
 {
     // 不注入 WorldSystem：配置读取不能要求先创建场景。
-    engine::plugins::script::ScriptSystem script;
+    engine::plugins::script::ScriptSystem script(&services.loader);
     constexpr std::string_view source = R"js(
-import { Gameplay, Json, Debug } from 'engine';
-const topLevelBlocked = Json.Load('config/maps.json') === null;
+import { Gameplay, Resources, Json, Debug } from 'engine';
+function readJson(path, ...extra) {
+    if (extra.length) return null;
+    const resource = Resources.Load(path);
+    if (!resource) return null;
+    const value = Json.ParseResource(resource);
+    Resources.Release(resource);
+    return value;
+}
+const topLevelBlocked = readJson('config/maps.json') === null;
 function checkValues(revision) {
-    const value = Json.Load('config/maps.json');
-    const array = Json.Load('config/array.json');
+    const value = readJson('config/maps.json');
+    const array = readJson('config/array.json');
     return value !== null && Object.getPrototypeOf(value) === Object.prototype &&
         value.title === '场景😀' && value.revision === revision && value.enabled === true &&
         value.none === null && Array.isArray(value.maps) && value.maps[0].id === 'sample' &&
         value.settings.exposure === 1.2 &&
         Array.isArray(array) && array.length === 5 && array[0] === 7 &&
         array[1] === false && array[2] === 'label' && array[3] === null &&
-        array[4].nested === 8 && Json.Load('config/number.json') === 42 &&
-        Json.Load('config/false.json') === false && Json.Load('config/null.json') === null &&
-        Json.Load('config/string.json') === 'text 中文' &&
-        Json.Load('config/nul-string.json') === 'a\u0000b' &&
-        Json.Load('config/maximum.json') === true;
+        array[4].nested === 8 && readJson('config/number.json') === 42 &&
+        readJson('config/false.json') === false && readJson('config/null.json') === null &&
+        readJson('config/string.json') === 'text 中文' &&
+        readJson('config/nul-string.json') === 'a\u0000b' &&
+        readJson('config/maximum.json') === true;
 }
 function checkFailures() {
     const calls = [
-        () => Json.Load(),
-        () => Json.Load(null),
-        () => Json.Load(true),
-        () => Json.Load(42),
-        () => Json.Load({}),
-        () => Json.Load('config/maps.json', 'extra'),
-        () => Json.Load(''),
-        () => Json.Load('../loose.json'),
-        () => Json.Load(physicalJsonPath),
-        () => Json.Load('config/maps.json\u0000trailing'),
-        () => Json.Load('config/missing.json'),
-        () => Json.Load('config/unavailable.json'),
-        () => Json.Load('scripts/looks-like-json.js'),
-        () => Json.Load('config/invalid.json'),
-        () => Json.Load('config/invalid-utf8.json'),
-        () => Json.Load('config/empty.json'),
-        () => Json.Load('config/oversized.json'),
+        () => readJson(),
+        () => readJson(null),
+        () => readJson(true),
+        () => readJson(42),
+        () => readJson({}),
+        () => readJson('config/maps.json', 'extra'),
+        () => readJson(''),
+        () => readJson('../loose.json'),
+        () => readJson(physicalJsonPath),
+        () => readJson('config/maps.json\u0000trailing'),
+        () => readJson('config/missing.json'),
+        () => readJson('config/unavailable.json'),
+        () => readJson('scripts/looks-like-json.js'),
+        () => readJson('config/invalid.json'),
+        () => readJson('config/invalid-utf8.json'),
+        () => readJson('config/empty.json'),
+        () => readJson('config/oversized.json'),
     ];
     return calls.every(call => call() === null);
 }
 function checkIndependentValues() {
-    const first = Json.Load('config/maps.json');
-    const second = Json.Load('config/maps.json');
+    const first = readJson('config/maps.json');
+    const second = readJson('config/maps.json');
     if (first === second || first.maps === second.maps ||
         first.maps[0] === second.maps[0] || first.settings === second.settings) return false;
     first.maps[0].id = 'changed';
     first.maps.push({ id: 'extra' });
     first.settings.exposure = 9;
-    const fresh = Json.Load('config/maps.json');
+    const fresh = readJson('config/maps.json');
     return second.maps.length === 1 && second.maps[0].id === 'sample' &&
         second.settings.exposure === 1.2 && fresh !== second &&
         fresh.maps.length === 1 && fresh.maps[0].id === 'sample' &&
@@ -2140,12 +2237,12 @@ export default class extends Gameplay {
     inactiveBlocked = false;
     constructor() {
         super();
-        this.constructorBlocked = Json.Load('config/maps.json') === null;
+        this.constructorBlocked = readJson('config/maps.json') === null;
     }
     checkOutsideCallback() {
         this.inactiveBlocked = false;
         Promise.resolve().then(() => {
-            this.inactiveBlocked = Json.Load('config/maps.json') === null;
+            this.inactiveBlocked = readJson('config/maps.json') === null;
             if (!this.inactiveBlocked) throw new Error('JSON read outside a gameplay callback');
         });
     }
@@ -2164,7 +2261,7 @@ export default class extends Gameplay {
         Debug.Log('json:update:' + expectedRevision + ':' + revision);
     }
     OnShutdown() {
-        if (Json.Load('config/maps.json')?.revision !== this.lastRevision)
+        if (readJson('config/maps.json')?.revision !== this.lastRevision)
             throw new Error('JSON read unavailable during shutdown');
         Debug.Log('json:shutdown:' + expectedRevision + ':' + this.lastRevision);
     }
@@ -2222,11 +2319,11 @@ export default class extends Gameplay {
     {
         return false;
     }
-    auto* resources = engine::ResourceSystem::instance();
+    auto* resources = (&services.core);
     // 顶层和构造测试前即发布真实可读目录，避免因路径缺失而误判为权限拒绝。
     if (!expect(resources != nullptr &&
                     resources->update_catalog(first.catalog.data(), first.mounts) &&
-                    apply(script, first) && script.status().running,
+                    apply(services, script, first) && script.status().running,
                 "JSON resources load in initialization without a scene; top level and constructor "
                 "stay blocked; primitive, size, UTF-8, kind and parse contracts hold") ||
         !expect(script.tick(.01) && script.status().running && log_contains("json:update:1:1"),
@@ -2235,7 +2332,7 @@ export default class extends Gameplay {
                     script.status().running && script.status().active_revision == "json-first" &&
                     log_contains("json:update:1:2"),
                 "JSON follows the current catalog generation without replacing the script Run") ||
-        !expect(apply(script, next) && script.tick(.01) && script.status().running &&
+        !expect(apply(services, script, next) && script.tick(.01) && script.status().running &&
                     log_contains("json:shutdown:1:2") && log_contains("json:update:2:2"),
                 "replacement Run parses independent JSON values and shutdown can still read"))
     {
@@ -2247,17 +2344,17 @@ export default class extends Gameplay {
                   "JSON facade shuts down cleanly after the final permitted callback");
 }
 
-bool run_runtime_control_cases(const fs::path& workspace)
+bool run_runtime_control_cases(test_support::ResourceServices& services, const fs::path& workspace)
 {
     engine::WindowSystem window;
-    engine::WorldSystem world;
+    engine::WorldSystem world(&services.loader);
     if (!window.initialize({}) || !world.initialize({}))
     {
         return false;
     }
     SDL_HideWindow(window.native_window());
-    engine::plugins::script::ScriptSystem script(&world, nullptr, nullptr, nullptr, nullptr,
-                                                 nullptr, &window);
+    engine::plugins::script::ScriptSystem script(&services.loader, &world, nullptr, nullptr,
+                                                 nullptr, nullptr, nullptr, &window);
     constexpr std::string_view source = R"js(
 import {Gameplay,Window,Scene,App,Render,Time} from 'engine';
 const blocked = Window.GetSize() === null && Window.GetMode() === null &&
@@ -2302,7 +2399,7 @@ export default class extends Gameplay {
     if (!script.initialize({}) ||
         !fixture(workspace, "runtime-controls", {{"scripts/game.js", std::string(source)}},
                  input) ||
-        !expect(apply(script, input) && world.paused() && !window.exit_requested(),
+        !expect(apply(services, script, input) && world.paused() && !window.exit_requested(),
                 "window controls require active callbacks and pause does not request exit") ||
         !expect(script.tick(.5) && script.status().running && window.exit_requested(),
                 "paused gameplay still handles an orderly exit request"))
@@ -2317,13 +2414,10 @@ export default class extends Gameplay {
                   "Run cleanup restores mouse and clears its paused scene");
 }
 
-bool run_step_loading_cases(const fs::path& workspace)
+bool run_step_loading_cases(test_support::ResourceServices& services, const fs::path& workspace)
 {
-#if defined(ENGINE_TEST_RESOURCE_GRAPH)
-    auto& resources = *engine::ResourceSystem::instance();
-    engine::WorldSystem world;
-    engine::plugins::resource_graph::ResourceGraphSystem graph(resources);
-    if (!world.initialize({}) || !graph.initialize({}))
+    engine::WorldSystem world(&services.loader);
+    if (!world.initialize({}))
     {
         return false;
     }
@@ -2338,113 +2432,85 @@ bool run_step_loading_cases(const fs::path& workspace)
     const std::string bytes(reinterpret_cast<const char*>(builder.GetBufferPointer()),
                             builder.GetSize());
     world.destroy_scene();
-    resources.set_loader(&graph);
-    const bool passed = [&]()
-    {
-        engine::plugins::script::ScriptSystem script(&world);
-        constexpr std::string_view source = R"js(
-import {Gameplay,Scene,Debug} from 'engine';
-const blocked = !Scene.BeginLoad('scenes/main.scene') && Scene.StepLoad(0) === null;
+    engine::plugins::script::ScriptSystem script(&services.loader, &world);
+    constexpr auto source = R"js(
+import {Gameplay,Resources,Scene,Debug} from 'engine';
+const blocked = Resources.BeginLoad('scenes/main.scene') === null && Scene.BeginLoad('scenes/main.scene') === false;
 export default class extends Gameplay {
     phase=0;
     OnInitialize() {
-        this.old = Scene.Create('kept-loading-menu');
-        this.loading = this.old?.CreateNode('persistent-loading-root');
-        if (!blocked || !this.old || !this.loading?.SetPersistent(true) || !this.old.SetPaused(true) ||
-            !Scene.BeginLoad('scenes/main.scene') || Scene.BeginLoad('scenes/main.scene') ||
-            Scene.StepLoad(-1) !== null || Scene.StepLoad(0.5) !== null ||
-            Scene.StepLoad('1') !== null || Scene.CommitLoad() !== null) return false;
-        const progress = Scene.StepLoad(0);
-        return progress?.completed === 0 && progress.total === 1 && progress.status === 'loading';
+        this.old = Scene.Create('loading-menu');
+        this.loading = this.old?.CreateNode('persistent-root');
+        if (!blocked || !this.loading?.SetPersistent(true) || !this.old.SetPaused(true)) return false;
+        this.request=Resources.BeginLoad('scenes/main.scene');
+        return this.request !== null;
     }
     Update() {
         if (this.phase === 0) {
-            const progress = Scene.StepLoad(1);
-            if (!this.old.IsValid() || this.old.FindNode('Prepared node') !== null)
-                throw new Error('Loading exposed the candidate through the active scene');
-            if (progress?.status === 'loading') return;
-            if (progress?.status !== 'ready' || progress.completed !== progress.total)
-                throw new Error('Budgeted progress or menu lifetime is invalid');
+            const status=this.request.Status();
+            if (status === 'loading') return;
+            if (status !== 'ready') throw Error(this.request.Error());
+            const resource=this.request.Take();
+            if (!resource || !Scene.BeginLoad('scenes/main.scene') || Scene.BeginLoad('scenes/main.scene')) throw Error('begin restore');
+            if (!Resources.Release(resource) || Scene.StepLoad(-1) !== null || Scene.StepLoad(0.5) !== null || Scene.CommitLoad() !== null) throw Error('restore controls');
+            const progress=Scene.StepLoad(0);
+            if (progress?.status !== 'loading' || progress.completed !== 0) throw Error('pure query');
+            this.phase=1;
         } else if (this.phase === 1) {
-            if (Scene.CommitLoad() !== null || !this.old.IsValid() || !this.old.GetPaused())
-                throw new Error('A changed catalog must preserve the paused old scene');
-            const failed = Scene.StepLoad(0);
-            if (failed?.status !== 'failed' || !failed.error || Scene.CommitLoad() !== null)
-                throw new Error('Commit failure must be queryable');
-            Scene.CancelLoad(); Scene.CancelLoad();
-            if (Scene.StepLoad(0) !== null || !Scene.BeginLoad('scenes/main.scene'))
-                throw new Error('Canceled operation could not be restarted');
-        } else if (this.phase === 2) {
-            const progress = Scene.StepLoad(1);
+            const progress=Scene.StepLoad(1);
+            if (!this.old.IsValid() || this.old.FindNode('Prepared node')) throw Error('candidate published too early');
             if (progress?.status === 'loading') return;
-            if (progress?.status !== 'ready') throw new Error('New directory was not loaded');
-            this.loaded = Scene.CommitLoad();
-            if (!this.loaded?.FindNode('Prepared node') || this.old.IsValid() ||
-                !this.loading.IsValid() || !this.loading.IsPersistent() ||
-                this.old.SetPaused(false) || this.old.GetPaused() !== null ||
-                this.loaded.GetPaused() !== false || Scene.StepLoad(0) !== null ||
-                !this.loaded.SetPaused(true)) throw new Error('Prepared scene did not commit safely');
-        } else if (this.phase === 3 && !Scene.BeginLoad('scenes/main.scene')) {
-            throw new Error('Cannot prepare the operation canceled by Run cleanup');
+            if (progress?.status !== 'ready') throw Error('restore failed');
+            Debug.Log('step-loading:ready');
+            this.phase=2;
+        } else if (this.phase === 2) {
+            this.loaded=Scene.CommitLoad();
+            if (!this.loaded?.FindNode('Prepared node') || this.old.IsValid() || !this.loading.IsValid() || this.loaded.GetPaused()) throw Error('commit failed');
+            this.pending=Resources.BeginLoad('scenes/main.scene');
+            if (!this.pending) throw Error('pending cleanup');
+            Debug.Log('step-loading:committed');
+            this.phase=3;
         }
-        Debug.Log('step-loading:' + this.phase++);
     }
 }
 )js";
-        Fixture first;
-        Fixture next;
-        const auto advance_to = [&](std::string_view message)
+    Fixture first, next;
+    if (!script.initialize({}) ||
+        !fixture(workspace, "step-first", {{"scripts/game.js", source}}, first, bytes) ||
+        !fixture(workspace, "step-next", {{"scripts/game.js", source}}, next, bytes) ||
+        !apply(services, script, first))
+    {
+        return false;
+    }
+    const auto advance = [&](std::string_view marker)
+    {
+        for (int frame = 0; frame < 2000 && !log_contains(marker); ++frame)
         {
-            for (int frame = 0; frame < 16 && !log_contains(message); ++frame)
+            if (!services.tick() || !script.tick(.016) || !script.status().running)
             {
-                if (!script.tick(.016) || !script.status().running)
-                {
-                    return false;
-                }
+                return false;
             }
-            return log_contains(message);
-        };
-        if (!script.initialize({}) ||
-            !fixture(workspace, "step-first", {{"scripts/game.js", std::string(source)}}, first,
-                     bytes) ||
-            !fixture(workspace, "step-next", {{"scripts/game.js", std::string(source)}}, next,
-                     bytes) ||
-            !expect(apply(script, first) && world.paused() && advance_to("step-loading:0") &&
-                        script.status().running,
-                    "single-thread loading reaches ready without replacing the loading scene"))
-        {
-            return false;
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
-        const auto old_scene = world.scene()->id();
-        if (!resources.update_catalog(next.catalog.data(), next.mounts) ||
-            !expect(script.tick(.016) && script.status().running &&
-                        world.scene()->id() == old_scene && world.paused() &&
-                        log_contains("step-loading:1"),
-                    "stale generation commit fails and exposes an error snapshot") ||
-            !expect(advance_to("step-loading:2") && script.status().running &&
-                        world.scene()->id() != old_scene && world.paused() &&
-                        log_contains("step-loading:2") && script.tick(.016) &&
-                        log_contains("step-loading:3"),
-                    "fresh loading commits once and stale scene handles cannot change pause"))
-        {
-            return false;
-        }
-        script.stop_gameplay();
-        return expect(!world.paused() && world.scene() == nullptr &&
-                          !graph.find(guid_for("scenes/main.scene")),
-                      "stopping a Run cancels pending loads and releases unshared resources");
-    }();
-    resources.set_loader(nullptr);
-    return passed;
-#else
-    (void)workspace;
-    return true;
-#endif
+        return log_contains(marker);
+    };
+    if (!expect(advance("step-loading:ready") && world.paused(),
+                "load then restore keeps active scene") ||
+        !services.core.update_catalog(next.catalog.data(), next.mounts) ||
+        !expect(advance("step-loading:committed") && !world.paused(),
+                "ready scene survives catalog replacement"))
+    {
+        std::fprintf(stderr, "%s\n", script.status().last_error.c_str());
+        return false;
+    }
+    script.stop_gameplay();
+    return expect(world.scene() == nullptr && !world.paused(),
+                  "Run cleanup releases scene and pending request");
 }
 
-bool run_storage_binding_cases(const fs::path& workspace)
+bool run_storage_binding_cases(test_support::ResourceServices& services, const fs::path& workspace)
 {
-    engine::plugins::script::ScriptSystem script;
+    engine::plugins::script::ScriptSystem script(&services.loader);
     const auto directory = engine::App::persistent_data_path() / "userdata";
     const auto path = directory / "kv.json";
     constexpr std::string_view first_source = R"js(
@@ -2562,39 +2628,41 @@ export default class extends Gameplay {
                  restored) ||
         !fixture(workspace, "storage-failed", {{"scripts/game.js", std::string(failed_source)}},
                  failed) ||
-        !expect(script.prepare_gameplay(first.catalog, first.mounts) &&
+        !expect(prepare(services, script, first.catalog, first.mounts) &&
                     !fs::exists(directory, error) && !error,
                 "storage precheck does not create or load user data") ||
-        !engine::ResourceSystem::instance()->update_catalog(first.catalog.data(), first.mounts) ||
+        !(&services.core)->update_catalog(first.catalog.data(), first.mounts) ||
         !expect(script.start_prepared_gameplay(),
                 "storage is callback-only and saves Unicode JSON, empty values and deletions"))
     {
         return false;
     }
     std::string saved;
-    if (!expect(engine::ResourceSystem::read_text(path, saved) && !saved.empty(),
+    if (!expect(test_support::read_text(path, saved) && !saved.empty(),
                 "explicit Save writes native storage"))
     {
         return false;
     }
     script.stop_gameplay();
     std::string actual;
-    if (!expect(script.status().last_error.empty() &&
-                    engine::ResourceSystem::read_text(path, actual) && actual == saved,
+    if (!expect(script.status().last_error.empty() && test_support::read_text(path, actual) &&
+                    actual == saved,
                 "stop and shutdown discard unsaved changes") ||
-        !expect(apply(script, restored), "new run restores saved strings without unsaved keys") ||
-        !expect(!log_contains("storage:read-old-shutdown-save") && apply(script, restored) &&
+        !expect(apply(services, script, restored),
+                "new run restores saved strings without unsaved keys") ||
+        !expect(!log_contains("storage:read-old-shutdown-save") &&
+                    apply(services, script, restored) &&
                     log_contains("storage:read-old-shutdown-save") &&
-                    engine::ResourceSystem::read_text(path, saved),
+                    test_support::read_text(path, saved),
                 "prepared replacement first reads after the old run explicitly saves on shutdown"))
     {
         return false;
     }
     script.stop_gameplay();
     constexpr std::string_view corrupt = "{broken user data";
-    if (!expect(engine::ResourceSystem::read_text(path, actual) && actual == saved &&
-                    write_file(path, corrupt) && apply(script, failed) &&
-                    engine::ResourceSystem::read_text(path, actual) && actual == corrupt,
+    if (!expect(test_support::read_text(path, actual) && actual == saved &&
+                    write_file(path, corrupt) && apply(services, script, failed) &&
+                    test_support::read_text(path, actual) && actual == corrupt,
                 "corrupt storage reports failure and cannot be overwritten") ||
         !write_file(path, saved) ||
         !expect(script.tick(.01) && script.status().running &&
@@ -2604,19 +2672,19 @@ export default class extends Gameplay {
         return false;
     }
     script.stop_gameplay();
-    if (!expect(engine::ResourceSystem::read_text(path, actual) && actual == saved &&
-                    apply(script, restored),
+    if (!expect(test_support::read_text(path, actual) && actual == saved &&
+                    apply(services, script, restored),
                 "a later run can load repaired storage"))
     {
         return false;
     }
     script.stop_gameplay();
-    return expect(script.status().last_error.empty() &&
-                      engine::ResourceSystem::read_text(path, actual) && actual == saved,
+    return expect(script.status().last_error.empty() && test_support::read_text(path, actual) &&
+                      actual == saved,
                   "repaired storage remains intact after an explicit shutdown save");
 }
 
-bool run_input_binding_cases(const fs::path& workspace)
+bool run_input_binding_cases(test_support::ResourceServices& services, const fs::path& workspace)
 {
     constexpr std::string_view missing_source = R"js(
 import { Gameplay, Input } from 'engine';
@@ -2630,12 +2698,13 @@ export default class extends Gameplay {
 }
 )js";
     {
-        engine::plugins::script::ScriptSystem script;
+        engine::plugins::script::ScriptSystem script(&services.loader);
         Fixture missing;
         if (!script.initialize({}) ||
             !fixture(workspace, "input-missing", {{"scripts/game.js", std::string(missing_source)}},
                      missing) ||
-            !expect(apply(script, missing), "input binding rejects an absent injected service"))
+            !expect(apply(services, script, missing),
+                    "input binding rejects an absent injected service"))
         {
             return false;
         }
@@ -2710,12 +2779,12 @@ export default class extends Gameplay {
     }
 }
 )js";
-    engine::plugins::script::ScriptSystem script(nullptr, nullptr, nullptr, nullptr, nullptr,
-                                                 &input);
+    engine::plugins::script::ScriptSystem script(&services.loader, nullptr, nullptr, nullptr,
+                                                 nullptr, nullptr, &input);
     Fixture first;
     if (!script.initialize(config) ||
         !fixture(workspace, "input-first", {{"scripts/game.js", source}}, first) ||
-        !expect(apply(script, first),
+        !expect(apply(services, script, first),
                 "input maps schema objects, protects ownership and replaces capture tokens"))
     {
         return false;
@@ -2779,7 +2848,8 @@ export default class extends Gameplay {
 }
 )js";
     if (!fixture(workspace, "input-next", {{"scripts/game.js", std::string(next_source)}}, next) ||
-        !expect(apply(script, next), "input channels can be created by a replacement run"))
+        !expect(apply(services, script, next),
+                "input channels can be created by a replacement run"))
     {
         return false;
     }
@@ -2807,11 +2877,12 @@ export default class extends Gameplay {
                   "input Run cleanup also discards pending mappings");
 }
 
-bool run_frame_rate_binding_cases(const fs::path& workspace)
+bool run_frame_rate_binding_cases(test_support::ResourceServices& services,
+                                  const fs::path& workspace)
 {
     auto& engine = engine::Engine::instance();
     const engine::EngineConfig config;
-    engine::plugins::script::ScriptSystem script;
+    engine::plugins::script::ScriptSystem script(&services.loader);
     constexpr std::string_view source = R"js(
 import { Gameplay, Engine } from 'engine';
 const topLevelBlocked = !Engine.SetTargetFrameRate(120) && Engine.GetTargetFrameRate() === null;
@@ -2841,15 +2912,15 @@ export default class extends Gameplay {
     Fixture input;
     if (!engine.set_target_frame_rate(60) || !script.initialize(config) ||
         !fixture(workspace, "frame-rate", {{"scripts/game.js", std::string(source)}}, input) ||
-        !expect(script.prepare_gameplay(input.catalog, input.mounts) &&
+        !expect(prepare(services, script, input.catalog, input.mounts) &&
                     engine.target_frame_rate() == 60,
                 "candidate module and constructor cannot change the frame rate") ||
-        !engine::ResourceSystem::instance()->update_catalog(input.catalog.data(), input.mounts) ||
+        !(&services.core)->update_catalog(input.catalog.data(), input.mounts) ||
         !expect(script.start_prepared_gameplay() && engine.target_frame_rate() == 45,
                 "gameplay sets the frame rate; invalid typed inputs preserve it") ||
         !expect(script.tick(.016) && script.status().running && engine.target_frame_rate() == 30,
                 "gameplay can adjust the active cap during update") ||
-        !expect(script.prepare_gameplay(input.catalog, input.mounts) &&
+        !expect(prepare(services, script, input.catalog, input.mounts) &&
                     engine.target_frame_rate() == 30,
                 "hot reload candidate leaves the active run's frame rate unchanged"))
     {
@@ -2860,7 +2931,7 @@ export default class extends Gameplay {
                   "shutdown callback can remove the cap before the host restores its own value");
 }
 
-bool run_render_binding_cases(const fs::path& workspace)
+bool run_render_binding_cases(test_support::ResourceServices& services, const fs::path& workspace)
 {
     const engine::EngineConfig config;
     constexpr std::string_view source = R"js(
@@ -2900,27 +2971,28 @@ export default class extends Gameplay {
         return false;
     }
     {
-        engine::plugins::script::ScriptSystem script;
-        if (!script.initialize(config) ||
-            !expect(apply(script, input), "device queries reject an absent render service"))
+        engine::plugins::script::ScriptSystem script(&services.loader);
+        if (!script.initialize(config) || !expect(apply(services, script, input),
+                                                  "device queries reject an absent render service"))
         {
             return false;
         }
     }
     engine::WindowSystem windows;
     engine::RenderSystem renderer(windows);
-    engine::plugins::script::ScriptSystem script(nullptr, &renderer);
+    engine::plugins::script::ScriptSystem script(&services.loader, nullptr, &renderer);
     return script.initialize(config) &&
-           expect(apply(script, input),
+           expect(apply(services, script, input),
                   "an uninitialized render service exposes no viewport or presentation controls");
 }
 
-bool run_scene_render_binding_cases(const fs::path& workspace)
+bool run_scene_render_binding_cases(test_support::ResourceServices& services,
+                                    const fs::path& workspace)
 {
-    engine::WorldSystem world;
+    engine::WorldSystem world(&services.loader);
     engine::WindowSystem windows;
     engine::RenderSystem renderer(windows, &world);
-    engine::plugins::script::ScriptSystem script(&world, &renderer);
+    engine::plugins::script::ScriptSystem script(&services.loader, &world, &renderer);
     constexpr std::string_view source = R"js(
 import { Gameplay, Scene, Camera, Light, Render,
          EnvironmentComponent, PostProcessComponent, PlanarReflectionComponent,
@@ -3013,7 +3085,8 @@ export default class extends Gameplay {
     if (!world.initialize({}) || !script.initialize({}) ||
         !fixture(workspace, "scene-render-components", {{"scripts/game.js", std::string(source)}},
                  input) ||
-        !expect(apply(script, input), "new scene render component factories and typed setters"))
+        !expect(apply(services, script, input),
+                "new scene render component factories and typed setters"))
     {
         return false;
     }
@@ -3066,44 +3139,58 @@ export default class extends Gameplay {
     return expect(script.status().last_error.empty(), "scene render bindings shut down cleanly");
 }
 
-bool run_movie_binding_cases(const fs::path& workspace)
+bool run_movie_binding_cases(test_support::ResourceServices& services, const fs::path& workspace)
 {
     using namespace engine;
-    auto* resources = ResourceSystem::instance();
-    ThreadSystem threads({2});
-    TaskSystem tasks(threads, {"ScriptMovieTest", 2});
-    AudioSystem audio;
-    if (!resources || !threads.initialize({}) || !tasks.initialize({}) ||
-        !resources->configure_async(tasks) || !audio.initialize({}))
+    auto* resources = (&services.core);
+    TaskSystem tasks(services.threads, {"ScriptMovieTest", 2});
+    AudioSystem audio(&services.loader);
+    if (!resources || !tasks.initialize({}) || !audio.initialize({}))
     {
         return expect(false, "prepare movie binding services");
     }
-    MoviePlayer player(*resources, tasks, audio);
-    engine::plugins::script::ScriptSystem script(nullptr, nullptr, nullptr, nullptr, nullptr,
-                                                 nullptr, nullptr, nullptr, &player);
+    MoviePlayer player(services.loader, tasks, audio);
+    engine::plugins::script::ScriptSystem script(&services.loader, nullptr, nullptr, nullptr,
+                                                 nullptr, nullptr, nullptr, nullptr, nullptr,
+                                                 &player);
     constexpr auto source = R"js(
-import { Gameplay, Movie, MovieState, MovieStopReason } from 'engine';
+import { Gameplay, Resources, Movie, MovieState, MovieStopReason } from 'engine';
 const topBlocked = Movie.Play('movies/test.mp4') === null;
 export default class extends Gameplay {
     OnInitialize() {
         if (!topBlocked) return false;
-        const first = Movie.Play('movies/test.mp4');
+        const resource = Resources.Load('movies/test.mp4');
+        const first = Movie.Play(resource);
         if (!first || typeof first.id !== 'bigint' || typeof first.generation !== 'bigint') return false;
         if (Movie.Status(first)?.state !== MovieState.preparing || Movie.SetPaused(first, true)) return false;
         if (Movie.Status({id:first.id, generation:first.generation + 1n}) !== null) return false;
-        if (Movie.Play('movies/test.mp4') !== null || Movie.Release(first)) return false;
+        if (Movie.Play(resource) !== null || Movie.Release(first)) return false;
         if (!Movie.Stop(first, MovieStopReason.skipped) || Movie.Status(first)?.stopReason !== MovieStopReason.skipped) return false;
         if (!Movie.Release(first) || Movie.Status(first) !== null) return false;
-        this.movie = Movie.Play('movies/test.mp4');
+        this.movie = Movie.Play(resource);
+        Resources.Release(resource);
         return this.movie !== null;
     }
 }
 )js";
+    test_support::ResourceFixture movie_fixture;
+    std::unique_ptr<engine::Resource> movie_resource;
+    if (!test_support::make_movie(movie_fixture) || !movie_fixture.publish(services.core) ||
+        !movie_fixture.read(services.core, "movies/test.mp4", movie_resource))
+    {
+        return false;
+    }
+    const auto* movie = engine::resource_detail::data<engine::MovieResource>(movie_resource.get());
+    flatbuffers::FlatBufferBuilder movie_builder;
+    engine::schema::FinishMovieDataBuffer(movie_builder,
+                                          engine::schema::MovieData::Pack(movie_builder, movie));
+    const std::string movie_bytes(reinterpret_cast<const char*>(movie_builder.GetBufferPointer()),
+                                  movie_builder.GetSize());
     Fixture candidate;
     if (!script.initialize({}) ||
         !fixture(workspace, "movie-binding", {{"scripts/game.js", source}}, candidate, {}, {}, {},
-                 "placeholder") ||
-        !apply(script, candidate))
+                 movie_bytes) ||
+        !apply(services, script, candidate))
     {
         return expect(false, "run movie facade from active gameplay");
     }
@@ -3116,7 +3203,6 @@ export default class extends Gameplay {
     const bool cleaned =
         expect(!player.current_handle(current), "run shutdown cancels and releases its movie");
     script.shutdown();
-    resources->shutdown_async();
     return cleaned;
 }
 
@@ -3156,26 +3242,35 @@ int main(int argc, char** argv)
         engine::App::shutdown();
         return 1;
     }
-    engine::ResourceSystem resources;
+    test_support::ResourceServices services;
     const bool passed =
-        resources.initialize(config) && run_cases(workspace) &&
-        run_prepared_catalog_cases(workspace) && run_project_script_cases(workspace) &&
-        run_module_contract_cases(workspace) && run_job_contract_cases(workspace) &&
-        run_native_boundary_cases(workspace) && run_scene_cases(workspace) &&
-        run_scene_query_cases(workspace) && run_component_identity_and_state_cases(workspace) &&
-        run_persistent_scene_cases(workspace) && run_guid_cases(workspace) &&
-        run_physics_audio_binding_cases(workspace) && run_impact_binding_cases(workspace) &&
-        run_render_binding_cases(workspace) && run_scene_render_binding_cases(workspace) &&
-        run_frame_rate_binding_cases(workspace) && run_json_binding_cases(workspace) &&
-        run_storage_binding_cases(workspace) && run_input_binding_cases(workspace) &&
-        run_runtime_control_cases(workspace) && run_step_loading_cases(workspace) &&
-        run_movie_binding_cases(workspace) && run_shooting_query_cases(workspace) &&
-        run_physics_interaction_binding_cases(workspace) &&
-        run_physics_subscription_cases(workspace) &&
-        run_physics_subscription_scene_cases(workspace) &&
-        run_persistent_physics_subscription_cases(workspace) &&
-        run_physics_subscription_promise_case(workspace);
-    resources.shutdown();
+        services.initialize(config) && run_cases(services, workspace) &&
+        run_prepared_catalog_cases(services, workspace) &&
+        run_project_script_cases(services, workspace) &&
+        run_module_contract_cases(services, workspace) &&
+        run_job_contract_cases(services, workspace) &&
+        run_native_boundary_cases(services, workspace) && run_scene_cases(services, workspace) &&
+        run_scene_query_cases(services, workspace) &&
+        run_component_identity_and_state_cases(services, workspace) &&
+        run_persistent_scene_cases(services, workspace) && run_guid_cases(services, workspace) &&
+        run_physics_audio_binding_cases(services, workspace) &&
+        run_impact_binding_cases(services, workspace) &&
+        run_render_binding_cases(services, workspace) &&
+        run_scene_render_binding_cases(services, workspace) &&
+        run_frame_rate_binding_cases(services, workspace) &&
+        run_json_binding_cases(services, workspace) &&
+        run_storage_binding_cases(services, workspace) &&
+        run_input_binding_cases(services, workspace) &&
+        run_runtime_control_cases(services, workspace) &&
+        run_step_loading_cases(services, workspace) &&
+        run_movie_binding_cases(services, workspace) &&
+        run_shooting_query_cases(services, workspace) &&
+        run_physics_interaction_binding_cases(services, workspace) &&
+        run_physics_subscription_cases(services, workspace) &&
+        run_physics_subscription_scene_cases(services, workspace) &&
+        run_persistent_physics_subscription_cases(services, workspace) &&
+        run_physics_subscription_promise_case(services, workspace);
+    services.shutdown();
     engine::LogSystem::instance().shutdown();
     engine::App::shutdown();
     if (passed)

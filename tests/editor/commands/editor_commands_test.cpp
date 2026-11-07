@@ -3,7 +3,9 @@
 #include "editor/commands/editor_edit.hpp"
 #include "editor/commands/scene_commands.hpp"
 #include "editor/render/render_commands.hpp"
+#include "file_text.hpp"
 #include "resource_fixture.hpp"
+#include "resource_services.hpp"
 #include "runtime/engine_config.hpp"
 #include "runtime/render/render_system.hpp"
 #include "runtime/resource/resource_system.hpp"
@@ -20,6 +22,7 @@
 #include "runtime/window/window_system.hpp"
 #include "runtime/world/world_system.hpp"
 #include "scene_snapshot.hpp"
+#include "tracked_resource_loader.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -55,16 +58,30 @@ Json target(const engine::Node& node)
     return {{"sceneId", std::to_string(node.scene()->id())}, {"nodeId", std::to_string(node.id())}};
 }
 
-bool same_texture(const engine::ResourcePtr& first, const engine::ResourcePtr& second)
+const engine::Resource* resource(engine::ResourceLoader& loader, engine::ResourceHandle handle)
 {
-    return first && second && first->info() == second->info() &&
-           first->generation() == second->generation() && first->texture() && second->texture() &&
-           *first->texture() == *second->texture();
+    const engine::Resource* value = nullptr;
+    return loader.get(handle, value) == engine::ResourceError::none ? value : nullptr;
+}
+
+bool same_texture(engine::ResourceLoader& loader, engine::ResourceHandle first,
+                  engine::ResourceHandle second)
+{
+    const auto* a = resource(loader, first);
+    const auto* b = resource(loader, second);
+    return a && b && a->info() == b->info() && a->generation() == b->generation();
 }
 
 bool scene_render_settings_tests()
 {
-    engine::WorldSystem world;
+    test_support::ResourceServices services;
+    auto& resources = services.core;
+    test_support::TrackedResourceLoader loader(services.loader);
+    if (!services.initialize({}) || !services.prepare_builtins())
+    {
+        return false;
+    }
+    engine::WorldSystem world(&loader);
     engine::WindowSystem windows;
     engine::RenderSystem renderer(windows, &world);
     if (!world.initialize({}))
@@ -314,52 +331,17 @@ bool scene_render_settings_tests()
                   "undo restores both post-process flags");
 }
 
-class TrackedResourceLoader final : public engine::ResourceLoader
-{
-public:
-    explicit TrackedResourceLoader(engine::ResourceSystem& resources) : resources_(resources)
-    {
-        resources_.set_loader(this);
-    }
-    TrackedResourceLoader(const TrackedResourceLoader&) = delete;
-    TrackedResourceLoader& operator=(const TrackedResourceLoader&) = delete;
-    ~TrackedResourceLoader() noexcept override
-    {
-        resources_.set_loader(nullptr);
-    }
-    bool load(std::string_view guid, engine::ResourcePtr& output) override
-    {
-        if (!resources_.load(guid, output))
-        {
-            return false;
-        }
-        loaded_.emplace_back(output);
-        return true;
-    }
-    engine::ResourcePtr find(std::string_view) const noexcept override
-    {
-        return {};
-    }
-    const std::string& last_error() const noexcept override
-    {
-        return resources_.last_error();
-    }
-    bool released() const
-    {
-        return std::all_of(loaded_.begin(), loaded_.end(),
-                           [](const auto& resource) { return resource.expired(); });
-    }
-
-private:
-    engine::ResourceSystem& resources_;
-    std::vector<std::weak_ptr<const engine::Resource>> loaded_;
-};
-
 bool render_component_tests()
 {
     using namespace engine;
-    ResourceSystem resources;
-    WorldSystem world;
+    test_support::ResourceServices services;
+    auto& resources = services.core;
+    test_support::TrackedResourceLoader loader(services.loader);
+    if (!services.initialize({}) || !services.prepare_builtins())
+    {
+        return false;
+    }
+    engine::WorldSystem world(&loader);
     WindowSystem windows;
     RenderSystem renderer(windows, &world);
     test_support::ResourceFixture fixture;
@@ -383,12 +365,12 @@ bool render_component_tests()
     probes.coefficients.resize(72, Vec3(.1, .1, .1));
     probes.valid.resize(8, 1);
     probes.source_fingerprint = "lighting-command-test";
-    if (!resources.initialize({}) || !fixture.add(geometry) || !fixture.add(lightmap) ||
-        !fixture.add(probes) || !fixture.publish(resources) || !world.initialize({}))
+    if (!resources.is_initialized() || !fixture.add(geometry) || !fixture.add(lightmap) ||
+        !fixture.add(probes) || !(fixture.publish(resources) && services.prepare_builtins()) ||
+        !world.initialize({}))
     {
         return false;
     }
-    TrackedResourceLoader loader(resources);
     auto* scene = world.create_scene("Lighting commands");
     auto node = scene ? scene->create_node("Receiver") : engine::Node{};
     auto mesh = node ? node.add_component<MeshRenderer>() : MeshRenderer{};
@@ -455,9 +437,9 @@ bool render_component_tests()
         return false;
     }
     if (!expect(set("set_light_probe_volume", {{"resource", ""}}) &&
-                    !node.get_component<LightProbeVolumeComponent>().resource() &&
+                    !resource(loader, node.get_component<LightProbeVolumeComponent>().resource()) &&
                     execute("undo", identity) &&
-                    node.get_component<LightProbeVolumeComponent>().resource(),
+                    resource(loader, node.get_component<LightProbeVolumeComponent>().resource()),
                 "explicitly clearing a probe binding is reversible"))
     {
         return false;
@@ -479,7 +461,8 @@ bool render_component_tests()
     if (!expect(resources.update_catalog(catalog, {{"content", fixture.root}}) &&
                     !execute("undo", identity) &&
                     !node.get_component<LightProbeVolumeComponent>().enabled() &&
-                    fixture.publish(resources) && execute("undo", identity),
+                    (fixture.publish(resources) && services.prepare_builtins()) &&
+                    execute("undo", identity),
                 "probe undo refuses changed resource versions and succeeds after restoring the "
                 "catalog"))
     {
@@ -492,18 +475,20 @@ bool render_component_tests()
     {
         return false;
     }
-    if (!mesh.set_mesh(geometry.path) || !mesh.material().set_float("roughness", .37F))
+    if (!services.load(geometry.path) || !mesh.set_mesh(geometry.path) ||
+        !mesh.material().set_float("roughness", .37F))
     {
         return false;
     }
     const auto mesh_revision = mesh.mesh_revision();
     if (!expect(set("set_mesh_lighting",
                     {{"castShadows", false}, {"bakeStatic", true}, {"lightmap", lightmap.path}}) &&
-                    mesh.lightmap_resource() && execute("get_mesh_lighting", target(node)) &&
+                    resource(loader, mesh.lightmap_resource()) &&
+                    execute("get_mesh_lighting", target(node)) &&
                     result["lightmap"] == lightmap.path && result["lightmapValid"] == true &&
                     result["bakeStatic"] == true && result["castShadows"] == false &&
-                    execute("undo", identity) && !mesh.lightmap_resource() && mesh.cast_shadows() &&
-                    !mesh.bake_static() && execute("redo", identity),
+                    execute("undo", identity) && !resource(loader, mesh.lightmap_resource()) &&
+                    mesh.cast_shadows() && !mesh.bake_static() && execute("redo", identity),
                 "valid UV2 receiver supports binding, query, undo and redo"))
     {
         return false;
@@ -513,7 +498,7 @@ bool render_component_tests()
             mesh.mesh_revision() == mesh_revision &&
                 mesh.material().get_float("roughness", roughness) && roughness == .37F &&
                 !set("set_mesh_lighting", {{"lightmap", "builtin://textures/white-srgb"}}) &&
-                mesh.lightmap_resource(),
+                resource(loader, mesh.lightmap_resource()),
             "lighting edits preserve mesh identity, material overrides and old binding on failure"))
     {
         return false;
@@ -592,7 +577,8 @@ bool render_component_tests()
     }
     const auto restored =
         test_support::scene_nodes(*scene).back().get_component<LightProbeVolumeComponent>();
-    if (!expect(restored && restored.resource() && restored.resource()->info().path == probes.path,
+    if (!expect(restored && resource(loader, restored.resource()) &&
+                    resource(loader, restored.resource())->info().path == probes.path,
                 "recreated node receives the original probe resource binding"))
     {
         return false;
@@ -605,9 +591,15 @@ bool render_component_tests()
 
 bool render_command_tests()
 {
-    engine::ResourceSystem resources;
-    engine::WorldSystem world;
-    if (!resources.initialize({}) || !world.initialize({}))
+    test_support::ResourceServices services;
+    auto& resources = services.core;
+    test_support::TrackedResourceLoader loader(services.loader);
+    if (!services.initialize({}) || !services.prepare_builtins())
+    {
+        return false;
+    }
+    engine::WorldSystem world(&loader);
+    if (!resources.is_initialized() || !world.initialize({}))
     {
         return false;
     }
@@ -689,27 +681,38 @@ bool render_command_tests()
     args = target(node);
     args.update(
         {{"slot", 1}, {"name", "baseColorTexture"}, {"path", "builtin://textures/white-linear"}});
-    const auto original = mesh.material(1).texture("baseColorTexture");
+    engine::resource_detail::ResourceReference original;
+    if (!original.retain(&loader, mesh.material(1).texture("baseColorTexture")))
+    {
+        return false;
+    }
     const auto untouched = mesh.material().texture("baseColorTexture");
     if (!expect(execute("set_material_texture", args) &&
-                    mesh.material(1).texture("baseColorTexture") &&
-                    mesh.material(1).texture("baseColorTexture")->info().path ==
+                    resource(loader, mesh.material(1).texture("baseColorTexture")) &&
+                    resource(loader, mesh.material(1).texture("baseColorTexture"))->info().path ==
                         "builtin://textures/white-linear" &&
-                    !same_texture(mesh.material(1).texture("baseColorTexture"), original) &&
-                    mesh.material().texture("baseColorTexture") == untouched,
+                    !same_texture(loader, mesh.material(1).texture("baseColorTexture"),
+                                  original.handle()) &&
+                    same_texture(loader, mesh.material().texture("baseColorTexture"), untouched),
                 "texture slot selection") ||
         !expect(execute("undo", identity) &&
-                    same_texture(mesh.material(1).texture("baseColorTexture"), original) &&
-                    mesh.material().texture("baseColorTexture") == untouched,
+                    same_texture(loader, mesh.material(1).texture("baseColorTexture"),
+                                 original.handle()) &&
+                    same_texture(loader, mesh.material().texture("baseColorTexture"), untouched),
                 "texture undo restores resource identity and data") ||
         !expect(execute("redo", identity), "texture redo"))
     {
         return false;
     }
     args["path"] = "missing.png";
-    const auto previous = mesh.material(1).texture("baseColorTexture");
+    engine::resource_detail::ResourceReference previous;
+    if (!previous.retain(&loader, mesh.material(1).texture("baseColorTexture")))
+    {
+        return false;
+    }
     if (!expect(!execute("set_material_texture", args) &&
-                    mesh.material(1).texture("baseColorTexture") == previous,
+                    same_texture(loader, mesh.material(1).texture("baseColorTexture"),
+                                 previous.handle()),
                 "failed texture assignment is atomic"))
     {
         return false;
@@ -738,8 +741,9 @@ bool render_command_tests()
                                     }()}},
                                   {{"command", "set_camera"}, {"arguments", bad_camera}}})}};
     if (!expect(!execute("batch", batch) &&
-                    same_texture(mesh.material(1).texture("baseColorTexture"), previous) &&
-                    mesh.material().texture("baseColorTexture") == untouched,
+                    same_texture(loader, mesh.material(1).texture("baseColorTexture"),
+                                 previous.handle()) &&
+                    same_texture(loader, mesh.material().texture("baseColorTexture"), untouched),
                 "batch rolls texture back when camera fails"))
     {
         return false;
@@ -754,7 +758,14 @@ bool render_command_tests()
 bool state_command_tests()
 {
     using namespace engine;
-    WorldSystem world;
+    test_support::ResourceServices services;
+    auto& resources = services.core;
+    test_support::TrackedResourceLoader loader(services.loader);
+    if (!services.initialize({}) || !services.prepare_builtins())
+    {
+        return false;
+    }
+    engine::WorldSystem world(&loader);
     if (!world.initialize({}))
     {
         return false;
@@ -895,9 +906,15 @@ bool state_command_tests()
 bool combined_component_history_tests()
 {
     using namespace engine;
-    ResourceSystem resources;
-    WorldSystem world;
-    if (!resources.initialize({}) || !world.initialize({}))
+    test_support::ResourceServices services;
+    auto& resources = services.core;
+    test_support::TrackedResourceLoader loader(services.loader);
+    if (!services.initialize({}) || !services.prepare_builtins())
+    {
+        return false;
+    }
+    engine::WorldSystem world(&loader);
+    if (!resources.is_initialized() || !world.initialize({}))
     {
         return false;
     }
@@ -1056,10 +1073,16 @@ bool combined_component_history_tests()
 
 bool command_tests()
 {
-    engine::ResourceSystem resources;
-    engine::WorldSystem world;
+    test_support::ResourceServices services;
+    auto& resources = services.core;
+    test_support::TrackedResourceLoader loader(services.loader);
+    if (!services.initialize({}) || !services.prepare_builtins())
+    {
+        return false;
+    }
+    engine::WorldSystem world(&loader);
     const engine::EngineConfig config;
-    if (!expect(resources.initialize(config) && world.initialize(config), "initialize systems"))
+    if (!expect(resources.is_initialized() && world.initialize(config), "initialize systems"))
     {
         return false;
     }
@@ -1306,8 +1329,7 @@ bool write(const fs::path& path, const Json& value)
 Json read(const fs::path& path)
 {
     std::string text;
-    return engine::ResourceSystem::read_text(path, text) ? Json::parse(text, nullptr, false)
-                                                         : Json();
+    return test_support::read_text(path, text) ? Json::parse(text, nullptr, false) : Json();
 }
 
 bool channel_tests(const fs::path& root)

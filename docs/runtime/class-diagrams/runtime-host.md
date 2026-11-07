@@ -1,5 +1,7 @@
 # 运行宿主
 
+**资源接入：可执行入口选择资源插件，给 RuntimeHost/各模块注入可空的 ResourceLoader，并分离文件、解析、资源图、影片及渲染任务域。** 公开参数按[已确认的业务接入](resource-consumers.md)同步；没有加载器时基础宿主仍可启动，资源操作返回失败。
+
 [类图索引](../../class-diagrams/index.md) · [完整引用关系](../../class-diagrams/references.md)
 
 影片启动与正常玩法共用同一套呈现服务；分阶段契约见[影片启动](movie-startup.md)。

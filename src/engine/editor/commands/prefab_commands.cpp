@@ -1,4 +1,6 @@
 #include "editor/commands/prefab_commands.hpp"
+#include "editor/resource_access.hpp"
+#include "runtime/resource/types/prefab_resource.hpp"
 
 #include "editor/asset_pipeline/components/scene_component_codec.hpp"
 #include "editor/asset_pipeline/prefab_importer.hpp"
@@ -265,7 +267,8 @@ bool capture(Instance& instance, std::uint64_t source, Node node, ComponentType 
             }
         }
         const auto renderer = node.get_component<MeshRenderer>();
-        if (!ResourceSystem::path_to_guid(renderer.material().type_path(), mesh->material_guid))
+        if (!resource_access::guid(node.scene()->world().resource_loader(),
+                                   renderer.material().type_path(), mesh->material_guid))
         {
             error = "Cannot resolve prefab material identity";
             return false;
@@ -274,7 +277,8 @@ bool capture(Instance& instance, std::uint64_t source, Node node, ComponentType 
         for (std::size_t slot = 1; slot < renderer.material_count(); ++slot)
         {
             Guid material;
-            if (!ResourceSystem::path_to_guid(renderer.material(slot).type_path(), material))
+            if (!resource_access::guid(node.scene()->world().resource_loader(),
+                                       renderer.material(slot).type_path(), material))
             {
                 error = "Cannot resolve prefab material identity";
                 return false;
@@ -443,8 +447,8 @@ bool capture_link(Instance& instance, Scene& scene, const schema::PrefabDataT& p
                 for (std::size_t slot = 0; slot < renderer.material_count(); ++slot)
                 {
                     Guid material;
-                    if (!ResourceSystem::path_to_guid(renderer.material(slot).type_path(),
-                                                      material))
+                    if (!resource_access::guid(node.scene()->world().resource_loader(),
+                                               renderer.material(slot).type_path(), material))
                     {
                         error = "Cannot resolve associated material";
                         return false;
@@ -879,16 +883,16 @@ bool override_command(WorldSystem& world, SceneCommands& scenes, const Json& arg
     std::unique_ptr<EditorEdit> property;
     if (revert)
     {
-        ResourcePtr resource;
-        auto* resources = ResourceSystem::instance();
-        if (!resources || !resources->loader().load(current->prefab_guid, resource) || !resource ||
-            !resource->prefab())
+        resource_access::ResourceReference resource;
+        auto* loader = world.resource_loader();
+        if (!resource_access::load(loader, current->prefab_guid, resource) || !resource ||
+            !resource.data<PrefabResource>())
         {
             error = "Cannot load the prefab baseline";
             return false;
         }
         const schema::NodeDataT* baseline = nullptr;
-        for (const auto& candidate : resource->prefab()->nodes)
+        for (const auto& candidate : resource.data<PrefabResource>()->nodes)
         {
             if (candidate->info->properties->id == source)
             {
@@ -1146,7 +1150,7 @@ bool register_prefab_commands(WorldSystem& world, SceneCommands& scenes,
                     return true;
                 }
                 std::string path;
-                (void)ResourceSystem::guid_to_path(instance->prefab_guid, path);
+                (void)resource_access::path(world.resource_loader(), instance->prefab_guid, path);
                 Json overrides = Json::array();
                 for (const auto& value : instance->overrides)
                 {
@@ -1219,16 +1223,17 @@ bool register_prefab_commands(WorldSystem& world, SceneCommands& scenes,
                 {
                     return false;
                 }
-                auto* resources = ResourceSystem::instance();
+                auto* loader = world.resource_loader();
                 Guid guid;
-                ResourcePtr resource;
-                if (!resources ||
-                    !ResourceSystem::path_to_guid(arguments["path"].get<std::string>(), guid) ||
-                    !resources->loader().load(guid, resource) || !resource || !resource->prefab())
+                resource_access::ResourceReference resource;
+                if (!resource_access::load(loader, arguments["path"].get<std::string>(),
+                                           resource) ||
+                    !resource || !resource.data<PrefabResource>())
                 {
                     error = "Cannot load prefab source for association";
                     return false;
                 }
+                guid = resource->info().guid;
                 std::uint64_t source = 0;
                 if (instance_for(*node.scene(), node.info().properties->id, source))
                 {
@@ -1238,11 +1243,12 @@ bool register_prefab_commands(WorldSystem& world, SceneCommands& scenes,
                 Instance instance;
                 instance.prefab_guid = guid;
                 instance.root_id = node.info().properties->id;
-                for (const auto& member : resource->prefab()->nodes)
+                for (const auto& member : resource.data<PrefabResource>()->nodes)
                 {
-                    auto target = member->info->properties->id == resource->prefab()->root_id
-                                      ? node
-                                      : node.scene()->find_local_node(member->info->properties->id);
+                    auto target =
+                        member->info->properties->id == resource.data<PrefabResource>()->root_id
+                            ? node
+                            : node.scene()->find_local_node(member->info->properties->id);
                     bool descendant = false;
                     for (auto parent = target; parent; parent = parent.parent())
                     {
@@ -1261,7 +1267,7 @@ bool register_prefab_commands(WorldSystem& world, SceneCommands& scenes,
                     mapping->target_id = target.info().properties->id;
                     instance.node_mappings.push_back(std::move(mapping));
                 }
-                if (!capture_link(instance, *node.scene(), *resource->prefab(), error))
+                if (!capture_link(instance, *node.scene(), *resource.data<PrefabResource>(), error))
                 {
                     return false;
                 }

@@ -1,4 +1,5 @@
 #include "resource_fixture.hpp"
+#include "resource_services.hpp"
 
 #include "plugins/editor/scene_bake/ibl_bake_job.hpp"
 #include "plugins/editor/scene_bake/lighting_bake_job.hpp"
@@ -100,8 +101,9 @@ bool exercise()
     config.window_title = "Scene bake with the core single-resource loader";
     engine::ThreadSystem threads;
     engine::TaskSystem tasks(threads);
-    engine::ResourceSystem resources;
-    engine::WorldSystem world;
+    test_support::ResourceServices services(&threads);
+    auto& resources = services.core;
+    engine::WorldSystem world(&services.loader);
     engine::WindowSystem windows;
     engine::RenderSystem renderer(windows, &world);
     test_support::ResourceFixture fixture;
@@ -129,11 +131,12 @@ bool exercise()
         }
     } guard{cleanup};
     if (!expect(threads.initialize(config) && tasks.initialize(config) &&
-                    resources.initialize(config) && world.initialize(config) &&
-                    windows.initialize(config) && renderer.initialize(config),
+                    (services.initialize(config) && services.prepare_builtins()) &&
+                    world.initialize(config) && windows.initialize(config) &&
+                    renderer.initialize(config),
                 "initialize real renderer and the core loader") ||
-        !expect(&resources.loader() == static_cast<engine::ResourceLoader*>(&resources),
-                "no optional loader is installed"))
+        !expect(world.resource_loader() == &services.loader,
+                "world borrows the explicitly injected resource loader"))
     {
         return false;
     }
@@ -154,20 +157,23 @@ bool exercise()
     albedo->texture_path = tint.path;
     material.textures.push_back(std::move(albedo));
     if (!expect(fixture.add(panorama) && fixture.add(tint) && fixture.add(geometry) &&
-                    fixture.add(material) && fixture.publish(resources),
-                "publish formal GUID resources and a filesystem mount", resources.last_error()))
+                    fixture.add(material) &&
+                    services.publish_and_load(fixture.catalog, {{"content", fixture.root}}),
+                "publish formal GUID resources and a filesystem mount",
+                std::string(resources.last_error())))
     {
         return false;
     }
-    engine::ResourcePtr source;
-    if (!expect(fixture.load(panorama.path, source) && source && source->texture() &&
-                    !resources.loader().find(source->info().guid),
+    engine::resource_detail::ResourceReference source;
+    if (!expect(services.load(panorama.path, source) && source &&
+                    source.data<engine::TextureResource>() && source.handle().id != 0,
                 "load an IBL input from its mounted entity without graph residency"))
     {
         return false;
     }
     std::string error;
-    if (!expect(ibl.start(*source->texture(), 16, 16, 32, error), "start GPU IBL bake", error))
+    if (!expect(ibl.start(*source.data<engine::TextureResource>(), 16, 16, 32, error),
+                "start GPU IBL bake", error))
     {
         return false;
     }
@@ -218,7 +224,7 @@ bool exercise()
                     camera_node.get_component<engine::Transform>().set_settings(eye) &&
                     environment.set_settings(ambient) && mesh.set_mesh(geometry.path) &&
                     mesh.material().set_type(material.type_path) && mesh.set_bake_static(true) &&
-                    mesh.material().texture("baseColorTexture") && frame(windows, renderer),
+                    mesh.material().texture("baseColorTexture").id != 0 && frame(windows, renderer),
                 "components retain mesh, material, shader and texture using single-item loads"))
     {
         return false;
@@ -287,9 +293,12 @@ bool exercise()
     if (!expect(
             baked.mesh && baked.mesh->lightmap_texcoords.size() == baked.mesh->vertices.size() &&
                 std::abs(lighting_mean - std::numbers::pi) < 0.03 && fixture.add(*baked.lightmap) &&
-                fixture.publish(resources) && fixture.load(baked.lightmap->path, source) &&
-                source && source->texture() && mean_red(*source->texture()) == lighting_mean,
-            "load the baked lightmap entity again without a graph", resources.last_error()))
+                services.publish_and_load(fixture.catalog, {{"content", fixture.root}}) &&
+                services.load(baked.lightmap->path, source) && source &&
+                source.data<engine::TextureResource>() &&
+                mean_red(*source.data<engine::TextureResource>()) == lighting_mean,
+            "load the baked lightmap entity again without a graph",
+            std::string(resources.last_error())))
     {
         return false;
     }

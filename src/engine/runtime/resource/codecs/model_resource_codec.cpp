@@ -2,9 +2,11 @@
 
 #include "runtime/core/guid_map.hpp"
 #include "runtime/resource/codecs/model_value_utils.hpp"
+#include "runtime/resource/types/material_resource.hpp"
+#include "runtime/resource/types/mesh_resource.hpp"
+#include <set>
 
 #include <flatbuffers/verifier.h>
-#include <set>
 #include <string>
 #include <utility>
 
@@ -39,25 +41,53 @@ bool ModelResourceCodec::validate(const schema::ModelDataT& data)
     }
     return true;
 }
-bool ModelResourceCodec::decode(const ResourceCatalog& catalog, ByteView payload,
-                                Resource& output) const
+schema::AssetKind ModelResourceCodec::kind() const noexcept
 {
+    return schema::AssetKind::model;
+}
+
+bool ModelResourceCodec::decode(const schema::AssetEntryT& entry, ByteView payload,
+                                std::unique_ptr<Resource>& output, std::string& error) const
+{
+    if (output)
+    {
+        error = "Resource output must be empty";
+        return false;
+    }
+    error.clear();
+    if (entry.kind != kind() || payload.empty() || payload.size() > 64U * 1024U * 1024U)
+    {
+        error = "Invalid resource kind or payload size";
+        return false;
+    }
     const auto* bytes = reinterpret_cast<const std::uint8_t*>(payload.data());
     flatbuffers::Verifier verifier(bytes, payload.size());
     if (!schema::VerifyModelDataBuffer(verifier))
     {
+        error = "Invalid Model FlatBuffer";
         return false;
     }
     auto data = schema::UnPackModelData(bytes);
-    if (data->path != output.info().path || !validate(*data))
+    output = std::make_unique<ResourceType>(entry, std::move(*data));
+    return true;
+}
+
+bool ModelResourceCodec::validate_data(const Resource& resource, std::string& error) const
+{
+    const auto* data = resource_detail::data<ResourceType>(&resource);
+    if (!data)
+    {
+        error = "Invalid canonical type";
+        return false;
+    }
+    if (data->path != resource.info().path || !validate(*data))
     {
         return false;
     }
     std::set<Guid> references;
     for (const auto& node : data->nodes)
     {
-        if (!node->mesh_guid.empty() &&
-            !declares(catalog, output, node->mesh_guid, schema::AssetKind::mesh))
+        if (!node->mesh_guid.empty() && !declares(resource, node->mesh_guid))
         {
             return false;
         }
@@ -67,31 +97,32 @@ bool ModelResourceCodec::decode(const ResourceCatalog& catalog, ByteView payload
         }
         for (const auto& guid : node->material_guids)
         {
-            if (!declares(catalog, output, guid, schema::AssetKind::material))
+            if (!declares(resource, guid))
             {
                 return false;
             }
             references.insert(guid);
         }
     }
-    if (output.info().dependencies.size() != references.size())
+    if (resource.info().dependencies.size() != references.size())
     {
         return false;
     }
-    for (const auto& guid : output.info().dependencies)
+    for (const auto& guid : resource.info().dependencies)
     {
         if (!references.contains(guid))
         {
             return false;
         }
     }
-    store(output, std::move(data));
+    error.clear();
     return true;
 }
-bool ModelResourceCodec::validate_dependencies(const ResourceCatalog&, const Resource& resource,
-                                               std::span<const ResourcePtr> dependencies) const
+
+bool ModelResourceCodec::validate_dependencies(const Resource& resource, ResourceView dependencies,
+                                               std::string& error) const
 {
-    const auto* data = resource.model();
+    const auto* data = resource_detail::data<ModelResource>(&resource);
     if (!data)
     {
         return false;
@@ -101,11 +132,11 @@ bool ModelResourceCodec::validate_dependencies(const ResourceCatalog&, const Res
         if (!node->mesh_guid.empty())
         {
             const auto* item = dependency(dependencies, node->mesh_guid);
-            if (!item || !item->mesh())
+            if (!item || !resource_detail::data<MeshResource>(item))
             {
                 return false;
             }
-            for (const auto& part : item->mesh()->submeshes)
+            for (const auto& part : resource_detail::data<MeshResource>(item)->submeshes)
             {
                 if (!node->material_guids.empty() &&
                     part.material_slot() >= node->material_guids.size())
@@ -117,7 +148,7 @@ bool ModelResourceCodec::validate_dependencies(const ResourceCatalog&, const Res
         for (const auto& guid : node->material_guids)
         {
             const auto* item = dependency(dependencies, guid);
-            if (!item || !item->material())
+            if (!item || !resource_detail::data<MaterialResource>(item))
             {
                 return false;
             }

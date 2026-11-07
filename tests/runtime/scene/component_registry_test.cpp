@@ -1,3 +1,4 @@
+#include "resource_services.hpp"
 #include "runtime/engine_config.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/scene/animator.hpp"
@@ -132,10 +133,11 @@ bool registration_phase_guard()
 
 bool check()
 {
-    engine::ResourceSystem resources;
-    engine::WorldSystem world;
+    test_support::ResourceServices services;
+    engine::ResourceSystem& resources = services.core;
+    engine::WorldSystem world{&services.loader};
     const engine::EngineConfig config;
-    if (!resources.initialize(config) || !world.initialize(config))
+    if (!(services.initialize(config) && services.prepare_builtins()) || !world.initialize(config))
     {
         return false;
     }

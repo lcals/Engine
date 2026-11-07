@@ -1,12 +1,13 @@
 #include "runtime/resource/codecs/material_resource_codec.hpp"
 
+#include "runtime/core/guid_map.hpp"
 #include "runtime/resource/codecs/material_value_utils.hpp"
-#include "runtime/resource/resource_catalog.hpp"
-#include "runtime/resource/resource_system.hpp"
+#include "runtime/resource/types/shader_resource.hpp"
+#include "runtime/resource/types/texture_resource.hpp"
+#include <set>
 
 #include <flatbuffers/verifier.h>
 
-#include <set>
 #include <utility>
 
 namespace engine
@@ -90,81 +91,80 @@ bool MaterialResourceCodec::validate(const schema::MaterialDataT& data,
     return true;
 }
 
-bool MaterialResourceCodec::decode(const ResourceCatalog& catalog, ByteView payload,
-                                   Resource& output) const
+schema::AssetKind MaterialResourceCodec::kind() const noexcept
 {
-    const auto& entry = output.info();
-    std::unique_ptr<schema::MaterialDataT> data;
-    if (entry.path.starts_with("builtin://") && !entry.location)
+    return schema::AssetKind::material;
+}
+
+bool MaterialResourceCodec::decode(const schema::AssetEntryT& entry, ByteView payload,
+                                   std::unique_ptr<Resource>& output, std::string& error) const
+{
+    if (output)
     {
-        const auto* builtin = ResourceSystem::find_material(entry.path);
-        if (!builtin)
-        {
-            return false;
-        }
-        data = std::make_unique<schema::MaterialDataT>(*builtin);
-    }
-    else
-    {
-        const auto* bytes = reinterpret_cast<const std::uint8_t*>(payload.data());
-        flatbuffers::Verifier verifier(bytes, payload.size());
-        if (!schema::VerifyMaterialDataBuffer(verifier))
-        {
-            return false;
-        }
-        data = schema::UnPackMaterialData(bytes);
-    }
-    if (entry.path.starts_with("builtin://") && !entry.location)
-    {
-        if (entry.dependencies.empty())
-        {
-            return false;
-        }
-        data->shader_guid = entry.dependencies.front();
-    }
-    std::string shader_path;
-    if (!declares(catalog, output, data->shader_guid, schema::AssetKind::shader) ||
-        !catalog.identities().guid_to_path(data->shader_guid, shader_path) ||
-        (!data->shader_path.empty() && data->shader_path != shader_path) ||
-        data->type_path != entry.path)
-    {
+        error = "Resource output must be empty";
         return false;
     }
-    data->shader_path = shader_path;
-    if (!valid_shape(*data))
+    error.clear();
+    if (entry.kind != kind() || payload.empty() || payload.size() > 64U * 1024U * 1024U)
     {
+        error = "Invalid resource kind or payload size";
         return false;
     }
-    for (const auto& binding : data->textures)
+    const auto* bytes = reinterpret_cast<const std::uint8_t*>(payload.data());
+    flatbuffers::Verifier verifier(bytes, payload.size());
+    if (!schema::VerifyMaterialDataBuffer(verifier))
     {
-        const auto* texture = catalog.find(binding->texture_guid);
-        if (!declares(catalog, output, binding->texture_guid, schema::AssetKind::texture) ||
-            !texture || texture->path != binding->texture_path)
-        {
-            return false;
-        }
+        error = "Invalid Material FlatBuffer";
+        return false;
     }
-    store(output, std::move(data));
+    auto data = schema::UnPackMaterialData(bytes);
+    output = std::make_unique<ResourceType>(entry, std::move(*data));
     return true;
 }
 
-bool MaterialResourceCodec::validate_dependencies(const ResourceCatalog&, const Resource& resource,
-                                                  std::span<const ResourcePtr> dependencies) const
+bool MaterialResourceCodec::validate_data(const Resource& resource, std::string& error) const
 {
-    const auto* material = resource.material();
+    error.clear();
+    const auto* data = resource_detail::data<ResourceType>(&resource);
+    if (!data || data->type_path != resource.info().path || !valid_shape(*data) ||
+        !declares(resource, data->shader_guid))
+    {
+        error = "Invalid material definition";
+        return false;
+    }
+    std::set<std::string> expected{data->shader_guid};
+    for (const auto& binding : data->textures)
+    {
+        if (!declares(resource, binding->texture_guid))
+        {
+            error = "Material texture is not declared";
+            return false;
+        }
+        expected.insert(binding->texture_guid);
+    }
+    return expected.size() == resource.info().dependencies.size();
+}
+
+bool MaterialResourceCodec::validate_dependencies(const Resource& resource,
+                                                  ResourceView dependencies,
+                                                  std::string& error) const
+{
+    const auto* material = resource_detail::data<MaterialResource>(&resource);
     if (!material)
     {
         return false;
     }
     const auto* shader = dependency(dependencies, material->shader_guid);
-    if (!shader || !validate(*material, shader->shader()))
+    if (!shader || shader->info().path != material->shader_path ||
+        !validate(*material, resource_detail::data<ShaderResource>(shader)))
     {
         return false;
     }
     for (const auto& binding : material->textures)
     {
         const auto* texture = dependency(dependencies, binding->texture_guid);
-        if (!texture || !texture->texture() || texture->texture()->cube_map ||
+        if (!texture || !resource_detail::data<TextureResource>(texture) ||
+            resource_detail::data<TextureResource>(texture)->cube_map ||
             texture->info().path != binding->texture_path)
         {
             return false;

@@ -1,4 +1,5 @@
 #include "editor/render/render_component_commands.hpp"
+#include "editor/resource_access.hpp"
 
 #include "editor/commands/components/component_edit.hpp"
 #include "editor/commands/scene_commands.hpp"
@@ -21,26 +22,25 @@ namespace
 {
 using Json = nlohmann::json;
 
-std::string configured_path(std::string_view guid)
+std::string configured_path(ResourceLoader* loader, std::string_view guid)
 {
     std::string path;
     if (!guid.empty())
     {
-        (void)ResourceSystem::guid_to_path(guid, path);
+        (void)resource_access::path(loader, guid, path);
     }
     return path;
 }
 
-bool retain_resource(std::string_view guid, std::vector<schema::AssetEntryT>& versions,
-                     std::string& error)
+bool retain_resource(ResourceLoader* loader, std::string_view guid,
+                     std::vector<schema::AssetEntryT>& versions, std::string& error)
 {
     if (guid.empty())
     {
         return true;
     }
-    auto* resources = ResourceSystem::instance();
-    ResourcePtr resource;
-    if (!resources || !resources->loader().load(guid, resource))
+    resource_access::ResourceReference resource;
+    if (!resource_access::load(loader, guid, resource))
     {
         error = "Cannot retain the configured resource version";
         return false;
@@ -136,7 +136,8 @@ bool prepare_probe(WorldSystem& world, SceneCommands& scene_commands, const Json
     {
         before = component.data();
         after = *before;
-        if (!retain_resource(component.settings().probes_guid, versions, error))
+        if (!retain_resource(world.resource_loader(), component.settings().probes_guid, versions,
+                             error))
         {
             return false;
         }
@@ -155,9 +156,10 @@ bool prepare_probe(WorldSystem& world, SceneCommands& scene_commands, const Json
         }
         const auto path = arguments["resource"].get<std::string>();
         settings.probes_guid.clear();
-        if (!path.empty() && (!ResourceSystem::path_to_guid(path, settings.probes_guid) ||
-                              !retain_resource(settings.probes_guid, versions, error) ||
-                              versions.back().kind != schema::AssetKind::light_probe))
+        if (!path.empty() &&
+            (!resource_access::load_guid(world.resource_loader(), path, settings.probes_guid) ||
+             !retain_resource(world.resource_loader(), settings.probes_guid, versions, error) ||
+             versions.back().kind != schema::AssetKind::light_probe))
         {
             error = "resource must identify a light-probe resource in the current catalog";
             return false;
@@ -216,7 +218,8 @@ public:
             error = "lightmap must be a logical texture path or an empty string";
             return false;
         }
-        if (!settings->lightmap_guid.empty() && !mesh.lightmap_resource())
+        if (!settings->lightmap_guid.empty() &&
+            !resource_access::get(world_.resource_loader(), mesh.lightmap_resource()))
         {
             error = "The configured lightmap is stale; restore its baked mesh/transform "
                     "before an undoable replacement";
@@ -228,13 +231,14 @@ public:
             error = "Mesh lightmap editing requires a valid Transform";
             return false;
         }
-        before_path_ = configured_path(settings->lightmap_guid);
+        before_path_ = configured_path(world_.resource_loader(), settings->lightmap_guid);
         after_path_ = arguments_["lightmap"].get<std::string>();
         Guid requested;
-        if ((!after_path_.empty() && !ResourceSystem::path_to_guid(after_path_, requested)) ||
-            !retain_resource(settings->mesh_guid, versions_, error) ||
-            !retain_resource(settings->lightmap_guid, versions_, error) ||
-            !retain_resource(requested, versions_, error))
+        if ((!after_path_.empty() &&
+             !resource_access::load_guid(world_.resource_loader(), after_path_, requested)) ||
+            !retain_resource(world_.resource_loader(), settings->mesh_guid, versions_, error) ||
+            !retain_resource(world_.resource_loader(), settings->lightmap_guid, versions_, error) ||
+            !retain_resource(world_.resource_loader(), requested, versions_, error))
         {
             if (error.empty())
             {
@@ -270,6 +274,7 @@ private:
             error = "Mesh or lighting settings changed outside this edit";
             return false;
         }
+        std::vector<resource_access::ResourceReference> pins;
         if (arguments_.contains("lightmap"))
         {
             const auto transform = node.get_component<Transform>();
@@ -279,16 +284,10 @@ private:
                 error = "The lightmap mesh transform changed outside this edit";
                 return false;
             }
-            const auto* resources = ResourceSystem::instance();
-            for (const auto& version : versions_)
+            if (!resource_access::load_versions(world_.resource_loader(), versions_, pins))
             {
-                const auto* available =
-                    resources ? resources->catalog().find(version.guid) : nullptr;
-                if (!available || *available != version)
-                {
-                    error = "Mesh or lightmap resource version changed outside this edit";
-                    return false;
-                }
+                error = "Mesh or lightmap resource version changed outside this edit";
+                return false;
             }
         }
         const auto* desired = replacement.payload.AsMeshRendererData();
@@ -377,9 +376,11 @@ nlohmann::json planar_reflection_json(const PlanarReflectionComponent& component
 nlohmann::json light_probe_volume_json(const LightProbeVolumeComponent& component)
 {
     return {{"enabled", component.enabled()},
-            {"resource", configured_path(component.settings().probes_guid)},
+            {"resource", configured_path(component.node().scene()->world().resource_loader(),
+                                         component.settings().probes_guid)},
             {"resourceGuid", component.settings().probes_guid},
-            {"valid", bool(component.resource())}};
+            {"valid", resource_access::get(component.node().scene()->world().resource_loader(),
+                                           component.resource()) != nullptr}};
 }
 
 nlohmann::json mesh_lighting_json(const MeshRenderer& component)
@@ -390,11 +391,14 @@ nlohmann::json mesh_lighting_json(const MeshRenderer& component)
     {
         return {};
     }
-    return {{"castShadows", component.cast_shadows()},
-            {"bakeStatic", component.bake_static()},
-            {"lightmap", configured_path(settings->lightmap_guid)},
-            {"lightmapGuid", settings->lightmap_guid},
-            {"lightmapValid", bool(component.lightmap_resource())}};
+    return {
+        {"castShadows", component.cast_shadows()},
+        {"bakeStatic", component.bake_static()},
+        {"lightmap", configured_path(component.node().scene()->world().resource_loader(),
+                                     settings->lightmap_guid)},
+        {"lightmapGuid", settings->lightmap_guid},
+        {"lightmapValid", resource_access::get(component.node().scene()->world().resource_loader(),
+                                               component.lightmap_resource()) != nullptr}};
 }
 
 bool register_render_component_commands(WorldSystem& world, SceneCommands& scene_commands,

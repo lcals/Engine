@@ -1,4 +1,5 @@
 #include "editor/asset_pipeline/asset_io.hpp"
+#include "runtime/resource/virtual_file_system.hpp"
 
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/utils/path_utils.hpp"
@@ -58,7 +59,7 @@ std::string hash_text(const std::string& text)
 bool read_bytes(const std::filesystem::path& path, std::vector<std::byte>& bytes,
                 std::string& error)
 {
-    if (!ResourceSystem::read_binary(path, bytes))
+    if (!VirtualFileSystem::read_file(path, bytes))
     {
         error = "cannot read file: " + PathUtils::to_utf8(path);
         return false;

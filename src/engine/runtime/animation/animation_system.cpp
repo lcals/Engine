@@ -9,7 +9,10 @@
 #include "runtime/animation/animation_ik.hpp"
 #include "runtime/animation/animation_services.hpp"
 #include "runtime/performance/profiling.hpp"
-#include "runtime/resource/resource_system.hpp"
+#include "runtime/resource/resource_reference.hpp"
+#include "runtime/resource/types/animation_resource.hpp"
+#include "runtime/resource/types/animation_retarget_profile_resource.hpp"
+#include "runtime/resource/types/skeleton_resource.hpp"
 #include "runtime/scene/ecs_storage.hpp"
 #include "runtime/scene/mesh_renderer.hpp"
 #include "runtime/scene/transform.hpp"
@@ -249,7 +252,7 @@ bool stage_time(AnimationSample& sample, double delta_time, const Animator::Data
                 std::size_t& event_count, bool tick_enabled)
 {
     const auto* state = engine::ecs_detail::component_runtime(sample.animator);
-    const auto* animation = state->animation_->animation();
+    const auto* animation = state->animation_.data<AnimationResource>();
     const double duration = animation->duration;
     sample.seconds = state->time_;
     sample.previous_seconds = state->previous_time_;
@@ -300,7 +303,8 @@ bool stage_time(AnimationSample& sample, double delta_time, const Animator::Data
                 std::min(delta_time, state->fade_seconds_ - state->fade_elapsed_);
             if (state->previous_advancing_ && state->previous_animation_)
             {
-                const auto previous_duration = state->previous_animation_->animation()->duration;
+                const auto previous_duration =
+                    state->previous_animation_.data<AnimationResource>()->duration;
                 const double previous =
                     sample.previous_seconds + delta_time * state->previous_speed_;
                 if (!std::isfinite(previous))
@@ -527,7 +531,7 @@ struct AnimationSystem::State
         clips;
     std::map<std::uint64_t, std::unique_ptr<AnimationEntry>> entries;
     std::vector<AnimationSample> samples;
-    bool skeleton(const ResourcePtr& resource,
+    bool skeleton(const resource_detail::ResourceReference& resource,
                   std::shared_ptr<const animation_detail::CompiledSkeleton>& output)
     {
         const auto key = animation_detail::identity(*resource);
@@ -545,31 +549,40 @@ struct AnimationSystem::State
         skeletons.emplace(key, std::move(candidate));
         return true;
     }
-    bool compile(const ResourcePtr& clip, const schema::MeshDataT& mesh, const ResourcePtr& profile,
+    bool compile(ResourceLoader* resources, ResourceHandle mesh_resource,
+                 const resource_detail::ResourceReference& clip, const schema::MeshDataT& mesh,
+                 const resource_detail::ResourceReference& profile,
                  const std::shared_ptr<const AnimationRetargetBinding>& binding,
-                 const ResourcePtr& bound_source,
+                 const resource_detail::ResourceReference& bound_source,
                  std::shared_ptr<const animation_detail::CompiledAnimation>& output)
     {
         output.reset();
-        auto* resources = ResourceSystem::instance();
-        ResourcePtr target;
-        ResourcePtr source = bound_source;
-        if (!resources || !clip || !clip->animation() ||
-            !resources->loader().load(mesh.skeleton_guid, target) || !target ||
-            !target->skeleton() ||
-            (!source && !resources->loader().load(clip->animation()->skeleton_guid, source)) ||
-            !source || !source->skeleton())
+        resource_detail::ResourceReference target;
+        resource_detail::ResourceReference source;
+        if (bound_source && !source.retain(bound_source))
+        {
+            return false;
+        }
+        if (!resources || !clip || !clip.data<AnimationResource>() ||
+            !target.dependency(resources, mesh_resource, mesh.skeleton_guid) || !target ||
+            !target.data<SkeletonResource>() ||
+            (!source && !source.dependency(resources, clip.handle(),
+                                           clip.data<AnimationResource>()->skeleton_guid)) ||
+            !source || !source.data<SkeletonResource>())
         {
             return false;
         }
         schema::AnimationDataT rest;
-        if (binding ? (!profile || !profile->retarget_profile() ||
-                       profile->retarget_profile()->source_skeleton_guid != source->info().guid ||
-                       profile->retarget_profile()->target_skeleton_guid != target->info().guid ||
-                       !animation_detail::valid_binding(mesh, *target->skeleton(),
-                                                        *target->skeleton(), rest))
-                    : !animation_detail::valid_binding(mesh, *target->skeleton(),
-                                                       *source->skeleton(), *clip->animation()))
+        if (binding ? (!profile || !profile.data<AnimationRetargetResource>() ||
+                       profile.data<AnimationRetargetResource>()->source_skeleton_guid !=
+                           source->info().guid ||
+                       profile.data<AnimationRetargetResource>()->target_skeleton_guid !=
+                           target->info().guid ||
+                       !animation_detail::valid_binding(mesh, *target.data<SkeletonResource>(),
+                                                        *target.data<SkeletonResource>(), rest))
+                    : !animation_detail::valid_binding(mesh, *target.data<SkeletonResource>(),
+                                                       *source.data<SkeletonResource>(),
+                                                       *clip.data<AnimationResource>()))
         {
             return false;
         }
@@ -727,7 +740,7 @@ bool AnimationSystem::on_tick(double delta_time)
                 retained.insert(node.id());
                 auto* runtime = engine::ecs_detail::component_runtime(animator);
                 const auto* mesh = renderer.mesh_data();
-                const auto* clip = runtime->animation_->animation();
+                const auto* clip = runtime->animation_.data<AnimationResource>();
                 auto found = state_->entries.find(node.id());
                 if (!mesh || mesh->skeleton_guid.empty() || mesh->skin.empty() || !clip)
                 {
@@ -742,7 +755,8 @@ bool AnimationSystem::on_tick(double delta_time)
                 {
                     auto candidate = std::make_unique<AnimationEntry>();
                     std::shared_ptr<const animation_detail::CompiledAnimation> compiled;
-                    if (!state_->compile(runtime->animation_, *mesh, runtime->retarget_profile_,
+                    if (!state_->compile(world_->resource_loader(), renderer.mesh_resource(),
+                                         runtime->animation_, *mesh, runtime->retarget_profile_,
                                          runtime->retarget_binding_, runtime->source_skeleton_,
                                          compiled) ||
                         !candidate->prepare(*mesh, renderer, animator, compiled))
@@ -779,14 +793,20 @@ bool AnimationSystem::on_tick(double delta_time)
                                       animation_detail::identity(*runtime->previous_animation_)))
                         {
                             auto pose = std::make_shared<animation_detail::AnimationPose>();
-                            pose->target = previous->current.clip->target->resource;
+                            if (!pose->target.retain(previous->current.clip->target->resource))
+                            {
+                                success = false;
+                                return;
+                            }
                             pose->locals = previous->committed_locals;
                             candidate->frozen = std::move(pose);
                         }
                         else
                         {
                             std::shared_ptr<const animation_detail::CompiledAnimation> source;
-                            if (!state_->compile(runtime->previous_animation_, *mesh,
+                            if (!state_->compile(world_->resource_loader(),
+                                                 renderer.mesh_resource(),
+                                                 runtime->previous_animation_, *mesh,
                                                  runtime->previous_retarget_profile_,
                                                  runtime->previous_retarget_binding_,
                                                  runtime->previous_source_skeleton_, source))
@@ -803,8 +823,15 @@ bool AnimationSystem::on_tick(double delta_time)
                     {
                         runtime->ik_targets_.clear();
                     }
-                    runtime->target_skeleton_ = compiled->target->resource;
-                    runtime->source_skeleton_ = compiled->source;
+                    resource_detail::ResourceReference target, source;
+                    if (!target.retain(compiled->target->resource) ||
+                        !source.retain(compiled->source))
+                    {
+                        success = false;
+                        return;
+                    }
+                    runtime->target_skeleton_ = std::move(target);
+                    runtime->source_skeleton_ = std::move(source);
                     runtime->frozen_pose_ = candidate->frozen;
                     runtime->prepared_revision_ = runtime->revision_;
                     runtime->pose_revision_ = 0;

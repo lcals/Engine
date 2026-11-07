@@ -1,6 +1,8 @@
+#include "plugins/runtime/destruction/codecs/destruction_resource_codec.hpp"
 #include "plugins/runtime/destruction/destruction_component.hpp"
 #include "plugins/runtime/destruction/destruction_system.hpp"
 #include "plugins/runtime/script/script_system.hpp"
+#include "plugins/runtime/terrain/codecs/terrain_resource_codec.hpp"
 #include "plugins/runtime/terrain/terrain_component.hpp"
 #include "plugins/runtime/terrain/terrain_system.hpp"
 #include "resource_fixture.hpp"
@@ -285,14 +287,16 @@ bool prepare_components(WorldSystem& world, TerrainSystem& terrain, DestructionS
 
 bool run(test_support::ResourceFixture& files)
 {
-    ResourceSystem resources;
-    WorldSystem world;
-    PhysicsSystem physics(&world);
     ThreadSystem threads({.worker_limit = 2});
+    test_support::ResourceServices services(&threads);
+    auto& resources = services.core;
+    engine::WorldSystem world(&services.loader);
+    PhysicsSystem physics(&world);
+
     TaskSystem tasks(threads, {.name = "Async script tests", .max_concurrency = 2});
     TerrainSystem terrain(world, physics, &tasks);
     DestructionSystem destruction(world, physics, &tasks);
-    plugins::script::ScriptSystem script(&world, nullptr, nullptr, &physics);
+    plugins::script::ScriptSystem script(&services.loader, &world, nullptr, nullptr, &physics);
     const auto expect = [&](bool condition, const char* message)
     {
         if (!condition)
@@ -302,11 +306,14 @@ bool run(test_support::ResourceFixture& files)
         }
         return condition;
     };
-    if (!expect(resources.initialize({}) && world.initialize({}) && physics.initialize({}) &&
-                    threads.initialize({}) && tasks.initialize({}) && terrain.initialize({}) &&
-                    destruction.initialize({}) && script.initialize({}) && add_fixtures(files) &&
-                    files.publish(resources) &&
-                    test_support::start_script(script, resources, {{"content", files.root}},
+    if (!expect((threads.initialize({}) &&
+                 (resources.add<engine::plugins::terrain::TerrainResourceCodec>() &&
+                  resources.add<engine::plugins::destruction::DestructionResourceCodec>() &&
+                  services.initialize({}))) &&
+                    world.initialize({}) && physics.initialize({}) && tasks.initialize({}) &&
+                    terrain.initialize({}) && destruction.initialize({}) && script.initialize({}) &&
+                    add_fixtures(files) && files.publish(resources) &&
+                    test_support::start_script(script, services, {{"content", files.root}},
                                                "scripts/game.js"),
                 "initialize the real script backend and native edit systems"))
     {
@@ -349,7 +356,7 @@ bool run(test_support::ResourceFixture& files)
     script.stop_gameplay();
     for (const bool replace : {false, true})
     {
-        if (!expect(test_support::start_script(script, resources, {{"content", files.root}},
+        if (!expect(test_support::start_script(script, services, {{"content", files.root}},
                                                "scripts/native-replace.js") &&
                         prepare_components(world, terrain, destruction) && script.tick(.016) &&
                         script.status().running,

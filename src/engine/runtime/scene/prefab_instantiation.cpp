@@ -1,7 +1,8 @@
 #include "runtime/scene/scene.hpp"
 
-#include "runtime/resource/resource_system.hpp"
+#include "runtime/resource/types/prefab_resource.hpp"
 #include "runtime/scene/ecs_storage.hpp"
+#include "runtime/scene/resource_binding.hpp"
 
 #include <algorithm>
 #include <limits>
@@ -47,15 +48,18 @@ Node Scene::instantiate_prefab(std::string_view path, std::string_view name,
     {
         created->clear();
     }
-    auto* resources = ResourceSystem::instance();
-    Guid guid;
-    ResourcePtr resource;
-    if (!resources || !ResourceSystem::path_to_guid(path, guid) ||
-        !resources->loader().load(guid, resource) || !resource->prefab())
+    auto* resources = world_.resource_loader();
+    resource_detail::ResourceReference resource;
+    const auto owner = ecs_detail::ResourceBindingScope::owner(world_);
+    if (!resources ||
+        !(owner.id ? ecs_detail::acquire_dependency(resources, owner, path, resource)
+                   : resource.acquire(resources, path)) ||
+        !resource.data<PrefabResource>())
     {
         return {};
     }
-    const auto& prefab = *resource->prefab();
+    ecs_detail::ResourceBindingScope binding(world_, resource.handle());
+    const auto& prefab = *resource.data<PrefabResource>();
     if (prefab.schema_version != 1 || prefab.root_id == 0 || prefab.nodes.empty() ||
         prefab.nodes.size() > std::numeric_limits<std::uint64_t>::max() - node_sequence_)
     {
@@ -66,7 +70,7 @@ Node Scene::instantiate_prefab(std::string_view path, std::string_view name,
     std::vector<schema::NodeIdMappingT> mapping;
     mapping.reserve(prefab.nodes.size());
     schema::PrefabInstanceDataT instance;
-    instance.prefab_guid = guid;
+    instance.prefab_guid = resource->info().guid;
     auto sequence = node_sequence_;
     for (const auto& source : prefab.nodes)
     {

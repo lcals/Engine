@@ -1,6 +1,7 @@
 function(engine_configure_effects_plugin)
     engine_add_system(plugins/runtime effects
                       src/engine/plugins/runtime/effects/effect_system.cpp)
+    target_sources(engine_effects PRIVATE src/engine/plugins/runtime/effects/codecs/effect_resource_codec.cpp)
     target_sources(
         engine_effects
         PRIVATE src/engine/plugins/runtime/effects/effect_component.cpp

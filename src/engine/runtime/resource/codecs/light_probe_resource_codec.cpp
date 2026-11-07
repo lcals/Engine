@@ -1,6 +1,7 @@
 #include "runtime/resource/codecs/light_probe_resource_codec.hpp"
 
 #include <flatbuffers/verifier.h>
+#include <set>
 
 #include <algorithm>
 #include <cmath>
@@ -58,26 +59,55 @@ bool LightProbeResourceCodec::validate(const schema::LightProbeDataT& data) noex
                        });
 }
 
-bool LightProbeResourceCodec::decode(const ResourceCatalog&, ByteView payload,
-                                     Resource& output) const
+schema::AssetKind LightProbeResourceCodec::kind() const noexcept
 {
-    if (payload.empty() || payload.size() > 32U * 1024U * 1024U ||
-        !output.info().dependencies.empty())
+    return schema::AssetKind::light_probe;
+}
+
+bool LightProbeResourceCodec::decode(const schema::AssetEntryT& entry, ByteView payload,
+                                     std::unique_ptr<Resource>& output, std::string& error) const
+{
+    if (output)
     {
+        error = "Resource output must be empty";
+        return false;
+    }
+    error.clear();
+    if (entry.kind != kind() || payload.empty() || payload.size() > 32U * 1024U * 1024U)
+    {
+        error = "Invalid resource kind or payload size";
         return false;
     }
     const auto* bytes = reinterpret_cast<const std::uint8_t*>(payload.data());
     flatbuffers::Verifier verifier(bytes, payload.size());
     if (!schema::VerifyLightProbeDataBuffer(verifier))
     {
+        error = "Invalid LightProbe FlatBuffer";
         return false;
     }
     auto data = schema::UnPackLightProbeData(bytes);
-    if (!validate(*data) || data->path != output.info().path)
+    output = std::make_unique<ResourceType>(entry, std::move(*data));
+    return true;
+}
+
+bool LightProbeResourceCodec::validate_data(const Resource& resource, std::string& error) const
+{
+    const auto* data = resource_detail::data<ResourceType>(&resource);
+    if (!data || !(resource.info().dependencies.empty() && data->path == resource.info().path &&
+                   validate(*data)))
     {
+        error = "Invalid LightProbe data or declared dependencies";
         return false;
     }
-    store(output, std::move(data));
+    error.clear();
     return true;
+}
+
+bool LightProbeResourceCodec::validate_dependencies(const Resource& resource,
+                                                    ResourceView dependencies,
+                                                    std::string& error) const
+{
+    error.clear();
+    return resource.info().dependencies.empty() && dependencies.empty();
 }
 } // namespace engine

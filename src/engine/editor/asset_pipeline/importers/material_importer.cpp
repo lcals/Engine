@@ -3,6 +3,7 @@
 
 #include "editor/asset_pipeline/asset_io.hpp"
 #include "editor/asset_pipeline/toml_helpers.hpp"
+#include "runtime/resource/builtin_resources.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/schema/material_generated.h"
 #include "runtime/schema/mesh_generated.h"
@@ -41,19 +42,16 @@ bool load_shader(const Guid& guid, const ImportContext& context,
         error = "shader identity is unavailable: " + guid;
         return false;
     }
+    std::vector<std::byte> bytes;
     if (path.starts_with("builtin://"))
     {
-        const auto* definition = ResourceSystem::find_shader(path);
-        if (definition == nullptr)
+        if (!builtin_resource_payload(guid, bytes))
         {
-            error = "builtin shader is unavailable: " + path;
+            error = "Builtin shader definition is unavailable: " + path;
             return false;
         }
-        shader = std::make_unique<schema::ShaderDataT>(*definition);
-        return true;
     }
-    std::vector<std::byte> bytes;
-    if (!read_generated_payload(guid, context, bytes, error))
+    else if (!read_generated_payload(guid, context, bytes, error))
     {
         return false;
     }

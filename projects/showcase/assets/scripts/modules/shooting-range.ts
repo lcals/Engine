@@ -1,4 +1,4 @@
-import {
+import { Resources, ResourceHandle,
     Animator,
     Camera,
     Collider,
@@ -35,6 +35,7 @@ const maximum_distance = 100;
 
 /** Instant queries and example feedback only; movement stays in the character plugin. */
 export default class Game extends Gameplay {
+    private readonly resources: ResourceHandle[] = [];
     scene: Scene | null = null;
     private readonly movement = new CharacterControls();
     private readonly model = new ShootingRangeModel();
@@ -49,6 +50,12 @@ export default class Game extends Gameplay {
     private configuration_key = "";
 
     override OnInitialize(): boolean {
+        for (const path of ["scenes/shooting-range.scene", "prefabs/characters/player.prefab", "materials/character.material", "models/locomotions.fbx/animations/walk"]) {
+            const resource = Resources.Load(path);
+            if (!resource) { Debug.LogError(`Cannot load ${path}: ${Resources.lastError}`); return false; }
+            this.resources.push(resource);
+        }
+
         this.scene = Scene.Load("scenes/shooting-range.scene");
         const scene = this.scene;
         if (!scene) return false;
@@ -272,6 +279,10 @@ export default class Game extends Gameplay {
     }
 
     override OnShutdown(): void {
+        for (const resource of this.resources.splice(0)) {
+            if (!Resources.Release(resource)) Debug.LogError("Cannot release showcase resource");
+        }
+
         this.model.ready = false;
         this.model.pending = null;
         this.controller?.Unbind();

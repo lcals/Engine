@@ -1,7 +1,8 @@
 #include "runtime/scene/scene.hpp"
 
-#include "runtime/resource/resource_system.hpp"
+#include "runtime/resource/types/model_resource.hpp"
 #include "runtime/scene/mesh_renderer.hpp"
+#include "runtime/scene/resource_binding.hpp"
 #include "runtime/scene/transform.hpp"
 
 #include <algorithm>
@@ -17,14 +18,17 @@ Node Scene::instantiate_model(std::string_view path, std::string_view name,
         created->clear();
     }
     const auto first_order = order_sequence_ + 1;
-    auto* resources = ResourceSystem::instance();
-    Guid guid;
-    ResourcePtr resource;
-    if (!resources || !ResourceSystem::path_to_guid(path, guid) ||
-        !resources->loader().load(guid, resource) || !resource->model())
+    auto* resources = world_.resource_loader();
+    resource_detail::ResourceReference resource;
+    const auto owner = ecs_detail::ResourceBindingScope::owner(world_);
+    if (!resources ||
+        !(owner.id ? ecs_detail::acquire_dependency(resources, owner, path, resource)
+                   : resource.acquire(resources, path)) ||
+        !resource.data<ModelResource>())
     {
         return {};
     }
+    ecs_detail::ResourceBindingScope binding(world_, resource.handle());
     auto root = create_node(name);
     if (!root)
     {
@@ -36,7 +40,7 @@ Node Scene::instantiate_model(std::string_view path, std::string_view name,
         return {};
     };
     std::vector<Node> nodes;
-    for (const auto& source : resource->model()->nodes)
+    for (const auto& source : resource.data<ModelResource>()->nodes)
     {
         auto node = create_node(source->name);
         if (!node)
@@ -67,7 +71,7 @@ Node Scene::instantiate_model(std::string_view path, std::string_view name,
         {
             std::string mesh_path;
             auto renderer = node.add_component<MeshRenderer>();
-            if (!renderer || !ResourceSystem::guid_to_path(source->mesh_guid, mesh_path) ||
+            if (!renderer || !ecs_detail::resource_path(node, source->mesh_guid, mesh_path) ||
                 !renderer.set_mesh(mesh_path))
             {
                 return rollback();
@@ -90,7 +94,7 @@ Node Scene::instantiate_model(std::string_view path, std::string_view name,
             for (std::size_t slot = 0; slot < source->material_guids.size(); ++slot)
             {
                 std::string material_path;
-                if (!ResourceSystem::guid_to_path(source->material_guids[slot], material_path) ||
+                if (!ecs_detail::resource_path(node, source->material_guids[slot], material_path) ||
                     !renderer.material(slot).set_type(material_path))
                 {
                     return rollback();

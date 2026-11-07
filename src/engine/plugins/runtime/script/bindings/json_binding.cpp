@@ -1,7 +1,7 @@
 #include "plugins/runtime/script/bindings/json_binding.hpp"
 
 #include "plugins/runtime/script/bindings/binding_context.hpp"
-#include "runtime/resource/resource_system.hpp"
+#include "runtime/resource/types/json_resource.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -12,9 +12,8 @@ namespace
 constexpr std::string_view javascript = R"js(
 export class Json {
     constructor() { throw new TypeError('Json is static'); }
-    static Load(path) {
-        if (arguments.length !== 1 || typeof path !== 'string') return null;
-        const text = native.JsonRead(path);
+    static ParseResource(resource) {
+        const text = native.JsonReadResource(resourceToken(resource));
         if (text === null) return null;
         try { return JSON.parse(text); }
         catch { return null; }
@@ -27,22 +26,16 @@ Object.freeze(Json);
 void read(const Arguments& arguments)
 {
     arguments.set_return({});
-    std::string path;
-    if (BindingContext::current(arguments) == nullptr || arguments.count() != 1 ||
-        !BindingContext::text(arguments, 0, path))
+    auto* context = BindingContext::current(arguments);
+    std::uint64_t token = 0;
+    const JsonResource* resource = nullptr;
+    if (!context || arguments.count() != 1 || !BindingContext::identifier(arguments, 0, token) ||
+        !context->resources() ||
+        context->resources()->get(context->resource_handle(token), resource) != ResourceError::none)
     {
         return;
     }
-    auto* system = ResourceSystem::instance();
-    Guid guid;
-    ResourcePtr resource;
-    if (system == nullptr || !ResourceSystem::path_to_guid(path, guid) ||
-        !system->loader().load(guid, resource) || resource == nullptr ||
-        resource->info().kind != schema::AssetKind::json)
-    {
-        return;
-    }
-    const auto bytes = resource->bytes();
+    const auto& bytes = resource->data();
     if (bytes.empty() || bytes.size() > vm::maximum_text_size)
     {
         return;
@@ -70,7 +63,7 @@ std::string_view JsonBinding::source() const noexcept
 
 bool JsonBinding::register_functions(vm::ScriptVm& vm) const
 {
-    return vm.function("JsonRead", read);
+    return vm.function("JsonReadResource", read);
 }
 
 } // namespace engine::plugins::script::bindings

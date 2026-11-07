@@ -1,4 +1,5 @@
 #include "plugins/editor/mcp/editor_mcp_tools.hpp"
+#include "editor/file_text.hpp"
 #include "plugins/editor/mcp/component_mcp_tools.hpp"
 
 #include "editor/asset_pipeline/project_lock.hpp"
@@ -70,7 +71,7 @@ bool read_json(const fs::path& path, Json& value, bool& exists)
     }
     const auto size = fs::file_size(path, error);
     std::string text;
-    if (error || size > max_file_size || !ResourceSystem::read_text(path, text) ||
+    if (error || size > max_file_size || !engine::editor::file_detail::read_text(path, text) ||
         text.size() > max_file_size)
     {
         return false;

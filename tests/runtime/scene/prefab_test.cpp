@@ -1,4 +1,5 @@
 #include "resource_fixture.hpp"
+#include "resource_services.hpp"
 #include "scene_snapshot.hpp"
 
 #include "runtime/engine_config.hpp"
@@ -161,12 +162,13 @@ Node mapped_node(Scene& scene, const schema::PrefabInstanceDataT& instance, std:
 struct Fixture
 {
     test_support::ResourceFixture files;
-    ResourceSystem resources;
-    WorldSystem world;
+    test_support::ResourceServices services;
+    engine::ResourceSystem& resources = services.core;
+    engine::WorldSystem world{&services.loader};
 
     bool initialize()
     {
-        return resources.initialize({}) && world.initialize({}) &&
+        return (services.initialize({}) && services.prepare_builtins()) && world.initialize({}) &&
                world.create_scene("Prefab scene") != nullptr;
     }
 };
@@ -175,7 +177,8 @@ bool round_trip_and_lifecycle()
 {
     Fixture fixture;
     if (!expect(fixture.initialize() && add_prefab(fixture.files, "unit.prefab", template_data()) &&
-                    fixture.files.publish(fixture.resources),
+                    fixture.services.publish_and_load(fixture.files.catalog,
+                                                      {{"content", fixture.files.root}}),
                 "publish an ordinary component subtree"))
     {
         return false;
@@ -236,14 +239,16 @@ bool round_trip_and_lifecycle()
     }
     if (!expect(scene->build_data(snapshot) && snapshot.prefab_instances.size() == 2 &&
                     add_scene(fixture.files, "saved.scene", snapshot) &&
-                    fixture.files.publish(fixture.resources),
+                    fixture.services.publish_and_load(fixture.files.catalog,
+                                                      {{"content", fixture.files.root}}),
                 "save expanded runtime data together with stable source links and overrides"))
     {
         return false;
     }
     std::erase_if(fixture.files.catalog.entries,
                   [](const auto& entry) { return entry->kind == schema::AssetKind::prefab; });
-    if (!fixture.files.publish(fixture.resources))
+    if (!fixture.services.publish_and_load(fixture.files.catalog,
+                                           {{"content", fixture.files.root}}))
     {
         return false;
     }
@@ -283,7 +288,8 @@ bool explicit_removal_and_reserved_identities()
 {
     Fixture fixture;
     if (!fixture.initialize() || !add_prefab(fixture.files, "unit.prefab", template_data()) ||
-        !fixture.files.publish(fixture.resources))
+        !fixture.services.publish_and_load(fixture.files.catalog,
+                                           {{"content", fixture.files.root}}))
     {
         return false;
     }
@@ -318,7 +324,8 @@ bool explicit_removal_and_reserved_identities()
         return false;
     }
     if (!add_scene(fixture.files, "removed.scene", snapshot) ||
-        !fixture.files.publish(fixture.resources))
+        !fixture.services.publish_and_load(fixture.files.catalog,
+                                           {{"content", fixture.files.root}}))
     {
         return false;
     }
@@ -371,7 +378,8 @@ bool rollback_and_plugin_references()
     if (!fixture.initialize() || !add_prefab(fixture.files, "character.prefab", character) ||
         !add_prefab(fixture.files, "missing-plugin.prefab", missing_plugin) ||
         !add_prefab(fixture.files, "external.prefab", external) ||
-        !fixture.files.publish(fixture.resources))
+        !fixture.services.publish_and_load(fixture.files.catalog,
+                                           {{"content", fixture.files.root}}))
     {
         return false;
     }

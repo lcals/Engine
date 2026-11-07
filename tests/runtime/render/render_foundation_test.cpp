@@ -1,3 +1,5 @@
+#include "animation_fixture.hpp"
+#include "resource_services.hpp"
 #include "scene_snapshot.hpp"
 
 #include "resource_fixture.hpp"
@@ -581,8 +583,15 @@ bool check_mesh(engine::Scene& scene)
     const auto old_revision = renderer.mesh_revision();
     if (!expect(renderer.set_mesh_data(data) && renderer.mesh_revision() > old_revision,
                 "dynamic mesh submission advances its revision") ||
-        !expect(renderer.mesh_data() && *renderer.mesh_data() == data,
-                "dynamic mesh preserves UV, tangent, color and submesh data"))
+        !expect(
+            renderer.mesh_data() &&
+                [&]
+                {
+                    auto expected = data;
+                    expected.path = renderer.mesh_data()->path;
+                    return *renderer.mesh_data() == expected;
+                }(),
+            "dynamic mesh preserves UV, tangent, color and submesh data"))
     {
         return false;
     }
@@ -743,22 +752,31 @@ bool check_deformation(engine::Scene& scene)
                   "replacement component has distinct identity even on the same node");
 }
 
-bool check_skinning_palette(engine::Scene& scene)
+bool check_skinning_palette(test_support::ResourceServices& services, engine::Scene& scene)
 {
     auto node = scene.create_node("GPU pose owner");
     auto renderer = node ? node.add_component<engine::MeshRenderer>() : engine::MeshRenderer{};
     const std::array<float, 16> identity{1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
     std::array<std::array<float, 16>, 1> positions{identity};
     std::array<std::array<float, 16>, 1> normals{identity};
-    if (!expect(renderer && renderer.mesh_resource() &&
+    if (!expect(renderer && renderer.mesh_resource().id != 0 &&
                     !renderer.set_skinning_palette(positions, normals),
                 "immutable source ownership is exposed but unskinned meshes reject palettes"))
     {
         return false;
     }
+    test_support::ResourceFixture fixture;
+    const auto skeleton = test_support::animation::skeleton(false);
     auto mesh = quad();
+    if (!fixture.add(skeleton) ||
+        !services.publish_and_load(fixture.catalog, {{"content", fixture.root}}) ||
+        !services.core.catalog().identities().path_to_guid(skeleton.path, mesh.skeleton_guid))
+    {
+        return false;
+    }
+    mesh.mesh_to_skeleton.assign(identity.begin(), identity.end());
     mesh.skin.assign(mesh.vertices.size(), {0, 0, 0, 0, 1, 0, 0, 0});
-    if (!expect(renderer.set_mesh_data(mesh) && !renderer.mesh_resource() &&
+    if (!expect(renderer.set_mesh_data(mesh) && renderer.mesh_resource().id != 0 &&
                     renderer.set_skinning_palette(positions, normals),
                 "dynamic skinned mesh accepts a complete independent palette"))
     {
@@ -805,8 +823,10 @@ bool check_skinning_palette(engine::Scene& scene)
         "clear is repeatable and source replacement discards the old GPU pose");
 }
 
-bool check_textures(engine::ResourceSystem& resources, engine::Scene& scene, bool shared)
+bool check_textures(test_support::ResourceServices& services, engine::Scene& scene)
 {
+    auto& resources = services.core;
+    auto& loader = services.loader;
     test_support::ResourceFixture fixture;
     engine::schema::TextureDataT texture;
     texture.path = "textures/gray";
@@ -815,8 +835,13 @@ bool check_textures(engine::ResourceSystem& resources, engine::Scene& scene, boo
     texture.encoding = engine::schema::TextureEncoding::rgba8;
     texture.format = engine::schema::TextureFormat::rgba8;
     texture.data = {128, 128, 128, 255};
-    if (!expect(fixture.add(texture) && fixture.publish(resources),
+    if (!expect(fixture.add(texture) && fixture.publish(resources) && services.prepare_builtins(),
                 "publish a texture through the GUID resource catalog"))
+    {
+        return false;
+    }
+    engine::resource_detail::ResourceReference preload;
+    if (!services.load(texture.path, preload))
     {
         return false;
     }
@@ -835,13 +860,11 @@ bool check_textures(engine::ResourceSystem& resources, engine::Scene& scene, boo
     }
     auto first_texture = first.material().texture("baseColorTexture");
     auto second_texture = second.material().texture("baseColorTexture");
-    std::weak_ptr<const engine::Resource> first_held = first_texture;
-    std::weak_ptr<const engine::Resource> second_held = second_texture;
+    const auto* first_value = test_support::get_resource(loader, first_texture);
+    const auto* second_value = test_support::get_resource(loader, second_texture);
     std::string_view path;
-    if (!expect(first_texture && second_texture && first_texture->texture() &&
-                    second_texture->texture() && (first_texture == second_texture) == shared &&
-                    *first_texture->texture() == *second_texture->texture(),
-                "core loads distinct texture entities; injected graph shares matching entities") ||
+    if (!expect(first_value && first_value == second_value,
+                "independent acquisitions share the immutable texture payload") ||
         !expect(first.material().get_texture("baseColorTexture", path) && path == texture.path,
                 "query returns the resolved texture path") ||
         !expect(!first.material().set_texture("missingSampler", texture.path) &&
@@ -852,15 +875,26 @@ bool check_textures(engine::ResourceSystem& resources, engine::Scene& scene, boo
     {
         return false;
     }
-    first_texture.reset();
-    second_texture.reset();
+    preload.reset();
     const auto first_id = first_node.id();
     const auto second_id = second_node.id();
-    return expect(scene.destroy_node(first_id) && first_held.expired() != shared &&
-                      !second_held.expired(),
-                  "destroying a material releases only resources without remaining owners") &&
-           expect(scene.destroy_node(second_id) && first_held.expired() && second_held.expired(),
-                  "last material owner releases every loaded texture entity");
+    engine::ResourceHandle remaining;
+    if (!expect(scene.destroy_node(first_id) &&
+                    !test_support::get_resource(loader, first_texture) &&
+                    test_support::get_resource(loader, second_texture) &&
+                    loader.acquire_loaded(texture.path, remaining),
+                "destroying one owner invalidates its acquisition and preserves the other"))
+    {
+        return false;
+    }
+    if (!loader.release(remaining))
+    {
+        return false;
+    }
+    return expect(scene.destroy_node(second_id) &&
+                      !test_support::get_resource(loader, second_texture) &&
+                      !loader.acquire_loaded(texture.path, remaining),
+                  "the last owner unloads its texture");
 }
 
 } // namespace
@@ -868,12 +902,11 @@ bool check_textures(engine::ResourceSystem& resources, engine::Scene& scene, boo
 int main()
 {
     const engine::EngineConfig config;
-    engine::ResourceSystem resources;
-#if defined(ENGINE_TEST_RESOURCE_GRAPH)
-    engine::plugins::resource_graph::ResourceGraphSystem graph(resources);
-#endif
-    engine::WorldSystem world;
-    if (!expect(resources.initialize(config) && world.initialize(config),
+    test_support::ResourceServices services;
+    auto& resources = services.core;
+    engine::WorldSystem world(&services.loader);
+    if (!expect((services.initialize(config) && services.prepare_builtins()) &&
+                    world.initialize(config),
                 "initialize resource and world systems"))
     {
         return 1;
@@ -881,23 +914,12 @@ int main()
     auto* scene = world.create_scene("Render foundation");
     if (!expect(scene != nullptr, "create scene") || !check_tangent_aliasing() ||
         !check_camera_and_light(*scene) || !check_ecs_handle_lifetime(*scene) ||
-        !check_mesh(*scene) || !check_deformation(*scene) || !check_skinning_palette(*scene) ||
-        !check_textures(resources, *scene, false))
+        !check_mesh(*scene) || !check_deformation(*scene) ||
+        !check_skinning_palette(services, *scene) || !check_textures(services, *scene))
     {
         return 1;
     }
-#if defined(ENGINE_TEST_RESOURCE_GRAPH)
-    if (!expect(graph.initialize(config), "initialize optional dependency graph"))
-    {
-        return 1;
-    }
-    resources.set_loader(&graph);
-    if (!check_textures(resources, *scene, true))
-    {
-        return 1;
-    }
-    resources.set_loader(nullptr);
-#endif
+
     if (!check_scene_render_settings(config))
     {
         return 1;

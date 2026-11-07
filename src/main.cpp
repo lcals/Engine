@@ -15,6 +15,7 @@
 #if ENGINE_HAS_RESOURCE_GRAPH_PLUGIN
 #include "plugins/runtime/resource_graph/resource_graph_system.hpp"
 #include "runtime/resource/resource_system.hpp"
+#include "runtime_resource_codecs.hpp"
 #endif
 
 #if ENGINE_HAS_APP_SERVICES
@@ -129,15 +130,35 @@ int main(int argc, char* argv[])
         parallel.threads.worker_limit = *worker_override;
     }
 #if ENGINE_HAS_RESOURCE_GRAPH_PLUGIN
+    engine::ThreadSystem threads(parallel.threads);
+    const bool threads_ready = threads.initialize(config);
+    const auto domain = [&](engine::TaskConfig value)
+    {
+        if (!value.max_concurrency)
+        {
+            value.max_concurrency = threads_ready ? threads.worker_count() : 1;
+        }
+        return value;
+    };
+    engine::TaskSystem file_tasks(threads, domain(parallel.file));
+    engine::TaskSystem read_tasks(threads, domain(parallel.resource_read));
+    engine::TaskSystem graph_tasks(threads, domain(parallel.resource_graph));
     engine::ResourceSystem resources;
-    engine::plugins::resource_graph::ResourceGraphSystem resource_graph(resources);
+    engine::plugins::resource_graph::ResourceGraphSystem resource_graph(resources, graph_tasks, {});
     const auto shutdown_resources = [&]()
     {
-        resources.set_loader(nullptr);
         resource_graph.shutdown();
         resources.shutdown();
+        graph_tasks.shutdown();
+        read_tasks.shutdown();
+        file_tasks.shutdown();
+        threads.shutdown();
     };
-    if (!resources.initialize(config) || !resource_graph.initialize(config))
+    if (!threads_ready || !file_tasks.initialize(config) || !read_tasks.initialize(config) ||
+        !graph_tasks.initialize(config) || !register_runtime_resource_codecs(resources) ||
+        !resources.initialize(config) ||
+        !resources.configure_async(file_tasks, read_tasks, parallel.resources) ||
+        !resource_graph.initialize(config))
     {
         shutdown_resources();
 #if ENGINE_HAS_APP_SERVICES
@@ -150,7 +171,6 @@ int main(int argc, char* argv[])
 #endif
         return 1;
     }
-    resources.set_loader(&resource_graph);
 #endif
     engine::RuntimeHost engine;
     engine::AnimationRetargeterFactory retargeter_factory = nullptr;
@@ -166,7 +186,8 @@ int main(int argc, char* argv[])
                         engine::MoviePlayer* movies) -> std::unique_ptr<engine::ScriptRuntime>
     {
         return std::make_unique<engine::plugins::script::ScriptSystem>(
-            &world, &renderer, &ui, &physics, &navigation, &input, &window, &animation, movies);
+            world.resource_loader(), &world, &renderer, &ui, &physics, &navigation, &input, &window,
+            &animation, movies);
     };
 #endif
 #if ENGINE_START_PACKAGED_GAMEPLAY && ENGINE_HAS_RESOURCE_GRAPH_PLUGIN && ENGINE_HAS_APP_SERVICES
@@ -176,13 +197,15 @@ int main(int argc, char* argv[])
 #endif
 #if ENGINE_HAS_RESOURCE_GRAPH_PLUGIN
     const bool engine_ready =
-        has_intro ? engine.initialize_presentation(config, &resources, nullptr, parallel)
-                  : engine.initialize(config, &resources, script_factory, configure_runtime_plugins,
-                                      nullptr, parallel, retargeter_factory);
+        has_intro
+            ? engine.initialize_presentation(config, &resources, &resource_graph, &threads,
+                                             parallel)
+            : engine.initialize(config, &resources, &resource_graph, script_factory,
+                                configure_runtime_plugins, &threads, parallel, retargeter_factory);
 #else
     const bool engine_ready =
-        engine.initialize(config, nullptr, script_factory, configure_runtime_plugins, nullptr,
-                          parallel, retargeter_factory);
+        engine.initialize(config, nullptr, nullptr, script_factory, configure_runtime_plugins,
+                          nullptr, parallel, retargeter_factory);
 #endif
     if (!engine_ready)
     {
@@ -212,6 +235,7 @@ int main(int argc, char* argv[])
     auto published = std::make_shared<StartupDirectory>();
     std::future<bool> published_result;
     engine::MoviePlaybackHandle intro_handle;
+    std::unique_ptr<engine::ResourceLoad> intro_load;
     bool intro_active = false;
     bool preparing_gameplay = false;
     bool gameplay_ready = false;
@@ -285,6 +309,13 @@ int main(int argc, char* argv[])
         const double delta_time =
             std::chrono::duration<double>(current_time - previous_time).count();
         previous_time = current_time;
+#if ENGINE_HAS_RESOURCE_GRAPH_PLUGIN
+        if (!resources.tick(delta_time) || !resource_graph.tick(delta_time))
+        {
+            result = 1;
+            break;
+        }
+#endif
         const auto status = engine.tick(delta_time);
         if (status == engine::FrameStatus::exit_requested)
         {
@@ -345,11 +376,9 @@ int main(int argc, char* argv[])
                     result = 1;
                     break;
                 }
-                intro_active = engine.movie_player()->play(settings.startup_movie, intro_handle);
-                if (!intro_active)
+                if (!resource_graph.begin_load(settings.startup_movie, intro_load))
                 {
-                    engine::LogSystem::write(engine::LogLevel::error,
-                                             engine.movie_player()->last_error());
+                    engine::LogSystem::write(engine::LogLevel::error, resource_graph.last_error());
                 }
                 if (!engine.begin_gameplay(script_factory, configure_runtime_plugins,
                                            retargeter_factory, startup_catalog, startup_mounts,
@@ -362,7 +391,33 @@ int main(int argc, char* argv[])
                 }
                 preparing_gameplay = true;
             }
-            if (preparing_gameplay && !gameplay_ready)
+            if (intro_load)
+            {
+                engine::ResourceLoadProgress progress;
+                const auto load_status = intro_load->status(progress);
+                if (load_status == engine::ResourceLoadStatus::ready)
+                {
+                    engine::ResourceHandle source;
+                    if (intro_load->take(source))
+                    {
+                        intro_active = engine.movie_player()->play(source, intro_handle);
+                        (void)resource_graph.release(source);
+                    }
+                    if (!intro_active)
+                    {
+                        engine::LogSystem::write(engine::LogLevel::error,
+                                                 engine.movie_player()->last_error());
+                    }
+                    intro_load.reset();
+                }
+                else if (load_status == engine::ResourceLoadStatus::failed ||
+                         load_status == engine::ResourceLoadStatus::cancelled)
+                {
+                    engine::LogSystem::write(engine::LogLevel::error, intro_load->last_error());
+                    intro_load.reset();
+                }
+            }
+            if (preparing_gameplay && !intro_load && !gameplay_ready)
             {
                 const auto ready = engine.step_gameplay(0.002);
                 if (ready == engine::RuntimeStartupStatus::failed)
@@ -384,7 +439,7 @@ int main(int argc, char* argv[])
                 }
                 intro_active = false;
             }
-            if (gameplay_ready && !intro_active)
+            if (gameplay_ready && !intro_active && !intro_load)
             {
                 if (!engine.activate_gameplay())
                 {
@@ -412,6 +467,9 @@ int main(int argc, char* argv[])
             engine::Engine::instance().end_frame();
         }
     }
+#if ENGINE_START_PACKAGED_GAMEPLAY
+    intro_load.reset();
+#endif
     engine.shutdown();
 #if ENGINE_HAS_RESOURCE_GRAPH_PLUGIN
     shutdown_resources();

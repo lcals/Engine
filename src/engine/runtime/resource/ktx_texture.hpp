@@ -1,6 +1,7 @@
 #pragma once
 
 #include "runtime/resource/resource.hpp"
+#include "runtime/schema/texture_generated.h"
 
 #include <cstdint>
 

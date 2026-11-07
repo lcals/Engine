@@ -4,10 +4,13 @@
 
 #include "runtime/scene/ecs_storage.hpp"
 
+#include "plugins/runtime/terrain/terrain_resource.hpp"
 #include "plugins/runtime/terrain/terrain_system.hpp"
 #include "runtime/core/guid_map.hpp"
 #include "runtime/performance/profiling.hpp"
-#include "runtime/resource/resource_system.hpp"
+#include "runtime/resource/types/material_resource.hpp"
+#include "runtime/resource/virtual_file_system.hpp"
+#include "runtime/scene/resource_binding.hpp"
 #include "runtime/schema/terrain_state_generated.h"
 #include "runtime/utils/path_utils.hpp"
 
@@ -23,19 +26,6 @@ namespace engine::plugins::terrain
 {
 namespace
 {
-bool read_volume(ByteView bytes, schema::TerrainAssetDataT& data, std::string& error)
-{
-    const auto* source = reinterpret_cast<const std::uint8_t*>(bytes.data());
-    flatbuffers::Verifier verifier(source, bytes.size());
-    if (!schema::VerifyTerrainAssetDataBuffer(verifier))
-    {
-        error = "Invalid terrain resource buffer";
-        return false;
-    }
-    data = *schema::UnPackTerrainAssetData(source);
-    return TerrainVolume::validate(data, error);
-}
-
 bool color_valid(const schema::Color& color)
 {
     for (float value : {color.r(), color.g(), color.b(), color.a()})
@@ -99,29 +89,28 @@ bool TerrainComponent::set_settings(const schema::TerrainDataT& value)
         runtime()->last_error_ = "Invalid terrain component settings";
         return false;
     }
-    auto* resources = ResourceSystem::instance();
-    ResourcePtr replacement;
+    auto* resources = node().world()->resource_loader();
+    resource_detail::ResourceReference replacement;
+    resource_detail::ResourceReference material;
     TerrainVolume candidate;
     if (!value.terrain_guid.empty())
     {
-        schema::TerrainAssetDataT asset;
-        if (!resources || !resources->loader().load(value.terrain_guid, replacement) ||
+        if (!resources || !ecs_detail::acquire_resource(node(), value.terrain_guid, replacement) ||
             !replacement || replacement->info().kind != schema::AssetKind::terrain ||
-            !read_volume(replacement->bytes(), asset, runtime()->last_error_) ||
-            !candidate.initialize(asset, runtime()->last_error_))
+            !replacement.data<TerrainResource>() ||
+            !candidate.initialize(*replacement.data<TerrainResource>(), runtime()->last_error_))
         {
             runtime()->last_error_ = "Cannot load terrain resource";
             return false;
         }
-        if (!value.material_guid.empty())
+        const auto material_path = value.material_guid.empty()
+                                       ? std::string_view("builtin://materials/default-pbr")
+                                       : std::string_view(value.material_guid);
+        if (!ecs_detail::acquire_resource(node(), material_path, material) ||
+            !material.data<MaterialResource>())
         {
-            ResourcePtr material;
-            if (!resources->loader().load(value.material_guid, material) || !material ||
-                !material->material())
-            {
-                runtime()->last_error_ = "Cannot load terrain material";
-                return false;
-            }
+            runtime()->last_error_ = "Material must be loaded before binding";
+            return false;
         }
     }
     const bool retain =
@@ -139,10 +128,12 @@ bool TerrainComponent::set_settings(const schema::TerrainDataT& value)
         candidate = runtime()->volume_;
     }
     const auto previous_settings = settings();
-    auto previous_resource = runtime()->resource_;
+    auto previous_resource = std::move(runtime()->resource_);
+    auto previous_material = std::move(runtime()->material_);
     *write_data<Data>() = value;
     modified();
     runtime()->resource_ = std::move(replacement);
+    runtime()->material_ = std::move(material);
     if (runtime()->ready_ && runtime()->resource_)
     {
         auto* system = TerrainSystem::instance();
@@ -151,6 +142,7 @@ bool TerrainComponent::set_settings(const schema::TerrainDataT& value)
             *write_data<Data>() = previous_settings;
             modified();
             runtime()->resource_ = std::move(previous_resource);
+            runtime()->material_ = std::move(previous_material);
             return false;
         }
     }
@@ -159,7 +151,7 @@ bool TerrainComponent::set_settings(const schema::TerrainDataT& value)
         runtime()->volume_ = std::move(candidate);
         runtime()->triangles_ = 0;
         runtime()->ready_ = false;
-        runtime()->pending_ = runtime()->resource_ != nullptr;
+        runtime()->pending_ = static_cast<bool>(runtime()->resource_);
     }
     if (!retain)
     {
@@ -239,9 +231,9 @@ bool TerrainComponent::reset()
     auto* system = TerrainSystem::instance();
     schema::TerrainAssetDataT data;
     TerrainVolume candidate;
-    if (!runtime()->resource_ || !system ||
-        !read_volume(runtime()->resource_->bytes(), data, runtime()->last_error_) ||
-        !candidate.initialize(data, runtime()->last_error_))
+    if (!runtime()->resource_ || !system || !runtime()->resource_.data<TerrainResource>() ||
+        !candidate.initialize(*runtime()->resource_.data<TerrainResource>(),
+                              runtime()->last_error_))
     {
         return false;
     }
@@ -394,7 +386,7 @@ bool TerrainComponent::load_state(const std::filesystem::path& path)
     ByteBuffer bytes;
     std::error_code ec;
     const auto size = std::filesystem::file_size(path, ec);
-    if (ec || size > 32U * 1024U * 1024U || !ResourceSystem::read_binary(path, bytes))
+    if (ec || size > 32U * 1024U * 1024U || !VirtualFileSystem::read_file(path, bytes))
     {
         runtime()->last_error_ = "Cannot read terrain state";
         return false;

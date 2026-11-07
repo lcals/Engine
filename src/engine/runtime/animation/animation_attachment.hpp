@@ -1,6 +1,8 @@
 #pragma once
 
-#include "runtime/resource/resource_system.hpp"
+#include "runtime/resource/resource_reference.hpp"
+#include "runtime/resource/types/skeleton_resource.hpp"
+#include "runtime/world/world_system.hpp"
 
 #include "runtime/scene/animator_runtime.hpp"
 #include "runtime/scene/bone_attachment.hpp"
@@ -110,16 +112,16 @@ inline bool resolve_attachment_source(BoneAttachment attachment, const BoneAttac
     }
     auto mesh = source_node.get_component<MeshRenderer>();
     const auto* mesh_data = mesh ? mesh.mesh_data() : nullptr;
-    auto* resources = ResourceSystem::instance();
-    ResourcePtr skeleton;
+    auto* resources = source_node.world()->resource_loader();
+    resource_detail::ResourceReference skeleton;
     if (!mesh_data || mesh_data->skeleton_guid.empty() || !resources ||
-        !resources->loader().load(mesh_data->skeleton_guid, skeleton) || !skeleton ||
-        !skeleton->skeleton())
+        !skeleton.dependency(resources, mesh.mesh_resource(), mesh_data->skeleton_guid) ||
+        !skeleton.data<SkeletonResource>())
     {
         source = {};
         return false;
     }
-    const auto& sockets = skeleton->skeleton()->sockets;
+    const auto& sockets = skeleton.data<SkeletonResource>()->sockets;
     for (std::size_t index = 0; index < sockets.size(); ++index)
     {
         if (sockets[index] && sockets[index]->name == data.socket_name)

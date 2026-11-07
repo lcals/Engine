@@ -1,4 +1,5 @@
 #include "plugins/editor/destruction/destruction_settings_edit.hpp"
+#include "editor/resource_access.hpp"
 
 #include "plugins/runtime/destruction/destruction_component.hpp"
 #include "plugins/runtime/destruction/destruction_system.hpp"
@@ -83,6 +84,20 @@ bool DestructionSettingsEdit::replace(const std::optional<schema::ComponentDataT
         }
         *revision_ = 0;
         return true;
+    }
+    editor::resource_access::ResourceReference source, material;
+    const auto* data = replacement->payload.AsDestructionData();
+    if (!data ||
+        (!data->destruction_guid.empty() &&
+         (!editor::resource_access::load(world_.resource_loader(), data->destruction_guid,
+                                         source) ||
+          !editor::resource_access::load(
+              world_.resource_loader(),
+              data->material_guid.empty() ? "builtin://materials/default-pbr" : data->material_guid,
+              material))))
+    {
+        error = "Cannot prepare destruction settings resources";
+        return false;
     }
     const bool created = !component;
     if (created)

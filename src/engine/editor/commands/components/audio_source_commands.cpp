@@ -5,7 +5,8 @@ namespace engine::editor::components
 {
 namespace
 {
-bool read(const Json& arguments, schema::AudioSourceDataT& value, std::string& error)
+bool read(ResourceLoader* loader, const Json& arguments, schema::AudioSourceDataT& value,
+          std::string& error)
 {
     if (!fields(arguments,
                 {"enabled", "clip", "volume", "pitch", "loop", "playOnAwake", "spatial",
@@ -26,7 +27,7 @@ bool read(const Json& arguments, schema::AudioSourceDataT& value, std::string& e
         {
             value.clip_guid.clear();
         }
-        else if (!ResourceSystem::path_to_guid(path, value.clip_guid))
+        else if (!resource_access::load_guid(loader, path, value.clip_guid))
         {
             error = "Audio resource path not found";
             return false;
@@ -81,14 +82,14 @@ bool read(const Json& arguments, schema::AudioSourceDataT& value, std::string& e
     }
     return true;
 }
-Json write(const schema::AudioSourceDataT& value)
+Json write(ResourceLoader* loader, const schema::AudioSourceDataT& value)
 {
     Json result = Json::object();
     result["clipGuid"] = value.clip_guid;
     std::string path;
     if (!value.clip_guid.empty())
     {
-        (void)ResourceSystem::guid_to_path(value.clip_guid, path);
+        (void)resource_access::path(loader, value.clip_guid, path);
     }
     result["clip"] = path;
     result["volume"] = value.volume;
@@ -104,7 +105,10 @@ Json write(const schema::AudioSourceDataT& value)
 bool register_audio_source(WorldSystem& world, EditorCommands& commands, NodeAliases& aliases)
 {
     if (!register_component<engine::AudioSource, schema::AudioSourceDataT>(
-            world, commands, "audio_source", aliases, read, write))
+            world, commands, "audio_source", aliases,
+            [&world](const auto& args, auto& data, auto& error)
+            { return read(world.resource_loader(), args, data, error); },
+            [&world](const auto& data) { return write(world.resource_loader(), data); }))
     {
         return false;
     }

@@ -1,4 +1,6 @@
 #include "editor/asset_pipeline/importers/texture_importer.hpp"
+#include "editor/file_text.hpp"
+#include "runtime/resource/virtual_file_system.hpp"
 
 #include "editor/asset_pipeline/asset_io.hpp"
 #include "editor/asset_pipeline/importer_utils.hpp"
@@ -62,7 +64,7 @@ bool settings(const std::filesystem::path& source, bool hdr, TextureSettings& ou
     auto path = source;
     path += ".meta";
     std::string text;
-    if (!ResourceSystem::read_text(path, text))
+    if (!engine::editor::file_detail::read_text(path, text))
     {
         error = "cannot read texture meta";
         return false;
@@ -97,8 +99,8 @@ bool settings(const std::filesystem::path& source, bool hdr, TextureSettings& ou
         }
     }
     const auto format = (*table)["format"].value_or(std::string("auto"));
-    constexpr std::array<std::string_view, 6> formats = {
-        "auto", "rgba8", "bc7", "astc4x4", "etc2", "rgba16f"};
+    constexpr std::array<std::string_view, 6> formats = {"auto",    "rgba8", "bc7",
+                                                         "astc4x4", "etc2",  "rgba16f"};
     const auto selected = std::find(formats.begin(), formats.end(), format);
     const auto compression = (*table)["compression"].value_or(std::string("uastc"));
     if ((table->contains("format") && !(*table)["format"].is_string()) ||
@@ -111,7 +113,7 @@ bool settings(const std::filesystem::path& source, bool hdr, TextureSettings& ou
     output.format = static_cast<schema::TextureFormat>(selected - formats.begin());
     output.uastc = compression == "uastc";
     if ((hdr && (!output.uastc || (output.format != schema::TextureFormat::auto_format &&
-                                 output.format != schema::TextureFormat::rgba16f))) ||
+                                   output.format != schema::TextureFormat::rgba16f))) ||
         (!hdr && output.format == schema::TextureFormat::rgba16f))
     {
         error = "HDR sources require UASTC and auto/rgba16f; LDR sources require an LDR format";
@@ -252,7 +254,7 @@ bool read_image(std::span<const std::uint8_t> bytes, std::string_view extension,
         int height = 0;
         int channels = 0;
         auto* pixels = basisu::read_tga(data, static_cast<std::uint32_t>(bytes.size()), width,
-                                       height, channels);
+                                        height, channels);
         if (pixels == nullptr || width != static_cast<int>(u16(12)) ||
             height != static_cast<int>(u16(14)))
         {
@@ -301,8 +303,8 @@ bool read_hdr(std::span<const std::uint8_t> bytes, std::string_view extension,
         const auto height = std::int64_t(header.data_window.max_y) - header.data_window.min_y + 1;
         const bool valid = parsed && width > 0 && height > 0 && width <= maximum_dimension &&
                            height <= maximum_dimension && dimensions(width, height);
-        luminance = parsed && header.num_channels == 1 &&
-                    std::string_view(header.channels[0].name) == "Y";
+        luminance =
+            parsed && header.num_channels == 1 && std::string_view(header.channels[0].name) == "Y";
         FreeEXRErrorMessage(message);
         FreeEXRHeader(&header);
         if (!valid)
@@ -336,16 +338,15 @@ bool read_hdr(std::span<const std::uint8_t> bytes, std::string_view extension,
             {
                 resolution.remove_prefix(1);
             }
-            if (resolution.size() < 4 ||
-                (resolution[0] != '-' && resolution[0] != '+') ||
+            if (resolution.size() < 4 || (resolution[0] != '-' && resolution[0] != '+') ||
                 (resolution[1] != 'X' && resolution[1] != 'Y') || resolution[2] != ' ')
             {
                 error = "invalid HDR resolution axis";
                 return false;
             }
             resolution.remove_prefix(3);
-            const auto parsed = std::from_chars(resolution.data(),
-                                                resolution.data() + resolution.size(), size);
+            const auto parsed =
+                std::from_chars(resolution.data(), resolution.data() + resolution.size(), size);
             if (parsed.ec != std::errc{})
             {
                 error = "invalid HDR resolution size";
@@ -428,14 +429,14 @@ bool TextureImporter::convert(const ImportAsset& asset, const ImportContext& con
     {
         return false;
     }
-    if (!ResourceSystem::read_binary(asset.source, source) || source.empty() ||
+    if (!VirtualFileSystem::read_file(asset.source, source) || source.empty() ||
         source.size() > static_cast<std::size_t>(std::numeric_limits<int>::max()))
     {
         error = "cannot read texture source";
         return false;
     }
-    const auto bytes = std::span(reinterpret_cast<const std::uint8_t*>(source.data()),
-                                 source.size());
+    const auto bytes =
+        std::span(reinterpret_cast<const std::uint8_t*>(source.data()), source.size());
     basisu::job_pool jobs(1);
     basisu::basis_compressor_params parameters;
     parameters.m_pJob_pool = &jobs;

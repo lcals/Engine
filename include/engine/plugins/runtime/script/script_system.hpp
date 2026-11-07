@@ -8,6 +8,7 @@
 
 namespace engine
 {
+class ResourceLoader;
 class WorldSystem;
 class RenderSystem;
 class UiSystem;
@@ -25,20 +26,21 @@ namespace engine::plugins::script
 class ScriptSystem final : public ScriptRuntime
 {
 public:
-    explicit ScriptSystem(WorldSystem* world = nullptr, RenderSystem* renderer = nullptr,
-                          UiSystem* ui = nullptr, PhysicsSystem* physics = nullptr,
-                          NavigationSystem* navigation = nullptr, InputSystem* input = nullptr,
-                          WindowSystem* window = nullptr, AnimationSystem* animation = nullptr,
+    explicit ScriptSystem(ResourceLoader* resources = nullptr, WorldSystem* world = nullptr,
+                          RenderSystem* renderer = nullptr, UiSystem* ui = nullptr,
+                          PhysicsSystem* physics = nullptr, NavigationSystem* navigation = nullptr,
+                          InputSystem* input = nullptr, WindowSystem* window = nullptr,
+                          AnimationSystem* animation = nullptr,
                           MoviePlayer* movies = nullptr) noexcept;
     ~ScriptSystem() noexcept override;
 
     // 预检只读取候选目录，不执行用户代码、不改变活动资源或旧玩法。
-    [[nodiscard]] bool prepare_gameplay(const ResourceCatalog& catalog, const MountList& mounts,
-                                        std::string_view entry = {},
+    [[nodiscard]] bool prepare_gameplay(const ResourceHandle& entry,
                                         std::string_view revision = {}) override;
     [[nodiscard]] bool start_prepared_gameplay() override;
     void stop_gameplay() noexcept override;
-    [[nodiscard]] bool execute_project_script(const ProjectScriptRequest& request,
+    [[nodiscard]] bool execute_project_script(const ResourceHandle& script,
+                                              const ProjectScriptRequest& request,
                                               std::string& result_json,
                                               std::string& error) override;
     [[nodiscard]] const ScriptStatus& status() const noexcept override;
@@ -51,6 +53,7 @@ protected:
 private:
     struct State;
     // 可空借用，非空时必须活到脚本系统关闭。
+    ResourceLoader* resources_ = nullptr;
     WorldSystem* world_ = nullptr;
     // 可空借用；生命周期覆盖玩法回调和绑定清理，销毁渲染器前须停止玩法。
     RenderSystem* renderer_ = nullptr;

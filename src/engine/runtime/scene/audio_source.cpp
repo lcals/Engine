@@ -1,11 +1,12 @@
 #include "runtime/scene/audio_source.hpp"
 
+#include "runtime/resource/types/audio_resource.hpp"
 #include "runtime/scene/audio_source_runtime.hpp"
 
 #include "runtime/scene/ecs_storage.hpp"
 
 #include "runtime/core/guid_map.hpp"
-#include "runtime/resource/resource_system.hpp"
+#include "runtime/scene/resource_binding.hpp"
 
 #include <cmath>
 #include <limits>
@@ -57,7 +58,11 @@ bool AudioSource::set_settings(const schema::AudioSourceDataT& settings)
         return false;
     }
     const bool changed_clip = settings.clip_guid != this->settings().clip_guid;
-    ResourcePtr replacement = runtime()->clip_;
+    resource_detail::ResourceReference replacement;
+    if (runtime()->clip_ && !replacement.retain(runtime()->clip_))
+    {
+        return false;
+    }
     if (changed_clip)
     {
         if (runtime()->revision_ == std::numeric_limits<std::uint64_t>::max())
@@ -67,10 +72,10 @@ bool AudioSource::set_settings(const schema::AudioSourceDataT& settings)
         replacement.reset();
         if (!settings.clip_guid.empty())
         {
-            auto* resources = ResourceSystem::instance();
+            auto* resources = node().world()->resource_loader();
             if (resources == nullptr ||
-                !resources->loader().load(settings.clip_guid, replacement) || !replacement ||
-                replacement->audio() == nullptr)
+                !ecs_detail::acquire_resource(node(), settings.clip_guid, replacement) ||
+                !replacement || replacement.data<AudioResource>() == nullptr)
             {
                 return false;
             }
@@ -120,7 +125,7 @@ bool AudioSource::set_clip(std::string_view path)
     {
         replacement.clip_guid.clear();
     }
-    else if (!ResourceSystem::path_to_guid(path, replacement.clip_guid))
+    else if (!ecs_detail::resource_guid(node(), path, replacement.clip_guid))
     {
         return false;
     }
@@ -142,7 +147,7 @@ const schema::AudioClipDataT* AudioSource::clip_data() const noexcept
     {
         return {};
     }
-    return runtime()->clip_ ? runtime()->clip_->audio() : nullptr;
+    return runtime()->clip_ ? runtime()->clip_.data<AudioResource>() : nullptr;
 }
 
 bool AudioSource::play() noexcept

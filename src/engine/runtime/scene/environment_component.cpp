@@ -1,6 +1,9 @@
 #include "runtime/scene/environment_component.hpp"
 
+#include "runtime/resource/types/texture_resource.hpp"
 #include "runtime/scene/ecs_storage.hpp"
+#include "runtime/scene/environment_component_runtime.hpp"
+#include "runtime/scene/resource_binding.hpp"
 
 #include "runtime/scene/scene_settings_validation.hpp"
 
@@ -9,7 +12,7 @@ namespace engine
 
 bool EnvironmentComponent::register_type(ComponentRegistry& registry)
 {
-    return register_component_storage<EnvironmentComponent, Data>(registry);
+    return register_component_storage<EnvironmentComponent, Data, EnvironmentRuntime>(registry);
 }
 
 EnvironmentSettings EnvironmentComponent::settings() const noexcept
@@ -35,6 +38,39 @@ bool EnvironmentComponent::set_settings(const EnvironmentSettings& settings)
     {
         return false;
     }
+    EnvironmentRuntime candidate;
+    const std::array guids = {&settings.ibl_irradiance_guid, &settings.ibl_prefilter_guid,
+                              &settings.ibl_lut_guid};
+    const auto current = this->settings();
+    const std::array old_guids = {&current.ibl_irradiance_guid, &current.ibl_prefilter_guid,
+                                  &current.ibl_lut_guid};
+    auto* runtime = runtime_state<EnvironmentRuntime>();
+    for (std::size_t index = 0; index < guids.size(); ++index)
+    {
+        if (guids[index]->empty())
+        {
+            continue;
+        }
+        if (runtime->ibl[index] && *old_guids[index] == *guids[index])
+        {
+            if (!candidate.ibl[index].retain(runtime->ibl[index]))
+            {
+                return false;
+            }
+        }
+        else if (!ecs_detail::acquire_resource(node(), *guids[index], candidate.ibl[index]))
+        {
+            return false;
+        }
+        const auto* texture = candidate.ibl[index].data<TextureResource>();
+        if (!texture || texture->cube_map != (index < 2) || texture->srgb ||
+            texture->format !=
+                (index < 2 ? schema::TextureFormat::rgba16f : schema::TextureFormat::rg16f))
+        {
+            return false;
+        }
+    }
+    *runtime = std::move(candidate);
     *write_data<Data>() = settings;
     modified();
     return true;

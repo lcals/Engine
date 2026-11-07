@@ -1,4 +1,6 @@
+#include "file_text.hpp"
 #include "resource_fixture.hpp"
+#include "resource_services.hpp"
 
 #include "runtime/app/app.hpp"
 #include "runtime/engine_config.hpp"
@@ -43,15 +45,14 @@ bool published_hot_reload(const std::filesystem::path& root, bool enabled)
 {
     std::string status;
     const std::string value = enabled ? "\"hotReload\":true" : "\"hotReload\":false";
-    return ResourceSystem::read_text(root / "script-status.json", status) &&
+    return test_support::read_text(root / "script-status.json", status) &&
            status.find(value) != std::string::npos;
 }
 
 class TestScript final : public ScriptRuntime
 {
 public:
-    bool prepare_gameplay(const ResourceCatalog&, const MountList&, std::string_view,
-                          std::string_view) override
+    bool prepare_gameplay(const ResourceHandle&, std::string_view) override
     {
         return false;
     }
@@ -63,8 +64,8 @@ public:
     {
         status_.running = false;
     }
-    bool execute_project_script(const ProjectScriptRequest&, std::string& result,
-                                std::string& error) override
+    bool execute_project_script(const ResourceHandle&, const ProjectScriptRequest&,
+                                std::string& result, std::string& error) override
     {
         result.clear();
         error = "Test runtime has no project script VM";
@@ -96,17 +97,18 @@ bool test_background_protocol(const std::filesystem::path& root)
 {
     ThreadSystem threads({1});
     TaskSystem tasks(threads, {"DeploymentTest", 1});
-    ResourceSystem resources;
+    test_support::ResourceServices services{&threads};
+    ResourceSystem& resources = services.core;
     WindowSystem window;
-    WorldSystem world;
+    WorldSystem world(&services.loader);
     RenderSystem renderer(window, &world);
     TestScript script;
-    if (!threads.initialize({}) || !tasks.initialize({}) || !resources.initialize({}))
+    if (!threads.initialize({}) || !tasks.initialize({}) || !services.initialize({}))
     {
         return false;
     }
-    GameplaySession session(world, renderer, &script, nullptr, nullptr, nullptr, nullptr, nullptr,
-                            &tasks);
+    GameplaySession session(resources, world, renderer, &script, nullptr, nullptr, nullptr, nullptr,
+                            nullptr, &tasks);
     test_support::ResourceFixture fixture;
     if (!session.set_resources(fixture.catalog, {{"content", fixture.root}}) ||
         !write(root / "script-control.json", R"({"hotReload":true})"))
@@ -226,7 +228,7 @@ int main()
     bool success = test_background_protocol(app.persistent_data_path);
     std::string status;
     success &=
-        expect(ResourceSystem::read_text(app.persistent_data_path / "script-status.json", status) &&
+        expect(test_support::read_text(app.persistent_data_path / "script-status.json", status) &&
                    status.find("\"running\":false") != std::string::npos &&
                    status.find("test stopped") != std::string::npos,
                "shutdown drains stale writes and publishes the latest stopped status");

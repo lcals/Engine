@@ -1,13 +1,13 @@
 #include "runtime/resource/codecs/shader_resource_codec.hpp"
 
+#include "runtime/core/guid_map.hpp"
 #include "runtime/resource/codecs/material_value_utils.hpp"
-#include "runtime/resource/resource_catalog.hpp"
-#include "runtime/resource/resource_system.hpp"
+#include "runtime/resource/types/texture_resource.hpp"
+#include <set>
 
 #include <flatbuffers/verifier.h>
 
 #include <map>
-#include <set>
 #include <utility>
 
 namespace engine
@@ -165,78 +165,76 @@ bool ShaderResourceCodec::validate(const schema::ShaderDataT& data)
     return true;
 }
 
-bool ShaderResourceCodec::decode(const ResourceCatalog& catalog, ByteView payload,
-                                 Resource& output) const
+schema::AssetKind ShaderResourceCodec::kind() const noexcept
 {
-    const auto& entry = output.info();
-    std::unique_ptr<schema::ShaderDataT> data;
-    if (entry.path.starts_with("builtin://") && !entry.location)
+    return schema::AssetKind::shader;
+}
+
+bool ShaderResourceCodec::decode(const schema::AssetEntryT& entry, ByteView payload,
+                                 std::unique_ptr<Resource>& output, std::string& error) const
+{
+    if (output)
     {
-        const auto* builtin = ResourceSystem::find_shader(entry.path);
-        if (!builtin)
-        {
-            return false;
-        }
-        data = std::make_unique<schema::ShaderDataT>(*builtin);
-    }
-    else
-    {
-        const auto* bytes = reinterpret_cast<const std::uint8_t*>(payload.data());
-        flatbuffers::Verifier verifier(bytes, payload.size());
-        if (!schema::VerifyShaderDataBuffer(verifier))
-        {
-            return false;
-        }
-        data = schema::UnPackShaderData(bytes);
-    }
-    if (data->path != entry.path || !validate(*data))
-    {
+        error = "Resource output must be empty";
         return false;
     }
-    for (const auto& sampler : data->samplers)
+    error.clear();
+    if (entry.kind != kind() || payload.empty() || payload.size() > 64U * 1024U * 1024U)
     {
-        if (sampler->source != schema::ShaderTextureSource::resource)
-        {
-            continue;
-        }
-        Guid guid;
-        if (!catalog.identities().path_to_guid(sampler->default_texture, guid) ||
-            !declares(catalog, output, guid, schema::AssetKind::texture))
-        {
-            return false;
-        }
+        error = "Invalid resource kind or payload size";
+        return false;
     }
-    store(output, std::move(data));
+    const auto* bytes = reinterpret_cast<const std::uint8_t*>(payload.data());
+    flatbuffers::Verifier verifier(bytes, payload.size());
+    if (!schema::VerifyShaderDataBuffer(verifier))
+    {
+        error = "Invalid Shader FlatBuffer";
+        return false;
+    }
+    auto data = schema::UnPackShaderData(bytes);
+    output = std::make_unique<ResourceType>(entry, std::move(*data));
     return true;
 }
 
-bool ShaderResourceCodec::validate_dependencies(const ResourceCatalog& catalog,
-                                                const Resource& resource,
-                                                std::span<const ResourcePtr> dependencies) const
+bool ShaderResourceCodec::validate_data(const Resource& resource, std::string& error) const
 {
-    const auto* shader = resource.shader();
-    if (!shader)
+    const auto* data = resource_detail::data<ResourceType>(&resource);
+    if (!data || !(data->path == resource.info().path && validate(*data)))
     {
+        error = "Invalid Shader data or declared dependencies";
         return false;
     }
+    error.clear();
+    return true;
+}
+
+bool ShaderResourceCodec::validate_dependencies(const Resource& resource, ResourceView dependencies,
+                                                std::string& error) const
+{
+    error.clear();
+    const auto* shader = resource_detail::data<ResourceType>(&resource);
+    if (!shader)
+    {
+        error = "Invalid shader type";
+        return false;
+    }
+    std::set<std::string_view> expected;
     for (const auto& sampler : shader->samplers)
     {
         if (sampler->source != schema::ShaderTextureSource::resource)
         {
             continue;
         }
-        Guid guid;
-        if (!catalog.identities().path_to_guid(sampler->default_texture, guid))
+        const auto* texture = dependency(dependencies, sampler->default_texture);
+        const auto* data = resource_detail::data<TextureResource>(texture);
+        if (!data || data->cube_map || !declares(resource, texture->info().guid))
         {
+            error = "Invalid shader default texture";
             return false;
         }
-        const auto* texture = dependency(dependencies, guid);
-        if (!texture || !texture->texture() || texture->texture()->cube_map)
-        {
-            return false;
-        }
+        expected.insert(texture->info().guid);
     }
-    return true;
+    return expected.size() == dependencies.size();
 }
 
 } // namespace engine

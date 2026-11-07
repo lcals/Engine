@@ -1,85 +1,102 @@
 #pragma once
 
-#include "runtime/schema/animation_generated.h"
-#include "runtime/schema/animation_retarget_generated.h"
 #include "runtime/schema/asset_catalog_generated.h"
-#include "runtime/schema/audio_generated.h"
-#include "runtime/schema/font_generated.h"
-#include "runtime/schema/light_probe_generated.h"
-#include "runtime/schema/material_generated.h"
-#include "runtime/schema/mesh_generated.h"
-#include "runtime/schema/model_generated.h"
-#include "runtime/schema/prefab_generated.h"
-#include "runtime/schema/scene_generated.h"
-#include "runtime/schema/shader_generated.h"
-#include "runtime/schema/skeleton_generated.h"
-#include "runtime/schema/texture_generated.h"
-#include "runtime/schema/ui_generated.h"
 
 #include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <span>
+#include <type_traits>
+#include <utility>
 #include <vector>
 
 namespace engine
 {
+using ByteBuffer = std::vector<std::byte>;
+using ByteView = std::span<const std::byte>;
 
 class Resource;
 class ResourceSystem;
+class ResourceLoader;
 class ResourceCodec;
-using ResourcePtr = std::shared_ptr<const Resource>;
-using ByteView = std::span<const std::byte>;
+using ResourceView = std::span<const Resource* const>;
 
-class Resource final
+namespace resource_detail
+{
+template <schema::AssetKind Kind> struct Payload;
+template <typename T> inline constexpr char type_identity = 0;
+template <typename T> const T* cast(const Resource* resource) noexcept;
+} // namespace resource_detail
+
+template <typename DataT, schema::AssetKind Kind> class ResourceValue;
+
+class Resource
 {
 public:
-    ~Resource() noexcept;
+    virtual ~Resource() noexcept;
     Resource(const Resource&) = delete;
     Resource& operator=(const Resource&) = delete;
     Resource(Resource&&) = delete;
     Resource& operator=(Resource&&) = delete;
 
     [[nodiscard]] const schema::AssetEntryT& info() const noexcept;
+    [[nodiscard]] virtual schema::AssetKind kind() const noexcept = 0;
     [[nodiscard]] std::uint64_t generation() const noexcept;
-    [[nodiscard]] const schema::SceneDataT* scene() const noexcept;
-    [[nodiscard]] const schema::MeshDataT* mesh() const noexcept;
-    [[nodiscard]] const schema::ShaderDataT* shader() const noexcept;
-    [[nodiscard]] const schema::MaterialDataT* material() const noexcept;
-    [[nodiscard]] const schema::TextureDataT* texture() const noexcept;
-    [[nodiscard]] const schema::AudioClipDataT* audio() const noexcept;
-    [[nodiscard]] const schema::ModelDataT* model() const noexcept;
-    [[nodiscard]] const schema::PrefabDataT* prefab() const noexcept;
-    [[nodiscard]] const schema::SkeletonDataT* skeleton() const noexcept;
-    [[nodiscard]] const schema::AnimationDataT* animation() const noexcept;
-    [[nodiscard]] const schema::AnimationRetargetProfileDataT* retarget_profile() const noexcept;
-    [[nodiscard]] const schema::FontDataT* font() const noexcept;
-    [[nodiscard]] const schema::UiDocumentDataT* ui() const noexcept;
-    [[nodiscard]] const schema::LightProbeDataT* light_probe() const noexcept;
-    [[nodiscard]] ByteView bytes() const noexcept;
+
+protected:
+    explicit Resource(schema::AssetEntryT info);
 
 private:
     friend class ResourceSystem;
-    friend class ResourceCodec;
-    Resource() noexcept = default;
+    template <typename DataT, schema::AssetKind Kind> friend class ResourceValue;
+    template <typename T> friend const T* resource_detail::cast(const Resource*) noexcept;
 
-    std::uint64_t generation_ = 0;
     schema::AssetEntryT info_;
-    std::unique_ptr<schema::SceneDataT> scene_;
-    std::unique_ptr<schema::MeshDataT> mesh_;
-    std::unique_ptr<schema::ShaderDataT> shader_;
-    std::unique_ptr<schema::MaterialDataT> material_;
-    std::unique_ptr<schema::TextureDataT> texture_;
-    std::unique_ptr<schema::AudioClipDataT> audio_;
-    std::unique_ptr<schema::ModelDataT> model_;
-    std::unique_ptr<schema::PrefabDataT> prefab_;
-    std::unique_ptr<schema::SkeletonDataT> skeleton_;
-    std::unique_ptr<schema::AnimationDataT> animation_;
-    std::unique_ptr<schema::AnimationRetargetProfileDataT> retarget_profile_;
-    std::unique_ptr<schema::FontDataT> font_;
-    std::unique_ptr<schema::UiDocumentDataT> ui_;
-    std::unique_ptr<schema::LightProbeDataT> light_probe_;
-    std::vector<std::byte> bytes_;
+    std::uint64_t generation_ = 0;
+    const void* type_identity_ = nullptr;
 };
 
+template <typename DataT, schema::AssetKind Kind> class ResourceValue final : public Resource
+{
+    static_assert(std::is_same_v<DataT, typename resource_detail::Payload<Kind>::Type>);
+
+public:
+    using Data = DataT;
+    static constexpr schema::AssetKind asset_kind = Kind;
+
+    ResourceValue(schema::AssetEntryT info, DataT data)
+        : Resource(std::move(info)), data_(std::move(data))
+    {
+        type_identity_ = &resource_detail::type_identity<ResourceValue>;
+    }
+
+    [[nodiscard]] schema::AssetKind kind() const noexcept override
+    {
+        return Kind;
+    }
+    [[nodiscard]] const DataT& data() const noexcept
+    {
+        return data_;
+    }
+
+private:
+    DataT data_;
+};
+
+namespace resource_detail
+{
+// Canonical type identity prevents a custom subclass from impersonating a payload layout.
+template <typename T> const T* cast(const Resource* resource) noexcept
+{
+    return resource && resource->type_identity_ == &type_identity<T>
+               ? static_cast<const T*>(resource)
+               : nullptr;
+}
+
+template <typename T> const typename T::Data* data(const Resource* resource) noexcept
+{
+    const auto* value = cast<T>(resource);
+    return value ? &value->data() : nullptr;
+}
+} // namespace resource_detail
 } // namespace engine

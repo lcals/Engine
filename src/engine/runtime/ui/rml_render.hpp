@@ -1,5 +1,7 @@
 #pragma once
 
+#include "runtime/resource/resource_reference.hpp"
+
 #include "runtime/font/font_system.hpp"
 #include <RmlUi/Core/RenderInterface.h>
 #include <bgfx/bgfx.h>
@@ -16,7 +18,8 @@ public:
     [[nodiscard]] bool begin(std::uint32_t width, std::uint32_t height, int logical_width,
                              int logical_height);
     void release() noexcept;
-    [[nodiscard]] bool activate(const std::string& key, const ResourcePtr& document);
+    [[nodiscard]] bool activate(const std::string& key,
+                                const resource_detail::ResourceReference& document);
     void prune(std::span<const std::string> keys);
     [[nodiscard]] bool texture_guid(std::string_view key, std::string_view path,
                                     std::string& guid) const;
@@ -42,15 +45,15 @@ private:
     };
     struct Texture
     {
-        ResourcePtr resource;
-        ResourcePtr shader;
+        resource_detail::ResourceReference resource;
+        resource_detail::ResourceReference shader;
         bgfx::TextureHandle gpu = BGFX_INVALID_HANDLE;
         float font_size = 0;
         std::string document_key;
     };
     struct Document
     {
-        std::map<std::string, ResourcePtr, std::less<>> textures;
+        std::map<std::string, resource_detail::ResourceReference, std::less<>> textures;
     };
     FontSystem& fonts_;
     RmlFont& font_engine_;

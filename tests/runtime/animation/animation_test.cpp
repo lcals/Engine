@@ -322,7 +322,8 @@ bool blending_and_instances()
                   [](const auto& entry) { return entry->guid == clip_guid; });
     if (!add(fixture.files, clip_guid, clip_path, engine::schema::AssetKind::animation, builder,
              {source_guid}) ||
-        !fixture.files.publish(fixture.resources))
+        !fixture.services.publish_and_load(fixture.files.catalog,
+                                           {{"content", fixture.files.root}}))
     {
         return false;
     }
@@ -366,10 +367,11 @@ bool world_pause_preserves_individual_playback()
 
 using Palettes = std::vector<std::vector<std::array<float, 16>>>;
 
-bool collect_sampling_results(engine::TaskSystem* tasks, Palettes& palettes)
+bool collect_sampling_results(engine::TaskSystem* tasks, Palettes& palettes,
+                              engine::ThreadSystem* threads = nullptr)
 {
     // 非整批数量覆盖尾批；每实例使用不同时间与状态，暴露错误共享采样上下文。
-    Fixture fixture(tasks, {.min_parallel_count = 2, .batch_size = 4});
+    Fixture fixture(tasks, {.min_parallel_count = 2, .batch_size = 4}, threads);
     if (!expect(fixture.initialize(), "initialize sampling comparison fixture"))
     {
         return false;
@@ -437,7 +439,7 @@ bool parallel_sampling_matches_serial()
         return false;
     }
     Palettes parallel;
-    if (!collect_sampling_results(&tasks, parallel) ||
+    if (!collect_sampling_results(&tasks, parallel, &threads) ||
         !expect(parallel.size() == serial.size(), "parallel animation publishes every palette"))
     {
         return false;
@@ -480,7 +482,7 @@ bool parallel_sampling_matches_serial()
         return false;
     }
     Palettes fallback;
-    const bool sampled = collect_sampling_results(&limited, fallback);
+    const bool sampled = collect_sampling_results(&limited, fallback, &threads);
     release.set_value();
     return expect(busy.get() && sampled && fallback == serial,
                   "saturated task domain falls back without dropping or duplicating poses");

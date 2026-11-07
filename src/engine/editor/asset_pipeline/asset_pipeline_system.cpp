@@ -1,4 +1,6 @@
 #include "editor/asset_pipeline/asset_pipeline_system.hpp"
+#include "editor/file_text.hpp"
+#include "runtime/resource/virtual_file_system.hpp"
 
 #include "editor/asset_pipeline/asset_database.hpp"
 #include "editor/asset_pipeline/asset_importer_registry.hpp"
@@ -125,7 +127,7 @@ bool project_idle(const std::filesystem::path& root, std::string& error)
                 continue;
             }
             std::string marker_text;
-            if (!ResourceSystem::read_text(marker, marker_text))
+            if (!engine::editor::file_detail::read_text(marker, marker_text))
             {
                 error = "cannot read editor ownership marker: " + PathUtils::to_utf8(marker);
                 return false;
@@ -148,8 +150,8 @@ bool project_idle(const std::filesystem::path& root, std::string& error)
             std::string status_text;
             const auto runtime = PathUtils::from_utf8(host["runtimeDir"].get<std::string>());
             nlohmann::json status;
-            if (runtime.is_absolute() &&
-                ResourceSystem::read_text(runtime / "project-status.json", status_text))
+            if (runtime.is_absolute() && engine::editor::file_detail::read_text(
+                                             runtime / "project-status.json", status_text))
             {
                 status = nlohmann::json::parse(status_text, nullptr, false);
             }
@@ -208,7 +210,7 @@ bool import_threads(const std::filesystem::path& settings, std::size_t& count, s
 {
     const auto path = settings / "editor-import.toml";
     std::string text;
-    if (!ResourceSystem::read_text(path, text))
+    if (!engine::editor::file_detail::read_text(path, text))
     {
         error = "cannot read settings/editor-import.toml";
         return false;
@@ -583,10 +585,6 @@ bool AssetPipelineSystem::on_initialize(const EngineConfig&)
         last_error_ = "asset pipeline requires an initialized task system";
         return false;
     }
-    if (!register_builtin_render_resources())
-    {
-        return false;
-    }
     efsw::FileWatcher watcher(true);
     constexpr float vertices[][3] = {{0.0F, 0.0F, 0.0F}, {0.0F, 0.0F, 0.0F}};
     unsigned int remap[2]{};
@@ -749,7 +747,7 @@ bool AssetPipelineSystem::build_assets(const std::filesystem::path& project_root
     const auto output = workspace / "staged-gen";
     schema::AssetCatalogDataT previous_catalog;
     std::vector<std::byte> previous_bytes;
-    if (ResourceSystem::read_binary(cache / "catalog.bin", previous_bytes))
+    if (VirtualFileSystem::read_file(cache / "catalog.bin", previous_bytes))
     {
         flatbuffers::Verifier verifier(reinterpret_cast<const std::uint8_t*>(previous_bytes.data()),
                                        previous_bytes.size());
@@ -833,7 +831,7 @@ bool AssetPipelineSystem::build_assets(const std::filesystem::path& project_root
             const auto file = cache / "gen" / record.asset.guid;
             const auto status = std::filesystem::symlink_status(file, code);
             if (!code && std::filesystem::is_regular_file(status) &&
-                !std::filesystem::is_symlink(status) && ResourceSystem::read_binary(file, bytes) &&
+                !std::filesystem::is_symlink(status) && VirtualFileSystem::read_file(file, bytes) &&
                 old->second.output_size == bytes.size() &&
                 old->second.output_hash == hash_bytes(bytes) &&
                 ResourceSystem::decode_resource(*old_entry->second, bytes, reused_payload))
@@ -1070,7 +1068,7 @@ bool AssetPipelineSystem::build_assets(const std::filesystem::path& project_root
         exact_files = exact_files && !code && file_count == records.size();
         code.clear();
         std::vector<std::byte> catalog_bytes;
-        if (exact_files && ResourceSystem::read_binary(cache / "catalog.bin", catalog_bytes))
+        if (exact_files && VirtualFileSystem::read_file(cache / "catalog.bin", catalog_bytes))
         {
             flatbuffers::Verifier verifier(
                 reinterpret_cast<const std::uint8_t*>(catalog_bytes.data()), catalog_bytes.size());

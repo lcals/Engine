@@ -5,7 +5,8 @@
 #include "runtime/scene/ecs_storage.hpp"
 
 #include "runtime/performance/profiling.hpp"
-#include "runtime/resource/resource.hpp"
+#include "runtime/resource/resource_reference.hpp"
+#include "runtime/resource/types/audio_resource.hpp"
 #include "runtime/scene/audio_listener.hpp"
 #include "runtime/scene/audio_source.hpp"
 #include "runtime/scene/scene.hpp"
@@ -152,7 +153,7 @@ struct AudioSystem::Impl
                 return;
             }
             // SDL 已持有流锁；这里只消费驻留 PCM 和已发布参数，不访问场景。
-            const auto& clip = *voice.clip->audio();
+            const auto& clip = *voice.data;
             constexpr std::size_t block_frames = 1024;
             constexpr std::size_t frame_bytes = 2 * sizeof(float);
             std::size_t requested =
@@ -206,7 +207,8 @@ struct AudioSystem::Impl
         }
 
         SDL_AudioStream* stream = nullptr;
-        ResourcePtr clip;
+        resource_detail::ResourceReference clip;
+        const schema::AudioClipDataT* data = nullptr;
         std::uint64_t instance_id = 0;
         std::uint64_t revision = 0;
         std::uint64_t frame = 0;
@@ -283,7 +285,7 @@ struct AudioSystem::Impl
         {
             return;
         }
-        const auto& clip = *voice.clip->audio();
+        const auto& clip = *voice.data;
         if (!SDL_LockAudioStream(voice.stream))
         {
             voice.state = AudioVoiceState::failed;
@@ -382,7 +384,8 @@ struct AudioSystem::Impl
     std::string error;
 };
 
-AudioSystem::AudioSystem(WorldSystem* world) noexcept : world_(world)
+AudioSystem::AudioSystem(ResourceLoader* resources, WorldSystem* world) noexcept
+    : resources_(resources), world_(world)
 {
 }
 
@@ -393,6 +396,10 @@ AudioSystem::~AudioSystem() noexcept
 
 bool AudioSystem::on_initialize(const EngineConfig&)
 {
+    if (world_ && (!world_->is_initialized() || world_->resource_loader() != resources_))
+    {
+        return false;
+    }
     impl_.reset(new (std::nothrow) Impl());
     return impl_ != nullptr;
 }
@@ -536,7 +543,15 @@ bool AudioSystem::on_tick(double)
                 const SDL_AudioSpec input{SDL_AUDIO_F32, 2, static_cast<int>(clip->sample_rate)};
                 const SDL_AudioSpec output{SDL_AUDIO_F32, 2, 48000};
                 voice->stream = SDL_CreateAudioStream(&input, &output);
-                voice->clip = engine::ecs_detail::component_runtime(source)->clip_;
+                if (!resources_ ||
+                    !voice->clip.retain(
+                        resources_, engine::ecs_detail::component_runtime(source)->clip_.handle()))
+                {
+                    impl_->error = "Cannot retain audio source";
+                    fail_source();
+                    return true;
+                }
+                voice->data = voice->clip.data<AudioResource>();
                 voice->instance_id = source.instance_id();
                 voice->revision = engine::ecs_detail::component_runtime(source)->revision_;
                 if (!voice->stream ||
@@ -657,7 +672,8 @@ void AudioSystem::clear() noexcept
 
 bool AudioSystem::set_world(WorldSystem* world)
 {
-    if (!impl_ || !is_initialized() || (world && !world->is_initialized()))
+    if (!impl_ || !is_initialized() ||
+        (world && (!world->is_initialized() || world->resource_loader() != resources_)))
     {
         return false;
     }
@@ -669,10 +685,12 @@ bool AudioSystem::set_world(WorldSystem* world)
     return true;
 }
 
-bool AudioSystem::play(ResourcePtr clip, AudioVoiceHandle& output)
+bool AudioSystem::play(const ResourceHandle& handle, AudioVoiceHandle& output)
 {
     output = {};
-    if (!impl_ || !is_initialized() || !clip || !clip->audio() || !valid_clip(*clip->audio()))
+    resource_detail::ResourceReference clip;
+    if (!impl_ || !is_initialized() || !clip.retain(resources_, handle) ||
+        !clip.data<AudioResource>() || !valid_clip(*clip.data<AudioResource>()))
     {
         if (impl_)
         {
@@ -685,8 +703,10 @@ bool AudioSystem::play(ResourcePtr clip, AudioVoiceHandle& output)
         return false;
     }
     auto voice = std::make_unique<Impl::Voice>();
-    const SDL_AudioSpec input{SDL_AUDIO_F32, 2, static_cast<int>(clip->audio()->sample_rate)};
+    const SDL_AudioSpec input{SDL_AUDIO_F32, 2,
+                              static_cast<int>(clip.data<AudioResource>()->sample_rate)};
     const SDL_AudioSpec output_format{SDL_AUDIO_F32, 2, 48000};
+    voice->data = clip.data<AudioResource>();
     voice->clip = std::move(clip);
     voice->stream = SDL_CreateAudioStream(&input, &output_format);
     if (!voice->stream ||
@@ -783,7 +803,7 @@ bool AudioSystem::playback(AudioVoiceHandle handle, AudioPlaybackStatus& output)
         return false;
     }
     const auto& voice = *found->second;
-    const auto& clip = *voice.clip->audio();
+    const auto& clip = *voice.data;
     output = {voice.state, voice.last_position, static_cast<double>(clip.frames) / clip.sample_rate,
               voice.error};
     return true;

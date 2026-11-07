@@ -67,7 +67,7 @@ bgfx_shader_handle_t EffectResources::load_shader(const char* material, const ch
 int EffectResources::load_texture(const char* name, int, void* context)
 {
     auto& resources = *static_cast<EffectResources*>(context);
-    ResourcePtr resource;
+    resource_detail::ResourceReference resource;
     if (name == nullptr || !resources.resolve(name, schema::AssetKind::texture, resource))
     {
         return -1;
@@ -96,8 +96,9 @@ int EffectResources::load_texture(const char* name, int, void* context)
     render_detail::PreparedTexture prepared;
     // 颜色空间只由资源 meta 决定，不使用旧适配器固定传入的 srgb=0。
     // SDK 的同步回调逐张加载，仍在 bgfx API 线程准备并上传。
-    if (!resource->texture() || resource->texture()->cube_map ||
-        !prepared.describe(resource, *bgfx::getCaps(), std::numeric_limits<std::size_t>::max()) ||
+    if (!resource.data<TextureResource>() || resource.data<TextureResource>()->cube_map ||
+        !prepared.describe(resource.loader(), resource.handle(), *bgfx::getCaps(),
+                           std::numeric_limits<std::size_t>::max()) ||
         !prepared.prepare() || !entry.gpu.create(prepared))
     {
         resources.error = "Cannot upload effect texture: " + resource->info().path;
@@ -108,7 +109,8 @@ int EffectResources::load_texture(const char* name, int, void* context)
     return id;
 }
 
-bool EffectResources::resolve(std::string_view path, schema::AssetKind kind, ResourcePtr& output)
+bool EffectResources::resolve(std::string_view path, schema::AssetKind kind,
+                              resource_detail::ResourceReference& output)
 {
     output.reset();
     if (loading != nullptr)
@@ -116,8 +118,7 @@ bool EffectResources::resolve(std::string_view path, schema::AssetKind kind, Res
         const auto found = loading->find(effect_dependency_path(path));
         if (found != loading->end() && found->second->info().kind == kind)
         {
-            output = found->second;
-            return true;
+            return output.retain(found->second);
         }
     }
     error = "Effect dependency is missing from its compiled bindings: " + std::string(path);

@@ -1,4 +1,5 @@
 #include "plugins/editor/modeling/modeling_mesh_importer.hpp"
+#include "editor/file_text.hpp"
 
 #include "editor/asset_pipeline/importer_utils.hpp"
 #include "editor/mesh/mesh_lods.hpp"
@@ -86,7 +87,7 @@ bool ModelingMeshImporter::convert(const editor::asset_pipeline::ImportAsset& as
                                    std::string& error) const
 {
     std::string text;
-    if (!ResourceSystem::read_text(asset.source, text))
+    if (!engine::editor::file_detail::read_text(asset.source, text))
     {
         error = "cannot read modeling mesh source: " + PathUtils::to_utf8(asset.source);
         return false;

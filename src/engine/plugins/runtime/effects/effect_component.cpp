@@ -7,7 +7,7 @@
 #include "plugins/runtime/effects/effect_resource_path.hpp"
 #include "plugins/runtime/effects/effect_validation.hpp"
 #include "runtime/core/guid_map.hpp"
-#include "runtime/resource/resource_system.hpp"
+#include "runtime/scene/resource_binding.hpp"
 
 #include <cmath>
 #include <limits>
@@ -55,12 +55,14 @@ bool EffectComponent::set_settings(const schema::EffectDataT& settings)
     {
         return false;
     }
-    auto* resources = ResourceSystem::instance();
+    auto* resources = node().world()->resource_loader();
     const bool identity_changed = settings.effect_guid != this->settings().effect_guid;
-    const bool changed =
-        identity_changed || (runtime()->effect_ && resources &&
-                             runtime()->effect_->generation() != resources->generation());
-    auto replacement = runtime()->effect_;
+    const bool changed = identity_changed;
+    resource_detail::ResourceReference replacement;
+    if (runtime()->effect_ && !replacement.retain(runtime()->effect_))
+    {
+        return false;
+    }
     if (changed)
     {
         if (runtime()->revision_ == std::numeric_limits<std::uint64_t>::max())
@@ -72,12 +74,10 @@ bool EffectComponent::set_settings(const schema::EffectDataT& settings)
         {
             std::string error;
             const schema::EffectAssetData* asset = nullptr;
-            if (!resources || !resources->loader().load(settings.effect_guid, replacement) ||
+            if (!resources ||
+                !ecs_detail::acquire_resource(node(), settings.effect_guid, replacement) ||
                 !replacement || replacement->info().kind != schema::AssetKind::effect ||
-                !detail::read_effect_asset(replacement->bytes(), asset, error) ||
-                !validate_effect({reinterpret_cast<const std::byte*>(asset->data()->data()),
-                                  asset->data()->size()},
-                                 error))
+                !replacement.data<EffectResource>())
             {
                 return false;
             }
@@ -136,7 +136,7 @@ bool EffectComponent::set_effect(std::string_view path)
     {
         value.effect_guid.clear();
     }
-    else if (!ResourceSystem::path_to_guid(path, value.effect_guid))
+    else if (!ecs_detail::resource_guid(node(), path, value.effect_guid))
     {
         return false;
     }

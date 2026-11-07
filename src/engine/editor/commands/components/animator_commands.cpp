@@ -7,7 +7,8 @@ namespace engine::editor::components
 {
 namespace
 {
-bool read(const Json& arguments, schema::AnimatorDataT& value, std::string& error)
+bool read(ResourceLoader* loader, const Json& arguments, schema::AnimatorDataT& value,
+          std::string& error)
 {
     if (!fields(arguments, {"enabled", "animation", "speed", "loop", "playOnAwake"}, error))
     {
@@ -25,7 +26,7 @@ bool read(const Json& arguments, schema::AnimatorDataT& value, std::string& erro
         {
             value.animation_guid.clear();
         }
-        else if (!ResourceSystem::path_to_guid(path, value.animation_guid))
+        else if (!resource_access::load_guid(loader, path, value.animation_guid))
         {
             error = "Animation resource path not found";
             return false;
@@ -55,12 +56,12 @@ bool read(const Json& arguments, schema::AnimatorDataT& value, std::string& erro
     return true;
 }
 
-Json write(const schema::AnimatorDataT& value)
+Json write(ResourceLoader* loader, const schema::AnimatorDataT& value)
 {
     std::string path;
     if (!value.animation_guid.empty())
     {
-        (void)ResourceSystem::guid_to_path(value.animation_guid, path);
+        (void)resource_access::path(loader, value.animation_guid, path);
     }
     return {{"animationGuid", value.animation_guid},
             {"animation", path},
@@ -91,8 +92,11 @@ Json state(const Animator& value)
 
 bool register_animator(WorldSystem& world, EditorCommands& commands, NodeAliases& aliases)
 {
-    if (!register_component<Animator, schema::AnimatorDataT>(world, commands, "animator", aliases,
-                                                             read, write))
+    if (!register_component<Animator, schema::AnimatorDataT>(
+            world, commands, "animator", aliases,
+            [&world](const auto& args, auto& data, auto& error)
+            { return read(world.resource_loader(), args, data, error); },
+            [&world](const auto& data) { return write(world.resource_loader(), data); }))
     {
         return false;
     }

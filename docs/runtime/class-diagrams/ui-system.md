@@ -17,7 +17,7 @@ classDiagram
         +get_settings(UiDataT& output) bool
         +set_settings(const UiDataT& settings) bool
         +set_document(string_view path) bool
-        +document() ResourcePtr
+        +document() ResourceHandle
         +document_revision() uint64
         +restore_data(const ComponentDataT& data) bool
     }

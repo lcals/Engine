@@ -1,3 +1,4 @@
+#include "resource_services.hpp"
 #include "scene_snapshot.hpp"
 
 #include "plugins/runtime/character_controller/character_camera.hpp"
@@ -42,7 +43,8 @@ bool expect(bool value, const char* description)
 
 struct Fixture
 {
-    engine::WorldSystem world;
+    test_support::ResourceServices services;
+    engine::WorldSystem world{&services.loader};
     engine::PhysicsSystem physics{&world};
     CharacterControllerSystem controller{world};
     CharacterCameraSystem cameras{world, physics};
@@ -72,7 +74,8 @@ struct Fixture
     bool initialize()
     {
         const engine::EngineConfig config;
-        if (!world.initialize(config) || !physics.initialize(config) ||
+        if (!services.initialize(config) || !services.prepare_builtins() ||
+            !world.initialize(config) || !physics.initialize(config) ||
             !controller.initialize(config) || !cameras.initialize(config) ||
             world.create_scene("Character") == nullptr ||
             box("Floor", {0, -0.5, 0}, {30, 0.5, 30}).valid() == false)
@@ -502,11 +505,6 @@ bool camera_modes_and_occlusion()
 
 bool first_person_visibility_lifecycle()
 {
-    engine::ResourceSystem resources;
-    if (!resources.initialize({}))
-    {
-        return false;
-    }
     Fixture fixture;
     if (!fixture.initialize())
     {

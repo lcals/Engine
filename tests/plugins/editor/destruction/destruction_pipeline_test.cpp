@@ -3,6 +3,7 @@
 #include "plugins/editor/destruction/destruction_importer.hpp"
 #include "runtime/engine_config.hpp"
 #include "runtime/resource/resource_system.hpp"
+#include "runtime/resource/virtual_file_system.hpp"
 #include "runtime/schema/destruction_generated.h"
 #include "runtime/task/task_system.hpp"
 #include "runtime/task/thread_system.hpp"
@@ -140,7 +141,9 @@ bool run(Project& project)
             schema::VerifyDestructionAssetDataBuffer(verifier) && destruction_entry != nullptr &&
                 destruction_entry->kind == schema::AssetKind::destruction &&
                 destruction_entry->dependencies.empty() && scene_entry != nullptr &&
-                scene_entry->dependencies == std::vector<Guid>{std::string(destruction_guid)},
+                scene_entry->dependencies.size() == 2 &&
+                std::find(scene_entry->dependencies.begin(), scene_entry->dependencies.end(),
+                          destruction_guid) != scene_entry->dependencies.end(),
             "destruction is independent and generic scene codec discovers its actual reference"))
     {
         return false;
@@ -167,8 +170,9 @@ bool run(Project& project)
     ByteBuffer published;
     ByteBuffer published_catalog;
     if (!expect(
-            ResourceSystem::read_binary(project.root / "cache/gen" / destruction_guid, published) &&
-                ResourceSystem::read_binary(project.root / "cache/catalog.bin", published_catalog),
+            VirtualFileSystem::read_file(project.root / "cache/gen" / destruction_guid,
+                                         published) &&
+                VirtualFileSystem::read_file(project.root / "cache/catalog.bin", published_catalog),
             "snapshot valid published batch"))
     {
         return false;
@@ -186,10 +190,10 @@ bool run(Project& project)
                 write(project.root / "assets/test.destruction", invalid) &&
                     !pipeline.build_assets(project.root) &&
                     pipeline.last_build().revision == revision &&
-                    ResourceSystem::read_binary(project.root / "cache/gen" / destruction_guid,
-                                                current) &&
-                    ResourceSystem::read_binary(project.root / "cache/catalog.bin",
-                                                current_catalog) &&
+                    VirtualFileSystem::read_file(project.root / "cache/gen" / destruction_guid,
+                                                 current) &&
+                    VirtualFileSystem::read_file(project.root / "cache/catalog.bin",
+                                                 current_catalog) &&
                     current == published && current_catalog == published_catalog,
                 "invalid generation input preserves the previously published volume and catalog"))
         {

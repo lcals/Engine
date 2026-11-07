@@ -1,11 +1,13 @@
 #include "runtime/scene/text_component.hpp"
 
+#include "runtime/resource/types/font_resource.hpp"
+#include "runtime/resource/types/shader_resource.hpp"
 #include "runtime/scene/text_component_runtime.hpp"
 
 #include "runtime/scene/ecs_storage.hpp"
 
 #include "runtime/core/guid_map.hpp"
-#include "runtime/resource/resource_system.hpp"
+#include "runtime/scene/resource_binding.hpp"
 
 #include <cmath>
 #include <utility>
@@ -73,31 +75,41 @@ bool TextComponent::set_settings(const schema::TextDataT& settings)
     {
         return false;
     }
-    ResourcePtr font = runtime()->font_;
-    ResourcePtr shader = runtime()->shader_;
+    resource_detail::ResourceReference font;
+    resource_detail::ResourceReference shader;
+    if ((runtime()->font_ && !font.retain(runtime()->font_)) ||
+        (runtime()->shader_ && !shader.retain(runtime()->shader_)))
+    {
+        return false;
+    }
     auto normalized = settings;
     if (normalized.shader_path.empty())
     {
         normalized.shader_path = "builtin://shaders/font";
     }
-    auto* resources = ResourceSystem::instance();
+    auto* resources = node().world()->resource_loader();
     if (settings.font_guid.empty())
     {
         font.reset();
     }
     else if (!font || font->info().guid != settings.font_guid)
     {
-        if (resources == nullptr || !resources->loader().load(settings.font_guid, font) || !font ||
-            font->font() == nullptr)
+        font.reset();
+        if (resources == nullptr ||
+            !ecs_detail::acquire_resource(node(), settings.font_guid, font) || !font ||
+            font.data<FontResource>() == nullptr)
         {
             return false;
         }
     }
     if (!shader || shader->info().path != normalized.shader_path)
     {
+        shader.reset();
         std::string guid;
-        if (resources == nullptr || !ResourceSystem::path_to_guid(normalized.shader_path, guid) ||
-            !resources->loader().load(guid, shader) || !shader || shader->shader() == nullptr)
+        if (resources == nullptr ||
+            !ecs_detail::resource_guid(node(), normalized.shader_path, guid) ||
+            !ecs_detail::acquire_resource(node(), guid, shader) || !shader ||
+            shader.data<ShaderResource>() == nullptr)
         {
             return false;
         }
@@ -120,29 +132,29 @@ bool TextComponent::set_font(std::string_view path)
     {
         replacement.font_guid.clear();
     }
-    else if (!ResourceSystem::path_to_guid(path, replacement.font_guid))
+    else if (!ecs_detail::resource_guid(node(), path, replacement.font_guid))
     {
         return false;
     }
     return set_settings(replacement);
 }
 
-std::shared_ptr<const Resource> TextComponent::font() const noexcept
+ResourceHandle TextComponent::font() const noexcept
 {
     if (!valid())
     {
         return {};
     }
-    return runtime()->font_;
+    return runtime()->font_.handle();
 }
 
-std::shared_ptr<const Resource> TextComponent::shader() const noexcept
+ResourceHandle TextComponent::shader() const noexcept
 {
     if (!valid())
     {
         return {};
     }
-    return runtime()->shader_;
+    return runtime()->shader_.handle();
 }
 
 bool TextComponent::restore_data(const schema::ComponentDataT& data)

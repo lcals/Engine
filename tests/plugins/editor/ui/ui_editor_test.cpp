@@ -8,6 +8,7 @@
 #include "plugins/editor/asset_import/ui_importer.hpp"
 #include "plugins/editor/ui/ui_editor_commands.hpp"
 #include "plugins/editor/ui/ui_editor_state.hpp"
+#include "resource_services.hpp"
 #include "runtime/engine_config.hpp"
 #include "runtime/font/font_system.hpp"
 #include "runtime/gameplay/gameplay_session.hpp"
@@ -69,17 +70,18 @@ body { font-family: body; font-size: 18px; margin:0; }
 struct Fixture
 {
     fs::path root;
-    engine::ResourceSystem resources;
     engine::ThreadSystem threads;
+    test_support::ResourceServices services{&threads};
+    engine::ResourceSystem& resources = services.core;
     engine::TaskSystem tasks{threads};
     engine::editor::AssetPipelineSystem pipeline{tasks};
     engine::WindowSystem window;
-    engine::WorldSystem world;
-    engine::FontSystem fonts;
+    engine::WorldSystem world{&services.loader};
+    engine::FontSystem fonts{&services.loader};
     engine::UiSystem ui{window, world, fonts};
     engine::RenderSystem renderer{window, &world, &fonts, &ui};
     engine::InputSystem input{window};
-    engine::GameplaySession gameplay{world, renderer, nullptr};
+    engine::GameplaySession gameplay{resources, world, renderer, nullptr};
     engine::editor::ProjectSystem project;
     engine::editor::EditorEnvironment environment{project};
     engine::editor::ScenePreview preview;
@@ -102,7 +104,7 @@ struct Fixture
         renderer.shutdown();
         world.shutdown();
         window.shutdown();
-        resources.shutdown();
+        services.shutdown();
         pipeline.shutdown();
         tasks.shutdown();
         threads.shutdown();
@@ -158,8 +160,8 @@ shader="builtin://shaders/font"
                pipeline.initialize(config) && pipeline.add_importer(font) &&
                pipeline.add_importer(document) &&
                expect(pipeline.build_assets(root), pipeline.last_error().c_str()) &&
-               resources.initialize(config) &&
-               resources.update_catalog(pipeline.catalog(), {{"content", root / "cache"}}) &&
+               services.initialize(config) &&
+               services.publish_and_load(pipeline.catalog(), {{"content", root / "cache"}}) &&
                window.initialize(config) && world.initialize(config) && fonts.initialize(config) &&
                ui.initialize(config) && renderer.initialize(config) &&
                scene_commands.register_commands(commands) &&

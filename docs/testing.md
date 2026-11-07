@@ -4,6 +4,32 @@
 
 验证记录只对注明的日期、平台、后端和范围负责。定向测试通过不表示全仓测试通过，历史实窗结果也不代表后续修改已跨平台验收。功能检查与性能验收分开；性能指标和采样口径见[性能文档](runtime/performance.md)。CI 仅手动触发。
 
+## 2026-11-07：统一资源生命周期迁移
+
+按[已确认类图](runtime/class-diagrams/resource-lifecycle.md)一次替换旧接口，覆盖全部 21 种资源：核心文件同步/异步读取与单项解码，资源插件负责依赖、共享、计数及卸载，业务显式加载后使用。资源插件可由遵守 ResourceLoader 契约的实现替换。
+
+验证环境为 Windows x64、MSVC、Direct3D 12、QuickJS。结果：
+
+- Release 完整构建通过。144 项完整 CTest 集合最后一次运行有 142 项通过；另外两项完成定向复测后通过：`editor.project_lifecycle` 在并发 Debug 链接引发的内存压力解除后通过，`engine.model_resource` 在同步模型夹具的真实材质依赖断言后通过。最终覆盖的 144 项均已通过验证。
+- Debug 完成 `engine_app`、`engine_project_app`、`editor_app`、`mcp_app`、`asset_build_app` 及其受影响库的编译和链接；未运行 Debug 测试。本机并发完整 PDB 链接占用过多内存，最终采用单任务和 `/DEBUG:FASTLINK /INCREMENTAL:NO`，C++ Debug 编译配置保持不变；FASTLINK 调试信息依赖 `build/` 中的对象与归档。
+- 关闭 `resource_graph`，保留 `script` 与 `animation_retarget`：配置及宿主实际链接通过，资源插件目标与链接项均不存在；`engine_app --frames 3` 以 Direct3D 12 渲染三帧后正常退出。
+- 公开 Showcase 的 TypeScript `--noEmit` 检查、变更 Markdown 本地链接检查及 `git diff --check` 通过。
+
+重点覆盖同步/异步状态、纯查询、未加载使用失败、独立获取及释放、依赖去重与回滚、取消、目录换代、关闭后操作安全、全部类型处理器、内存资源、影片/音频保活、GPU/字体/UI 文档退役、脚本 Run 清理，以及编辑器保存、撤销和重载。保存旧场景时从已持有资源提取网格与材质身份，避免目录换代后错误地重新解析当前资源。
+
+使用根目录 Presets；收敛后的 Debug 构建命令为：
+
+```powershell
+cmake --preset windows-static-debug "-DCMAKE_EXE_LINKER_FLAGS_DEBUG=/DEBUG:FASTLINK /INCREMENTAL:NO"
+cmake --build --preset windows-static-debug --target engine_app engine_project_app editor_app mcp_app asset_build_app -j 1
+cmake --build --preset windows-static-release -j 6
+ctest --preset windows-static-release --output-on-failure
+ctest --preset windows-static-release -R '^editor.project_lifecycle$' --output-on-failure
+ctest --preset windows-static-release -R '^engine.model_resource$' --output-on-failure
+```
+
+本轮未做 Android、iOS、macOS 真机及 V8 后端验收；Android MCP 测试验证桌面同步协议与模拟设备文件行为。关闭资源插件的验证使用独立构建目录和现有运行配置夹具，不修改公开项目资源。
+
 ## 执行方式
 
 ### 测试目录

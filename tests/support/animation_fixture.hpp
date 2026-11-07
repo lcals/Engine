@@ -1,3 +1,4 @@
+#include "resource_services.hpp"
 #pragma once
 
 #include "scene_snapshot.hpp"
@@ -260,6 +261,13 @@ inline engine::schema::ModelDataT model()
     child->parent = 0;
     child->position = {0, 2, 0};
     child->mesh_guid = mesh_guid;
+    for (const auto& entry : engine::builtin_resource_catalog().entries)
+    {
+        if (entry->path == "builtin://materials/default-pbr")
+        {
+            child->material_guids.push_back(entry->guid);
+        }
+    }
     result.nodes.push_back(std::move(child));
     return result;
 }
@@ -279,27 +287,35 @@ inline bool add_model(test_support::ResourceFixture& files)
     flatbuffers::FlatBufferBuilder model_builder;
     engine::schema::FinishModelDataBuffer(
         model_builder, engine::schema::ModelData::Pack(model_builder, &model_data));
+    std::vector<std::string> dependencies{mesh_guid};
+    for (const auto& node : model_data.nodes)
+    {
+        dependencies.insert(dependencies.end(), node->material_guids.begin(),
+                            node->material_guids.end());
+    }
     return add(files, model_guid, model_path, engine::schema::AssetKind::model, model_builder,
-               {mesh_guid});
+               dependencies);
 }
 
 struct Fixture
 {
     test_support::ResourceFixture files;
-    engine::ResourceSystem resources;
-    engine::WorldSystem world;
+    test_support::ResourceServices services;
+    engine::ResourceSystem& resources = services.core;
+    engine::WorldSystem world{&services.loader};
     engine::AnimationSystem animation;
 
     explicit Fixture(engine::TaskSystem* tasks = nullptr,
-                     const engine::AnimationConfig& animation_config = {})
-        : animation(&world, tasks, animation_config)
+                     const engine::AnimationConfig& animation_config = {},
+                     engine::ThreadSystem* threads = nullptr)
+        : services(threads), animation(&world, tasks, animation_config)
     {
     }
 
     bool initialize()
     {
         const engine::EngineConfig config;
-        if (files.root.empty() || !resources.initialize(config) || !world.initialize(config) ||
+        if (files.root.empty() || !services.initialize(config) || !world.initialize(config) ||
             !animation.initialize(config) || !world.create_scene("Animation"))
         {
             return false;
@@ -330,7 +346,7 @@ struct Fixture
                 return false;
             }
         }
-        return files.publish(resources);
+        return services.publish_and_load(files.catalog, {{"content", files.root}});
     }
 
     engine::Node create(bool auto_play = true)

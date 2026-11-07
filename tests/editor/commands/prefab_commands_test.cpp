@@ -1,4 +1,5 @@
 #include "resource_fixture.hpp"
+#include "resource_services.hpp"
 #include "scene_snapshot.hpp"
 
 #include "editor/asset_pipeline/prefab_importer.hpp"
@@ -51,9 +52,10 @@ std::unique_ptr<schema::NodeDataT> node_data(std::uint64_t id, std::uint64_t par
 bool run()
 {
     test_support::ResourceFixture files;
-    ResourceSystem resources;
-    WorldSystem world;
-    if (!resources.initialize({}) || !world.initialize({}))
+    test_support::ResourceServices services;
+    engine::ResourceSystem& resources = services.core;
+    engine::WorldSystem world{&services.loader};
+    if (!(services.initialize({}) && services.prepare_builtins()) || !world.initialize({}))
     {
         return false;
     }
@@ -74,7 +76,8 @@ bool run()
     light->payload.Set(schema::LightDataT{});
     source.nodes.front()->components.push_back(std::move(light));
     source.nodes.push_back(node_data(9, 0));
-    if (!files.add("unit.prefab", source) || !files.publish(resources))
+    if (!files.add("unit.prefab", source) ||
+        !(files.publish(resources) && services.prepare_builtins()))
     {
         return false;
     }
@@ -240,7 +243,8 @@ bool run()
     {
         return false;
     }
-    if (!files.add("copy.prefab", copied) || !files.publish(resources) ||
+    if (!files.add("copy.prefab", copied) ||
+        !(files.publish(resources) && services.prepare_builtins()) ||
         !execute("unlink_prefab", root_target))
     {
         return false;
@@ -305,7 +309,12 @@ bool run()
     {
         return false;
     }
-    if (!files.add("compiled.scene", saved) || !files.publish(resources))
+    if (!files.add("compiled.scene", saved) ||
+        !(files.publish(resources) && services.prepare_builtins()))
+    {
+        return false;
+    }
+    if (!services.load("compiled.scene"))
     {
         return false;
     }

@@ -1,5 +1,7 @@
 # 影片启动与宿主分阶段装配
 
+**版本说明：本页保留现有启动实现用于核对。统一资源目标要求 Caller 先显式加载片头，再把 ResourceHandle 交给播放器；播放器不加载资源，资源/影片/渲染使用各自任务域。目标流程见[业务与任务](resource-consumers.md)，资源接入迁移时须同步本页及 RuntimeHost 的完整公开参数。**
+
 本页描述现有分阶段启动的关系与执行契约。公开方法分别在[运行宿主](runtime-host.md)
 和[玩法会话](gameplay-session.md)维护。2026-11-06 修复统一发布版本选择和真实媒体时钟。
 
@@ -338,6 +340,8 @@ ready 必须同时表示：必要系统已初始化、项目 VM 已完成所需�
   Input / Window 和资源异步服务。资源使用者先于所借用 ResourceSystem 释放，全部 CPU 作业在
   对应 TaskSystem 关闭时收尾，TaskSystem 先于自有 ThreadSystem 关闭；外供服务由外部拥有者最后关闭。
   销音频流须先同步 SDL 回调再释放 AudioClip；清理场景只调用 clear_scene，不影响独立影片声部。
+
+<a id="启动配置规划"></a>
 
 ## 启动配置
 

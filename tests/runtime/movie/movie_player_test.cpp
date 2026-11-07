@@ -1,4 +1,5 @@
 #include "movie_fixture.hpp"
+#include "resource_services.hpp"
 
 #include "runtime/audio/audio_system.hpp"
 #include "runtime/engine_config.hpp"
@@ -36,19 +37,28 @@ bool run()
     }
     ThreadSystem threads({2});
     TaskSystem tasks(threads, {"MovieTest", 2});
-    ResourceSystem resources;
-    AudioSystem audio;
+    test_support::ResourceServices resources(&threads);
+    AudioSystem audio(&resources.loader);
     test_support::ResourceFixture fixture;
     if (!threads.initialize({}) || !tasks.initialize({}) || !resources.initialize({}) ||
-        !resources.configure_async(tasks) || !audio.initialize({}) ||
-        !test_support::make_movie(fixture) || !fixture.publish(resources))
+        !audio.initialize({}) || !test_support::make_movie(fixture) ||
+        !fixture.publish(resources.core))
     {
         return expect(false, "initialize services and fixture");
     }
-    MoviePlayer player(resources, tasks, audio);
+    resource_detail::ResourceReference movie, sound;
+    if (!resources.load("movies/test.mp4", movie))
+    {
+        return expect(false, "preload movie");
+    }
+    if (!resources.load("movies/sound.mp4", sound))
+    {
+        return expect(false, "preload sound movie");
+    }
+    MoviePlayer player(resources.loader, tasks, audio);
     MoviePlaybackHandle handle;
-    if (!expect(player.play("movies/test.mp4", handle), "accept asynchronous movie") ||
-        !expect(!player.play("movies/test.mp4", handle), "reject busy player"))
+    if (!expect(player.play(movie.handle(), handle), "accept asynchronous movie") ||
+        !expect(!player.play(movie.handle(), handle), "reject busy player"))
     {
         return false;
     }
@@ -62,7 +72,10 @@ bool run()
     bool first_frame = false;
     while (std::chrono::steady_clock::now() < deadline)
     {
-        resources.poll_async();
+        if (!resources.tick())
+        {
+            return false;
+        }
         (void)tasks.dispatch_completions(16, 0.01);
         if (!player.update(0) || !player.status(handle, status) ||
             status.state == MovieState::failed)
@@ -92,14 +105,17 @@ bool run()
                     player.status(handle, status) && status.state == MovieState::playing,
                 "invalid stop reason leaves playback active") ||
         !expect(player.stop(handle, MovieStopReason::stopped) && player.release(handle) &&
-                    player.play("movies/test.mp4", handle),
+                    player.play(movie.handle(), handle),
                 "cancel an active decode and start a new request"))
     {
         return false;
     }
     while (std::chrono::steady_clock::now() < deadline)
     {
-        resources.poll_async();
+        if (!resources.tick())
+        {
+            return false;
+        }
         (void)tasks.dispatch_completions(16, 0.01);
         if (!player.update(0.02) || !player.status(handle, status) ||
             status.state == MovieState::failed)
@@ -120,11 +136,11 @@ bool run()
         return false;
     }
     MoviePlaybackHandle next;
-    if (!expect(player.play("movies/test.mp4", next) &&
+    if (!expect(player.play(movie.handle(), next) &&
                     !player.stop(old_handle, MovieStopReason::stopped) &&
                     player.stop(next, MovieStopReason::skipped) && player.release(next),
                 "old handle cannot affect subsequent request") ||
-        !expect(player.play("movies/sound.mp4", next), "accept movie with audio"))
+        !expect(player.play(sound.handle(), next), "accept movie with audio"))
     {
         return false;
     }
@@ -133,7 +149,10 @@ bool run()
     const auto audio_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
     while (std::chrono::steady_clock::now() < audio_deadline)
     {
-        resources.poll_async();
+        if (!resources.tick())
+        {
+            return false;
+        }
         (void)tasks.dispatch_completions(16, 0.01);
         if (!audio.tick(0.001) || !player.update(0.001) || !player.status(next, status) ||
             status.state == MovieState::failed)
@@ -177,27 +196,35 @@ bool catch_up()
 {
     ThreadSystem threads({2});
     TaskSystem tasks(threads, {"MovieCatchUp", 2});
-    ResourceSystem resources;
-    AudioSystem audio;
+    test_support::ResourceServices resources(&threads);
+    AudioSystem audio(&resources.loader);
     test_support::ResourceFixture fixture;
     if (!threads.initialize({}) || !tasks.initialize({}) || !resources.initialize({}) ||
-        !resources.configure_async(tasks) || !audio.initialize({}) ||
-        !test_support::make_movie(fixture, 90, 30) || !fixture.publish(resources))
+        !audio.initialize({}) || !test_support::make_movie(fixture, 90, 30) ||
+        !fixture.publish(resources.core))
     {
         return false;
     }
-    MoviePlayer player(resources, tasks, audio);
+    resource_detail::ResourceReference movie;
+    if (!resources.load("movies/test.mp4", movie))
+    {
+        return expect(false, "preload long movie");
+    }
+    MoviePlayer player(resources.loader, tasks, audio);
     MoviePlaybackHandle handle;
     MovieFrame frame;
     MoviePlaybackStatus status;
-    if (!player.play("movies/test.mp4", handle))
+    if (!player.play(movie.handle(), handle))
     {
         return false;
     }
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
     while (!player.frame(handle, frame) && std::chrono::steady_clock::now() < deadline)
     {
-        resources.poll_async();
+        if (!resources.tick())
+        {
+            return false;
+        }
         (void)tasks.dispatch_completions(16, 0.01);
         if (!player.update(0))
         {

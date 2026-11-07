@@ -1,5 +1,7 @@
 # 影片脚本接口与 Run 生命周期
 
+**资源接入迁移说明：本页记录当前脚本绑定，include/engine.d.ts 尚未修改。目标要求脚本显式加载资源，再把本 Run 的已加载资源身份传给 Movie.Play，不能在绑定或播放器里补读路径；Run 结束分别清理播放和资源获取。统一规则见[业务与模块任务](../../../runtime/class-diagrams/resource-consumers.md)，实施前同步本页脚本外观及声明。**
+
 MovieBinding 与 `include/engine.d.ts` 已提供本页影片门面；绑定复用同一 MoviePlayer，
 每个 Run 只拥有自身请求的停止及释放责任。
 

@@ -1,9 +1,11 @@
 #include "editor/asset_pipeline/asset_pipeline_system.hpp"
+#include "file_text.hpp"
 #include "plugins/editor/effects/effect_codec.hpp"
 #include "plugins/editor/effects/effect_importer.hpp"
 #include "runtime/core/guid_map.hpp"
 #include "runtime/engine_config.hpp"
 #include "runtime/resource/resource_system.hpp"
+#include "runtime/resource/virtual_file_system.hpp"
 #include "runtime/schema/effect_generated.h"
 #include "runtime/task/task_system.hpp"
 #include "runtime/task/thread_system.hpp"
@@ -52,7 +54,7 @@ bool write(const fs::path& path, std::string_view text)
 std::string read(const fs::path& path)
 {
     std::string text;
-    return ResourceSystem::read_text(path, text) ? text : std::string{};
+    return test_support::read_text(path, text) ? text : std::string{};
 }
 
 std::string identity(std::size_t index)
@@ -108,7 +110,7 @@ struct Project
                      std::string_view folder, const Guid& effect_guid)
     {
         ByteBuffer bytes;
-        if (!ResourceSystem::read_binary(source, bytes) || bytes.empty())
+        if (!VirtualFileSystem::read_file(source, bytes) || bytes.empty())
         {
             return false;
         }
@@ -245,8 +247,8 @@ bool check_effect(const Project& project, const ResourceCatalog& catalog, std::s
     ByteBuffer source;
     ByteBuffer payload;
     if (!expect(has_model == expect_model, "model sample retains its independent model resource") ||
-        !expect(ResourceSystem::read_binary(project.root / "assets" / folder / "sample.efkefc",
-                                            source) &&
+        !expect(VirtualFileSystem::read_file(project.root / "assets" / folder / "sample.efkefc",
+                                             source) &&
                     ResourceSystem::read_resource(catalog, {{"content", project.root / "cache"}},
                                                   guid, payload),
                 "read the published effect resource"))

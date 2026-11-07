@@ -1,7 +1,9 @@
 #include "runtime/animation/animation_ik.hpp"
 
 #include "runtime/animation/animation_ik_target.hpp"
+#include "runtime/resource/types/skeleton_resource.hpp"
 #include "runtime/scene/animator_runtime.hpp"
+#include "runtime/scene/resource_binding.hpp"
 namespace engine::animation_detail
 {
 using namespace ik_detail;
@@ -10,13 +12,15 @@ bool set_ik_target(Animator actor, std::string_view name, const AnimationIkTarge
 {
     auto renderer = actor.node().get_component<MeshRenderer>();
     const auto* mesh = renderer ? renderer.mesh_data() : nullptr;
-    auto* resources = ResourceSystem::instance();
-    ResourcePtr resource;
+    auto* resources = actor.node().world()->resource_loader();
+    resource_detail::ResourceReference resource;
     std::vector<std::string> paths;
     std::vector<Definition> resolved;
-    if (!mesh || !resources || !resources->loader().load(mesh->skeleton_guid, resource) ||
-        !resource || !resource->skeleton() || !readable_joint_paths(*resource->skeleton(), paths) ||
-        !definitions(*resource->skeleton(), paths, resolved))
+    if (!mesh || !resources ||
+        !resource.dependency(resources, renderer.mesh_resource(), mesh->skeleton_guid) ||
+        !resource || !resource.data<SkeletonResource>() ||
+        !readable_joint_paths(*resource.data<SkeletonResource>(), paths) ||
+        !definitions(*resource.data<SkeletonResource>(), paths, resolved))
     {
         return false;
     }
@@ -36,7 +40,7 @@ bool set_ik_target(Animator actor, std::string_view name, const AnimationIkTarge
         return false;
     }
     IkOperation checked;
-    if (!resolve_target(actor, *resource->skeleton(), paths, resolved,
+    if (!resolve_target(actor, *resource.data<SkeletonResource>(), paths, resolved,
                         static_cast<std::size_t>(found - resolved.begin()), target,
                         ozz::math::Float4x4::identity(), checked))
     {

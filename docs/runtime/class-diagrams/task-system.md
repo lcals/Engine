@@ -1,5 +1,7 @@
 # 运行时线程与任务系统
 
+**资源任务目标：ThreadSystem/TaskSystem 的基础接口保持不变；统一资源设计把文件、单项解析、插件组织与影片/渲染分别配置为独立任务域，共享 worker，不共用一个 loading_tasks。组合关系见[业务与模块任务](resource-consumers.md#各模块自己的任务)，当前宿主尚未迁移。**
+
 [类图索引](../../class-diagrams/index.md) · [资源管线](../../editor/class-diagrams/asset-pipeline-system.md)
 
 oneTBB 管理进程共享 worker，编辑器与运行时各有任务域。公开头仅依赖标准库和 System；旧 editor/task 实现下沉 runtime/task，不保留兼容别名。

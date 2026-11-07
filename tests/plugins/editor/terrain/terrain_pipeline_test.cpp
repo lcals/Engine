@@ -3,6 +3,7 @@
 #include "plugins/editor/terrain/terrain_importer.hpp"
 #include "runtime/engine_config.hpp"
 #include "runtime/resource/resource_system.hpp"
+#include "runtime/resource/virtual_file_system.hpp"
 #include "runtime/schema/terrain_generated.h"
 #include "runtime/task/task_system.hpp"
 #include "runtime/task/thread_system.hpp"
@@ -141,7 +142,9 @@ bool run(Project& project)
     if (!expect(schema::VerifyTerrainAssetDataBuffer(verifier) && terrain_entry != nullptr &&
                     terrain_entry->kind == schema::AssetKind::terrain &&
                     terrain_entry->dependencies.empty() && scene_entry != nullptr &&
-                    scene_entry->dependencies == std::vector<Guid>{std::string(terrain_guid)},
+                    scene_entry->dependencies.size() == 2 &&
+                    std::find(scene_entry->dependencies.begin(), scene_entry->dependencies.end(),
+                              terrain_guid) != scene_entry->dependencies.end(),
                 "terrain is independent and generic scene codec discovers its actual reference"))
     {
         return false;
@@ -170,8 +173,8 @@ bool run(Project& project)
     ByteBuffer published;
     ByteBuffer published_catalog;
     if (!expect(
-            ResourceSystem::read_binary(project.root / "cache/gen" / terrain_guid, published) &&
-                ResourceSystem::read_binary(project.root / "cache/catalog.bin", published_catalog),
+            VirtualFileSystem::read_file(project.root / "cache/gen" / terrain_guid, published) &&
+                VirtualFileSystem::read_file(project.root / "cache/catalog.bin", published_catalog),
             "snapshot valid published batch"))
     {
         return false;
@@ -187,10 +190,10 @@ bool run(Project& project)
                 write(project.root / "assets/test.terrain", invalid) &&
                     !pipeline.build_assets(project.root) &&
                     pipeline.last_build().revision == revision &&
-                    ResourceSystem::read_binary(project.root / "cache/gen" / terrain_guid,
-                                                current) &&
-                    ResourceSystem::read_binary(project.root / "cache/catalog.bin",
-                                                current_catalog) &&
+                    VirtualFileSystem::read_file(project.root / "cache/gen" / terrain_guid,
+                                                 current) &&
+                    VirtualFileSystem::read_file(project.root / "cache/catalog.bin",
+                                                 current_catalog) &&
                     current == published && current_catalog == published_catalog,
                 "invalid generation input preserves the previously published volume and catalog"))
         {

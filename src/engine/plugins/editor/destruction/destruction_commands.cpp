@@ -1,4 +1,6 @@
 #include "plugins/editor/destruction/destruction_commands.hpp"
+#include "editor/resource_access.hpp"
+#include "plugins/runtime/destruction/destruction_resource.hpp"
 
 #include "editor/commands/components/component_edit.hpp"
 #include "editor/commands/scene_commands.hpp"
@@ -40,7 +42,8 @@ std::shared_ptr<std::uint64_t> edit_revision(RevisionMap& revisions, const Node&
     return value;
 }
 
-bool resource(const Json& input, schema::AssetKind kind, Guid& output, std::string& error)
+bool resource(ResourceLoader* loader, const Json& input, schema::AssetKind kind, Guid& output,
+              std::string& error)
 {
     if (!input.is_string())
     {
@@ -53,30 +56,28 @@ bool resource(const Json& input, schema::AssetKind kind, Guid& output, std::stri
         output.clear();
         return true;
     }
-    const auto* resources = ResourceSystem::instance();
-    Guid guid;
-    const auto* entry = resources && ResourceSystem::path_to_guid(path, guid)
-                            ? resources->catalog().find(guid)
-                            : nullptr;
-    if (!entry || entry->kind != kind)
+    editor::resource_access::ResourceReference resource;
+    if (!editor::resource_access::load(loader, path, resource) || resource->kind() != kind)
     {
         error = "Destruction resource path is missing or has the wrong resource type";
         return false;
     }
-    output = std::move(guid);
+    output = resource->info().guid;
     return true;
 }
 
-bool read_settings(const Json& arguments, schema::DestructionDataT& value, std::string& error)
+bool read_settings(ResourceLoader* loader, const Json& arguments, schema::DestructionDataT& value,
+                   std::string& error)
 {
     if (!editor::components::fields(
             arguments, {"enabled", "destruction", "material", "density", "friction", "restitution"},
             error) ||
         (arguments.contains("destruction") &&
-         !resource(arguments["destruction"], schema::AssetKind::destruction, value.destruction_guid,
-                   error)) ||
+         !resource(loader, arguments["destruction"], schema::AssetKind::destruction,
+                   value.destruction_guid, error)) ||
         (arguments.contains("material") &&
-         !resource(arguments["material"], schema::AssetKind::material, value.material_guid, error)))
+         !resource(loader, arguments["material"], schema::AssetKind::material, value.material_guid,
+                   error)))
     {
         return false;
     }
@@ -99,17 +100,17 @@ bool read_settings(const Json& arguments, schema::DestructionDataT& value, std::
     return true;
 }
 
-Json settings_json(const schema::DestructionDataT& value)
+Json settings_json(ResourceLoader* loader, const schema::DestructionDataT& value)
 {
     std::string path;
     std::string material;
     if (!value.destruction_guid.empty())
     {
-        static_cast<void>(ResourceSystem::guid_to_path(value.destruction_guid, path));
+        static_cast<void>(editor::resource_access::path(loader, value.destruction_guid, path));
     }
     if (!value.material_guid.empty())
     {
-        static_cast<void>(ResourceSystem::guid_to_path(value.material_guid, material));
+        static_cast<void>(editor::resource_access::path(loader, value.material_guid, material));
     }
     return {{"destruction", path},
             {"destructionGuid", value.destruction_guid},
@@ -122,7 +123,8 @@ Json settings_json(const schema::DestructionDataT& value)
 
 Json component_json(const DestructionComponent& component)
 {
-    auto result = settings_json(component.settings());
+    auto result =
+        settings_json(component.node().scene()->world().resource_loader(), component.settings());
     result["enabled"] = component.enabled();
     result["ready"] = component.ready();
     result["revision"] = component.revision();
@@ -179,7 +181,7 @@ bool register_destruction_commands(WorldSystem& world, editor::SceneCommands& sc
                     }
                 }
                 auto value = component ? component.settings() : schema::DestructionDataT{};
-                if (!read_settings(arguments, value, error))
+                if (!read_settings(world.resource_loader(), arguments, value, error))
                 {
                     return false;
                 }
@@ -202,7 +204,7 @@ bool register_destruction_commands(WorldSystem& world, editor::SceneCommands& sc
                     error = "Cannot resolve stable destruction node identity";
                     return false;
                 }
-                result = settings_json(value);
+                result = settings_json(world.resource_loader(), value);
                 result["enabled"] = after.flags->enabled;
                 result["sceneId"] = std::to_string(node.scene()->id());
                 result["nodeId"] = std::to_string(node.id());

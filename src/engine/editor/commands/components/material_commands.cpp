@@ -1,4 +1,8 @@
 #include "editor/commands/components/component_edit.hpp"
+#include "editor/resource_access.hpp"
+#include "runtime/resource/types/material_resource.hpp"
+#include "runtime/resource/types/texture_resource.hpp"
+#include "runtime/schema/shader_generated.h"
 
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/scene/material.hpp"
@@ -179,12 +183,15 @@ private:
         auto node = target.node(error);
         auto renderer = node ? node.get_component<MeshRenderer>() : MeshRenderer{};
         auto material = renderer ? renderer.material(slot) : Material{};
-        auto* resources = ResourceSystem::instance();
-        const auto* available = resources ? resources->catalog().find(replacement.guid) : nullptr;
-        const auto current = material ? material.texture(name) : ResourcePtr{};
-        if (!current || current->info() != expected || !available || *available != replacement ||
-            !material || material.type_path() != material_path ||
-            material.shader_path() != shader_path || !current->texture())
+        auto* loader = target.world.resource_loader();
+        resource_access::ResourceReference available;
+        const auto* current =
+            resource_access::get(loader, material ? material.texture(name) : ResourceHandle{});
+        if (!current || current->info() != expected ||
+            !resource_access::load(loader, replacement.guid, available) ||
+            available->info() != replacement || !material ||
+            material.type_path() != material_path || material.shader_path() != shader_path ||
+            !engine::resource_detail::data<TextureResource>(current))
         {
             error = "Texture target changed; undo or redo is stale";
             return false;
@@ -357,30 +364,9 @@ public:
     }
     bool retain_version(std::string_view resource_path)
     {
-        auto* resources = ResourceSystem::instance();
-        Guid guid;
-        ResourcePtr resource;
-        if (!resources || !ResourceSystem::path_to_guid(resource_path, guid) ||
-            !resources->loader().load(guid, resource))
-        {
-            return false;
-        }
-        if (std::any_of(versions.begin(), versions.end(),
-                        [&](const auto& entry) { return entry.guid == guid; }))
-        {
-            return true;
-        }
-        versions.push_back(resource->info());
-        for (const auto& dependency : resource->info().dependencies)
-        {
-            std::string dependency_path;
-            if (!ResourceSystem::guid_to_path(dependency, dependency_path) ||
-                !retain_version(dependency_path))
-            {
-                return false;
-            }
-        }
-        return true;
+        resource_access::ResourceReference resource;
+        return resource_access::load(target.world.resource_loader(), resource_path, resource) &&
+               resource_access::collect_versions(resource, versions);
     }
 
 private:
@@ -389,24 +375,16 @@ private:
         auto node = target.node(error);
         auto renderer = node ? node.get_component<MeshRenderer>() : MeshRenderer{};
         auto material = renderer ? renderer.material(slot) : Material{};
-        auto* resources = ResourceSystem::instance();
-        if (!material || !resources || material_json(material) != expected)
+        if (!material || material_json(material) != expected)
         {
             error = "Material changed outside this edit; undo or redo is stale";
             return false;
         }
-        std::vector<ResourcePtr> pins;
-        for (const auto& version : versions)
+        std::vector<resource_access::ResourceReference> pins;
+        if (!resource_access::load_versions(target.world.resource_loader(), versions, pins))
         {
-            const auto* available = resources->catalog().find(version.guid);
-            ResourcePtr resource;
-            if (!available || *available != version ||
-                !resources->loader().load(version.guid, resource))
-            {
-                error = "Material dependency version changed or is unavailable";
-                return false;
-            }
-            pins.push_back(std::move(resource));
+            error = "Material dependency version changed or is unavailable";
+            return false;
         }
         if (replacement.is_null())
         {
@@ -515,16 +493,22 @@ bool prepare_texture(WorldSystem& world, NodeAliases& aliases, const Json& argum
     edit->name = arguments["name"].get<std::string>();
     std::string_view previous_path;
     Guid guid;
-    ResourcePtr replacement;
-    auto* resources = ResourceSystem::instance();
-    if (!material.get_texture(edit->name, previous_path) || !resources ||
-        !ResourceSystem::path_to_guid(arguments["path"].get<std::string>(), guid) ||
-        !resources->loader().load(guid, replacement) || !replacement->texture())
+    resource_access::ResourceReference replacement;
+    auto* loader = world.resource_loader();
+    if (!material.get_texture(edit->name, previous_path) ||
+        !resource_access::load(loader, arguments["path"].get<std::string>(), replacement) ||
+        !replacement.data<TextureResource>())
     {
         error = "Unknown texture slot or texture resource";
         return false;
     }
-    edit->before = material.texture(edit->name)->info();
+    const auto* previous = resource_access::get(loader, material.texture(edit->name));
+    if (!previous)
+    {
+        error = "Previous texture is unavailable";
+        return false;
+    }
+    edit->before = previous->info();
     edit->after = replacement->info();
     edit->material_path = material.type_path();
     edit->shader_path = material.shader_path();
@@ -553,10 +537,10 @@ bool prepare_material_type(WorldSystem& world, NodeAliases& aliases, const Json&
     const auto& material = renderer.material(record->slot);
     record->path = arguments["path"].get<std::string>();
     Guid guid;
-    ResourcePtr requested;
-    auto* resources = ResourceSystem::instance();
-    if (!resources || !ResourceSystem::path_to_guid(record->path, guid) ||
-        !resources->loader().load(guid, requested) || !requested->material())
+    resource_access::ResourceReference requested;
+    auto* loader = world.resource_loader();
+    if (!resource_access::load(loader, record->path, requested) ||
+        !requested.data<MaterialResource>())
     {
         error = "Requested path does not identify a material";
         return false;

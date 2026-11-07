@@ -80,8 +80,8 @@ try {
 
     fixture.loadStatus = "loading";
     command("load-a");
-    assert.equal(fixture.pendingLoad, "scenes/main.scene");
-    assert.match(status.text, /Loading 1 \/ 2/);
+    assert.equal(fixture.pendingResource, "scenes/main.scene");
+    assert.match(status.text, /Loading resources 1 \/ 2/);
     edit("editing while resources are loading");
     fixture.loadStatus = "ready";
     game.Update();

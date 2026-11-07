@@ -1,4 +1,5 @@
 #include "editor/asset_pipeline/asset_publish.hpp"
+#include "editor/file_text.hpp"
 
 #include "editor/asset_pipeline/asset_io.hpp"
 #include "runtime/resource/resource_system.hpp"
@@ -81,7 +82,7 @@ bool recover_publish(const std::filesystem::path& cache, AssetDatabase& database
         return true;
     }
     std::string journal_text;
-    if (!ResourceSystem::read_text(journal_path, journal_text))
+    if (!engine::editor::file_detail::read_text(journal_path, journal_text))
     {
         error = "cannot read asset publication recovery journal";
         return false;

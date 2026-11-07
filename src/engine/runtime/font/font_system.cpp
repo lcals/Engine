@@ -3,7 +3,8 @@
 #include "runtime/scene/ecs_storage.hpp"
 
 #include "runtime/core/guid_map.hpp"
-#include "runtime/resource/resource_system.hpp"
+#include "runtime/resource/resource_loader.hpp"
+#include "runtime/resource/types/shader_resource.hpp"
 #include "runtime/scene/scene.hpp"
 #include "runtime/scene/text_component.hpp"
 #include "runtime/scene/transform.hpp"
@@ -53,22 +54,6 @@ std::uint32_t next_codepoint(std::string_view text, std::size_t& offset) noexcep
                : value;
 }
 
-bool load_resource(std::string_view path_or_guid, ResourcePtr& output)
-{
-    output.reset();
-    auto* resources = ResourceSystem::instance();
-    if (resources == nullptr)
-    {
-        return false;
-    }
-    std::string guid(path_or_guid);
-    if (!GuidMap::valid_guid(path_or_guid) && !ResourceSystem::path_to_guid(path_or_guid, guid))
-    {
-        return false;
-    }
-    return resources->loader().load(guid, output) && output != nullptr;
-}
-
 bool finite_vertex(const FontVertex& vertex) noexcept
 {
     for (float value : vertex.position)
@@ -88,9 +73,19 @@ bool finite_vertex(const FontVertex& vertex) noexcept
 
 struct FontSystem::GpuState
 {
+    explicit GpuState(ResourceLoader& loader) : loader(loader)
+    {
+    }
+    ResourceLoader& loader;
+    const Resource* get(ResourceHandle handle) const noexcept
+    {
+        const Resource* resource = nullptr;
+        (void)loader.get(handle, resource);
+        return resource;
+    }
     struct Texture
     {
-        std::weak_ptr<const Resource> resource;
+        ResourceHandle resource;
         bgfx::TextureHandle handle = BGFX_INVALID_HANDLE;
         std::uint16_t width = 0;
         std::uint16_t height = 0;
@@ -106,7 +101,7 @@ struct FontSystem::GpuState
 
     struct Program
     {
-        std::weak_ptr<const Resource> resource;
+        ResourceHandle resource;
         bgfx::ProgramHandle handle = BGFX_INVALID_HANDLE;
 
         ~Program() noexcept
@@ -153,20 +148,20 @@ struct FontSystem::GpuState
                bgfx::isValid(texture_info);
     }
 
-    Texture* get_texture(const ResourcePtr& resource)
+    Texture* get_texture(ResourceHandle handle, const FontResource* resource)
     {
-        std::erase_if(textures, [](const auto& texture) { return texture->resource.expired(); });
+        std::erase_if(textures, [this](const auto& texture) { return !get(texture->resource); });
         for (const auto& texture : textures)
         {
-            const auto existing = texture->resource.lock();
+            const auto existing = get(texture->resource);
             if (existing && existing->info().guid == resource->info().guid &&
                 existing->generation() == resource->generation())
             {
-                texture->resource = resource;
+                texture->resource = handle;
                 return texture.get();
             }
         }
-        const auto& curves = resource->font()->curves;
+        const auto& curves = resource->data().curves;
         const auto* caps = bgfx::getCaps();
         if (caps == nullptr ||
             (caps->formats[bgfx::TextureFormat::RGBA32F] & BGFX_CAPS_FORMAT_TEXTURE_2D) == 0 ||
@@ -212,26 +207,26 @@ struct FontSystem::GpuState
         {
             return nullptr;
         }
-        texture->resource = resource;
+        texture->resource = handle;
         Texture* result = texture.get();
         textures.push_back(std::move(texture));
         return result;
     }
 
-    Program* get_program(const ResourcePtr& resource)
+    Program* get_program(ResourceHandle handle, const ShaderResource* resource)
     {
-        std::erase_if(programs, [](const auto& program) { return program->resource.expired(); });
+        std::erase_if(programs, [this](const auto& program) { return !get(program->resource); });
         for (const auto& program : programs)
         {
-            const auto existing = program->resource.lock();
+            const auto existing = get(program->resource);
             if (existing && existing->info().guid == resource->info().guid &&
                 existing->generation() == resource->generation())
             {
-                program->resource = resource;
+                program->resource = handle;
                 return program.get();
             }
         }
-        const auto& shader = *resource->shader();
+        const auto& shader = resource->data();
         if (shader.vertex_code.empty() || shader.fragment_code.empty() ||
             shader.vertex_code.size() > std::numeric_limits<std::uint32_t>::max() ||
             shader.fragment_code.size() > std::numeric_limits<std::uint32_t>::max())
@@ -299,14 +294,16 @@ struct FontSystem::GpuState
         {
             return nullptr;
         }
-        program->resource = resource;
+        program->resource = handle;
         Program* result = program.get();
         programs.push_back(std::move(program));
         return result;
     }
 };
 
-FontSystem::FontSystem() = default;
+FontSystem::FontSystem(ResourceLoader* resources) : resources_(resources)
+{
+}
 
 FontSystem::~FontSystem() noexcept
 {
@@ -323,8 +320,10 @@ bool FontSystem::on_tick(double)
 {
     if (gpu_)
     {
-        std::erase_if(gpu_->textures, [](const auto& item) { return item->resource.expired(); });
-        std::erase_if(gpu_->programs, [](const auto& item) { return item->resource.expired(); });
+        std::erase_if(gpu_->textures,
+                      [this](const auto& item) { return !gpu_->get(item->resource); });
+        std::erase_if(gpu_->programs,
+                      [this](const auto& item) { return !gpu_->get(item->resource); });
         if (gpu_->textures.empty() && gpu_->programs.empty())
         {
             gpu_.reset();
@@ -336,19 +335,6 @@ bool FontSystem::on_tick(double)
 void FontSystem::on_shutdown() noexcept
 {
     release_scene();
-}
-
-bool FontSystem::load_font(std::string_view path_or_guid, ResourcePtr& output)
-{
-    output.reset();
-    if (!is_initialized() || !load_resource(path_or_guid, output) || output->font() == nullptr)
-    {
-        output.reset();
-        last_error_ = "Cannot load font resource: " + std::string(path_or_guid);
-        return false;
-    }
-    last_error_.clear();
-    return true;
 }
 
 const schema::FontGlyphT* FontSystem::glyph(const schema::FontDataT& data,
@@ -465,11 +451,11 @@ bool FontSystem::append_glyph(const schema::FontDataT& data, const schema::FontG
     return true;
 }
 
-bool FontSystem::layout(const Resource& font, std::string_view text, const FontLayout& settings,
+bool FontSystem::layout(const FontResource& font, std::string_view text, const FontLayout& settings,
                         FontGeometry& output)
 {
     output = {};
-    const auto* data = font.font();
+    const auto* data = &font.data();
     if (data == nullptr || !std::isfinite(settings.size) || settings.size <= 0.0F ||
         !std::isfinite(settings.letter_spacing))
     {
@@ -523,10 +509,12 @@ bool FontSystem::layout(const Resource& font, std::string_view text, const FontL
     return true;
 }
 
-bool FontSystem::draw(const ResourcePtr& font, const FontGeometry& geometry,
+bool FontSystem::draw(const ResourceHandle& handle, const FontGeometry& geometry,
                       const FontDraw& settings)
 {
-    if (!is_initialized() || !font || font->font() == nullptr || bgfx::getCaps() == nullptr)
+    const FontResource* font = nullptr;
+    if (!is_initialized() || !resources_ || resources_->get(handle, font) != ResourceError::none ||
+        bgfx::getCaps() == nullptr)
     {
         last_error_ = "Font rendering requires an initialized font system and renderer";
         return false;
@@ -545,7 +533,7 @@ bool FontSystem::draw(const ResourcePtr& font, const FontGeometry& geometry,
                          const double count = vertex.curve_range[1];
                          return finite_vertex(vertex) && first >= 0.0 && count >= 0.0 &&
                                 std::floor(first) == first && std::floor(count) == count &&
-                                first + count <= static_cast<double>(font->font()->curves.size());
+                                first + count <= static_cast<double>(font->data().curves.size());
                      }) ||
         !std::all_of(settings.transform.begin(), settings.transform.end(),
                      [](float value) { return std::isfinite(value); }) ||
@@ -557,7 +545,7 @@ bool FontSystem::draw(const ResourcePtr& font, const FontGeometry& geometry,
     }
     if (!gpu_)
     {
-        auto state = std::make_unique<GpuState>();
+        auto state = std::make_unique<GpuState>(*resources_);
         if (!state->initialize())
         {
             last_error_ = "Cannot create font GPU uniforms";
@@ -565,19 +553,19 @@ bool FontSystem::draw(const ResourcePtr& font, const FontGeometry& geometry,
         }
         gpu_ = std::move(state);
     }
-    const auto& shader = settings.shader;
-    if (!shader || shader->shader() == nullptr)
+    const ShaderResource* shader = nullptr;
+    if (resources_->get(settings.shader, shader) != ResourceError::none)
     {
         last_error_ = "Font drawing requires a loaded Shader resource";
         return false;
     }
-    auto* texture = gpu_->get_texture(font);
+    auto* texture = gpu_->get_texture(handle, font);
     if (texture == nullptr)
     {
         last_error_ = "Cannot create RGBA32F font curve texture within device limits";
         return false;
     }
-    auto* program = gpu_->get_program(shader);
+    auto* program = gpu_->get_program(settings.shader, shader);
     if (program == nullptr)
     {
         last_error_ = "Cannot create compatible font shader (s_font_curves and u_font_texture): " +
@@ -666,7 +654,9 @@ bool FontSystem::render_scene(const Scene& scene, std::uint16_t view_id, bool li
                                 (channel(color.b() * color.a()) << 16) | (channel(color.a()) << 24);
         layout_settings.y_down = false;
         FontGeometry geometry;
-        if (!text.font() || !layout(*text.font(), stored.data.text, layout_settings, geometry) ||
+        const FontResource* font = nullptr;
+        if (!resources_ || resources_->get(text.font(), font) != ResourceError::none ||
+            !layout(*font, stored.data.text, layout_settings, geometry) ||
             !draw(text.font(), geometry, draw_settings))
         {
             if (last_error_.empty())

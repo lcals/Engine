@@ -1,3 +1,4 @@
+#include "resource_services.hpp"
 #include "runtime/engine_config.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/scene/camera.hpp"
@@ -59,9 +60,11 @@ const engine::schema::ComponentDataT* find_component(const engine::schema::NodeD
 bool round_trip(std::vector<std::uint8_t>& bytes)
 {
     const engine::EngineConfig config;
-    engine::ResourceSystem resources;
-    engine::WorldSystem world;
-    if (!expect(resources.initialize(config), "initialize shared resource definitions") ||
+    test_support::ResourceServices services;
+    auto& resources = services.core;
+    engine::WorldSystem world(&services.loader);
+    if (!expect((services.initialize(config) && services.prepare_builtins()),
+                "initialize shared resource definitions") ||
         !expect(world.initialize(config), "initialize world"))
     {
         return false;
@@ -154,7 +157,7 @@ bool round_trip(std::vector<std::uint8_t>& bytes)
     auto planar = cube_node.add_component<engine::PlanarReflectionComponent>();
     auto probes = root.add_component<engine::LightProbeVolumeComponent>();
     if (!expect(planar && probes && mesh.set_bake_static(true) && probes.set_settings({}) &&
-                    !probes.resource(),
+                    probes.resource().id == 0,
                 "reflection/probe components register and an empty probe volume is safe"))
     {
         return false;

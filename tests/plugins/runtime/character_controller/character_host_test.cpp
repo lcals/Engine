@@ -134,8 +134,8 @@ bool host_input_physics_camera_order()
     // 拒绝第二个装配位置后允许同一宿主重新装配，旧借用不再使用。
     plugins.reject_after_physics = true;
     installing = &plugins;
-    const bool rejected =
-        !host.initialize(config, nullptr, nullptr, install_plugins, nullptr, settings.parallel);
+    const bool rejected = !host.initialize(config, nullptr, nullptr, nullptr, install_plugins,
+                                           nullptr, settings.parallel);
     installing = nullptr;
     if (!expect(rejected && host.world() == nullptr && host.window() == nullptr,
                 "failed staged setup releases the partial host"))
@@ -144,8 +144,8 @@ bool host_input_physics_camera_order()
     }
     plugins = {};
     installing = &plugins;
-    const bool initialized =
-        host.initialize(config, nullptr, nullptr, install_plugins, nullptr, settings.parallel);
+    const bool initialized = host.initialize(config, nullptr, nullptr, nullptr, install_plugins,
+                                             nullptr, settings.parallel);
     installing = nullptr;
     if (!expect(initialized && plugins.calls == 2 &&
                     plugins.stages[0] == engine::RuntimeStage::before_physics &&

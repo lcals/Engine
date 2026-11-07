@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <cassert>
 #include <limits>
 #include <memory>
 #include <set>
@@ -147,6 +148,73 @@ bool read_exact(SDL_IOStream* stream, ByteBuffer& output)
 
 } // namespace
 
+struct FileRead::State
+{
+    FileReadStatus status = FileReadStatus::reading;
+    FileError error = FileError::none;
+    std::string message;
+    ByteBuffer bytes;
+    std::atomic<bool> cancelled{false};
+
+    bool cancel() noexcept
+    {
+        if (status == FileReadStatus::delivered || status == FileReadStatus::failed)
+        {
+            return false;
+        }
+        cancelled.store(true, std::memory_order_relaxed);
+        status = FileReadStatus::cancelled;
+        error = FileError::cancelled;
+        ByteBuffer{}.swap(bytes);
+        return true;
+    }
+};
+
+FileRead::FileRead(std::shared_ptr<State> state) noexcept : state_(std::move(state))
+{
+}
+
+FileRead::~FileRead() noexcept
+{
+    (void)cancel();
+}
+
+FileReadStatus FileRead::status() const noexcept
+{
+    return state_->status;
+}
+
+bool FileRead::take(ByteBuffer& output)
+{
+    output.clear();
+    if (state_->status != FileReadStatus::ready)
+    {
+        return false;
+    }
+    output = std::move(state_->bytes);
+    state_->status = FileReadStatus::delivered;
+    return true;
+}
+
+bool FileRead::cancel() noexcept
+{
+    return state_->cancel();
+}
+
+FileError FileRead::error() const noexcept
+{
+    return state_->error;
+}
+
+std::string_view FileRead::last_error() const noexcept
+{
+    if (state_->error == FileError::cancelled)
+    {
+        return "File read cancelled";
+    }
+    return state_->message;
+}
+
 struct VirtualFileSystem::AsyncState
 {
     struct Request
@@ -161,13 +229,14 @@ struct VirtualFileSystem::AsyncState
         bool success = false;
         std::uint64_t reserved_bytes = 0;
         ByteBuffer bytes;
-        std::function<void(bool, ByteBuffer)> completed;
+        std::shared_ptr<FileRead::State> result;
     };
 
     TaskSystem* tasks = nullptr;
     FileAsyncConfig config;
     SDL_AsyncIOQueue* queue = nullptr;
     std::vector<std::shared_ptr<Request>> requests;
+    std::vector<std::weak_ptr<FileRead::State>> operations;
     std::uint64_t in_flight_bytes = 0;
 
     ~AsyncState() noexcept
@@ -192,16 +261,61 @@ struct VirtualFileSystem::AsyncState
 };
 
 VirtualFileSystem::VirtualFileSystem() noexcept = default;
-VirtualFileSystem::~VirtualFileSystem() noexcept = default;
-VirtualFileSystem::VirtualFileSystem(VirtualFileSystem&&) noexcept = default;
-VirtualFileSystem& VirtualFileSystem::operator=(VirtualFileSystem&&) noexcept = default;
+VirtualFileSystem::~VirtualFileSystem() noexcept
+{
+    shutdown_async();
+}
+
+VirtualFileSystem::VirtualFileSystem(VirtualFileSystem&& other) noexcept
+{
+    *this = std::move(other);
+}
+
+VirtualFileSystem& VirtualFileSystem::operator=(VirtualFileSystem&& other) noexcept
+{
+    // 移动只用于尚未启用异步读取的值；活动系统保持稳定地址。
+    assert(!async_ && !other.async_);
+    if (this != &other)
+    {
+        mounts_ = std::move(other.mounts_);
+        error_ = other.error_;
+        last_error_ = std::move(other.last_error_);
+    }
+    return *this;
+}
+
+bool VirtualFileSystem::fail(FileError error, std::string_view message)
+{
+    error_ = error;
+    last_error_ = message;
+    return false;
+}
+
+FileError VirtualFileSystem::error() const noexcept
+{
+    return error_;
+}
+
+std::string_view VirtualFileSystem::last_error() const noexcept
+{
+    return last_error_;
+}
 
 bool VirtualFileSystem::configure_async(TaskSystem& tasks, const FileAsyncConfig& config)
 {
+    const bool unclaimed =
+        async_ && std::any_of(async_->operations.begin(), async_->operations.end(),
+                              [](const auto& weak)
+                              {
+                                  const auto operation = weak.lock();
+                                  return operation &&
+                                         (operation->status == FileReadStatus::reading ||
+                                          operation->status == FileReadStatus::ready);
+                              });
     if (!tasks.is_initialized() || config.max_in_flight == 0 || config.max_in_flight_bytes == 0 ||
-        (async_ && !async_->requests.empty()))
+        (async_ && !async_->requests.empty()) || unclaimed)
     {
-        return false;
+        return fail(FileError::busy, "Invalid file task configuration or active reads");
     }
     auto candidate = std::make_shared<AsyncState>();
     candidate->tasks = &tasks;
@@ -209,9 +323,12 @@ bool VirtualFileSystem::configure_async(TaskSystem& tasks, const FileAsyncConfig
     candidate->queue = SDL_CreateAsyncIOQueue();
     if (candidate->queue == nullptr)
     {
-        return false;
+        return fail(FileError::io_failed, "Cannot create asynchronous I/O queue");
     }
+    shutdown_async();
     async_ = std::move(candidate);
+    error_ = FileError::none;
+    last_error_.clear();
     return true;
 }
 
@@ -219,34 +336,55 @@ void VirtualFileSystem::shutdown_async() noexcept
 {
     if (async_)
     {
+        for (const auto& weak : async_->operations)
+        {
+            if (const auto operation = weak.lock())
+            {
+                (void)operation->cancel();
+            }
+        }
         // 只在关闭边界使用；确保打开任务不再使用借用的任务域。
         (void)async_->tasks->wait();
         async_.reset();
     }
 }
 
-FileReadStatus VirtualFileSystem::read_async(const schema::FileLocationT& location,
-                                             std::uint64_t offset, std::uint64_t size,
-                                             std::function<void(bool, ByteBuffer)> completed)
+bool VirtualFileSystem::begin_read(const schema::FileLocationT& location, std::uint64_t offset,
+                                   std::uint64_t size, std::unique_ptr<FileRead>& output)
 {
+    if (output)
+    {
+        return fail(FileError::busy, "File read output already owns an operation");
+    }
+    if (!async_)
+    {
+        return fail(FileError::unavailable, "Asynchronous file reading is not configured");
+    }
     const auto mount = std::find_if(mounts_.begin(), mounts_.end(), [&location](const auto& value)
                                     { return value.name == location.mount; });
     constexpr auto maximum_offset = static_cast<std::uint64_t>(std::numeric_limits<Sint64>::max());
-    if (!async_ || !completed || mount == mounts_.end() || !valid_relative_path(location.path) ||
-        offset > location.length || size > location.length - offset || size > maximum_read_size ||
-        location.offset > maximum_offset || location.length > maximum_offset - location.offset ||
-        size > async_->config.max_in_flight_bytes)
+    if (mount == mounts_.end() || !valid_relative_path(location.path))
     {
-        return FileReadStatus::failed;
+        return fail(FileError::invalid_location, "Invalid file mount or relative path");
+    }
+    if (offset > location.length || size > location.length - offset ||
+        location.offset > maximum_offset || location.length > maximum_offset - location.offset ||
+        size > std::numeric_limits<std::size_t>::max())
+    {
+        return fail(FileError::invalid_range, "Invalid file range");
+    }
+    if (size > async_->config.max_in_flight_bytes)
+    {
+        return fail(FileError::budget_exceeded, "File range exceeds the asynchronous byte budget");
     }
     if (async_->requests.size() >= async_->config.max_in_flight ||
         size > async_->config.max_in_flight_bytes - async_->in_flight_bytes)
     {
-        return FileReadStatus::busy;
+        return fail(FileError::busy, "Asynchronous file budget is in use");
     }
     auto request = std::make_shared<AsyncState::Request>();
     request->reserved_bytes = size;
-    request->completed = std::move(completed);
+    request->result = std::make_shared<FileRead::State>();
     const auto root = mount->root;
     const auto relative = PathUtils::from_utf8(location.path);
     const auto state = async_;
@@ -260,7 +398,8 @@ FileReadStatus VirtualFileSystem::read_async(const schema::FileLocationT& locati
                 request->prepared.store(true, std::memory_order_release);
                 return success;
             };
-            if (!contained_file(root, relative))
+            if (request->result->cancelled.load(std::memory_order_relaxed) ||
+                !contained_file(root, relative))
             {
                 return finish(false);
             }
@@ -307,28 +446,32 @@ FileReadStatus VirtualFileSystem::read_async(const schema::FileLocationT& locati
         TaskPriority::normal);
     if (!preparation.valid())
     {
-        return FileReadStatus::busy;
+        return fail(FileError::busy, "File task domain rejected the preparation task");
     }
+    output = std::unique_ptr<FileRead>(new FileRead(request->result));
+    state->operations.push_back(request->result);
     state->requests.push_back(std::move(request));
     state->in_flight_bytes += size;
     ENGINE_PROFILE_PLOT("File.InFlight", static_cast<std::int64_t>(state->requests.size()));
     ENGINE_PROFILE_PLOT("File.InFlightBytes", static_cast<std::int64_t>(state->in_flight_bytes));
-    return FileReadStatus::accepted;
+    error_ = FileError::none;
+    last_error_.clear();
+    return true;
 }
 
-std::size_t VirtualFileSystem::poll_async(std::size_t max_callbacks)
+std::uint32_t VirtualFileSystem::poll_async(std::uint32_t completion_budget)
 {
     ENGINE_PROFILE_ZONE("File.complete");
     const auto state = async_;
-    if (!state || max_callbacks == 0)
+    if (!state || completion_budget == 0)
     {
         return 0;
     }
-    max_callbacks = std::min(max_callbacks, state->requests.size());
+    const auto maximum = std::min<std::size_t>(completion_budget, state->requests.size());
     SDL_AsyncIOOutcome outcome{};
     // 每项只有 read/close 两个结果；回调预算也约束本次出队工作。
-    for (std::size_t count = 0;
-         count < max_callbacks * 2 && SDL_GetAsyncIOResult(state->queue, &outcome); ++count)
+    for (std::size_t count = 0; count < maximum * 2 && SDL_GetAsyncIOResult(state->queue, &outcome);
+         ++count)
     {
         auto& request = *static_cast<AsyncState::Request*>(outcome.userdata);
         if (outcome.type == SDL_ASYNCIO_TASK_READ)
@@ -346,8 +489,8 @@ std::size_t VirtualFileSystem::poll_async(std::size_t max_callbacks)
             }
         }
     }
-    std::size_t dispatched = 0;
-    for (std::size_t index = 0; index < state->requests.size() && dispatched < max_callbacks;)
+    std::uint32_t dispatched = 0;
+    for (std::size_t index = 0; index < state->requests.size() && dispatched < maximum;)
     {
         const auto request = state->requests[index];
         if (!request->prepared.load(std::memory_order_acquire))
@@ -370,16 +513,30 @@ std::size_t VirtualFileSystem::poll_async(std::size_t max_callbacks)
         state->requests.erase(state->requests.begin() + static_cast<std::ptrdiff_t>(index));
         ++dispatched;
         const bool success = request->success && request->close_success;
-        if (!success)
+        auto& result = *request->result;
+        if (result.status == FileReadStatus::reading)
         {
-            request->bytes.clear();
-        }
-        request->completed(success, std::move(request->bytes));
-        if (async_ != state)
-        {
-            break;
+            if (success)
+            {
+                result.bytes = std::move(request->bytes);
+                result.status = FileReadStatus::ready;
+            }
+            else
+            {
+                result.error = FileError::io_failed;
+                result.message = "Cannot open, read or close the requested file range";
+                result.status = FileReadStatus::failed;
+            }
         }
     }
+    std::erase_if(state->operations,
+                  [](const auto& weak)
+                  {
+                      const auto operation = weak.lock();
+                      return !operation || operation->status == FileReadStatus::delivered ||
+                             operation->status == FileReadStatus::failed ||
+                             operation->status == FileReadStatus::cancelled;
+                  });
     ENGINE_PROFILE_PLOT("File.InFlight", static_cast<std::int64_t>(state->requests.size()));
     ENGINE_PROFILE_PLOT("File.InFlightBytes", static_cast<std::int64_t>(state->in_flight_bytes));
     return dispatched;
@@ -395,13 +552,13 @@ bool VirtualFileSystem::configure(const MountList& mounts)
             !names.insert(mount.name).second || encoded.empty() ||
             encoded.find(u8'\0') != std::u8string::npos)
         {
-            return false;
+            return fail(FileError::invalid_location, "Invalid or duplicate resource mount");
         }
         if (encoded.starts_with(u8"apk:"))
         {
             if (!apk_root(mount.root))
             {
-                return false;
+                return fail(FileError::invalid_location, "Invalid APK resource mount");
             }
             constexpr std::size_t prefix_size = sizeof("apk:/assets/") - 1;
             if (encoded.size() >= prefix_size)
@@ -409,37 +566,43 @@ bool VirtualFileSystem::configure(const MountList& mounts)
                 const std::string remainder(encoded.begin() + prefix_size, encoded.end());
                 if (!valid_relative_path(remainder))
                 {
-                    return false;
+                    return fail(FileError::invalid_location, "Invalid APK relative resource root");
                 }
             }
         }
     }
     mounts_ = mounts;
+    error_ = FileError::none;
+    last_error_.clear();
     return true;
 }
 
 bool VirtualFileSystem::read(const schema::FileLocationT& location, std::uint64_t offset,
-                             std::uint64_t size, ByteBuffer& output) const
+                             std::uint64_t size, ByteBuffer& output)
 {
     output.clear();
     const auto mount = std::find_if(mounts_.begin(), mounts_.end(), [&location](const auto& value)
                                     { return value.name == location.mount; });
     constexpr auto maximum_offset = static_cast<std::uint64_t>(std::numeric_limits<Sint64>::max());
-    if (mount == mounts_.end() || !valid_relative_path(location.path) || offset > location.length ||
-        size > location.length - offset || size > maximum_read_size ||
-        location.offset > maximum_offset || location.length > maximum_offset - location.offset)
+    if (mount == mounts_.end() || !valid_relative_path(location.path))
     {
-        return false;
+        return fail(FileError::invalid_location, "Invalid file mount or relative path");
+    }
+    if (offset > location.length || size > location.length - offset ||
+        size > std::numeric_limits<std::size_t>::max() || location.offset > maximum_offset ||
+        location.length > maximum_offset - location.offset)
+    {
+        return fail(FileError::invalid_range, "Invalid file range");
     }
     const std::filesystem::path relative = PathUtils::from_utf8(location.path);
     if (!contained_file(mount->root, relative))
     {
-        return false;
+        return fail(FileError::io_failed, "File is missing or escapes its mount");
     }
     auto stream = open_file(mount->root / relative);
     if (!stream)
     {
-        return false;
+        return fail(FileError::io_failed, "Cannot open requested file");
     }
     const Sint64 file_size = SDL_GetIOSize(stream.get());
     const auto start = static_cast<Sint64>(location.offset + offset);
@@ -447,7 +610,7 @@ bool VirtualFileSystem::read(const schema::FileLocationT& location, std::uint64_
         static_cast<std::uint64_t>(file_size) < location.offset + location.length ||
         SDL_SeekIO(stream.get(), start, SDL_IO_SEEK_SET) != start)
     {
-        return false;
+        return fail(FileError::io_failed, "Cannot locate the complete file range");
     }
     output.resize(static_cast<std::size_t>(size));
     const bool success = read_exact(stream.get(), output);
@@ -455,8 +618,10 @@ bool VirtualFileSystem::read(const schema::FileLocationT& location, std::uint64_
     if (!success || !closed)
     {
         output.clear();
-        return false;
+        return fail(FileError::io_failed, "Cannot read or close the complete file range");
     }
+    error_ = FileError::none;
+    last_error_.clear();
     return true;
 }
 

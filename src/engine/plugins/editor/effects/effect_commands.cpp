@@ -1,4 +1,5 @@
 #include "plugins/editor/effects/effect_commands.hpp"
+#include "editor/resource_access.hpp"
 
 #include "editor/commands/components/component_edit.hpp"
 #include "editor/commands/scene_commands.hpp"
@@ -12,7 +13,8 @@ namespace
 
 using Json = nlohmann::json;
 
-bool read(const Json& arguments, schema::EffectDataT& value, std::string& error)
+bool read(ResourceLoader* loader, const Json& arguments, schema::EffectDataT& value,
+          std::string& error)
 {
     if (!editor::components::fields(arguments,
                                     {"enabled", "effect", "speed", "loop", "playOnAwake"}, error))
@@ -33,19 +35,14 @@ bool read(const Json& arguments, schema::EffectDataT& value, std::string& error)
         }
         else
         {
-            Guid guid;
-            const auto* resources = ResourceSystem::instance();
-            if (resources == nullptr || !ResourceSystem::path_to_guid(path, guid))
-            {
-                error = "Effect resource path was not found";
-                return false;
-            }
-            const auto* entry = resources->catalog().find(guid);
-            if (entry == nullptr || entry->kind != schema::AssetKind::effect)
+            editor::resource_access::ResourceReference resource;
+            if (!editor::resource_access::load(loader, path, resource) ||
+                resource->kind() != schema::AssetKind::effect)
             {
                 error = "effect path must reference an imported Effekseer resource";
                 return false;
             }
+            auto guid = resource->info().guid;
             value.effect_guid = std::move(guid);
         }
     }
@@ -81,7 +78,8 @@ Json write(const EffectComponent& component)
     std::string path;
     if (!value.effect_guid.empty())
     {
-        static_cast<void>(ResourceSystem::guid_to_path(value.effect_guid, path));
+        static_cast<void>(editor::resource_access::path(
+            component.node().scene()->world().resource_loader(), value.effect_guid, path));
     }
     return {{"effect", path},
             {"effectGuid", value.effect_guid},
@@ -121,7 +119,7 @@ bool register_effect_commands(WorldSystem& world, editor::SceneCommands& scene_c
                     }
                 }
                 auto value = component.valid() ? component.settings() : schema::EffectDataT{};
-                if (!read(arguments, value, error))
+                if (!read(world.resource_loader(), arguments, value, error))
                 {
                     return false;
                 }
@@ -147,7 +145,8 @@ bool register_effect_commands(WorldSystem& world, editor::SceneCommands& scene_c
                 std::string path;
                 if (!value.effect_guid.empty())
                 {
-                    static_cast<void>(ResourceSystem::guid_to_path(value.effect_guid, path));
+                    static_cast<void>(editor::resource_access::path(world.resource_loader(),
+                                                                    value.effect_guid, path));
                 }
                 result = {{"effect", path},
                           {"effectGuid", value.effect_guid},
@@ -158,6 +157,13 @@ bool register_effect_commands(WorldSystem& world, editor::SceneCommands& scene_c
                           {"sceneId", std::to_string(node.scene()->id())},
                           {"nodeId", std::to_string(node.id())}};
                 after.payload.Set(std::move(value));
+                std::vector<schema::AssetEntryT> versions;
+                if ((before &&
+                     !editor::components::resource_versions(world, *before, versions, error)) ||
+                    !editor::components::resource_versions(world, after, versions, error))
+                {
+                    return false;
+                }
                 edit = std::make_unique<editor::components::ComponentEdit>(
                     world, node.scene()->id(), std::move(identity), std::move(before),
                     std::move(after));
