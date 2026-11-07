@@ -85,7 +85,7 @@ bool DestructionSettingsEdit::replace(const std::optional<schema::ComponentDataT
         *revision_ = 0;
         return true;
     }
-    editor::resource_access::ResourceReference source, material;
+    engine::ResourceReference source, material;
     const auto* data = replacement->payload.AsDestructionData();
     if (!data ||
         (!data->destruction_guid.empty() &&
@@ -110,7 +110,7 @@ bool DestructionSettingsEdit::replace(const std::optional<schema::ComponentDataT
         return false;
     }
     bool success = component.restore_data(*replacement) && system->synchronize(node);
-    if (success && !component.settings().destruction_guid.empty() && !component.ready())
+    if (success && !data->destruction_guid.empty() && !component.ready())
     {
         // An explicit edit also captures initially disabled objects. Generated visuals and
         // colliders keep the component's disabled state; the host's lazy policy is unchanged.

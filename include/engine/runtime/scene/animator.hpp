@@ -12,7 +12,7 @@
 #include <string_view>
 #include <vector>
 
-namespace engine::resource_detail
+namespace engine
 {
 class ResourceReference;
 }
@@ -42,13 +42,12 @@ public:
     using Runtime = AnimatorRuntime;
     static constexpr ComponentType component_type = ComponentType::AnimatorData;
     [[nodiscard]] static bool valid_settings(const schema::AnimatorDataT& settings) noexcept;
-    [[nodiscard]] schema::AnimatorDataT settings() const noexcept;
     [[nodiscard]] bool get_settings(Data& output) const noexcept;
     [[nodiscard]] bool set_settings(const schema::AnimatorDataT& settings);
     [[nodiscard]] bool restore_data(const schema::ComponentDataT& data);
     [[nodiscard]] bool set_animation(std::string_view path);
     [[nodiscard]] bool play_animation(const AnimationPlayRequest& request);
-    [[nodiscard]] bool get_playback_info(AnimatorPlaybackInfo& output) const noexcept;
+    [[nodiscard]] bool get_playback_info(AnimatorPlaybackInfo& output) const;
     [[nodiscard]] bool get_bone_pose(std::string_view path, AnimationPoseTransform& output) const;
     [[nodiscard]] bool get_socket_pose(std::string_view name, AnimationPoseTransform& output) const;
     [[nodiscard]] bool set_aim_ik_target(std::string_view name, const AnimationIkTarget& target);
@@ -69,10 +68,8 @@ public:
     [[nodiscard]] double time() const noexcept;
 
 private:
-    [[nodiscard]] bool apply_animation(const AnimationPlayRequest& request,
-                                       resource_detail::ResourceReference clip);
-    [[nodiscard]] bool apply_settings(const Data& settings,
-                                      resource_detail::ResourceReference prepared);
+    [[nodiscard]] bool apply_animation(const AnimationPlayRequest& request, ResourceReference clip);
+    [[nodiscard]] bool apply_settings(const Data& settings, ResourceReference prepared);
     template <class T> friend auto engine::ecs_detail::component_runtime(T component) noexcept;
     [[nodiscard]] Runtime* runtime() const noexcept;
 };

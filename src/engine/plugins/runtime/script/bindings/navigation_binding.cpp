@@ -144,9 +144,11 @@ bool geometry(const Arguments& arguments, std::vector<NavigationGeometry>& outpu
         const auto renderer = node ? node.get_component<MeshRenderer>() : MeshRenderer{};
         const auto transform = node ? node.get_component<Transform>() : Transform{};
         const auto body = node ? node.get_component<RigidBody>() : RigidBody{};
+        RigidBody::Data body_settings;
         if (!renderer || !renderer.active() || !transform || !transform.active() ||
             !renderer.mesh_data() ||
-            (body && body.settings().motion != schema::BodyMotion::static_body))
+            (body && (!body.get_settings(body_settings) ||
+                      body_settings.motion != schema::BodyMotion::static_body)))
         {
             return false;
         }

@@ -37,13 +37,6 @@ bool CharacterController::valid_settings(const schema::CharacterControllerDataT&
            bounded(value.look_sensitivity, 0.0F, 100.0F);
 }
 
-schema::CharacterControllerDataT CharacterController::settings() const noexcept
-{
-    Data output{};
-    (void)get_settings(output);
-    return output;
-}
-
 bool CharacterController::get_settings(Data& output) const noexcept
 {
     const auto* value = read_data<Data>();

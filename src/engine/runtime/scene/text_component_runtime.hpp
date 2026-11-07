@@ -9,7 +9,7 @@ namespace engine
 {
 struct TextComponentRuntime
 {
-    resource_detail::ResourceReference font_;
-    resource_detail::ResourceReference shader_;
+    ResourceReference font_;
+    ResourceReference shader_;
 };
 } // namespace engine

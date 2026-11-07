@@ -97,11 +97,11 @@ struct GameplaySession::State
     std::uint32_t prepare_scene_completed = 0;
     std::unique_ptr<ResourceLoad> prepare_script_load;
     std::unique_ptr<ResourceLoad> prepare_scene_load;
-    resource_detail::ResourceReference prepare_script;
-    resource_detail::ResourceReference prepare_scene_resource;
+    ResourceReference prepare_script;
+    ResourceReference prepare_scene_resource;
     std::unique_ptr<Snapshot> prepare_snapshot;
 
-    std::vector<resource_detail::ResourceReference> builtins;
+    std::vector<ResourceReference> builtins;
 
     explicit State(GameplaySession& session)
         : owner(session),
@@ -292,7 +292,7 @@ struct GameplaySession::State
         }
     }
 
-    bool prepare_builtins(std::vector<resource_detail::ResourceReference>& output)
+    bool prepare_builtins(std::vector<ResourceReference>& output)
     {
         auto* loader = owner.world_.resource_loader();
         if (!loader)
@@ -300,7 +300,7 @@ struct GameplaySession::State
             return fail("Resource loader is not available");
         }
         std::map<Guid, ResourceHandle> loaded;
-        std::vector<resource_detail::ResourceReference> candidate;
+        std::vector<ResourceReference> candidate;
         const auto& entries = builtin_resource_catalog().entries;
         while (loaded.size() != entries.size())
         {
@@ -347,7 +347,7 @@ struct GameplaySession::State
                         }
                     }
                 }
-                resource_detail::ResourceReference reference;
+                ResourceReference reference;
                 if (!reference.adopt(loader, handle))
                 {
                     (void)loader->release(handle);
@@ -378,7 +378,7 @@ struct GameplaySession::State
         {
             return fail(std::string(resources->last_error()));
         }
-        std::vector<resource_detail::ResourceReference> candidate_builtins;
+        std::vector<ResourceReference> candidate_builtins;
         if (!prepare_builtins(candidate_builtins))
         {
             return false;
@@ -394,7 +394,7 @@ struct GameplaySession::State
             }
         }
         ResourceHandle handle;
-        resource_detail::ResourceReference script;
+        ResourceReference script;
         if (!source || !loader->load(source->guid, handle) || !script.adopt(loader, handle))
         {
             (void)loader->release(handle);
@@ -637,8 +637,8 @@ GameplayPrepareStatus GameplaySession::step_prepare(std::uint32_t resource_budge
                 return fail("Cannot begin asynchronous startup scene load");
             }
         }
-        auto advance = [&](std::unique_ptr<ResourceLoad>& load,
-                           resource_detail::ResourceReference& output, std::uint32_t& completed)
+        auto advance = [&](std::unique_ptr<ResourceLoad>& load, ResourceReference& output,
+                           std::uint32_t& completed)
         {
             if (!load || remaining == 0 ||
                 std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count() >=
@@ -979,7 +979,7 @@ bool GameplaySession::execute_project_script(const ProjectScriptRequest& request
         error = loader->last_error();
         return false;
     }
-    resource_detail::ResourceReference script;
+    ResourceReference script;
     if (!script.adopt(loader, handle))
     {
         (void)loader->release(handle);

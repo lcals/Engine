@@ -52,13 +52,6 @@ bool TextComponent::valid_settings(const schema::TextDataT& settings) noexcept
            valid_color(color.g()) && valid_color(color.b()) && valid_color(color.a());
 }
 
-schema::TextDataT TextComponent::settings() const noexcept
-{
-    Data output{};
-    (void)get_settings(output);
-    return output;
-}
-
 bool TextComponent::get_settings(Data& output) const noexcept
 {
     const auto* value = read_data<Data>();
@@ -71,8 +64,7 @@ bool TextComponent::set_settings(const schema::TextDataT& settings)
     return apply_settings(settings, {});
 }
 
-bool TextComponent::apply_settings(const Data& settings,
-                                   resource_detail::ResourceReference prepared)
+bool TextComponent::apply_settings(const Data& settings, ResourceReference prepared)
 {
     if (!writable())
     {
@@ -82,8 +74,8 @@ bool TextComponent::apply_settings(const Data& settings,
     {
         return false;
     }
-    resource_detail::ResourceReference font;
-    resource_detail::ResourceReference shader;
+    ResourceReference font;
+    ResourceReference shader;
     if ((runtime()->font_ && !font.retain(runtime()->font_)) ||
         (runtime()->shader_ && !shader.retain(runtime()->shader_)))
     {
@@ -132,8 +124,12 @@ bool TextComponent::set_font(std::string_view path)
     {
         return false;
     }
-    resource_detail::ResourceReference prepared;
-    auto replacement = settings();
+    ResourceReference prepared;
+    Data replacement;
+    if (!get_settings(replacement))
+    {
+        return false;
+    }
     if (path.empty())
     {
         replacement.font_guid.clear();

@@ -250,13 +250,15 @@ bool CharacterControllerSystem::on_tick(double)
         motor.clear_input();
         return false;
     };
-    if (player.parent().valid() || transform.settings().scale != Vec3(1, 1, 1) ||
-        transform.settings().rotation.x() != 0.0 || transform.settings().rotation.z() != 0.0)
+    TransformSettings pose;
+    CharacterController::Data settings;
+    if (!transform.get_settings(pose) || !controller.get_settings(settings) ||
+        player.parent().valid() || pose.scale != Vec3(1, 1, 1) || pose.rotation.x() != 0.0 ||
+        pose.rotation.z() != 0.0)
     {
         return fail();
     }
-    const auto& settings = controller.settings();
-    double yaw = transform.settings().rotation.y();
+    double yaw = pose.rotation.y();
     if (settings.camera_node_id != 0)
     {
         auto camera_node = player.scene()->find_local_node(settings.camera_node_id);
@@ -269,16 +271,15 @@ bool CharacterControllerSystem::on_tick(double)
         auto camera = camera_node.get_component<Camera>();
         auto rig = static_cast<bool>(camera_node) ? camera_node.get_component<CharacterCamera>()
                                                   : CharacterCamera{};
-        if (!camera || !camera.active() || !rig || !rig.active() || camera_node == player ||
-            camera_node.parent().valid() || !detail::active(camera_node) ||
-            rig.settings().target_node_id != player.info().properties->id ||
-            !rig.synchronize_angles())
+        CharacterCamera::Data view;
+        if (!camera || !camera.active() || !rig.get_settings(view) || !rig.active() ||
+            camera_node == player || camera_node.parent().valid() || !detail::active(camera_node) ||
+            view.target_node_id != player.local_id() || !rig.synchronize_angles())
         {
             return fail();
         }
         if (input.toggle_view)
         {
-            auto view = rig.settings();
             view.mode = view.mode == schema::CharacterView::first_person
                             ? schema::CharacterView::third_person
                             : schema::CharacterView::first_person;
@@ -304,7 +305,6 @@ bool CharacterControllerSystem::on_tick(double)
     const double forward = input.move.y() / length * settings.move_speed;
     const Vec3 velocity(std::cos(radians) * right - std::sin(radians) * forward, 0,
                         -std::sin(radians) * right - std::cos(radians) * forward);
-    auto pose = transform.settings();
     pose.rotation = {0, yaw, 0};
     if (!transform.set_settings(pose) || !motor.set_velocity(velocity) ||
         (input.jump && motor.grounded() && !motor.jump(settings.jump_speed)))

@@ -14,6 +14,9 @@ classDiagram
         +read(const table& source, ComponentDataT& output, string& error) bool
         +validate(const ComponentDataT& data, string& error) bool
         +write(const ComponentDataT& data, table& output) void
+        +resource_fields() span~const string_view~
+        +remap_node_references(ComponentDataT& component, span~const NodeIdMappingT~ mapping, string& error) bool
+        +scan_dependencies(const ComponentDataT& component, const ImportContext& context, vector~Guid~& dependencies, string& error) bool
     }
     class TransformCodec
     class CameraCodec
@@ -28,6 +31,8 @@ classDiagram
     class AnimatorCodec
     class CharacterMotorCodec
     class SceneImporter
+    class ImportContext
+    SceneComponentCodec ..> ImportContext : 借用本批次目录
     SceneComponentCodec <|-- TransformCodec
     SceneComponentCodec <|-- CameraCodec
     SceneComponentCodec <|-- LightCodec

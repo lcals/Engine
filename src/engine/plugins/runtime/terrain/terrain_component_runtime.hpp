@@ -9,8 +9,8 @@ namespace engine::plugins::terrain
 {
 struct TerrainComponentRuntime
 {
-    resource_detail::ResourceReference resource_;
-    resource_detail::ResourceReference material_;
+    ResourceReference resource_;
+    ResourceReference material_;
     TerrainVolume volume_;
     // Weak tokens identify this exact component even if a node removes and recreates it.
     std::shared_ptr<const std::uint8_t> lifetime_ = std::make_shared<const std::uint8_t>(0);

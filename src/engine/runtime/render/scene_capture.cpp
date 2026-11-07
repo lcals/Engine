@@ -173,14 +173,19 @@ void append_value(std::vector<std::uint8_t>& bytes, const auto& value)
     bytes.insert(bytes.end(), begin, begin + sizeof(value));
 }
 
-void append_component(std::vector<std::uint8_t>& bytes, const Component& component)
+bool append_component(std::vector<std::uint8_t>& bytes, const Component& component)
 {
     flatbuffers::FlatBufferBuilder builder;
-    const auto data = component.data();
+    schema::ComponentDataT data;
+    if (!component.get_data(data))
+    {
+        return false;
+    }
     builder.Finish(schema::CreateComponentData(builder, &data));
     append_value(bytes, builder.GetSize());
     bytes.insert(bytes.end(), builder.GetBufferPointer(),
                  builder.GetBufferPointer() + builder.GetSize());
+    return true;
 }
 
 bool capture_snapshot(const WorldSystem& world, const SceneCaptureRequest& request,
@@ -217,7 +222,10 @@ bool capture_snapshot(const WorldSystem& world, const SceneCaptureRequest& reque
         {
             return false;
         }
-        append_component(output, renderer);
+        if (!append_component(output, renderer))
+        {
+            return false;
+        }
         append_value(output, renderer.instance_id());
         append_value(output, renderer.mesh_revision());
         append_value(output, renderer.deformation_revision());
@@ -293,9 +301,13 @@ bool capture_snapshot(const WorldSystem& world, const SceneCaptureRequest& reque
         {
             return false;
         }
-        append_component(output, light);
+        if (!append_component(output, light))
+        {
+            return false;
+        }
     }
     std::uint64_t atmosphere_sun_id = 0;
+    bool complete = true;
     auto environments =
         flecs::world(world.native_world())
             .query_builder<const ecs_detail::ComponentStorage<EnvironmentComponent::Data>,
@@ -308,14 +320,22 @@ bool capture_snapshot(const WorldSystem& world, const SceneCaptureRequest& reque
             if (state.scene == world.scene() && state.active && state.visible_in_hierarchy &&
                 stored.state.flags.enabled && stored.state.flags.visible)
             {
-                append_component(
-                    output, world.find_node(entity.id()).get_component<EnvironmentComponent>());
+                if (!append_component(
+                        output, world.find_node(entity.id()).get_component<EnvironmentComponent>()))
+                {
+                    complete = false;
+                    return;
+                }
                 if (stored.data.atmosphere_enabled)
                 {
                     atmosphere_sun_id = stored.data.atmosphere_sun_node_id;
                 }
             }
         });
+    if (!complete)
+    {
+        return false;
+    }
     if (atmosphere_sun_id != 0)
     {
         bool found_sun = false;
@@ -340,7 +360,7 @@ bool capture_snapshot(const WorldSystem& world, const SceneCaptureRequest& reque
                             append_node(entity.id());
                 if (found_sun)
                 {
-                    append_component(output, light);
+                    found_sun = append_component(output, light);
                 }
             });
         if (!found_sun)

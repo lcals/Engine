@@ -667,7 +667,7 @@ bool additional_source_tests()
         bgfx::Caps caps{};
         caps.limits.maxTextureSize = 8192;
         caps.formats[bgfx::TextureFormat::RGBA16F] = BGFX_CAPS_FORMAT_TEXTURE_2D;
-        engine::resource_detail::ResourceReference source;
+        engine::ResourceReference source;
         if (!services.load(asset->guid, source))
         {
             return false;

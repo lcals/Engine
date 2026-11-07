@@ -112,7 +112,7 @@ bool RmlRender::begin(std::uint32_t width, std::uint32_t height, int logical_wid
     bx::mtxIdentity(transform_.data());
     return true;
 }
-bool RmlRender::activate(const std::string& key, const resource_detail::ResourceReference& document)
+bool RmlRender::activate(const std::string& key, const ResourceReference& document)
 {
     active_key_.clear();
     if (!document || !document.data<UiResource>())
@@ -129,14 +129,14 @@ bool RmlRender::activate(const std::string& key, const resource_detail::Resource
         Document snapshot;
         for (const auto& guid : document.data<UiResource>()->texture_guids)
         {
-            resource_detail::ResourceReference texture;
+            ResourceReference texture;
             if (!texture.dependency(resources, document.handle(), guid) || !texture ||
                 !texture.data<TextureResource>() ||
                 texture->generation() != document->generation() || !supported_texture(*texture))
             {
                 return false;
             }
-            resource_detail::ResourceReference alias;
+            ResourceReference alias;
             if (!alias.retain(texture))
             {
                 return false;

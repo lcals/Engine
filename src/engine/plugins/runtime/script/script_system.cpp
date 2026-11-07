@@ -80,7 +80,7 @@ struct Snapshot
 {
     std::string revision = "builtin";
     std::string entry = "scripts/game.js";
-    resource_detail::ResourceReference root;
+    ResourceReference root;
     std::map<std::string, const ScriptResource*, std::less<>> modules;
 };
 
@@ -106,7 +106,7 @@ struct Snapshot
         {
             continue;
         }
-        resource_detail::ResourceReference dependency;
+        ResourceReference dependency;
         if (!dependency.dependency(loader, entry, guid))
         {
             return false;
@@ -428,7 +428,7 @@ bool ScriptSystem::execute_project_script(const ResourceHandle& script_handle,
         error = "Project script requires the matching active Run at a non-reentrant safe point";
         return false;
     }
-    resource_detail::ResourceReference script;
+    ResourceReference script;
     if (!script.retain(resources_, script_handle) || !script.data<ScriptResource>())
     {
         error = "Project script resource is not loaded";

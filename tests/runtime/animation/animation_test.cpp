@@ -29,7 +29,7 @@ bool sampling_and_controls()
         !expect(animator.playback() == engine::AnimationPlayback::playing &&
                     close(animator.time(), 0.25) && close(sampled_vertex(renderer).x(), 1),
                 "source indices map to target hierarchy and ozz DFS order") ||
-        !expect(renderer.mesh_data() == bind && animator.data() == saved,
+        !expect(renderer.mesh_data() == bind && test_support::read_data(animator) == saved,
                 "sampling does not mutate persisted component or bind mesh") ||
         !expect(animator.pause() && fixture.animation.tick(0.25) && close(animator.time(), 0.25) &&
                     close(sampled_vertex(renderer).x(), 1),
@@ -46,7 +46,7 @@ bool sampling_and_controls()
     {
         return false;
     }
-    auto settings = animator.settings();
+    auto settings = test_support::read_settings(animator);
     settings.loop = false;
     settings.speed = 2;
     if (!expect(animator.set_settings(settings) && animator.play() &&
@@ -70,9 +70,10 @@ bool sampling_and_controls()
     {
         return false;
     }
-    const auto valid = animator.settings();
+    const auto valid = test_support::read_settings(animator);
     settings.speed = std::numeric_limits<float>::quiet_NaN();
-    return expect(!animator.set_settings(settings) && animator.settings() == valid &&
+    return expect(!animator.set_settings(settings) &&
+                      test_support::read_settings(animator) == valid &&
                       !animator.set_animation("missing.animation") &&
                       !animator.set_animation("builtin://meshes/cube") &&
                       animator.animation_path() == clip_path && !animator.seek(-1) &&
@@ -292,14 +293,14 @@ bool blending_and_instances()
     {
         return false;
     }
-    const auto settings = animator.settings();
+    const auto settings = test_support::read_settings(animator);
     const auto time = animator.time();
     const auto palette = renderer.skinning_palette()[2];
     if (!expect(!animator.cross_fade("", 1) && !animator.cross_fade(scale_path, -1) &&
                     !animator.cross_fade(scale_path, std::numeric_limits<double>::infinity()) &&
                     !animator.cross_fade("missing.animation", 1) &&
                     !animator.cross_fade("builtin://meshes/cube", 1) &&
-                    animator.settings() == settings && animator.time() == time &&
+                    test_support::read_settings(animator) == settings && animator.time() == time &&
                     renderer.skinning_palette()[2] == palette,
                 "rejected transitions preserve settings, time and the displayed pose") ||
         !expect(animator.stop() && renderer.skinning_palette().empty() &&

@@ -40,7 +40,7 @@ bool resource(ResourceLoader* loader, const Json& input, schema::AssetKind kind,
         output.clear();
         return true;
     }
-    editor::resource_access::ResourceReference resource;
+    engine::ResourceReference resource;
     if (!editor::resource_access::load(loader, path, resource) || resource->kind() != kind)
     {
         error = "Terrain resource path is missing or has the wrong resource type";
@@ -134,8 +134,12 @@ Json settings_json(ResourceLoader* loader, const schema::TerrainDataT& value)
 
 Json component_json(const TerrainComponent& component)
 {
-    auto result =
-        settings_json(component.node().scene()->world().resource_loader(), component.settings());
+    schema::TerrainDataT settings;
+    if (!component.get_settings(settings))
+    {
+        return nullptr;
+    }
+    auto result = settings_json(component.node().scene()->world().resource_loader(), settings);
     result["enabled"] = component.enabled();
     result["ready"] = component.ready();
     result["revision"] = component.revision();
@@ -227,7 +231,7 @@ ByteBuffer pack_state(const schema::TerrainStateDataT& state)
 
 bool reset_state(ResourceLoader* loader, schema::TerrainStateDataT& state, std::string& error)
 {
-    editor::resource_access::ResourceReference resource;
+    engine::ResourceReference resource;
     if (!editor::resource_access::load(loader, state.base_guid, resource) ||
         !resource.data<TerrainResource>() || resource->info().content_hash != state.base_hash)
     {
@@ -246,7 +250,7 @@ bool settings_state(ResourceLoader* loader, const schema::TerrainDataT& settings
     {
         return true;
     }
-    editor::resource_access::ResourceReference base;
+    engine::ResourceReference base;
     if (!editor::resource_access::load(loader, settings.terrain_guid, base) || !base ||
         base->info().kind != schema::AssetKind::terrain)
     {
@@ -428,7 +432,12 @@ bool register_terrain_commands(WorldSystem& world, editor::SceneCommands& scene_
                         return false;
                     }
                 }
-                auto value = component.valid() ? component.settings() : schema::TerrainDataT{};
+                schema::TerrainDataT value;
+                if (component && !component.get_settings(value))
+                {
+                    error = "Cannot read component settings";
+                    return false;
+                }
                 if (!read_settings(world.resource_loader(), arguments, value, error))
                 {
                     return false;

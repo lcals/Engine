@@ -67,7 +67,12 @@ void settings(const Arguments& arguments)
             return;
         }
     }
-    auto data = value.settings();
+    BoneAttachment::Data data{};
+    if (!value.get_settings(data))
+    {
+        arguments.set_return(false);
+        return;
+    }
     data.socket_name = std::move(socket);
     data.follow_enabled = arguments.boolean(3);
     data.offset = schema::JointLocalPose(schema::Vec3(offset[0], offset[1], offset[2]),

@@ -9,8 +9,8 @@ namespace engine::plugins::destruction
 {
 struct DestructionComponentRuntime
 {
-    resource_detail::ResourceReference resource_;
-    resource_detail::ResourceReference material_;
+    ResourceReference resource_;
+    ResourceReference material_;
     DestructionGraph graph_;
     std::shared_ptr<const std::uint8_t> lifetime_ = std::make_shared<const std::uint8_t>(0);
     std::uint64_t revision_ = 0;

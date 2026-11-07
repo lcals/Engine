@@ -48,7 +48,12 @@ void set_vector(const Arguments& arguments, Vec3 TransformSettings::* field)
     {
         return;
     }
-    auto settings = transform.settings();
+    Transform::Data settings{};
+    if (!transform.get_settings(settings))
+    {
+        arguments.set_return(false);
+        return;
+    }
     settings.*field = Vec3(x, y, z);
     arguments.set_return(transform.set_settings(settings));
 }

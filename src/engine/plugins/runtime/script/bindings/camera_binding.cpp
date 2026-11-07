@@ -43,7 +43,11 @@ void settings(const Arguments& arguments)
     arguments.set_return(false);
     auto node = BindingContext::node(arguments);
     auto camera = !node ? Camera{} : node.get_component<Camera>();
-    auto value = camera ? camera.settings() : CameraSettings{};
+    CameraSettings value;
+    if (!camera.get_settings(value))
+    {
+        return;
+    }
     value.projection = schema::Projection::perspective;
     if (camera.valid() && arguments.count() == 5 &&
         BindingContext::scalar(arguments, 2, value.fov_degrees) &&
@@ -58,7 +62,11 @@ void orthographic(const Arguments& arguments)
     arguments.set_return(false);
     auto node = BindingContext::node(arguments);
     auto camera = !node ? Camera{} : node.get_component<Camera>();
-    auto value = camera ? camera.settings() : CameraSettings{};
+    CameraSettings value;
+    if (!camera.get_settings(value))
+    {
+        return;
+    }
     value.projection = schema::Projection::orthographic;
     if (camera.valid() && arguments.count() == 5 &&
         BindingContext::scalar(arguments, 2, value.orthographic_size) &&
@@ -73,8 +81,9 @@ void get_frustum_culling(const Arguments& arguments)
 {
     const auto node = BindingContext::node(arguments);
     const auto camera = node ? node.get_component<Camera>() : Camera{};
-    arguments.set_return(camera && arguments.count() == 2 &&
-                         camera.settings().frustum_culling_enabled);
+    CameraSettings settings;
+    arguments.set_return(arguments.count() == 2 && camera.get_settings(settings) &&
+                         settings.frustum_culling_enabled);
 }
 
 void set_frustum_culling(const Arguments& arguments)
@@ -86,7 +95,12 @@ void set_frustum_culling(const Arguments& arguments)
     {
         return;
     }
-    auto settings = camera.settings();
+    Camera::Data settings{};
+    if (!camera.get_settings(settings))
+    {
+        arguments.set_return(false);
+        return;
+    }
     settings.frustum_culling_enabled = arguments.boolean(2);
     arguments.set_return(camera.set_settings(settings));
 }

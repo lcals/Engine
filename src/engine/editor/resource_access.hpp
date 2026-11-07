@@ -6,8 +6,6 @@
 
 namespace engine::editor::resource_access
 {
-using engine::resource_detail::ResourceReference;
-
 // 编辑器命令是加载流程的调用方；组件本身只获取已加载资源。
 [[nodiscard]] inline bool load(ResourceLoader* loader, std::string_view path_or_guid,
                                ResourceReference& output)
@@ -113,8 +111,9 @@ using engine::resource_detail::ResourceReference;
     return true;
 }
 
-[[nodiscard]] inline bool load_guid(ResourceLoader* loader, std::string_view path,
-                                    std::string& output)
+[[nodiscard]] inline bool prepare_guid(ResourceLoader* loader, std::string_view path,
+                                       std::string& output,
+                                       std::vector<ResourceReference>& prepared)
 {
     output.clear();
     ResourceReference resource;
@@ -123,6 +122,7 @@ using engine::resource_detail::ResourceReference;
         return false;
     }
     output = resource->info().guid;
+    prepared.push_back(std::move(resource));
     return true;
 }
 

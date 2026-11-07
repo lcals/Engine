@@ -4,9 +4,9 @@
 
 #include <utility>
 
-namespace engine::resource_detail
+namespace engine
 {
-// 模块内部的独立获取。只能显式 retain，禁止复制；清理在协调线程执行。
+// 独占一次资源获取。只能显式 retain，禁止复制；清理在协调线程执行。
 // 加载器借用必须覆盖此对象及其保活的数据使用。
 class ResourceReference final
 {
@@ -129,4 +129,4 @@ private:
     ResourceLoader* loader_ = nullptr;
     ResourceHandle handle_;
 };
-} // namespace engine::resource_detail
+} // namespace engine

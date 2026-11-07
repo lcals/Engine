@@ -41,13 +41,6 @@ bool DestructionComponent::valid_settings(const schema::DestructionDataT& value)
            std::isfinite(value.restitution) && value.restitution >= 0 && value.restitution <= 1;
 }
 
-schema::DestructionDataT DestructionComponent::settings() const noexcept
-{
-    Data output{};
-    (void)get_settings(output);
-    return output;
-}
-
 bool DestructionComponent::get_settings(Data& output) const noexcept
 {
     const auto* value = read_data<Data>();
@@ -67,8 +60,8 @@ bool DestructionComponent::set_settings(const schema::DestructionDataT& value)
         return false;
     }
     auto* resources = node().world()->resource_loader();
-    resource_detail::ResourceReference replacement;
-    resource_detail::ResourceReference material;
+    ResourceReference replacement;
+    ResourceReference material;
     DestructionGraph candidate;
     if (!value.destruction_guid.empty())
     {
@@ -103,7 +96,11 @@ bool DestructionComponent::set_settings(const schema::DestructionDataT& value)
     {
         return false;
     }
-    const auto previous_settings = settings();
+    Data previous_settings;
+    if (!get_settings(previous_settings))
+    {
+        return false;
+    }
     auto previous_resource = std::move(runtime()->resource_);
     auto previous_material = std::move(runtime()->material_);
     *write_data<Data>() = value;

@@ -1,8 +1,6 @@
 #include "plugins/runtime/script/bindings/animator_binding.hpp"
 #include "plugins/runtime/script/bindings/binding_helpers.hpp"
 
-#include "runtime/scene/animator_runtime.hpp"
-
 #include "plugins/runtime/script/bindings/binding_context.hpp"
 #include "runtime/resource/resource.hpp"
 #include "runtime/scene/animator.hpp"
@@ -229,7 +227,12 @@ void speed(const Arguments& arguments)
     float number = 0;
     if (value && BindingContext::scalar(arguments, 2, number))
     {
-        auto settings = value.settings();
+        Animator::Data settings{};
+        if (!value.get_settings(settings))
+        {
+            arguments.set_return(false);
+            return;
+        }
         settings.speed = number;
         arguments.set_return(value.set_settings(settings));
     }
@@ -240,7 +243,12 @@ void set_boolean(const Arguments& arguments, bool schema::AnimatorDataT::* field
     auto value = binding_detail::component<Animator>(arguments, 3);
     if (value && arguments.is_boolean(2))
     {
-        auto settings = value.settings();
+        Animator::Data settings{};
+        if (!value.get_settings(settings))
+        {
+            arguments.set_return(false);
+            return;
+        }
         settings.*field = arguments.boolean(2);
         arguments.set_return(value.set_settings(settings));
     }
@@ -350,22 +358,20 @@ void snapshot(const Arguments& arguments)
     {
         return;
     }
-    const auto* runtime = engine::ecs_detail::component_runtime(value);
-    arguments.set_return(vm::NativeValue::Object{
-        {"animationGuid", runtime && runtime->animation_ ? runtime->animation_->info().guid : ""},
-        {"resourceGeneration",
-         runtime && runtime->animation_ ? runtime->animation_->generation() : std::uint64_t{0}},
-        {"trackRevision", runtime ? runtime->track_revision_ : std::uint64_t{0}},
-        {"instance", value.instance_id()},
-        {"playbackId", info.playback_id},
-        {"playback", playback_name(info.playback)},
-        {"time", info.time},
-        {"duration", info.duration},
-        {"normalizedTime", info.normalized_time},
-        {"completed", info.completed},
-        {"transitioning", info.transitioning},
-        {"active", value.active()},
-        {"worldPaused", !context->world() || context->world()->paused()}});
+    arguments.set_return(
+        vm::NativeValue::Object{{"animationGuid", info.animation_guid},
+                                {"resourceGeneration", info.resource_generation},
+                                {"trackRevision", info.track_revision},
+                                {"instance", value.instance_id()},
+                                {"playbackId", info.playback_id},
+                                {"playback", playback_name(info.playback)},
+                                {"time", info.time},
+                                {"duration", info.duration},
+                                {"normalizedTime", info.normalized_time},
+                                {"completed", info.completed},
+                                {"transitioning", info.transitioning},
+                                {"active", value.active()},
+                                {"worldPaused", !context->world() || context->world()->paused()}});
 }
 
 void play_animation(const Arguments& arguments)
@@ -389,7 +395,12 @@ void ik_enabled(const Arguments& arguments)
     auto value = binding_detail::component<Animator>(arguments, 3);
     if (value && arguments.is_boolean(2))
     {
-        auto settings = value.settings();
+        Animator::Data settings{};
+        if (!value.get_settings(settings))
+        {
+            arguments.set_return(false);
+            return;
+        }
         settings.ik_enabled = arguments.boolean(2);
         arguments.set_return(value.set_settings(settings));
     }

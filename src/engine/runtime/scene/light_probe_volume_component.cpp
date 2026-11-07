@@ -25,13 +25,6 @@ LightProbeVolumeComponent::Runtime* LightProbeVolumeComponent::runtime() const n
     return runtime_state<Runtime>();
 }
 
-LightProbeVolumeSettings LightProbeVolumeComponent::settings() const noexcept
-{
-    Data output{};
-    (void)get_settings(output);
-    return output;
-}
-
 bool LightProbeVolumeComponent::get_settings(Data& output) const noexcept
 {
     const auto* value = read_data<Data>();
@@ -45,7 +38,7 @@ bool LightProbeVolumeComponent::set_settings(const LightProbeVolumeSettings& set
     {
         return false;
     }
-    resource_detail::ResourceReference replacement;
+    ResourceReference replacement;
     if (!settings.probes_guid.empty())
     {
         auto* resources = node().world()->resource_loader();

@@ -121,6 +121,6 @@ classDiagram
 
 ModelNode 的 rotation 为角度制 Euler XYZ，Joint 和 RotationKey 为四元数 xyzw；inverse_bind 与 mesh_to_skeleton 均为 16 项列主序矩阵。父索引 -1 表示根，其余必须指向已有父记录。上述结构均来自 Schema 生成，导入器不定义另一套手写持久模型。
 
-Model 当前格式版本为 2，生成器显式写入版本；Schema 的字段默认仍为 1，以便拒绝旧文件中省略该字段的版本 1 数据。原 `skeleton_guid` 和 `animations` 字段以 deprecated 保留槽位，不复用为其他含义；历史 ModelAnimationData 表仅为该旧槽位声明保留。运行解码器只接受版本 2，Schema 指纹变化触发编辑器重新导入缓存；旧运行包必须重新构建，不静默解释为新模型。
+Model 只维护当前格式 2，生成器必须显式写入版本；Schema 默认值 0 表示未声明格式并由解码器拒绝。删除已废弃的 `skeleton_guid`、`animations` 字段及 ModelAnimationData 表，不保留历史槽位或兼容模型。Schema 指纹变化触发编辑器重新导入缓存，旧运行包重新构建；运行解码器只接受当前格式。
 
 `ModelNodeDataT.source_key` 是源文件稳定层级路径：FBX 使用已消歧的节点路径，USD 使用 prim 路径；预制体用它保留模板节点身份，不使用数组下标。

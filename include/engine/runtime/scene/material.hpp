@@ -34,7 +34,10 @@ public:
         return valid();
     }
     [[nodiscard]] std::string type_path() const noexcept;
+    [[nodiscard]] ResourceHandle resource() const noexcept;
     [[nodiscard]] std::string shader_path() const noexcept;
+    // 借用实际持有的 Shader 获取身份；失效材质返回空句柄。
+    [[nodiscard]] ResourceHandle shader() const noexcept;
     // 借用材质当前持有的 Shader 定义；切换 Shader 或销毁材质后失效。
     [[nodiscard]] const schema::ShaderDataT* shader_data() const noexcept;
     // 与持有的材质定义及 Shader 默认值比较；恢复原值后没有覆盖，不重新加载资源。

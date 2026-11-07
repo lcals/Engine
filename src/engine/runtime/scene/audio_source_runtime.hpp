@@ -9,7 +9,7 @@ namespace engine
 {
 struct AudioSourceRuntime
 {
-    resource_detail::ResourceReference clip_;
+    ResourceReference clip_;
     std::uint64_t revision_ = 0;
     AudioPlayback playback_ = AudioPlayback::stopped;
     bool awake_pending_ = true;

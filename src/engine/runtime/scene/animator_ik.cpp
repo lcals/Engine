@@ -13,7 +13,7 @@ bool set_ik_target(Animator actor, std::string_view name, const AnimationIkTarge
     auto renderer = actor.node().get_component<MeshRenderer>();
     const auto* mesh = renderer ? renderer.mesh_data() : nullptr;
     auto* resources = actor.node().world()->resource_loader();
-    resource_detail::ResourceReference resource;
+    ResourceReference resource;
     std::vector<std::string> paths;
     std::vector<Definition> resolved;
     if (!mesh || !resources ||

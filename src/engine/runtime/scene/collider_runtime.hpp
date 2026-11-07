@@ -9,7 +9,7 @@ namespace engine
 {
 struct ColliderRuntime
 {
-    resource_detail::ResourceReference mesh_;
+    ResourceReference mesh_;
     std::shared_ptr<const schema::MeshDataT> transient_mesh_;
     std::shared_ptr<const MeshCollisionData> mesh_parts_;
 };

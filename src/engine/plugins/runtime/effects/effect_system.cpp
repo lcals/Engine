@@ -109,7 +109,7 @@ struct EffectSystem::State
 {
     struct CompiledEffect
     {
-        resource_detail::ResourceReference resource;
+        ResourceReference resource;
         detail::EffectBindings bindings;
         Effekseer::EffectRef effect;
     };
@@ -205,7 +205,7 @@ struct EffectSystem::State
         return true;
     }
 
-    std::shared_ptr<CompiledEffect> compile(const resource_detail::ResourceReference& resource)
+    std::shared_ptr<CompiledEffect> compile(const ResourceReference& resource)
     {
         const auto key = std::make_pair(resource->info().guid, resource->generation());
         const auto existing = effects.find(key);
@@ -432,10 +432,15 @@ struct EffectSystem::State
             if (instance.handle >= 0 && !manager->Exists(instance.handle))
             {
                 instance.handle = -1;
+                EffectComponent::Data settings;
+                if (!component.get_settings(settings))
+                {
+                    return false;
+                }
                 if (!world_paused &&
                     engine::ecs_detail::component_runtime(component)->requested_ ==
                         EffectComponent::Playback::playing &&
-                    component.settings().loop)
+                    settings.loop)
                 {
                     Effekseer::Matrix43 transform;
                     if (!start(instance, component) ||
@@ -445,7 +450,7 @@ struct EffectSystem::State
                     }
                     manager->SetMatrix(instance.handle, transform);
                     manager->SetShown(instance.handle, component.visible_in_hierarchy());
-                    manager->SetSpeed(instance.handle, component.settings().speed);
+                    manager->SetSpeed(instance.handle, settings.speed);
                     restarted = true;
                 }
                 else

@@ -34,7 +34,7 @@ struct ResourceBindingScope
 
 // 只在指定已加载闭包中按路径或 GUID 获取，不查看当前目录。
 inline bool acquire_dependency(ResourceLoader* loader, ResourceHandle owner, std::string_view input,
-                               resource_detail::ResourceReference& output)
+                               ResourceReference& output)
 {
     if (!loader)
     {
@@ -62,7 +62,7 @@ inline bool acquire_dependency(ResourceLoader* loader, ResourceHandle owner, std
         {
             continue;
         }
-        resource_detail::ResourceReference value;
+        ResourceReference value;
         if (!value.dependency(loader, owner, identity))
         {
             return false;
@@ -78,8 +78,7 @@ inline bool acquire_dependency(ResourceLoader* loader, ResourceHandle owner, std
     return false;
 }
 
-inline bool acquire_resource(Node node, std::string_view input,
-                             resource_detail::ResourceReference& output)
+inline bool acquire_resource(Node node, std::string_view input, ResourceReference& output)
 {
     auto* world = node.world();
     if (!node || !world)
@@ -94,7 +93,7 @@ inline bool acquire_resource(Node node, std::string_view input,
 inline bool resource_guid(Node node, std::string_view path, std::string& output)
 {
     output.clear();
-    resource_detail::ResourceReference value;
+    ResourceReference value;
     if (!acquire_resource(node, path, value))
     {
         return false;
@@ -105,7 +104,7 @@ inline bool resource_guid(Node node, std::string_view path, std::string& output)
 inline bool resource_path(Node node, std::string_view guid, std::string& output)
 {
     output.clear();
-    resource_detail::ResourceReference value;
+    ResourceReference value;
     if (!acquire_resource(node, guid, value))
     {
         return false;

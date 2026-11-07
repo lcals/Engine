@@ -12,7 +12,7 @@ classDiagram
         +register_type(ComponentRegistry& registry) bool$
         <<final>>
         +valid_settings(settings AudioSourceDataT)$ bool
-        +settings() AudioSourceDataT
+
         +get_settings(AudioSourceDataT& output) bool
         +set_settings(const AudioSourceDataT& settings) bool
         +set_clip(path string_view) bool
@@ -32,7 +32,7 @@ classDiagram
         +register_type(ComponentRegistry& registry) bool$
         <<final>>
         +valid_settings(settings AudioListenerDataT)$ bool
-        +settings() AudioListenerDataT
+
         +get_settings(AudioListenerDataT& output) bool
         +set_settings(const AudioListenerDataT& settings) bool
         +restore_data(const ComponentDataT& data) bool
@@ -93,4 +93,4 @@ classDiagram
 
 组件目标不包含或链接 SDL。`play()` 表示提交播放请求，真实成功由音频系统将 `pending` 改为 `playing`；失败可观察为 `failed`。详见[音频行为约定](../audio.md)。
 
-本页组件均为可复制值句柄，生成设置唯一存于 `ComponentStorage<Data>` 的 ECS 列；`settings()` 返回独立值，`get_settings(output)` 明确返回失败。Runtime 为 ECS 中的领域运行列，资源引用、请求和缓存归该列或所属 System；句柄不拥有这些数据。Runtime 定义与可变访问仅供所属模块内部实现使用，公开组件不提供 `runtime()`；原生系统的 ECS 列借用仅在当前结构稳定阶段有效，不能跨结构修改留存。类型注册、失效身份与查询规则见 [ECS 场景](ecs-scene.md)。
+本页组件均为可复制值句柄，生成设置唯一存于 `ComponentStorage<Data>` 的 ECS 列；`get_settings(output)` 返回独立值并明确报告失败，失败输出安全默认值；不保留吞掉失败的 settings() 包装。Runtime 为 ECS 中的领域运行列，资源引用、请求和缓存归该列或所属 System；句柄不拥有这些数据。Runtime 定义与可变访问仅供所属模块内部实现使用，公开组件不提供 `runtime()`；原生系统的 ECS 列借用仅在当前结构稳定阶段有效，不能跨结构修改留存。类型注册、失效身份与查询规则见 [ECS 场景](ecs-scene.md)。

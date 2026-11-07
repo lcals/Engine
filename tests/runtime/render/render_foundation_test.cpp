@@ -91,7 +91,7 @@ bool check_camera_and_light(engine::Scene& scene)
     {
         return false;
     }
-    auto camera_settings = camera.settings();
+    auto camera_settings = test_support::read_settings(camera);
     camera_settings.projection = engine::schema::Projection::orthographic;
     camera_settings.orthographic_size = 4;
     if (!expect(camera.set_settings(camera_settings), "accept orthographic projection"))
@@ -100,7 +100,8 @@ bool check_camera_and_light(engine::Scene& scene)
     }
     auto invalid_camera = camera_settings;
     invalid_camera.orthographic_size = 0;
-    if (!expect(!camera.set_settings(invalid_camera) && camera.settings() == camera_settings,
+    if (!expect(!camera.set_settings(invalid_camera) &&
+                    test_support::read_settings(camera) == camera_settings,
                 "invalid projection leaves previous camera settings intact"))
     {
         return false;
@@ -112,7 +113,7 @@ bool check_camera_and_light(engine::Scene& scene)
         return false;
     }
 
-    auto light_settings = light.settings();
+    auto light_settings = test_support::read_settings(light);
     for (const auto kind : {engine::schema::LightKind::directional,
                             engine::schema::LightKind::point, engine::schema::LightKind::spot})
     {
@@ -127,7 +128,8 @@ bool check_camera_and_light(engine::Scene& scene)
     }
     auto invalid_light = light_settings;
     invalid_light.range = -1;
-    if (!expect(!light.set_settings(invalid_light) && light.settings() == light_settings,
+    if (!expect(!light.set_settings(invalid_light) &&
+                    test_support::read_settings(light) == light_settings,
                 "invalid light range preserves previous settings"))
     {
         return false;
@@ -256,23 +258,24 @@ bool check_scene_render_settings(const engine::EngineConfig& config)
     if (!expect(
             camera.valid() && post_process.valid() && scene->set_active_camera(camera) &&
                 post_process.set_settings(changed) &&
-                environment.settings().ambient_intensity == 0.3F &&
-                post_process.settings().exposure == 2.0F && renderer.settings().ao_enabled &&
-                post_process.settings().ao_radius == 1.8F &&
+                test_support::read_settings(environment).ambient_intensity == 0.3F &&
+                test_support::read_settings(post_process).exposure == 2.0F &&
+                renderer.settings().ao_enabled &&
+                test_support::read_settings(post_process).ao_radius == 1.8F &&
                 renderer.settings().ao_strength == 0.8F && renderer.settings().ao_power == 1.4F &&
                 renderer.settings().ao_fade_start == 50.0F &&
                 renderer.settings().ao_fade_end == 120.0F && renderer.settings().hdr_enabled &&
                 renderer.settings().bloom_enabled && renderer.settings().bloom_threshold == 1.5F &&
                 renderer.settings().bloom_intensity == 0.4F &&
                 renderer.settings().bloom_radius == 1.2F && renderer.settings().ssr_enabled &&
-                post_process.settings().ssr_max_steps == 128,
+                test_support::read_settings(post_process).ssr_max_steps == 128,
             "render snapshots read the current scene's generated component data"))
     {
         return false;
     }
-    auto pending_ibl = environment.settings();
-    auto invalid_ao = post_process.settings();
-    auto invalid_hdr = post_process.settings();
+    auto pending_ibl = test_support::read_settings(environment);
+    auto invalid_ao = test_support::read_settings(post_process);
+    auto invalid_hdr = test_support::read_settings(post_process);
     invalid_hdr.hdr_enabled = false;
     if (!expect(!post_process.set_settings(invalid_hdr) && renderer.settings().hdr_enabled &&
                     renderer.settings().bloom_enabled,
@@ -286,7 +289,7 @@ bool check_scene_render_settings(const engine::EngineConfig& config)
     {
         return false;
     }
-    invalid_ao = post_process.settings();
+    invalid_ao = test_support::read_settings(post_process);
     invalid_ao.ao_fade_end = invalid_ao.ao_fade_start;
     if (!expect(!post_process.set_settings(invalid_ao) && renderer.settings().ao_fade_end == 120.0F,
                 "inverted AO fade is rejected atomically"))
@@ -304,7 +307,7 @@ bool check_scene_render_settings(const engine::EngineConfig& config)
     auto partial_ibl = pending_ibl;
     partial_ibl.ibl_irradiance_guid = "11111111-1111-1111-1111-111111111111";
     if (!expect(!environment.set_settings(partial_ibl) &&
-                    environment.settings().ibl_irradiance_guid.empty(),
+                    test_support::read_settings(environment).ibl_irradiance_guid.empty(),
                 "a partial IBL result is rejected without publishing incomplete references"))
     {
         return false;
@@ -337,8 +340,8 @@ bool check_scene_render_settings(const engine::EngineConfig& config)
                          ? duplicate_node.add_component<engine::EnvironmentComponent>()
                          : engine::EnvironmentComponent{};
     if (!expect(duplicate.valid() && renderer.settings().ambient_intensity == 0.0F &&
-                    environment.settings().ambient_intensity == 0.3F &&
-                    post_process.settings().exposure == 2.0F,
+                    test_support::read_settings(environment).ambient_intensity == 0.3F &&
+                    test_support::read_settings(post_process).exposure == 2.0F,
                 "ambiguous environments return fixed defaults without mutating components"))
     {
         return false;
@@ -430,13 +433,13 @@ bool check_scene_render_settings(const engine::EngineConfig& config)
     {
         return false;
     }
-    auto changed_shadows = second_light.settings();
+    auto changed_shadows = test_support::read_settings(second_light);
     changed_shadows.shadow_cascades = 4;
     changed_shadows.shadow_distance = 160.0F;
     if (!expect(second_light.set_settings(changed_shadows) &&
                     renderer.settings().shadow_cascades == 4 &&
                     renderer.settings().shadow_distance == 160.0F &&
-                    !first_light.settings().cast_shadows,
+                    !test_support::read_settings(first_light).cast_shadows,
                 "cascade snapshots follow the explicitly edited casting light"))
     {
         return false;
@@ -450,8 +453,9 @@ bool check_scene_render_settings(const engine::EngineConfig& config)
     }
     if (!first_light.set_settings(shadows) || !second_light.set_settings(shadows) ||
         !expect(!renderer.settings().directional_shadows &&
-                    environment.settings().ambient_intensity == 0.3F &&
-                    first_light.settings().cast_shadows && second_light.settings().cast_shadows,
+                    test_support::read_settings(environment).ambient_intensity == 0.3F &&
+                    test_support::read_settings(first_light).cast_shadows &&
+                    test_support::read_settings(second_light).cast_shadows,
                 "ambiguous shadow casters return defaults without modifying either light"))
     {
         return false;
@@ -840,7 +844,7 @@ bool check_textures(test_support::ResourceServices& services, engine::Scene& sce
     {
         return false;
     }
-    engine::resource_detail::ResourceReference preload;
+    engine::ResourceReference preload;
     if (!services.load(texture.path, preload))
     {
         return false;

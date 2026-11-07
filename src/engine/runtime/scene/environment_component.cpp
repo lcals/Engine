@@ -15,13 +15,6 @@ bool EnvironmentComponent::register_type(ComponentRegistry& registry)
     return register_component_storage<EnvironmentComponent, Data, EnvironmentRuntime>(registry);
 }
 
-EnvironmentSettings EnvironmentComponent::settings() const noexcept
-{
-    Data output{};
-    (void)get_settings(output);
-    return output;
-}
-
 bool EnvironmentComponent::get_settings(Data& output) const noexcept
 {
     const auto* value = read_data<Data>();
@@ -42,7 +35,11 @@ bool EnvironmentComponent::set_settings(const EnvironmentSettings& settings)
     EnvironmentRuntime candidate;
     const std::array guids = {&settings.ibl_irradiance_guid, &settings.ibl_prefilter_guid,
                               &settings.ibl_lut_guid};
-    const auto current = this->settings();
+    Data current;
+    if (!get_settings(current))
+    {
+        return false;
+    }
     const std::array old_guids = {&current.ibl_irradiance_guid, &current.ibl_prefilter_guid,
                                   &current.ibl_lut_guid};
     auto* runtime = runtime_state<EnvironmentRuntime>();

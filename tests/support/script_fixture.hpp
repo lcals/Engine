@@ -15,7 +15,7 @@ inline bool prepare_script(engine::ScriptRuntime& script, ResourceServices& serv
     {
         return false;
     }
-    engine::resource_detail::ResourceReference root;
+    engine::ResourceReference root;
     return services.load(entry.empty() ? "scripts/game.js" : entry, root) &&
            script.prepare_gameplay(root.handle(), candidate.revision());
 }
@@ -55,7 +55,7 @@ inline bool execute_script(ResourceServices& services, engine::ScriptRuntime& sc
         error = services.loader.last_error();
         return false;
     }
-    engine::resource_detail::ResourceReference root;
+    engine::ResourceReference root;
     if (!root.adopt(&services.loader, handle))
     {
         return false;

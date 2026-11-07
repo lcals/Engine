@@ -212,7 +212,7 @@ bool runtime_contract()
     {
         return false;
     }
-    auto settings = component.settings();
+    auto settings = test_support::read_settings(component);
     settings.terrain_guid = fixture.catalog.entries.front()->guid;
     if (!expect(component.set_settings(settings) && terrain.tick(0) && component.ready() &&
                     physics.tick(0) && physics.body_count() == 1,
@@ -302,7 +302,7 @@ bool runtime_contract()
         return false;
     }
     auto transform = node.get_component<Transform>();
-    const auto original_pose = transform.settings();
+    const auto original_pose = test_support::read_settings(transform);
     auto invalid_pose = original_pose;
     invalid_pose.scale = {-1, 1, 1};
     const auto mesh_before = triangles(*renderer.mesh_data());
@@ -321,7 +321,7 @@ bool runtime_contract()
             component.set_settings(no_collision) && !collider.enabled() &&
                 physics.body_count() == 0 && cast(12, false) &&
                 transform.set_settings(invalid_pose) && !component.set_settings(settings) &&
-                component.settings() == no_collision && !collider.enabled() &&
+                test_support::read_settings(component) == no_collision && !collider.enabled() &&
                 physics.body_count() == 0 && transform.set_settings(original_pose) &&
                 component.set_settings(settings) && collider.enabled() && cast(12, true) &&
                 component.snapshot(after) && after == saved,
@@ -420,7 +420,7 @@ bool subsystem_contract()
     {
         return false;
     }
-    auto settings = component.settings();
+    auto settings = test_support::read_settings(component);
     settings.terrain_guid = fixture.catalog.entries.front()->guid;
     float fraction = 1;
     if (!expect(component.set_settings(settings) && !terrain->tick(0) && !component.ready() &&
@@ -644,7 +644,7 @@ bool collapse_runtime_contract()
     {
         return false;
     }
-    auto settings = component.settings();
+    auto settings = test_support::read_settings(component);
     settings.terrain_guid = fixture.catalog.entries.front()->guid;
     if (!expect(component.set_settings(settings) && terrain.tick(0) &&
                     component.collapse_detached(8, 16, 2, 100) && component.fragment_count() == 0 &&
@@ -686,7 +686,9 @@ bool collapse_runtime_contract()
         {
             fragment_id = item.id();
             auto body = item.get_component<RigidBody>();
-            if (!expect(body && body.settings().motion == schema::BodyMotion::dynamic &&
+            if (!expect(body &&
+                            test_support::read_settings(body).motion ==
+                                schema::BodyMotion::dynamic &&
                             item.get_component<MeshRenderer>() && item.get_component<Collider>() &&
                             !item.get_component<MeshRenderer>().visible_in_hierarchy() &&
                             item.get_component<Collider>().active(),
@@ -753,7 +755,8 @@ bool collapse_runtime_contract()
         return false;
     }
     const double initial_y =
-        scene->find_node(fragment_id).get_component<Transform>().settings().position.y();
+        test_support::read_settings(scene->find_node(fragment_id).get_component<Transform>())
+            .position.y();
     for (int step = 0; step < 20; ++step)
     {
         if (!physics.tick(1.0 / 60.0))
@@ -761,9 +764,10 @@ bool collapse_runtime_contract()
             return false;
         }
     }
-    if (!expect(scene->find_node(fragment_id).get_component<Transform>().settings().position.y() <
-                    initial_y - 0.1,
-                "detached soil actually falls under Jolt gravity") ||
+    if (!expect(
+            test_support::read_settings(scene->find_node(fragment_id).get_component<Transform>())
+                    .position.y() < initial_y - 0.1,
+            "detached soil actually falls under Jolt gravity") ||
         !expect(component.apply_sphere({3, 2, 3}, 1, false) &&
                     component.apply_sphere({3, 2, 3}, 1, true) && component.fragment_count() == 8 &&
                     !component.collapse_detached(8, 8, 2, 100) && component.fragment_count() == 8,
@@ -842,7 +846,7 @@ bool fragment_retirement_contract()
     {
         return false;
     }
-    auto pose = second_node.get_component<Transform>().settings();
+    auto pose = test_support::read_settings(second_node.get_component<Transform>());
     pose.position = {30, 0, 0};
     schema::TerrainDataT description;
     description.terrain_guid = fixture.catalog.entries.front()->guid;
@@ -876,7 +880,7 @@ bool fragment_retirement_contract()
     auto source_mesh = first_node.get_component<MeshRenderer>().mesh_data();
     auto retained = scene->find_node(first_ids.back());
     auto retained_body = retained.get_component<RigidBody>();
-    const auto retained_pose = retained.get_component<Transform>().settings();
+    const auto retained_pose = test_support::read_settings(retained.get_component<Transform>());
     if (!retained_body.set_linear_velocity({1, 2, 3}))
     {
         return false;
@@ -900,7 +904,7 @@ bool fragment_retirement_contract()
                 first.retire_fragments(6, 0, retired) && retired == 2 &&
                 !scene->find_node(first_ids[0]) && !scene->find_node(first_ids[1]) &&
                 scene->find_node(first_ids.back()) == retained &&
-                retained.get_component<Transform>().settings() == retained_pose &&
+                test_support::read_settings(retained.get_component<Transform>()) == retained_pose &&
                 retained_body.linear_velocity() == Vec3(1, 2, 3) && first.fragment_count() == 6 &&
                 second.fragment_count() == 8 && physics.body_count() == 16 &&
                 !physics.is_object_valid(old_handle) && first.revision() == revision + 1 &&

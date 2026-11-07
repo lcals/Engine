@@ -166,7 +166,8 @@ bool check()
     snapshot.flags->enabled = false;
     snapshot.payload.AsLightData()->intensity = 2.5F;
     if (!expect(light.restore_data(snapshot) && !light.enabled() &&
-                    node.get_component<engine::Light>().settings().intensity == 2.5F,
+                    test_support::read_settings(node.get_component<engine::Light>()).intensity ==
+                        2.5F,
                 "restore dispatches through Component interface"))
     {
         return false;
@@ -174,7 +175,8 @@ bool check()
     snapshot.flags->enabled = true;
     snapshot.payload.AsLightData()->intensity = std::numeric_limits<float>::quiet_NaN();
     if (!expect(!light.restore_data(snapshot) && !light.enabled() &&
-                    node.get_component<engine::Light>().settings().intensity == 2.5F,
+                    test_support::read_settings(node.get_component<engine::Light>()).intensity ==
+                        2.5F,
                 "invalid typed restore leaves previous state unchanged"))
     {
         return false;
@@ -202,7 +204,7 @@ bool check()
         return false;
     }
     auto camera = node.add_component<engine::Camera>();
-    auto lens = camera.settings();
+    auto lens = test_support::read_settings(camera);
     if (!expect(camera && !lens.frustum_culling_enabled,
                 "optional camera frustum culling defaults off"))
     {
@@ -218,7 +220,7 @@ bool check()
     }
     lens.frustum_culling_enabled = false;
     if (!expect(camera.set_settings(lens) && camera.restore_data(camera_snapshot) &&
-                    camera.settings().frustum_culling_enabled,
+                    test_support::read_settings(camera).frustum_culling_enabled,
                 "camera restore preserves explicit opt-in without separate renderer state"))
     {
         return false;

@@ -6,7 +6,7 @@
 
 ## 依赖与注入
 
-**内部精简已实现：** 接受路径的组件原生入口只获取一次资源，从该次获取的 info 读取 GUID 并保留同一个获取；消除“临时获取 GUID → 释放 → 按 GUID 再获取”的重复步骤。仍复用已有绑定作用域：场景恢复时从所属根的依赖闭包取得资源，普通业务从当前已加载索引获取，不能因合并查找而改用另一代资源。类型校验和提交顺序保持；失败释放临时获取，原组件绑定不变。ResourceReference 继续负责内部成对释放，不新增业务公开方法或隐式 I/O。 路径入口与 set_settings 通过类型内部的私有提交函数共用校验和状态更新，临时获取按值转交；同 GUID 的既有绑定继续保留原版本及运行状态。脚本层只转换 GUID 的入口仍委托相应组件的公开 set_settings，不向脚本暴露内部资源引用。
+**内部精简已实现：** 接受路径的组件原生入口只获取一次资源，从该次获取的 info 读取 GUID 并保留同一个获取；消除“临时获取 GUID → 释放 → 按 GUID 再获取”的重复步骤。仍复用已有绑定作用域：场景恢复时从所属根的依赖闭包取得资源，普通业务从当前已加载索引获取，不能因合并查找而改用另一代资源。类型校验和提交顺序保持；失败释放临时获取，原组件绑定不变。ResourceReference 统一负责 C++ 所有者的成对释放，不增加隐式 I/O。 路径入口与 set_settings 通过类型内部的私有提交函数共用校验和状态更新，临时获取按值转交；同 GUID 的既有绑定继续保留原版本及运行状态。脚本层只转换 GUID 的入口仍委托相应组件的公开 set_settings，不向脚本暴露内部资源引用。
 
 ```mermaid
 classDiagram
@@ -135,39 +135,18 @@ classDiagram
 
 宿主统一派发 TaskSystem 完成委托，各模块只消费自己的结果；公开 status/get 纯查询。后台任务捕获独立输入和保活身份，不捕获活动组件列/系统裸借用。取消先使发布目标失效，收尾后再释放输入；正常帧不等待，关闭边界才等待。模块构造/注入细节在各自类图中随实现前评审同步。
 
-## 实现迁移检查点
+## 业务接入契约（2026-11-06 确认，2026-11-07 收敛引用）
 
-## 接入签名补充（2026-11-06，用户已确认）
-
-核心和资源插件的已确认接口已进入实现。原业务类图保留的共享指针和单例读取需要一次替换；下列为本次接入的公开签名变更，不建立旧接口兼容层。未列出的方法保持原有领域职责。
+本页只维护跨模块注入和所有权关系。公开签名分别见 [WorldSystem](world-system.md)、[AudioSystem](audio-system.md)、[FontSystem](font-system.md)、[GameplaySession](gameplay-session.md) 和 [ScriptRuntime](script-runtime.md)，不在跨模块图重复定义。
 
 ```mermaid
 classDiagram
-    class WorldSystem {
-        +WorldSystem(ResourceLoader* resources, const SceneRestoreConfig& config)
-        +resource_loader() ResourceLoader*
-        +load_scene(string_view path) Scene*
-        +begin_restore_scene(const ResourceHandle& resource) uint64_t
-    }
-    class AudioSystem {
-        +AudioSystem(ResourceLoader* resources, WorldSystem* world)
-        +play(const ResourceHandle& clip, AudioVoiceHandle& output) bool
-    }
-    class FontSystem {
-        +FontSystem(ResourceLoader* resources)
-        +layout(const FontResource& font, string_view text, const FontLayout& settings, FontGeometry& output) bool$
-        +draw(const ResourceHandle& font, const FontGeometry& geometry, const FontDraw& settings) bool
-    }
-    class FontDraw {
-        +ResourceHandle shader
-    }
-    class GameplaySession {
-        +GameplaySession(ResourceSystem& resources, WorldSystem& world, RenderSystem& renderer, ScriptRuntime* script, ...)
-    }
-    class ScriptRuntime {
-        +prepare_gameplay(const ResourceHandle& entry, string_view revision) bool*
-        +execute_project_script(const ResourceHandle& script, const ProjectScriptRequest& request, string& result_json, string& error) bool*
-    }
+    class WorldSystem
+    class AudioSystem
+    class FontSystem
+    class FontDraw
+    class GameplaySession
+    class ScriptRuntime
     class ResourceLoader
     class ResourceSystem
     class ResourceHandle
@@ -184,7 +163,7 @@ classDiagram
 
 - `WorldSystem`、`AudioSystem`、`FontSystem` 的加载器指针可空，默认空；无加载器仍可启动不使用资源的基础系统，所有资源使用入口明确失败。指针非空时有效期覆盖系统及任务。此处将原音频图的必需引用改为可空借用，避免禁用资源插件后必须创建一个虚假的加载实现。
 - `WorldSystem::resource_loader()` 为 const noexcept，只返回宿主注入的借用。`load_scene(path)` 保留名称，但只 `acquire_loaded` 并恢复；不读文件。恢复请求独立 retain 根资源，分帧只恢复 ECS，不推进加载。
-- `FontSystem::load_font` 删除。调用方使用统一 `ResourceLoader` 加载。`FontDraw::shader` 与字体 draw 输入均为已有获取；GPU 缓存需要跨调用保活时由字体系统另行 retain。
+- `FontSystem::load_font` 删除。调用方使用统一 `ResourceLoader` 加载。`FontDraw::shader` 与字体 draw 输入均为已有获取；调用方须让字体及 Shader 获取覆盖绘制；字体 GPU 缓存只保存可校验身份和 GPU 副本，每帧清理失效身份，不延长 CPU 资源寿命。
 - `MeshRenderer::mesh_resource/lightmap_resource`、`Material::texture`、`UiComponent::document`、`TextComponent::font/shader`、`LightProbeVolumeComponent::resource` 改为返回 `ResourceHandle` 身份副本，查询不加计数；调用方不得释放模块持有的身份，跨调用使用必须 retain。原共享指针返回类型删除。
 - 场景、Prefab、Model 恢复使用私有的恢复作用域，把当前根获取传入组件绑定链；作用域只覆盖同步恢复步骤。组件持久字段仍为 GUID/路径，ECS Runtime 列保存独立获取。恢复从根闭包查找，动态 setter 从当前已加载索引获取，二者均无读取回退。
 - `RenderSystem` 保留世界注入关系，通过世界取得同一加载器；无世界的影片呈现只使用已解码帧。`UiSystem` 同样通过已注入世界取得加载器，不增加另一条资源来源。

@@ -14,7 +14,7 @@ namespace
 using Json = nlohmann::json;
 
 bool read(ResourceLoader* loader, const Json& arguments, schema::EffectDataT& value,
-          std::string& error)
+          std::vector<ResourceReference>& prepared, std::string& error)
 {
     if (!editor::components::fields(arguments,
                                     {"enabled", "effect", "speed", "loop", "playOnAwake"}, error))
@@ -35,7 +35,7 @@ bool read(ResourceLoader* loader, const Json& arguments, schema::EffectDataT& va
         }
         else
         {
-            editor::resource_access::ResourceReference resource;
+            engine::ResourceReference resource;
             if (!editor::resource_access::load(loader, path, resource) ||
                 resource->kind() != schema::AssetKind::effect)
             {
@@ -44,6 +44,7 @@ bool read(ResourceLoader* loader, const Json& arguments, schema::EffectDataT& va
             }
             auto guid = resource->info().guid;
             value.effect_guid = std::move(guid);
+            prepared.push_back(std::move(resource));
         }
     }
     if (arguments.contains("speed") && !editor::components::number(arguments["speed"], value.speed))
@@ -74,7 +75,11 @@ bool read(ResourceLoader* loader, const Json& arguments, schema::EffectDataT& va
 
 Json write(const EffectComponent& component)
 {
-    const auto& value = component.settings();
+    schema::EffectDataT value;
+    if (!component.get_settings(value))
+    {
+        return nullptr;
+    }
     std::string path;
     if (!value.effect_guid.empty())
     {
@@ -118,8 +123,14 @@ bool register_effect_commands(WorldSystem& world, editor::SceneCommands& scene_c
                         return false;
                     }
                 }
-                auto value = component.valid() ? component.settings() : schema::EffectDataT{};
-                if (!read(world.resource_loader(), arguments, value, error))
+                schema::EffectDataT value;
+                if (component && !component.get_settings(value))
+                {
+                    error = "Cannot read component settings";
+                    return false;
+                }
+                std::vector<ResourceReference> prepared;
+                if (!read(world.resource_loader(), arguments, value, prepared, error))
                 {
                     return false;
                 }
@@ -158,15 +169,16 @@ bool register_effect_commands(WorldSystem& world, editor::SceneCommands& scene_c
                           {"nodeId", std::to_string(node.id())}};
                 after.payload.Set(std::move(value));
                 std::vector<schema::AssetEntryT> versions;
-                if ((before &&
-                     !editor::components::resource_versions(world, *before, versions, error)) ||
-                    !editor::components::resource_versions(world, after, versions, error))
+                if ((before && !editor::components::resource_versions(world, *before, versions,
+                                                                      prepared, error)) ||
+                    !editor::components::resource_versions(world, after, versions, prepared, error))
                 {
                     return false;
                 }
                 edit = std::make_unique<editor::components::ComponentEdit>(
                     world, node.scene()->id(), std::move(identity), std::move(before),
-                    std::move(after));
+                    std::move(after), std::move(versions), ComponentType::NONE,
+                    std::move(prepared));
                 return true;
             }))
     {

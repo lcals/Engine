@@ -2,6 +2,8 @@
 
 #include "effects_shaders.hpp"
 #include "plugins/runtime/effects/effect_resource_path.hpp"
+#include "runtime/render/texture_upload.hpp"
+#include "runtime/resource/types/texture_resource.hpp"
 
 #include <bgfx/bgfx.h>
 
@@ -67,14 +69,14 @@ bgfx_shader_handle_t EffectResources::load_shader(const char* material, const ch
 int EffectResources::load_texture(const char* name, int, void* context)
 {
     auto& resources = *static_cast<EffectResources*>(context);
-    resource_detail::ResourceReference resource;
+    ResourceReference resource;
     if (name == nullptr || !resources.resolve(name, schema::AssetKind::texture, resource))
     {
         return -1;
     }
     for (auto& [id, existing] : resources.textures_)
     {
-        const auto& source = existing.gpu.resource;
+        const auto& source = existing.resource;
         if (source && source->info().guid == resource->info().guid &&
             source->generation() == resource->generation())
         {
@@ -93,24 +95,22 @@ int EffectResources::load_texture(const char* name, int, void* context)
         return -1;
     }
     TextureEntry entry;
-    render_detail::PreparedTexture prepared;
     // 颜色空间只由资源 meta 决定，不使用旧适配器固定传入的 srgb=0。
     // SDK 的同步回调逐张加载，仍在 bgfx API 线程准备并上传。
     if (!resource.data<TextureResource>() || resource.data<TextureResource>()->cube_map ||
-        !prepared.describe(resource.loader(), resource.handle(), *bgfx::getCaps(),
-                           std::numeric_limits<std::size_t>::max()) ||
-        !prepared.prepare() || !entry.gpu.create(prepared))
+        !render::upload_texture(*resource.loader(), resource.handle(), entry.handle))
     {
         resources.error = "Cannot upload effect texture: " + resource->info().path;
         return -1;
     }
     const int id = resources.next_texture_++;
+    entry.resource = std::move(resource);
     resources.textures_.emplace(id, std::move(entry));
     return id;
 }
 
 bool EffectResources::resolve(std::string_view path, schema::AssetKind kind,
-                              resource_detail::ResourceReference& output)
+                              ResourceReference& output)
 {
     output.reset();
     if (loading != nullptr)
@@ -131,6 +131,7 @@ void EffectResources::unload_texture(int id, void* context)
     const auto item = resources.textures_.find(id);
     if (item != resources.textures_.end() && --item->second.references == 0)
     {
+        bgfx::destroy(item->second.handle);
         resources.textures_.erase(item);
     }
 }
@@ -139,11 +140,16 @@ bgfx_texture_handle_t EffectResources::texture_handle(int id, void* context)
 {
     auto& resources = *static_cast<EffectResources*>(context);
     const auto item = resources.textures_.find(id);
-    return {item != resources.textures_.end() ? item->second.gpu.handle.idx : bgfx::kInvalidHandle};
+    return {item != resources.textures_.end() ? item->second.handle.idx : bgfx::kInvalidHandle};
 }
 
 void EffectResources::release_textures() noexcept
 {
+    for (const auto& [id, texture] : textures_)
+    {
+        (void)id;
+        bgfx::destroy(texture.handle);
+    }
     textures_.clear();
     next_texture_ = 0;
 }

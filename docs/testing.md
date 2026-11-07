@@ -4,6 +4,25 @@
 
 验证记录只对注明的日期、平台、后端和范围负责。定向测试通过不表示全仓测试通过，历史实窗结果也不代表后续修改已跨平台验收。功能检查与性能验收分开；性能指标和采样口径见[性能文档](runtime/performance.md)。CI 仅手动触发。
 
+## 2026-11-07：模块边界与单一版本修复
+
+按[本轮契约](class-diagrams/index.md#2026-11-07模块边界与单一版本修复)同步类图、实现和调用方：组件设置统一使用 `get_settings(output)`，Component 区分存储与保存快照，Node 直接查询局部身份；动画绑定读取公开播放快照，材质导出使用持有的资源身份，特效纹理上传通过渲染公开入口，编辑器准备资源保活到首次提交。删除 `linearFog`、Model 废弃字段及跨图重复的方法定义，单一版本规则记录于 AGENTS.md 和架构文档。
+
+验证环境为 Windows x64、MSVC、QuickJS，特效测试使用 Direct3D 12：
+
+- 受影响的运行时、编辑器与插件库，以及 `engine_app`、`engine_project_app`、`editor_app`、`mcp_app`、`asset_build_app` 的 Debug / Release 编译和链接通过；未运行 Debug 测试。
+- 42 个直接修改的测试源文件完成 Release 编译，确保调用方迁移完整；实际运行下列 15 项定向用例。首轮 14 项通过，新增保存回归夹具补齐目录更新后的内置依赖准备后，`editor.scene_persistence` 单独复测通过。未重跑已通过的 14 项。
+- 动画用例核对事件与公开播放快照的 GUID、资源代际、轨道修订及播放身份；保存用例验证 Shader 已从当前目录移除时，仍按材质持有的 Shader GUID 导出。既有用例覆盖组件身份失效、物理/角色/导航、特效 GPU 上传、地形/破坏、脚本和编辑器撤销。
+- 源码包含与解析后目标依赖的架构检查通过；修改文档的本地链接、代码围栏及类图花括号检查通过，`git diff --check` 通过。
+
+```powershell
+ctest --preset windows-static-release -R '^((engine\.(ecs_scene|scene_data|animation|animation_rigging_events|model_resource|script_runtime|effects_runtime|terrain_runtime|destruction_runtime|character_controller|physics))|(editor\.(commands|physics_audio_commands|scene_persistence))|engine_navigation_crowd)$' --output-on-failure -j 2
+ctest --preset windows-static-release -R '^editor\.scene_persistence$' --output-on-failure
+python scripts/check_architecture.py --root . --targets build/windows-static-release/architecture --config Release
+```
+
+本轮没有执行全量 CTest、其他平台或 V8 后端验收。
+
 ## 2026-11-07：全仓类图精简落地
 
 按[全仓类图评审](class-diagrams/index.md#全仓精简评审)落实本轮合并：四个建模静态工具类改为 `modeling::mesh` 函数；三种字段编辑记录合并为私有 `PropertyEdit<DataT>`；MCP 登记、组件设置读取、脚本绑定及 15 个核心 FlatBuffers Codec 复用公共步骤；删除资源插件只写不读的计数字段，路径绑定保留一次获取的资源。公开业务功能、字段级撤销冲突规则和可替换插件边界保持。

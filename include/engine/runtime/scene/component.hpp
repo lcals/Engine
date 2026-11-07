@@ -35,7 +35,8 @@ public:
     [[nodiscard]] bool visible_in_hierarchy() const noexcept;
     [[nodiscard]] bool transient() const noexcept;
     [[nodiscard]] bool set_transient(bool transient) noexcept;
-    [[nodiscard]] schema::ComponentDataT data() const;
+    // 原始存储快照；build_data 另包含领域保存时生成的数据。
+    [[nodiscard]] bool get_data(schema::ComponentDataT& output) const;
     [[nodiscard]] bool build_data(schema::ComponentDataT& output) const;
     [[nodiscard]] bool restore_data(const schema::ComponentDataT& data);
     [[nodiscard]] bool remap_node_references(schema::ComponentDataT& data,
@@ -62,7 +63,6 @@ protected:
     void modified() noexcept;
     [[nodiscard]] bool writable() const noexcept;
     [[nodiscard]] bool restore_flags(const schema::ComponentDataT& data) noexcept;
-    [[nodiscard]] bool build_storage_data(schema::ComponentDataT& output) const;
 
 private:
     friend class ComponentRegistry;

@@ -294,7 +294,7 @@ bool Scene::set_active_camera(Camera camera) noexcept
     {
         return false;
     }
-    info->active_camera_node = camera ? camera.node().info().properties->id : 0;
+    info->active_camera_node = camera ? camera.node().local_id() : 0;
     return true;
 }
 bool Scene::build_data(schema::SceneDataT& output) const

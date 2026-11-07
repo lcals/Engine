@@ -49,7 +49,7 @@ struct GpuGeometry
                   std::span<const schema::Vec4> tangents, std::vector<GpuVertex>& packed,
                   std::array<float, 3>& minimum, std::array<float, 3>& maximum);
 
-    resource_detail::ResourceReference resource;
+    ResourceReference resource;
     bgfx::VertexBufferHandle vertices = BGFX_INVALID_HANDLE;
     bgfx::IndexBufferHandle indices = BGFX_INVALID_HANDLE;
     bgfx::VertexBufferHandle influences = BGFX_INVALID_HANDLE;

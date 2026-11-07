@@ -23,7 +23,7 @@ std::string normalized(std::string value)
 RmlFont::RmlFont(FontSystem& fonts) noexcept : fonts_(fonts)
 {
 }
-bool RmlFont::activate(const std::string& key, const resource_detail::ResourceReference& document)
+bool RmlFont::activate(const std::string& key, const ResourceReference& document)
 {
     active_ = nullptr;
     if (!document || !document.data<UiResource>())
@@ -75,9 +75,8 @@ void RmlFont::prune(std::span<const std::string> keys)
     std::erase_if(documents_, [&](const auto& entry) { return !alive(entry.first); });
 }
 bool RmlFont::resolve_texture(std::string_view key, std::string_view font_guid,
-                              std::string_view shader_guid,
-                              resource_detail::ResourceReference& font,
-                              resource_detail::ResourceReference& shader) const
+                              std::string_view shader_guid, ResourceReference& font,
+                              ResourceReference& shader) const
 {
     font.reset();
     shader.reset();

@@ -112,7 +112,8 @@ inline bool resolve_target(Animator actor, const schema::SkeletonDataT& skeleton
     for (auto current = target.target_node; current; current = current.parent())
     {
         auto candidate = current.get_component<BoneAttachment>();
-        if (candidate && candidate.active() && candidate.settings().follow_enabled)
+        BoneAttachment::Data settings;
+        if (candidate.get_settings(settings) && candidate.active() && settings.follow_enabled)
         {
             attachment = candidate;
             break;
@@ -124,8 +125,10 @@ inline bool resolve_target(Animator actor, const schema::SkeletonDataT& skeleton
         Animator source = engine::ecs_detail::component_runtime(attachment)->source;
         std::uint32_t socket_index;
         std::uint64_t generation;
-        if ((!source && !resolve_attachment_source(attachment, attachment.settings(), source,
-                                                   socket_index, generation)) ||
+        BoneAttachment::Data settings;
+        if (!attachment.get_settings(settings) ||
+            (!source &&
+             !resolve_attachment_source(attachment, settings, source, socket_index, generation)) ||
             source != actor)
         {
             return false;
@@ -134,12 +137,13 @@ inline bool resolve_target(Animator actor, const schema::SkeletonDataT& skeleton
         for (auto parent = actor.node(); parent; parent = parent.parent())
         {
             const auto nested = parent.get_component<BoneAttachment>();
-            if (nested && nested.active() && nested.settings().follow_enabled)
+            BoneAttachment::Data nested_settings;
+            if (nested.get_settings(nested_settings) && nested.active() &&
+                nested_settings.follow_enabled)
             {
                 return false;
             }
         }
-        const auto settings = attachment.settings();
         const schema::SkeletonSocketDataT* socket = nullptr;
         for (const auto& candidate : skeleton.sockets)
         {
@@ -173,12 +177,12 @@ inline bool resolve_target(Animator actor, const schema::SkeletonDataT& skeleton
         for (auto child = children.rbegin(); child != children.rend(); ++child)
         {
             auto transform = child->get_component<Transform>();
-            if (!transform)
+            TransformSettings pose;
+            if (!transform.get_settings(pose))
             {
                 return false;
             }
-            output.attachment_offset =
-                output.attachment_offset * authored_matrix(transform.settings());
+            output.attachment_offset = output.attachment_offset * authored_matrix(pose);
         }
         output.target = simd_point(target.local_offset);
         return true;

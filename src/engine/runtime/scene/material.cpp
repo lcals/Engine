@@ -25,7 +25,7 @@ namespace engine
 namespace
 {
 
-const schema::ShaderParameterT* find_definition(const resource_detail::ResourceReference& resource,
+const schema::ShaderParameterT* find_definition(const ResourceReference& resource,
                                                 std::string_view name,
                                                 schema::MaterialValue value_type)
 {
@@ -43,7 +43,7 @@ const schema::ShaderParameterT* find_definition(const resource_detail::ResourceR
     return iterator == shader->parameters.end() ? nullptr : iterator->get();
 }
 
-bool valid_values(const resource_detail::ResourceReference& resource, std::string_view name,
+bool valid_values(const ResourceReference& resource, std::string_view name,
                   schema::MaterialValue value_type, std::initializer_list<double> values)
 {
     const auto* definition = find_definition(resource, name, value_type);
@@ -79,8 +79,7 @@ schema::MaterialDataT shader_defaults(std::string_view type_path, const Resource
     return result;
 }
 
-const schema::ShaderSamplerT* find_sampler(const resource_detail::ResourceReference& shader,
-                                           std::string_view name)
+const schema::ShaderSamplerT* find_sampler(const ResourceReference& shader, std::string_view name)
 {
     if (!shader || !shader.data<ShaderResource>())
     {
@@ -96,10 +95,9 @@ const schema::ShaderSamplerT* find_sampler(const resource_detail::ResourceRefere
     return nullptr;
 }
 
-bool load_textures(const resource_detail::ResourceReference& shader,
-                   const resource_detail::ResourceReference* material,
+bool load_textures(const ResourceReference& shader, const ResourceReference* material,
                    schema::MaterialDataT& result,
-                   std::map<std::string, resource_detail::ResourceReference, std::less<>>& textures)
+                   std::map<std::string, ResourceReference, std::less<>>& textures)
 {
     const auto* definition = material ? material->data<MaterialResource>() : nullptr;
     const auto& owner = material ? *material : shader;
@@ -121,7 +119,7 @@ bool load_textures(const resource_detail::ResourceReference& shader,
                 }
             }
         }
-        resource_detail::ResourceReference texture;
+        ResourceReference texture;
         if (!ecs_detail::acquire_dependency(owner.loader(), owner.handle(), path, texture) ||
             !texture.data<TextureResource>() || texture.data<TextureResource>()->cube_map)
         {
@@ -239,13 +237,13 @@ bool MaterialState::set_type(std::string_view path)
     {
         return true;
     }
-    resource_detail::ResourceReference material;
+    ResourceReference material;
     if (!ecs_detail::acquire_resource(owner_, path, material) || !material.data<MaterialResource>())
     {
         return false;
     }
     const auto* definition = material.data<MaterialResource>();
-    resource_detail::ResourceReference shader;
+    ResourceReference shader;
     if (!shader.dependency(material.loader(), material.handle(), definition->shader_guid) ||
         !shader.data<ShaderResource>())
     {
@@ -265,7 +263,7 @@ bool MaterialState::set_type(std::string_view path)
         }
         (*destination)->value = parameter->value;
     }
-    std::map<std::string, resource_detail::ResourceReference, std::less<>> textures;
+    std::map<std::string, ResourceReference, std::less<>> textures;
     if (!load_textures(shader, &material, replacement, textures))
     {
         return false;
@@ -287,7 +285,7 @@ bool MaterialState::set_shader(std::string_view path)
     {
         return true;
     }
-    resource_detail::ResourceReference shader;
+    ResourceReference shader;
     if (!ecs_detail::acquire_resource(owner_, path, shader) || !shader.data<ShaderResource>())
     {
         return false;
@@ -295,7 +293,7 @@ bool MaterialState::set_shader(std::string_view path)
     auto replacement = shader_defaults(data_.type_path, *shader);
     replacement.cull_mode = data_.cull_mode;
     replacement.blend_mode = data_.blend_mode;
-    std::map<std::string, resource_detail::ResourceReference, std::less<>> textures;
+    std::map<std::string, ResourceReference, std::less<>> textures;
     if (!load_textures(shader, nullptr, replacement, textures))
     {
         return false;
@@ -347,7 +345,7 @@ bool MaterialState::set_blend_mode(schema::BlendMode mode) noexcept
 bool MaterialState::set_texture(std::string_view name, std::string_view path)
 {
     const auto* sampler = find_sampler(shader_resource_, name);
-    resource_detail::ResourceReference replacement;
+    ResourceReference replacement;
     if (!sampler || sampler->source != schema::ShaderTextureSource::resource || !sampler->exposed ||
         !ecs_detail::acquire_resource(owner_, path, replacement) ||
         !replacement.data<TextureResource>() || replacement.data<TextureResource>()->cube_map)
@@ -593,6 +591,18 @@ std::string Material::shader_path() const noexcept
         return {};
     }
     return material_state->shader_path();
+}
+
+ResourceHandle Material::shader() const noexcept
+{
+    const auto* material_state = state();
+    return material_state ? material_state->shader_handle() : ResourceHandle{};
+}
+
+ResourceHandle Material::resource() const noexcept
+{
+    const auto* material_state = state();
+    return material_state ? material_state->resource_handle() : ResourceHandle{};
 }
 
 const schema::ShaderDataT* Material::shader_data() const noexcept

@@ -82,7 +82,12 @@ void set_scalar(const Arguments& arguments, float schema::AudioSourceDataT::* fi
     float number = 0.0F;
     if (value.valid() && BindingContext::scalar(arguments, 2, number))
     {
-        auto settings = value.settings();
+        AudioSource::Data settings{};
+        if (!value.get_settings(settings))
+        {
+            arguments.set_return(false);
+            return;
+        }
         settings.*field = number;
         arguments.set_return(value.set_settings(settings));
     }
@@ -103,7 +108,12 @@ void set_boolean(const Arguments& arguments, bool schema::AudioSourceDataT::* fi
     auto value = binding_detail::component<AudioSource>(arguments, 3);
     if (value.valid() && arguments.is_boolean(2))
     {
-        auto settings = value.settings();
+        AudioSource::Data settings{};
+        if (!value.get_settings(settings))
+        {
+            arguments.set_return(false);
+            return;
+        }
         settings.*field = arguments.boolean(2);
         arguments.set_return(value.set_settings(settings));
     }
@@ -132,7 +142,12 @@ void distances(const Arguments& arguments)
     if (value.valid() && BindingContext::scalar(arguments, 2, minimum) &&
         BindingContext::scalar(arguments, 3, maximum))
     {
-        auto settings = value.settings();
+        AudioSource::Data settings{};
+        if (!value.get_settings(settings))
+        {
+            arguments.set_return(false);
+            return;
+        }
         settings.min_distance = minimum;
         settings.max_distance = maximum;
         arguments.set_return(value.set_settings(settings));

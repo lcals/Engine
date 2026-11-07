@@ -6,7 +6,7 @@
 
 ## 组件实现精简目标
 
-**状态：本节访问流程已按确认类图实现；以下公开值句柄契约不变。** Transform、Camera、Light 以及具备同样访问模式的领域组件保留 settings/get_settings 两个入口，由 settings 调用本类型 get_settings；后者通过既有受保护的 read_data<Data>() 完成一次身份检查和数据复制。settings 在无效句柄时返回默认值，get_settings 返回 false 并重置输出，既有区别保留。
+**状态：组件读取接口已收敛为单一版本。** Transform、Camera、Light 及其他具备设置数据的组件只提供 `get_settings(output)`，通过受保护的 `read_data<Data>()` 完成身份检查和数据复制。无效句柄返回 false 并重置输出；调用方必须检查状态，不再提供吞掉失败的按值包装。
 
 ```mermaid
 sequenceDiagram
@@ -14,16 +14,15 @@ sequenceDiagram
     participant Typed as 具体组件值句柄
     participant Base as Component既有身份访问
     participant Ecs as 世界中的生成Data列
-    Caller->>Typed: settings() 或 get_settings(output)
-    Typed->>Typed: settings仅委托本类型get_settings
+    Caller->>Typed: get_settings(output)
     Typed->>Base: read_data(Data)
     Base->>Ecs: 核对世界代次 实体及组件实例
     Ecs-->>Base: 当前阶段只读借用或空
     Base-->>Typed: 数据借用或空
-    Typed-->>Caller: 独立设置值 或 bool及安全输出
+    Typed-->>Caller: bool及独立设置输出
 ```
 
-快照与恢复复用既有 build_storage_data/restore_flags 和类型登记表；公共流程只处理身份、生成数据与标志。类型自己的校验、资源获取、提交副作用、Camera 隐藏列表以及动画/音频运行状态仍由该类型处理，不把它们移入 Component 的类型分支。恢复保持失败原子性，运行列不变成第二份持久模型。内部辅助实现不增加公共访问权限，不引入新的组件模板基类或虚函数。
+`get_data(output)` 生成原始存储快照，`build_data(output)` 生成领域保存快照，例如组装材质绑定、拒绝未导出的瞬时几何；两者均返回 bool，失败输出为空。快照与恢复复用类型登记表及受保护的 restore_flags；公共流程只处理身份、生成数据与标志。类型自己的校验、资源获取、提交副作用、Camera 隐藏列表以及动画/音频运行状态仍由该类型处理，不把它们移入 Component 的类型分支。恢复保持失败原子性，运行列不变成第二份持久模型。领域运行列继续保持内部访问，不引入新的组件模板基类或虚函数。
 
 ## 值句柄与公开方法
 
@@ -44,7 +43,7 @@ classDiagram
         +visible_in_hierarchy() bool
         +transient() bool
         +set_transient(bool transient) bool
-        +data() ComponentDataT
+        +get_data(ComponentDataT& output) bool
         +build_data(ComponentDataT& output) bool
         +restore_data(const ComponentDataT& data) bool
         +remap_node_references(ComponentDataT& data, span~const NodeIdMappingT~ mapping) bool
@@ -55,7 +54,7 @@ classDiagram
         +Transform()
         +Transform(Component component)
         +register_type(ComponentRegistry& registry) bool$
-        +settings() TransformSettings
+
         +get_settings(TransformSettings& output) bool
         +set_settings(const TransformSettings& settings) bool
         +world_matrix(float#42; output) bool
@@ -65,7 +64,7 @@ classDiagram
         +Camera()
         +Camera(Component component)
         +register_type(ComponentRegistry& registry) bool$
-        +settings() CameraSettings
+
         +get_settings(CameraSettings& output) bool
         +set_settings(const CameraSettings& settings) bool
         +screen_point_to_ray(const Vec2& point, const Vec2& viewport_size, Vec3& origin, Vec3& direction) bool
@@ -79,7 +78,7 @@ classDiagram
         +Light()
         +Light(Component component)
         +register_type(ComponentRegistry& registry) bool$
-        +settings() LightSettings
+
         +get_settings(LightSettings& output) bool
         +set_settings(const LightSettings& settings) bool
     }

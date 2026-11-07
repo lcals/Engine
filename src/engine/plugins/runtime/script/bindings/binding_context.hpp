@@ -139,7 +139,7 @@ private:
     std::vector<AnimationEvent> animation_events_;
     std::size_t animation_event_cursor_ = 0;
     ResourceLoader* resources_ = nullptr;
-    std::map<std::uint64_t, resource_detail::ResourceReference> resource_handles_;
+    std::map<std::uint64_t, ResourceReference> resource_handles_;
     std::map<std::uint64_t, std::unique_ptr<ResourceLoad>> resource_requests_;
     std::uint64_t resource_sequence_ = 0;
     std::string resource_error_;
@@ -155,7 +155,7 @@ private:
     MoviePlaybackHandle movie_handle_{};
     MouseMode previous_mouse_mode_ = MouseMode::normal;
     bool restore_mouse_mode_ = false;
-    resource_detail::ResourceReference scene_load_;
+    ResourceReference scene_load_;
     ResourceLoadProgress scene_load_progress_;
     ResourceLoadStatus scene_load_status_ = ResourceLoadStatus::loading;
     std::uint64_t scene_restore_request_ = 0;

@@ -45,7 +45,7 @@ classDiagram
 
 InputBinding 提供统一输入能力，BindingContext 借用 InputSystem 并清理本 Run 创建的通道与捕获；公开方法、数据依赖与失败语义见[输入脚本接口](input-script-api.md)。
 
-JSON 扩展：下方登记关系中的 JsonBinding 为本轮新增实现，公开方法与 `Json.Load(path): unknown` 门面只在 [JSON 资源脚本接口](json-script-api.md)定义。它复用 BindingContext 的活动回调检查和 ResourceSystem 的标准加载能力，不增加上下文服务、字段或第二套 JSON 值模型；已按评审契约实现。
+JSON 扩展：下方登记关系中的 JsonBinding 为本轮新增实现，公开方法与 `Json.ParseResource(handle): unknown` 门面只在 [JSON 资源脚本接口](json-script-api.md)定义。它复用 BindingContext 的活动回调检查和 已注入 ResourceLoader 的已加载资源查询，不增加上下文服务、字段或第二套 JSON 值模型；已按评审契约实现。
 
 运行控制继续复用现有系统，窗口绑定、退出入口和生命周期见
 [运行时控制脚本接口](runtime-controls-script-api.md)。单线程场景操作由已有 SceneBinding 转发，

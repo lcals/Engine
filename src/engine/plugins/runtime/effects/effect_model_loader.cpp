@@ -17,7 +17,7 @@ EffectModelLoader::EffectModelLoader(Effekseer::ModelLoaderRef loader,
 
 Effekseer::ModelRef EffectModelLoader::Load(const char16_t* path)
 {
-    resource_detail::ResourceReference resource;
+    ResourceReference resource;
     const auto logical = effect_utf8(path);
     if (!loader_ || !resources_.resolve(logical, schema::AssetKind::source, resource) ||
         (*resource.data<SourceResource>()).empty() ||

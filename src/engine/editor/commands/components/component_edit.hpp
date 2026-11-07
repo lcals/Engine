@@ -109,7 +109,7 @@ struct Target
 [[nodiscard]] bool vector(const Json& input, Vec3& value);
 [[nodiscard]] bool resource_versions(WorldSystem& world, const schema::ComponentDataT& data,
                                      std::vector<schema::AssetEntryT>& versions,
-                                     std::string& error);
+                                     std::vector<ResourceReference>& prepared, std::string& error);
 
 template <class DataT> class PropertyEdit final : public EditorEdit
 {
@@ -153,7 +153,8 @@ public:
     ComponentEdit(WorldSystem& world, std::uint64_t scene, std::shared_ptr<std::uint64_t> node,
                   std::optional<schema::ComponentDataT> before, schema::ComponentDataT after,
                   std::vector<schema::AssetEntryT> versions = {},
-                  ComponentType required_component = ComponentType::NONE);
+                  ComponentType required_component = ComponentType::NONE,
+                  std::vector<ResourceReference> prepared = {});
     [[nodiscard]] bool apply(std::string& error) override;
     [[nodiscard]] bool revert(std::string& error) override;
 
@@ -167,6 +168,7 @@ private:
     schema::ComponentDataT after_;
     std::vector<schema::AssetEntryT> versions_;
     ComponentType required_component_;
+    std::vector<ResourceReference> prepared_;
 };
 
 // 每类文件提供读写函数；共用主线程事务和场景身份检查，不持有组件借用。
@@ -197,8 +199,14 @@ template <typename T, typename Data, typename Read, typename Write>
                            return false;
                        }
                    }
-                   Data data = component.valid() ? component.settings() : Data{};
-                   if (!read(arguments, data, error) || !T::valid_settings(data))
+                   Data data{};
+                   if (component && !component.get_settings(data))
+                   {
+                       error = "Cannot read component settings";
+                       return false;
+                   }
+                   std::vector<ResourceReference> prepared;
+                   if (!read(arguments, data, prepared, error) || !T::valid_settings(data))
                    {
                        if (error.empty())
                        {
@@ -229,14 +237,15 @@ template <typename T, typename Data, typename Read, typename Write>
                                        ? alias->second
                                        : std::make_shared<std::uint64_t>(node.id());
                    std::vector<schema::AssetEntryT> versions;
-                   if ((before && !resource_versions(world, *before, versions, error)) ||
-                       !resource_versions(world, after, versions, error))
+                   if ((before && !resource_versions(world, *before, versions, prepared, error)) ||
+                       !resource_versions(world, after, versions, prepared, error))
                    {
                        return false;
                    }
                    edit = std::make_unique<ComponentEdit>(world, node.scene()->id(),
                                                           std::move(identity), std::move(before),
-                                                          std::move(after), std::move(versions));
+                                                          std::move(after), std::move(versions),
+                                                          ComponentType::NONE, std::move(prepared));
                    return true;
                }) &&
            commands.register_command(
@@ -258,7 +267,13 @@ template <typename T, typename Data, typename Read, typename Write>
                        }
                        return false;
                    }
-                   result = write(component.settings());
+                   Data data{};
+                   if (!component.get_settings(data))
+                   {
+                       error = "Cannot read component settings";
+                       return false;
+                   }
+                   result = write(data);
                    result["enabled"] = component.enabled();
                    result["sceneId"] = std::to_string(node.scene()->id());
                    result["nodeId"] = std::to_string(node.id());

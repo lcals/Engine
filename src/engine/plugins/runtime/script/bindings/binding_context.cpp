@@ -1,7 +1,5 @@
 #include "plugins/runtime/script/bindings/binding_context.hpp"
 
-#include "runtime/scene/animator_runtime.hpp"
-
 #include "runtime/app/app.hpp"
 #include "runtime/input/input_system.hpp"
 #include "runtime/log/log_system.hpp"
@@ -205,7 +203,7 @@ bool BindingContext::begin_scene_load(std::string_view path)
         return false;
     }
     scene_load_error_.clear();
-    resource_detail::ResourceReference root;
+    ResourceReference root;
     if (!root.acquire(resources_, path) || !root.data<SceneResource>())
     {
         scene_load_error_ = "Scene must be loaded with Resources before use";
@@ -337,7 +335,7 @@ std::uint64_t BindingContext::load_resource(std::string_view path)
         resource_error_ = resources_->last_error();
         return 0;
     }
-    resource_detail::ResourceReference reference;
+    ResourceReference reference;
     if (!reference.adopt(resources_, handle))
     {
         (void)resources_->release(handle);
@@ -357,7 +355,7 @@ ResourceHandle BindingContext::resource_handle(std::uint64_t token) const noexce
 
 std::uint64_t BindingContext::retain_resource(std::uint64_t token)
 {
-    resource_detail::ResourceReference reference;
+    ResourceReference reference;
     if (!active_ || !callable_ || resource_sequence_ == UINT64_MAX ||
         !reference.retain(resources_, resource_handle(token)))
     {
@@ -419,7 +417,7 @@ std::uint64_t BindingContext::take_resource(std::uint64_t token)
         resource_error_ = operation->last_error();
         return 0;
     }
-    resource_detail::ResourceReference reference;
+    ResourceReference reference;
     if (!reference.adopt(resources_, handle))
     {
         (void)resources_->release(handle);
@@ -626,13 +624,13 @@ bool BindingContext::take_animation_event(AnimationEvent& output)
         const auto& event = animation_events_[animation_event_cursor_++];
         const auto node = find_node(event.scene_id, event.node_id);
         const auto animator = node ? node.get_component<Animator>() : Animator{};
-        const auto* runtime = animator ? engine::ecs_detail::component_runtime(animator) : nullptr;
+        AnimatorPlaybackInfo info;
         if (animator && animator.active() &&
-            animator.instance_id() == event.component_instance_id && runtime &&
-            runtime->playback_id_ == event.playback_id &&
-            runtime->track_revision_ == event.track_revision && runtime->animation_ &&
-            runtime->animation_->info().guid == event.animation_guid &&
-            runtime->animation_->generation() == event.resource_generation)
+            animator.instance_id() == event.component_instance_id &&
+            animator.get_playback_info(info) && info.playback_id == event.playback_id &&
+            info.track_revision == event.track_revision &&
+            info.animation_guid == event.animation_guid &&
+            info.resource_generation == event.resource_generation)
         {
             output = event;
             return true;

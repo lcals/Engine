@@ -10,6 +10,6 @@ namespace engine
 struct UiComponentRuntime
 {
     std::uint64_t document_revision_ = 0;
-    resource_detail::ResourceReference document_;
+    ResourceReference document_;
 };
 } // namespace engine

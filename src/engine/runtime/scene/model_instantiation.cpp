@@ -19,7 +19,7 @@ Node Scene::instantiate_model(std::string_view path, std::string_view name,
     }
     const auto first_order = order_sequence_ + 1;
     auto* resources = world_.resource_loader();
-    resource_detail::ResourceReference resource;
+    ResourceReference resource;
     const auto owner = ecs_detail::ResourceBindingScope::owner(world_);
     if (!resources ||
         !(owner.id ? ecs_detail::acquire_dependency(resources, owner, path, resource)

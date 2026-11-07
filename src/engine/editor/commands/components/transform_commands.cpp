@@ -21,7 +21,12 @@ constexpr std::uint64_t scale_field = std::uint64_t{1} << 2;
         error = "Transform target no longer exists";
         return false;
     }
-    auto current = component.settings();
+    TransformSettings current;
+    if (!component.get_settings(current))
+    {
+        error = "Cannot read component settings";
+        return false;
+    }
     if (((selected & position_field) && !same(current.position, expected.position)) ||
         ((selected & rotation_field) && !same(current.rotation, expected.rotation)) ||
         ((selected & scale_field) && !same(current.scale, expected.scale)))
@@ -70,7 +75,12 @@ bool prepare_transform(WorldSystem& world, NodeAliases& aliases, const Json& arg
         error = "Node has no Transform";
         return false;
     }
-    const auto before = component.settings();
+    TransformSettings before;
+    if (!component.get_settings(before))
+    {
+        error = "Cannot read component settings";
+        return false;
+    }
     auto after = before;
     std::uint64_t selected = 0;
     for (const char* name : {"position", "rotation", "scale"})

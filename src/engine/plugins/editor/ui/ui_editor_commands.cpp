@@ -289,9 +289,15 @@ bool UiEditorCommands::State::query(std::string_view name, const Json& args, Jso
             {
                 if (const auto component = node.get_component<UiComponent>())
                 {
+                    UiComponent::Data settings;
+                    if (!component.get_settings(settings))
+                    {
+                        error = "Cannot read UI settings";
+                        return false;
+                    }
                     std::string path;
                     (void)editor::resource_access::path(world.resource_loader(),
-                                                        component.settings().document_guid, path);
+                                                        settings.document_guid, path);
                     const auto id = ui.document_id(node.id());
                     const auto* resource =
                         editor::resource_access::get(world.resource_loader(), component.document());
@@ -299,7 +305,7 @@ bool UiEditorCommands::State::query(std::string_view name, const Json& args, Jso
                                {"nodeId", std::to_string(node.id())},
                                {"documentId", id ? Json(std::to_string(id)) : Json(nullptr)},
                                {"document", path},
-                               {"guid", component.settings().document_guid},
+                               {"guid", settings.document_guid},
                                {"enabled", component.enabled()},
                                {"visible", ui.document_visible(node.id())},
                                {"persistent", node.persistent()},
@@ -537,7 +543,7 @@ bool UiEditorCommands::State::edit_document(editor::SceneCommands& scene_command
         }
         return false;
     }
-    editor::resource_access::ResourceReference resource;
+    engine::ResourceReference resource;
     if (!editor::resource_access::load(world.resource_loader(), path, resource) ||
         !resource.data<UiResource>())
     {

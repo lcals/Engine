@@ -50,7 +50,12 @@ bool collect_ik_operations(Animator actor, const CompiledSkeleton& skeleton,
                            std::vector<IkOperation>& output)
 {
     output.clear();
-    if (!actor.settings().ik_enabled)
+    Animator::Data settings;
+    if (!actor.get_settings(settings))
+    {
+        return false;
+    }
+    if (!settings.ik_enabled)
     {
         return true;
     }

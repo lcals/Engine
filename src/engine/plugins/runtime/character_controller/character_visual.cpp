@@ -15,13 +15,6 @@ bool CharacterVisual::valid_settings(const schema::CharacterVisualDataT& value) 
            value.kind <= schema::CharacterVisualKind::MAX;
 }
 
-schema::CharacterVisualDataT CharacterVisual::settings() const noexcept
-{
-    Data output{};
-    (void)get_settings(output);
-    return output;
-}
-
 bool CharacterVisual::get_settings(Data& output) const noexcept
 {
     const auto* value = read_data<Data>();

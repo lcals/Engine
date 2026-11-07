@@ -32,6 +32,9 @@ struct AnimatorPlaybackInfo
     bool completed = false;
     bool transitioning = false;
     std::uint64_t playback_id = 0;
+    std::string animation_guid;
+    std::uint64_t resource_generation = 0;
+    std::uint64_t track_revision = 0;
 };
 inline constexpr std::array<float, 16> animation_identity_matrix{1, 0, 0, 0, 0, 1, 0, 0,
                                                                  0, 0, 1, 0, 0, 0, 0, 1};

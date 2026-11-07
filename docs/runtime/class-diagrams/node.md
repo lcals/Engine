@@ -10,7 +10,7 @@ classDiagram
         +valid() bool
         +id() uint64_t
         +name() string
-        +info() NodeInfoT
+        +local_id() uint64_t
         +build_info(NodeInfoT& output) bool
         +world() WorldSystem#42;
         +scene() Scene#42;
@@ -64,7 +64,7 @@ classDiagram
 
 - Node 只保存世界借用、世界生命周期代次和完整 Flecs 实体 ID。复制或析构句柄不创建或销毁实体；删除必须显式调用 `Scene::destroy_node()`。
 - `valid()` 同时检查世界代次与实体代次。WorldSystem 对象须活过句柄的使用；shutdown/reinitialize 后旧句柄失效，不承诺世界对象析构后仍能解引用裸借用。
-- 真实节点属性为 ECS 列中的生成 `NodePropertiesT`；父子关系只存 Flecs `ChildOf`。`info()` 与 `build_info()` 临时组装独立 `NodeInfoT`，其中 `properties.id` 与 `parent_id` 为落盘局部身份，不能与 `id()` 的运行实体 ID 混用。`name()` 返回字符串副本。
+- 真实节点属性为 ECS 列中的生成 `NodePropertiesT`；父子关系只存 Flecs `ChildOf`。`build_info(output)` 临时组装独立 `NodeInfoT`，返回 bool，失败清空输出，其中 `properties.id` 与 `parent_id` 为落盘局部身份，不能与 `id()` 的运行实体 ID 混用。`local_id() const noexcept` 直接读取落盘局部 ID，无效时返回 0，不组装快照；`name()` 返回字符串副本。
 - `add_component<T>()` / `get_component<T>()` 返回具名组件值句柄，动态类型版本返回 Component 值句柄。每类至多一份；重复添加、缺失或初始化失败返回空句柄。Node 没有组件对象列表、具体类型指针或虚函数分派。
 - 类型登记表负责 ECS 列、运行字段和初始化/保存/恢复操作，生成枚举作为唯一类型标识。`collect_components()` 仅为编辑、保存与诊断生成身份快照；原生热路径直接做有类型的 ECS 查询。
 - `set_parent()` 保持局部变换。默认 `Node{}` 解除关系；过期非空、跨世界、跨场景、自身或循环父链均失败并保留旧关系。直接标记常驻的根拒绝非空父节点。

@@ -29,7 +29,12 @@ constexpr std::uint64_t shadow_bias_field = std::uint64_t{1} << 8;
         error = "Light target no longer exists";
         return false;
     }
-    auto current = component.settings();
+    LightSettings current;
+    if (!component.get_settings(current))
+    {
+        error = "Cannot read component settings";
+        return false;
+    }
     if (((selected & color_field) && !same(current.color, expected.color)) ||
         ((selected & intensity_field) && current.intensity != expected.intensity) ||
         ((selected & kind_field) && current.kind != expected.kind) ||
@@ -111,7 +116,12 @@ bool prepare_light(WorldSystem& world, NodeAliases& aliases, const Json& argumen
         error = "Node has no Light";
         return false;
     }
-    const auto before = component.settings();
+    LightSettings before;
+    if (!component.get_settings(before))
+    {
+        error = "Cannot read component settings";
+        return false;
+    }
     auto after = before;
     std::uint64_t selected = 0;
     if (arguments.contains("color"))

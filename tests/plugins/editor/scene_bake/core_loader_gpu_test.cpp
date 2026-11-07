@@ -1,5 +1,6 @@
 #include "resource_fixture.hpp"
 #include "resource_services.hpp"
+#include "scene_snapshot.hpp"
 
 #include "plugins/editor/scene_bake/ibl_bake_job.hpp"
 #include "plugins/editor/scene_bake/lighting_bake_job.hpp"
@@ -164,7 +165,7 @@ bool exercise()
     {
         return false;
     }
-    engine::resource_detail::ResourceReference source;
+    engine::ResourceReference source;
     if (!expect(services.load(panorama.path, source) && source &&
                     source.data<engine::TextureResource>() && source.handle().id != 0,
                 "load an IBL input from its mounted entity without graph residency"))
@@ -217,7 +218,7 @@ bool exercise()
     auto mesh = mesh_node.add_component<engine::MeshRenderer>();
     engine::TransformSettings eye;
     eye.position = {0, 0, 3};
-    auto ambient = environment.settings();
+    auto ambient = test_support::read_settings(environment);
     ambient.ambient_color = {1, 1, 1, 1};
     ambient.ambient_intensity = 1;
     if (!expect(camera && environment && mesh && scene->set_active_camera(camera) &&

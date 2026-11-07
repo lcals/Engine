@@ -38,13 +38,6 @@ bool NavigationAgent::valid_settings(const schema::NavigationAgentDataT& value) 
            bounded(value.arrival_distance, 0.01F, 10.0F);
 }
 
-schema::NavigationAgentDataT NavigationAgent::settings() const noexcept
-{
-    Data output{};
-    (void)get_settings(output);
-    return output;
-}
-
 bool NavigationAgent::get_settings(Data& output) const noexcept
 {
     const auto* value = read_data<Data>();

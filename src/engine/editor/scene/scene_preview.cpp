@@ -286,9 +286,9 @@ struct ScenePreview::State
     Json status() const
     {
         Json view = nullptr;
-        if (camera)
+        TransformSettings pose;
+        if (camera && camera.node().get_component<Transform>().get_settings(pose))
         {
-            const auto& pose = camera.node().get_component<Transform>().settings();
             view = {{"position", vector(pose.position)},
                     {"rotation", vector(pose.rotation)},
                     {"speed", speed}};
@@ -375,7 +375,7 @@ struct ScenePreview::State
         {
             return fail("Cannot refresh the editor resource directory");
         }
-        resource_access::ResourceReference root;
+        ResourceReference root;
         if (!resource_access::load(world.resource_loader(), requested, root))
         {
             return fail("Cannot prepare preview scene: " + std::string(requested));
@@ -388,8 +388,7 @@ struct ScenePreview::State
         CameraSettings projection;
         if (const auto source = scene->active_camera())
         {
-            projection = source.settings();
-            if (!copy_camera(source, pose))
+            if (!source.get_settings(projection) || !copy_camera(source, pose))
             {
                 gameplay.stop();
                 return fail("Cannot read the scene camera world transform");
@@ -448,7 +447,7 @@ struct ScenePreview::State
             reload_pending = true;
             return false;
         }
-        resource_access::ResourceReference root;
+        ResourceReference root;
         if (!resource_access::load(world.resource_loader(), path, root) || !world.load_scene(path))
         {
             reload_pending = true;
@@ -547,7 +546,11 @@ struct ScenePreview::State
             return true;
         }
         auto transform = camera.node().get_component<Transform>();
-        auto pose = transform.settings();
+        TransformSettings pose;
+        if (!transform.get_settings(pose))
+        {
+            return fail("Cannot read preview camera transform");
+        }
         schema::InputActionState delta;
         (void)input.read_action(input_channel, "look", delta);
         pose.rotation = {std::clamp(pose.rotation.x() - delta.value_y() * 0.12, -89.5, 89.5),
@@ -828,7 +831,12 @@ bool ScenePreview::register_commands(EditorCommands& commands)
                        return false;
                    }
                    auto transform = state.camera.node().get_component<Transform>();
-                   auto pose = transform.settings();
+                   TransformSettings pose;
+                   if (!transform.get_settings(pose))
+                   {
+                       error = "Cannot read preview camera transform";
+                       return false;
+                   }
                    double speed = state.speed;
                    if (arguments.empty() || !camera_arguments(arguments, pose, speed) ||
                        !transform.set_settings(pose))

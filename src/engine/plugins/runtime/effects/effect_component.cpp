@@ -32,13 +32,6 @@ bool EffectComponent::valid_settings(const schema::EffectDataT& settings) noexce
            std::isfinite(settings.speed) && settings.speed >= 0.0F && settings.speed <= 16.0F;
 }
 
-schema::EffectDataT EffectComponent::settings() const noexcept
-{
-    Data output{};
-    (void)get_settings(output);
-    return output;
-}
-
 bool EffectComponent::get_settings(Data& output) const noexcept
 {
     const auto* value = read_data<Data>();
@@ -51,8 +44,7 @@ bool EffectComponent::set_settings(const schema::EffectDataT& settings)
     return apply_settings(settings, {});
 }
 
-bool EffectComponent::apply_settings(const Data& settings,
-                                     resource_detail::ResourceReference prepared)
+bool EffectComponent::apply_settings(const Data& settings, ResourceReference prepared)
 {
     if (!writable())
     {
@@ -63,8 +55,13 @@ bool EffectComponent::apply_settings(const Data& settings,
         return false;
     }
     auto* resources = node().world()->resource_loader();
-    const bool changed = settings.effect_guid != this->settings().effect_guid;
-    resource_detail::ResourceReference replacement;
+    const auto* current = read_data<Data>();
+    if (!current)
+    {
+        return false;
+    }
+    const bool changed = settings.effect_guid != current->effect_guid;
+    ResourceReference replacement;
     if (runtime()->effect_ && !replacement.retain(runtime()->effect_))
     {
         return false;
@@ -133,8 +130,12 @@ bool EffectComponent::set_effect(std::string_view path)
     {
         return false;
     }
-    resource_detail::ResourceReference prepared;
-    auto value = settings();
+    ResourceReference prepared;
+    Data value;
+    if (!get_settings(value))
+    {
+        return false;
+    }
     if (path.empty())
     {
         value.effect_guid.clear();

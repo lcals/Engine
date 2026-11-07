@@ -30,20 +30,23 @@ bool same_position(const Vec3& left, const Vec3& right) noexcept
 
 bool can_drive(const Node& node, Transform transform) noexcept
 {
-    if (node.parent().valid() || !transform || !transform.active())
+    TransformSettings pose;
+    if (node.parent().valid() || !transform.get_settings(pose) || !transform.active())
     {
         return false;
     }
-    const auto& scale = transform.settings().scale;
+    const auto& scale = pose.scale;
     const auto motor = node.get_component<CharacterMotor>();
     const auto collider = node.get_component<Collider>();
     const auto body = node.get_component<RigidBody>();
     const bool collider_enabled = static_cast<bool>(collider) && collider.active();
     const bool body_enabled = static_cast<bool>(body) && body.active();
+    RigidBody::Data body_settings;
     const bool physics_mirror = collider_enabled && body_enabled &&
-                                body.settings().motion == schema::BodyMotion::kinematic &&
-                                same_position(body.settings().linear_velocity, Vec3{}) &&
-                                same_position(body.settings().angular_velocity, Vec3{});
+                                body.get_settings(body_settings) &&
+                                body_settings.motion == schema::BodyMotion::kinematic &&
+                                same_position(body_settings.linear_velocity, Vec3{}) &&
+                                same_position(body_settings.angular_velocity, Vec3{});
     return scale.x() == 1.0 && scale.y() == 1.0 && scale.z() == 1.0 &&
            (!motor || !motor.active()) && ((!collider_enabled && !body_enabled) || physics_mirror);
 }
@@ -215,7 +218,13 @@ bool NavigationCrowdSystem::on_tick(double delta_time)
     {
         auto component = entry.component;
         auto transform = component.node().get_component<Transform>();
-        const Vec3 position = transform.settings().position;
+        TransformSettings pose;
+        NavigationAgent::Data component_settings;
+        if (!transform.get_settings(pose) || !component.get_settings(component_settings))
+        {
+            return false;
+        }
+        const Vec3 position = pose.position;
         NavigationAgentState snapshot;
         bool live = navigation_.agent_state(entry.handle, snapshot);
         const bool moved = !same_position(position, entry.last_position);
@@ -240,13 +249,12 @@ bool NavigationCrowdSystem::on_tick(double delta_time)
         if (!live && (!entry.attempted || moved || changed || requested || revised || retry))
         {
             entry.attempted = true;
-            created = navigation_.create_agent(position, agent_settings(component.settings()),
+            created = navigation_.create_agent(position, agent_settings(component_settings),
                                                entry.handle);
             live = created;
         }
         else if (live && changed &&
-                 !navigation_.set_agent_settings(entry.handle,
-                                                 agent_settings(component.settings())))
+                 !navigation_.set_agent_settings(entry.handle, agent_settings(component_settings)))
         {
             if (navigation_.remove_agent(entry.handle))
             {
@@ -303,9 +311,14 @@ bool NavigationCrowdSystem::on_tick(double delta_time)
             continue;
         }
         auto transform = component.node().get_component<Transform>();
-        auto settings = transform.settings();
+        TransformSettings settings;
+        NavigationAgent::Data component_settings;
+        if (!transform.get_settings(settings) || !component.get_settings(component_settings))
+        {
+            return false;
+        }
         settings.position = snapshot.position;
-        if (component.settings().face_velocity &&
+        if (component_settings.face_velocity &&
             std::hypot(snapshot.velocity.x(), snapshot.velocity.z()) > 0.01)
         {
             settings.rotation = {settings.rotation.x(),

@@ -13,7 +13,7 @@ classDiagram
         +register_type(ComponentRegistry& registry) bool$
         <<final>>
         +valid_settings(const ColliderDataT& settings, const MeshDataT* transient_mesh = nullptr, const MeshCollisionData* mesh_parts = nullptr) bool$
-        +settings() ColliderDataT
+
         +get_settings(ColliderDataT& output) bool
         +set_settings(const ColliderDataT& settings) bool
         +restore_data(const ComponentDataT& data) bool
@@ -29,7 +29,7 @@ classDiagram
         +register_type(ComponentRegistry& registry) bool$
         <<final>>
         +valid_settings(const RigidBodyDataT& settings) bool$
-        +settings() RigidBodyDataT
+
         +get_settings(RigidBodyDataT& output) bool
         +set_settings(const RigidBodyDataT& settings) bool
         +restore_data(const ComponentDataT& data) bool
@@ -95,4 +95,4 @@ classDiagram
 
 `ColliderShape::compound` 使用 ColliderData 的 hulls，每个 ColliderHullData 只保存所属节点局部空间 vertices；现有 center 对整体再偏移。描述允许 1–4096 个凸包、每个至少 4 点、累计最多 1M 点，点必须有限且有界；非 compound 不携带 hulls，compound 不引用 mesh_guid。几何凸包和最终 256 个凸包顶点的上游限制由 Jolt 构建验证，退化或超限返回失败，不以包围盒静默替代。多个凸包共用一个 RigidBody，质量来自该组件，惯量及质心由 Jolt 计算。普通 set_settings 仍在下一次物理同步生效，需要同步确认创建/替换结果时使用 PhysicsSystem::set_collider_data。
 
-本页组件均为可复制值句柄，生成设置唯一存于 `ComponentStorage<Data>` 的 ECS 列；`settings()` 返回独立值，`get_settings(output)` 明确返回失败。Runtime 为 ECS 中的领域运行列，资源引用、请求和缓存归该列或所属 System；句柄不拥有这些数据。Runtime 定义与可变访问仅供所属模块内部实现使用，公开组件不提供 `runtime()`；原生系统的 ECS 列借用仅在当前结构稳定阶段有效，不能跨结构修改留存。类型注册、失效身份与查询规则见 [ECS 场景](ecs-scene.md)。
+本页组件均为可复制值句柄，生成设置唯一存于 `ComponentStorage<Data>` 的 ECS 列；`get_settings(output)` 返回独立值并明确报告失败，失败输出安全默认值；不保留吞掉失败的 settings() 包装。Runtime 为 ECS 中的领域运行列，资源引用、请求和缓存归该列或所属 System；句柄不拥有这些数据。Runtime 定义与可变访问仅供所属模块内部实现使用，公开组件不提供 `runtime()`；原生系统的 ECS 列借用仅在当前结构稳定阶段有效，不能跨结构修改留存。类型注册、失效身份与查询规则见 [ECS 场景](ecs-scene.md)。

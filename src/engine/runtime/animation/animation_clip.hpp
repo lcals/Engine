@@ -29,7 +29,7 @@ namespace engine::animation_detail
 // 打断时的临时局部姿态，不进入场景数据；由组件保留以支持停用后的恢复。
 struct AnimationPose
 {
-    resource_detail::ResourceReference target;
+    ResourceReference target;
     std::vector<ozz::math::SoaTransform> locals;
 };
 
@@ -85,7 +85,7 @@ inline void build_joint(const schema::SkeletonDataT& data, std::size_t index,
 
 struct CompiledSkeleton
 {
-    resource_detail::ResourceReference resource;
+    ResourceReference resource;
     const schema::SkeletonDataT* data = nullptr;
     ozz::unique_ptr<ozz::animation::Skeleton> skeleton;
     std::vector<std::size_t> order;
@@ -93,7 +93,7 @@ struct CompiledSkeleton
     std::vector<std::string> readable_paths;
     std::vector<ozz::math::Float4x4> inverse_bind;
 
-    bool prepare(const resource_detail::ResourceReference& target)
+    bool prepare(const ResourceReference& target)
     {
         const auto* data = target ? target.data<SkeletonResource>() : nullptr;
         if (data == nullptr || !joint_paths(*data, paths) ||
@@ -146,15 +146,14 @@ struct CompiledSkeleton
 
 struct CompiledAnimation
 {
-    resource_detail::ResourceReference resource;
-    resource_detail::ResourceReference source;
+    ResourceReference resource;
+    ResourceReference source;
     std::shared_ptr<const CompiledSkeleton> target;
     std::shared_ptr<const CompiledSkeleton> sampling;
     std::shared_ptr<const AnimationRetargetBinding> retarget;
     ozz::unique_ptr<ozz::animation::Animation> animation;
 
-    bool prepare(const resource_detail::ResourceReference& clip,
-                 const resource_detail::ResourceReference& source_resource,
+    bool prepare(const ResourceReference& clip, const ResourceReference& source_resource,
                  std::shared_ptr<const CompiledSkeleton> skeleton,
                  std::shared_ptr<const CompiledSkeleton> sampling_skeleton = nullptr,
                  std::shared_ptr<const AnimationRetargetBinding> binding = nullptr)

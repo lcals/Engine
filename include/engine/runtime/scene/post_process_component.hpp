@@ -18,7 +18,6 @@ public:
     static constexpr ComponentType component_type = ComponentType::PostProcessData;
     [[nodiscard]] bool restore_data(const schema::ComponentDataT& data);
 
-    [[nodiscard]] PostProcessSettings settings() const noexcept;
     [[nodiscard]] bool get_settings(Data& output) const noexcept;
     [[nodiscard]] bool set_settings(const PostProcessSettings& settings) noexcept;
 };

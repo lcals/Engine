@@ -47,9 +47,9 @@ struct Fixture
             return {};
         }
         auto transform = node.get_component<engine::Transform>();
-        auto pose = transform.settings();
+        auto pose = test_support::read_settings(transform);
         pose.position = position;
-        auto shape = collider.settings();
+        auto shape = test_support::read_settings(collider);
         shape.half_extents = extents;
         return transform.set_settings(pose) && collider.set_settings(shape) ? node : engine::Node{};
     }
@@ -71,9 +71,9 @@ struct Fixture
         if (airborne)
         {
             auto transform = player.get_component<engine::Transform>();
-            auto pose = transform.settings();
+            auto pose = test_support::read_settings(transform);
             pose.position = {0, 3, 0};
-            auto settings = motor().settings();
+            auto settings = test_support::read_settings(motor());
             settings.gravity_factor = 0;
             settings.external_damping = 0;
             return transform.set_settings(pose) && motor().set_settings(settings);
@@ -88,7 +88,7 @@ struct Fixture
 
     engine::Vec3 position() const
     {
-        return player.get_component<engine::Transform>().settings().position;
+        return test_support::read_settings(player.get_component<engine::Transform>()).position;
     }
 
     bool advance(unsigned int count)
@@ -149,7 +149,7 @@ bool input_and_damping()
         return false;
     }
     auto motor = fixture.motor();
-    if (!expect(close(motor.settings().external_damping, 6) && motor.jump(5) &&
+    if (!expect(close(test_support::read_settings(motor).external_damping, 6) && motor.jump(5) &&
                     motor.set_velocity({0, 0, 3}) && motor.add_velocity({6, 0, 0}),
                 "queue active movement, jump and independent knockback"))
     {
@@ -180,14 +180,15 @@ bool input_and_damping()
         }
         previous = motor.velocity().x();
     }
-    auto invalid = motor.settings();
+    auto invalid = test_support::read_settings(motor);
     invalid.external_damping = -1;
     if (!expect(!motor.set_settings(invalid), "negative damping is rejected atomically"))
     {
         return false;
     }
     invalid.external_damping = std::numeric_limits<float>::quiet_NaN();
-    return expect(!motor.set_settings(invalid) && close(motor.settings().external_damping, 6) &&
+    return expect(!motor.set_settings(invalid) &&
+                      close(test_support::read_settings(motor).external_damping, 6) &&
                       motor.velocity().x() < 0.05 && fixture.position().x() > before.x() + 0.5,
                   "damping settles the impulse over time and invalid settings retain the default");
 }
@@ -200,7 +201,7 @@ bool knockback_collisions()
         return false;
     }
     auto motor = fixture.motor();
-    auto settings = motor.settings();
+    auto settings = test_support::read_settings(motor);
     settings.external_damping = 0;
     const double ground = fixture.position().y();
     if (!expect(motor.set_settings(settings) && fixture.physics.tick(0) &&
@@ -227,7 +228,7 @@ bool live_settings_keep_velocity()
         return false;
     }
     auto motor = fixture.motor();
-    auto settings = motor.settings();
+    auto settings = test_support::read_settings(motor);
     settings.external_damping = 6;
     settings.gravity_factor = 2;
     settings.step_height = 0.5F;
@@ -342,7 +343,7 @@ bool restore_disable_and_rebuild()
     {
         return false;
     }
-    auto shape = replacement.settings();
+    auto shape = test_support::read_settings(replacement);
     shape.radius = 0.35F;
     const auto before_rebuild = fixture.position();
     if (!expect(replacement.set_settings(shape) && fixture.advance(1) &&

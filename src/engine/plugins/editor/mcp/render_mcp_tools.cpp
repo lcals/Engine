@@ -198,7 +198,6 @@ bool register_render_tools(McpSystem& system, EditorMcpTools& editor)
                     {"ambientSkyColor", color(3)},
                     {"ambientEquatorColor", color(3)},
                     {"ambientGroundColor", color(3)},
-                    {"linearFog", {{"type", "boolean"}}},
                     {"fogMode",
                      {{"type", "string"},
                       {"enum", {"none", "linear", "exponential", "exponential_squared"}}}},

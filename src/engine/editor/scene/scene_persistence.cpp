@@ -227,14 +227,14 @@ bool write_material(ResourceLoader* loader, const Material& material, const fs::
                     std::string& error)
 {
     const auto* shader = material.shader_data();
-    Guid shader_guid;
-    if (!shader || !resource_access::load_guid(loader, material.shader_path(), shader_guid))
+    const auto* shader_resource = resource_access::get(loader, material.shader());
+    if (!shader || !shader_resource)
     {
         error = "Cannot resolve material shader identity";
         return false;
     }
     toml::table document;
-    document.insert("shader", shader_guid);
+    document.insert("shader", shader_resource->info().guid);
     document.insert("cull", schema::EnumNameCullMode(material.cull_mode()));
     document.insert("blend_mode", schema::EnumNameBlendMode(material.blend_mode()));
     toml::array parameters;
@@ -666,7 +666,7 @@ bool ScenePersistence::State::save(WorldSystem& world, const fs::path& project_r
         return rollback();
     }
     data.info->active_camera_node =
-        !prefab && scene->active_camera() ? scene->active_camera().node().info().properties->id : 0;
+        !prefab && scene->active_camera() ? scene->active_camera().node().local_id() : 0;
     std::set<std::uint64_t> omitted_prefab_roots;
     std::vector<schema::NodeIdMappingT> subtree_ids;
     if (prefab)
@@ -676,8 +676,8 @@ bool ScenePersistence::State::save(WorldSystem& world, const fs::path& project_r
             if (selected(node) && !node.transient())
             {
                 schema::NodeIdMappingT mapping;
-                mapping.source_id = node.info().properties->id;
-                mapping.target_id = node.info().properties->id;
+                mapping.source_id = node.local_id();
+                mapping.target_id = node.local_id();
                 subtree_ids.push_back(std::move(mapping));
             }
         }
@@ -737,7 +737,7 @@ bool ScenePersistence::State::save(WorldSystem& world, const fs::path& project_r
         bool omitted_prefab = false;
         for (auto parent = node; parent; parent = parent.parent())
         {
-            if (omitted_prefab_roots.contains(parent.info().properties->id))
+            if (omitted_prefab_roots.contains(parent.local_id()))
             {
                 omitted_prefab = true;
             }
@@ -752,7 +752,7 @@ bool ScenePersistence::State::save(WorldSystem& world, const fs::path& project_r
         {
             for (const auto& mapping : instance->node_mappings)
             {
-                if (mapping->target_id != node.info().properties->id)
+                if (mapping->target_id != node.local_id())
                 {
                     continue;
                 }
@@ -767,7 +767,12 @@ bool ScenePersistence::State::save(WorldSystem& world, const fs::path& project_r
             }
         }
         auto saved = std::make_unique<schema::NodeDataT>();
-        saved->info = std::make_unique<schema::NodeInfoT>(node.info());
+        saved->info = std::make_unique<schema::NodeInfoT>();
+        if (!node.build_info(*saved->info))
+        {
+            error = "Cannot save node information";
+            return rollback();
+        }
         if (subtree == node)
         {
             saved->info->parent_id = 0;
@@ -802,7 +807,12 @@ bool ScenePersistence::State::save(WorldSystem& world, const fs::path& project_r
                                                        component_override->fields.end(),
                                                        field) != component_override->fields.end();
             };
-            auto value = std::make_unique<schema::ComponentDataT>(component.data());
+            auto value = std::make_unique<schema::ComponentDataT>();
+            if (!component.get_data(*value))
+            {
+                error = "Cannot read component storage";
+                return rollback();
+            }
             if (prefab_member &&
                 (!component_override || component.type() != ComponentType::MeshRendererData ||
                  (!overridden("mesh") && !overridden("material") &&
@@ -826,7 +836,7 @@ bool ScenePersistence::State::save(WorldSystem& world, const fs::path& project_r
                     error = "Cannot save mesh renderer data";
                     return rollback();
                 }
-                const auto name = "node-" + std::to_string(node.info().properties->id);
+                const auto name = "node-" + std::to_string(node.local_id());
                 schema::ComponentDataT bound_data;
                 const auto* bound_materials = renderer.build_data(bound_data)
                                                   ? bound_data.payload.AsMeshRendererData()
@@ -901,8 +911,12 @@ bool ScenePersistence::State::save(WorldSystem& world, const fs::path& project_r
                                 slot == 0 ? bound_materials->material_guid
                                           : bound_materials->additional_material_guids[slot - 1];
                         }
-                        else if (!resource_access::load_guid(world.resource_loader(),
-                                                             material.type_path(), material_guid))
+                        else if (const auto* definition = resource_access::get(
+                                     world.resource_loader(), material.resource()))
+                        {
+                            material_guid = definition->info().guid;
+                        }
+                        else
                         {
                             error = "Cannot resolve material resource identity";
                             return rollback();
@@ -972,7 +986,7 @@ bool ScenePersistence::State::save(WorldSystem& world, const fs::path& project_r
     if (prefab)
     {
         schema::PrefabDataT prefab_data;
-        prefab_data.root_id = subtree.info().properties->id;
+        prefab_data.root_id = subtree.local_id();
         for (const auto& node : data.nodes)
         {
             prefab_data.nodes.push_back(std::make_unique<schema::NodeDataT>(*node));
@@ -1027,7 +1041,7 @@ bool create_model_prefab(WorldSystem& world, const fs::path& project_root, const
         error = "create_prefab_from_model requires model and path resource paths";
         return false;
     }
-    resource_access::ResourceReference resource;
+    ResourceReference resource;
     if (!resource_access::load(world.resource_loader(), arguments["model"].get<std::string>(),
                                resource) ||
         !resource.data<ModelResource>())

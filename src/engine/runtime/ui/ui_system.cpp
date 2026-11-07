@@ -193,7 +193,7 @@ struct UiSystem::State final : Rml::EventListener
         std::uint64_t revision = 0;
         std::uint64_t order = 0;
         std::uint64_t id = 0;
-        resource_detail::ResourceReference resource;
+        ResourceReference resource;
         std::string key;
         Rml::Context* context = nullptr;
         Rml::ElementDocument* markup = nullptr;

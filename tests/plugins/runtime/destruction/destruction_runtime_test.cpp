@@ -236,7 +236,8 @@ Node dynamic_group(Scene& scene)
     for (const auto& node : test_support::scene_nodes(scene))
     {
         auto body = node.get_component<RigidBody>();
-        if (node.transient() && body && body.settings().motion == schema::BodyMotion::dynamic)
+        if (node.transient() && body &&
+            test_support::read_settings(body).motion == schema::BodyMotion::dynamic)
         {
             return node;
         }
@@ -362,14 +363,14 @@ bool retirement_contract()
     {
         return false;
     }
-    auto pose = owner.get_component<Transform>().settings();
+    auto pose = test_support::read_settings(owner.get_component<Transform>());
     pose.position = {0, 5, 0};
     if (!owner.get_component<Transform>().set_settings(pose))
     {
         return false;
     }
     pose.position = {20, 5, 0};
-    auto settings = component.settings();
+    auto settings = test_support::read_settings(component);
     settings.destruction_guid = asset_guid;
     settings.density = 1;
     ByteBuffer other_before;
@@ -505,7 +506,7 @@ bool retirement_contract()
     {
         return false;
     }
-    const auto shape = collider.settings();
+    const auto shape = test_support::read_settings(collider);
     const auto ids = generated_ids(*scene);
     if (!fragment.remove_component(Collider::component_type))
     {
@@ -550,17 +551,17 @@ bool runtime_contract()
     {
         std::abort();
     }
-    auto floor_pose = floor.get_component<Transform>().settings();
+    auto floor_pose = test_support::read_settings(floor.get_component<Transform>());
     floor_pose.position = {10, -0.5, 0};
-    auto floor_shape = collider.settings();
+    auto floor_shape = test_support::read_settings(collider);
     floor_shape.half_extents = {10, 0.5, 10};
-    auto source_pose = owner.get_component<Transform>().settings();
+    auto source_pose = test_support::read_settings(owner.get_component<Transform>());
     source_pose.position = {10, 5, 0};
     if (!owner.get_component<Transform>().set_enabled(false))
     {
         std::abort();
     }
-    auto settings = component.settings();
+    auto settings = test_support::read_settings(component);
     settings.destruction_guid = asset_guid;
     settings.density = 1;
     settings.restitution = 0;
@@ -670,15 +671,17 @@ bool runtime_contract()
         return false;
     }
     auto moving = dynamic_group(*scene);
-    if (!expect(moving && !moving.parent() && moving.transient() &&
-                    moving.get_component<Collider>().settings().hulls.size() == 2 &&
-                    moving.get_component<MeshRenderer>().mesh_data()->indices.size() == 72 &&
-                    fixture.advance(240) && component.group_count() == 2 &&
-                    component.dynamic_groups() == 1 && fixture.physics.body_count() == 3 &&
-                    std::abs(moving.get_component<Transform>().settings().position.y() - 0.5) <
-                        0.1 &&
-                    fixture.high_collision(10, true) && fixture.high_collision(12, false),
-                "Jolt drops connected B-C as one compound while anchored A stays suspended"))
+    if (!expect(
+            moving && !moving.parent() && moving.transient() &&
+                test_support::read_settings(moving.get_component<Collider>()).hulls.size() == 2 &&
+                moving.get_component<MeshRenderer>().mesh_data()->indices.size() == 72 &&
+                fixture.advance(240) && component.group_count() == 2 &&
+                component.dynamic_groups() == 1 && fixture.physics.body_count() == 3 &&
+                std::abs(
+                    test_support::read_settings(moving.get_component<Transform>()).position.y() -
+                    0.5) < 0.1 &&
+                fixture.high_collision(10, true) && fixture.high_collision(12, false),
+            "Jolt drops connected B-C as one compound while anchored A stays suspended"))
     {
         return false;
     }
@@ -835,9 +838,9 @@ bool incremental_contract()
     {
         return false;
     }
-    auto pose = owner.get_component<Transform>().settings();
+    auto pose = test_support::read_settings(owner.get_component<Transform>());
     pose.position = {0, 10, 0};
-    auto settings = component.settings();
+    auto settings = test_support::read_settings(component);
     settings.destruction_guid = asset_guid;
     settings.density = 1;
     if (!expect(owner.get_component<Transform>().set_settings(pose) &&
@@ -897,7 +900,7 @@ bool incremental_contract()
     auto anchored_mesh = scene->find_node(anchored_id).get_component<MeshRenderer>();
     const auto* anchored_data = anchored_mesh.mesh_data();
     auto body = moving.get_component<RigidBody>();
-    auto body_settings = body.settings();
+    auto body_settings = test_support::read_settings(body);
     body_settings.gravity_factor = 0;
     body_settings.linear_damping = 0.1F;
     body_settings.angular_damping = 0.2F;
@@ -905,7 +908,8 @@ bool incremental_contract()
     body_settings.angular_velocity = {0, 0.25, 0};
     if (!expect(body.set_settings(body_settings) && fixture.physics.tick(0) &&
                     component.damage_sphere({1.5, 10, 0}, 0.1F, 0.25F) &&
-                    generated_ids(*scene) == split_ids && body.settings() == body_settings &&
+                    generated_ids(*scene) == split_ids &&
+                    test_support::read_settings(body) == body_settings &&
                     component.snapshot(before),
                 "zero-impulse partial damage retains motion and nondefault body properties"))
     {
@@ -925,12 +929,15 @@ bool incremental_contract()
                     generated_ids(*scene) == split_ids &&
                     moving.get_component<RigidBody>() == body &&
                     std::abs(body.linear_velocity().y() - 2.0) < 0.0001 &&
-                    body.settings().gravity_factor == 0 && body.settings().linear_damping == 0.1F &&
-                    body.settings().angular_damping == 0.2F &&
-                    body.settings().angular_velocity == body_settings.angular_velocity &&
+                    test_support::read_settings(body).gravity_factor == 0 &&
+                    test_support::read_settings(body).linear_damping == 0.1F &&
+                    test_support::read_settings(body).angular_damping == 0.2F &&
+                    test_support::read_settings(body).angular_velocity ==
+                        body_settings.angular_velocity &&
                     fixture.physics.tick(0) &&
                     std::abs(body.linear_velocity().y() - 3.0) < 0.0001 && fixture.advance(1) &&
-                    moving.get_component<Transform>().settings().position.y() > 10.02 &&
+                    test_support::read_settings(moving.get_component<Transform>()).position.y() >
+                        10.02 &&
                     body.linear_velocity().y() > 2.9,
                 "reused body consumes explosion velocity and pending impulse in actual Jolt motion",
                 component.last_error()))
@@ -1005,7 +1012,8 @@ bool incremental_contract()
     }
     for (const auto id : generated_ids(*scene))
     {
-        if (!expect(scene->find_node(id).get_component<Collider>().settings().friction == 0.35F,
+        if (!expect(test_support::read_settings(scene->find_node(id).get_component<Collider>())
+                            .friction == 0.35F,
                     "settings rebuild applies the new collision configuration"))
         {
             return false;
@@ -1036,15 +1044,15 @@ bool support_contract()
     {
         return false;
     }
-    auto floor_pose = floor.get_component<Transform>().settings();
+    auto floor_pose = test_support::read_settings(floor.get_component<Transform>());
     floor_pose.position = {10, -0.5, 2};
-    auto floor_shape = support.settings();
+    auto floor_shape = test_support::read_settings(support);
     floor_shape.half_extents = {4, 0.5, 4};
-    auto source_pose = owner.get_component<Transform>().settings();
+    auto source_pose = test_support::read_settings(owner.get_component<Transform>());
     source_pose.position = {10, 1, 2};
     source_pose.rotation = {0, 90, 0};
     source_pose.scale = {2, 2, 2};
-    auto settings = component.settings();
+    auto settings = test_support::read_settings(component);
     settings.destruction_guid = asset_guid;
     settings.density = 1;
     if (!expect(floor.get_component<Transform>().set_settings(floor_pose) &&
@@ -1174,7 +1182,8 @@ bool support_contract()
                      [&](std::uint64_t id)
                      {
                          auto body = scene->find_node(id).get_component<RigidBody>();
-                         return body && body.settings().motion == schema::BodyMotion::static_body;
+                         return body && test_support::read_settings(body).motion ==
+                                            schema::BodyMotion::static_body;
                      });
     if (!expect(unaffected && anchored != supported_nodes.end(),
                 "identify anchored and moving groups independently of entity generations"))
@@ -1264,11 +1273,11 @@ bool stress_contract()
     {
         return false;
     }
-    auto pose = transform.settings();
+    auto pose = test_support::read_settings(transform);
     pose.position = {12, 8, -4};
     pose.rotation = {0, 37, 25};
     pose.scale = {1.7, 1.7, 1.7};
-    auto settings = component.settings();
+    auto settings = test_support::read_settings(component);
     settings.destruction_guid = asset_guid;
     settings.density = 100;
     if (!expect(transform.set_settings(pose) && component.set_settings(settings) &&
@@ -1371,9 +1380,9 @@ bool asynchronous_damage_contract()
     {
         return false;
     }
-    auto pose = owner.get_component<Transform>().settings();
+    auto pose = test_support::read_settings(owner.get_component<Transform>());
     pose.position = {0, 10, 0};
-    auto settings = component.settings();
+    auto settings = test_support::read_settings(component);
     settings.destruction_guid = asset_guid;
     settings.density = 1;
     if (!owner.get_component<Transform>().set_settings(pose) || !component.set_settings(settings) ||
@@ -1455,7 +1464,7 @@ bool asynchronous_damage_contract()
     {
         return false;
     }
-    auto body = moving.get_component<RigidBody>().settings();
+    auto body = test_support::read_settings(moving.get_component<RigidBody>());
     body.gravity_factor = 0;
     body.linear_damping = 0;
     body.linear_velocity = {3, 0, 0};
@@ -1469,7 +1478,7 @@ bool asynchronous_damage_contract()
     {
         return false;
     }
-    const auto moved_pose = moving.get_component<Transform>().settings();
+    const auto moved_pose = test_support::read_settings(moving.get_component<Transform>());
     if (!expect(moved_pose.position.x() > 0 && fixture.destruction->synchronize() &&
                     results == std::vector<bool>{true} && component.group_count() == 3 &&
                     generated_tangents_valid(*scene),
@@ -1481,9 +1490,11 @@ bool asynchronous_damage_contract()
     for (const auto& node : test_support::scene_nodes(*scene))
     {
         auto rigid = node.get_component<RigidBody>();
-        if (node.transient() && rigid && rigid.settings().motion == schema::BodyMotion::dynamic &&
-            !expect(node.get_component<Transform>().settings() == moved_pose &&
-                        std::abs(rigid.settings().linear_velocity.x() - 3) < 0.0001,
+        if (node.transient() && rigid &&
+            test_support::read_settings(rigid).motion == schema::BodyMotion::dynamic &&
+            !expect(test_support::read_settings(node.get_component<Transform>()) == moved_pose &&
+                        std::abs(test_support::read_settings(rigid).linear_velocity.x() - 3) <
+                            0.0001,
                     "new fragments retain current pose and velocity instead of request-time state"))
         {
             return false;
@@ -1497,7 +1508,7 @@ bool asynchronous_damage_contract()
     {
         return false;
     }
-    auto scaled = moving.get_component<Transform>().settings();
+    auto scaled = test_support::read_settings(moving.get_component<Transform>());
     scaled.scale = {2, 2, 2};
     if (!expect(moving.get_component<Transform>().set_settings(scaled) &&
                     fixture.destruction->synchronize() && results == std::vector<bool>{false},

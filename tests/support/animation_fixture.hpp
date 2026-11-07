@@ -1,7 +1,6 @@
 #include "resource_services.hpp"
-#pragma once
-
 #include "scene_snapshot.hpp"
+#pragma once
 
 #include "resource_fixture.hpp"
 
@@ -358,7 +357,7 @@ struct Fixture
         {
             return {};
         }
-        auto settings = animator.settings();
+        auto settings = test_support::read_settings(animator);
         settings.animation_guid = clip_guid;
         settings.play_on_awake = auto_play;
         return animator.set_settings(settings) ? node : engine::Node{};

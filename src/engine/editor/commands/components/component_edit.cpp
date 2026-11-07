@@ -163,16 +163,19 @@ ComponentEdit::ComponentEdit(WorldSystem& world, std::uint64_t scene,
                              std::optional<schema::ComponentDataT> before,
                              schema::ComponentDataT after,
                              std::vector<schema::AssetEntryT> versions,
-                             ComponentType required_component)
+                             ComponentType required_component,
+                             std::vector<ResourceReference> prepared)
     : target_(world), type_(after.payload.type), before_(std::move(before)),
       after_(std::move(after)), versions_(std::move(versions)),
-      required_component_(required_component)
+      required_component_(required_component), prepared_(std::move(prepared))
 {
     target_.scene_id = scene;
     target_.identity = std::move(node);
 }
 bool ComponentEdit::apply(std::string& error)
 {
+    // 首次应用完成后不再由编辑历史保活载荷；重做按版本元数据重新获取。
+    auto prepared = std::move(prepared_);
     return replace(before_, after_, error);
 }
 bool ComponentEdit::revert(std::string& error)
@@ -188,7 +191,7 @@ bool ComponentEdit::replace(const std::optional<schema::ComponentDataT>& expecte
         error = "Component edit targets a stale scene or node";
         return false;
     }
-    std::vector<resource_access::ResourceReference> pins;
+    std::vector<ResourceReference> pins;
     if (!resource_access::load_versions(target_.world.resource_loader(), versions_, pins))
     {
         error = "Component resource version changed since the edit";
@@ -229,7 +232,8 @@ bool ComponentEdit::replace(const std::optional<schema::ComponentDataT>& expecte
     return true;
 }
 bool resource_versions(WorldSystem& world, const schema::ComponentDataT& data,
-                       std::vector<schema::AssetEntryT>& versions, std::string& error)
+                       std::vector<schema::AssetEntryT>& versions,
+                       std::vector<ResourceReference>& prepared, std::string& error)
 {
     const auto* codec = asset_pipeline::find_scene_component_codec(data.payload.type);
     if (!codec)
@@ -245,9 +249,21 @@ bool resource_versions(WorldSystem& world, const schema::ComponentDataT& data,
         {
             return true;
         }
-        resource_access::ResourceReference resource;
-        return resource_access::load(world.resource_loader(), path, resource) &&
-               resource_access::collect_versions(resource, versions);
+        for (const auto& resource : prepared)
+        {
+            if (resource && (resource->info().guid == path || resource->info().path == path))
+            {
+                return resource_access::collect_versions(resource, versions);
+            }
+        }
+        ResourceReference resource;
+        if (!resource_access::load(world.resource_loader(), path, resource) ||
+            !resource_access::collect_versions(resource, versions))
+        {
+            return false;
+        }
+        prepared.push_back(std::move(resource));
+        return true;
     };
     for (const auto name : codec->resource_fields())
     {

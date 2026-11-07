@@ -6,7 +6,7 @@ namespace engine::editor::components
 namespace
 {
 bool read(ResourceLoader* loader, const Json& arguments, schema::AudioSourceDataT& value,
-          std::string& error)
+          std::vector<ResourceReference>& prepared, std::string& error)
 {
     if (!fields(arguments,
                 {"enabled", "clip", "volume", "pitch", "loop", "playOnAwake", "spatial",
@@ -27,7 +27,7 @@ bool read(ResourceLoader* loader, const Json& arguments, schema::AudioSourceData
         {
             value.clip_guid.clear();
         }
-        else if (!resource_access::load_guid(loader, path, value.clip_guid))
+        else if (!resource_access::prepare_guid(loader, path, value.clip_guid, prepared))
         {
             error = "Audio resource path not found";
             return false;
@@ -106,8 +106,8 @@ bool register_audio_source(WorldSystem& world, EditorCommands& commands, NodeAli
 {
     if (!register_component<engine::AudioSource, schema::AudioSourceDataT>(
             world, commands, "audio_source", aliases,
-            [&world](const auto& args, auto& data, auto& error)
-            { return read(world.resource_loader(), args, data, error); },
+            [&world](const auto& args, auto& data, auto& prepared, auto& error)
+            { return read(world.resource_loader(), args, data, prepared, error); },
             [&world](const auto& data) { return write(world.resource_loader(), data); }))
     {
         return false;

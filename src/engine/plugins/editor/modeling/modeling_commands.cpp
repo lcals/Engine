@@ -830,7 +830,11 @@ Json visual_snapshot(const Node& node)
     {
         return nullptr;
     }
-    const auto& settings = transform.settings();
+    TransformSettings settings;
+    if (!transform.get_settings(settings))
+    {
+        return nullptr;
+    }
     Json materials = Json::array();
     for (std::size_t slot = 0; slot < renderer.material_count(); ++slot)
     {
@@ -852,8 +856,8 @@ bool restore_visual(Node node, const Json& snapshot)
     }
     auto transform = node.get_component<Transform>();
     auto renderer = node.get_component<MeshRenderer>();
-    auto settings = transform.settings();
-    if (!vec3_field(snapshot, "position", settings.position) ||
+    TransformSettings settings;
+    if (!transform.get_settings(settings) || !vec3_field(snapshot, "position", settings.position) ||
         !vec3_field(snapshot, "rotation", settings.rotation) ||
         !vec3_field(snapshot, "scale", settings.scale) || !transform.set_settings(settings) ||
         !renderer.set_material_count(snapshot["materials"].size()))

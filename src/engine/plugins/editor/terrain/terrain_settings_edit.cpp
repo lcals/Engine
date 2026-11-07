@@ -65,7 +65,7 @@ bool TerrainSettingsEdit::replace(const std::optional<schema::ComponentDataT>& e
         }
         return true;
     }
-    editor::resource_access::ResourceReference source, material;
+    engine::ResourceReference source, material;
     const auto* data = replacement->payload.AsTerrainData();
     if (!data ||
         (!data->terrain_guid.empty() &&

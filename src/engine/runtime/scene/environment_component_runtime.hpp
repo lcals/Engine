@@ -8,6 +8,6 @@ namespace engine
 {
 struct EnvironmentRuntime
 {
-    std::array<resource_detail::ResourceReference, 3> ibl;
+    std::array<ResourceReference, 3> ibl;
 };
 } // namespace engine

@@ -171,9 +171,8 @@ bool loading_and_instantiation()
                     test_support::scene_nodes(scene)[2].parent() == root &&
                     test_support::scene_nodes(scene)[3].parent() ==
                         test_support::scene_nodes(scene)[2] &&
-                    test_support::scene_nodes(scene)[3]
-                            .get_component<engine::Transform>()
-                            .settings()
+                    test_support::read_settings(
+                        test_support::scene_nodes(scene)[3].get_component<engine::Transform>())
                             .position.y() == 2,
                 "model expands hierarchy and local transforms beneath an ordinary root"))
     {
@@ -238,14 +237,14 @@ bool migration_and_dependency_contract()
     }
 
     auto old_model = model();
-    old_model.schema_version = 1;
+    old_model.schema_version = 0;
     flatbuffers::FlatBufferBuilder old_builder;
     engine::schema::FinishModelDataBuffer(old_builder,
                                           engine::schema::ModelData::Pack(old_builder, &old_model));
     if (!expect(
-            engine::schema::ModelDataT{}.schema_version == 1 &&
-                engine::schema::GetModelData(old_builder.GetBufferPointer())->schema_version() == 1,
-            "omitted legacy version field retains its original default of 1"))
+            engine::schema::ModelDataT{}.schema_version == 0 &&
+                engine::schema::GetModelData(old_builder.GetBufferPointer())->schema_version() == 0,
+            "missing model format version is invalid"))
     {
         return false;
     }

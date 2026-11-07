@@ -31,7 +31,7 @@ struct ResourceServices
     engine::TaskSystem plans{threads, {"TestPlans", 2}};
     engine::ResourceSystem core;
     engine::plugins::resource_graph::ResourceGraphSystem loader{core, plans, {}};
-    std::vector<engine::resource_detail::ResourceReference> pins;
+    std::vector<engine::ResourceReference> pins;
 
     explicit ResourceServices(engine::ThreadSystem* external = nullptr)
         : threads(external ? *external : owned_threads)
@@ -69,7 +69,7 @@ struct ResourceServices
         return core.tick(0) && loader.tick(0);
     }
 
-    bool load(std::string_view path, engine::resource_detail::ResourceReference& output)
+    bool load(std::string_view path, engine::ResourceReference& output)
     {
         engine::ResourceHandle handle;
         if (!loader.load(path, handle))
@@ -78,7 +78,7 @@ struct ResourceServices
                          path.data(), int(loader.last_error().size()), loader.last_error().data());
             return false;
         }
-        engine::resource_detail::ResourceReference value;
+        engine::ResourceReference value;
         if (!value.adopt(&loader, handle))
         {
             (void)loader.release(handle);
@@ -89,7 +89,7 @@ struct ResourceServices
     }
     bool load(std::string_view path)
     {
-        engine::resource_detail::ResourceReference value;
+        engine::ResourceReference value;
         if (!load(path, value))
         {
             std::fprintf(stderr, "Resource fixture load %.*s: %.*s\n",
@@ -154,7 +154,7 @@ struct ResourceServices
                         }
                     }
                 }
-                engine::resource_detail::ResourceReference value;
+                engine::ResourceReference value;
                 if (!value.adopt(&loader, handle))
                 {
                     (void)loader.release(handle);
@@ -174,7 +174,7 @@ struct ResourceServices
 
     template <typename T> const typename T::Data* loaded(std::string_view path)
     {
-        engine::resource_detail::ResourceReference value;
+        engine::ResourceReference value;
         if (!value.acquire(&loader, path))
         {
             return nullptr;

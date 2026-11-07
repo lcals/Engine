@@ -6,7 +6,7 @@
 #include <cstdint>
 #include <string_view>
 
-namespace engine::resource_detail
+namespace engine
 {
 class ResourceReference;
 }
@@ -36,7 +36,6 @@ public:
     };
     static constexpr ComponentType component_type = ComponentType::EffectData;
     [[nodiscard]] static bool valid_settings(const schema::EffectDataT& settings) noexcept;
-    [[nodiscard]] schema::EffectDataT settings() const noexcept;
     [[nodiscard]] bool get_settings(Data& output) const noexcept;
     [[nodiscard]] bool set_settings(const schema::EffectDataT& settings);
     [[nodiscard]] bool restore_data(const schema::ComponentDataT& data);
@@ -48,8 +47,7 @@ public:
     [[nodiscard]] bool playing() const noexcept;
 
 private:
-    [[nodiscard]] bool apply_settings(const Data& settings,
-                                      resource_detail::ResourceReference prepared);
+    [[nodiscard]] bool apply_settings(const Data& settings, ResourceReference prepared);
     template <class T> friend auto engine::ecs_detail::component_runtime(T component) noexcept;
     [[nodiscard]] Runtime* runtime() const noexcept;
 };

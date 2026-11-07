@@ -29,6 +29,9 @@ classDiagram
         +bool transitioning = false
         +bool completed = false
         +uint64_t playback_id = 0
+        +string animation_guid
+        +uint64_t resource_generation = 0
+        +uint64_t track_revision = 0
     }
     class AnimationPoseTransform {
         <<value snapshot>>
@@ -51,13 +54,15 @@ classDiagram
 
 所有新增返回状态的方法为 `[[nodiscard]]`；查询为 `const`。查询不加载资源、不推进时间、不执行 IK、不调用脚本；失败将输出复位为图示安全默认值。矩阵按现有引擎约定使用列主序 float，平移单位与场景一致。没有 Ozz 对象、内部数组指针或跨结构修改的借用输出。
 
+播放快照同时复制当前动画 GUID、资源代际与事件轨修订；脚本以此校验排队事件和读取播放身份，不包含或访问 AnimatorRuntime。`get_playback_info` 复制字符串，因此不声明 noexcept；未绑定动画时 GUID 为空、资源代际为零。
+
 `play_animation` 的规则：
 
 - 动作路径必须非空；profile 路径为空表示不请求重定向。动作、源/目标骨架、Mesh 绑定、profile 及所需提供者均先校验和准备，任何失败都保持原动作、时间、播放身份、profile、速度、循环和过渡状态。它不是先改设置再尝试加载的一组独立 setter。
 - `fade_seconds` 有限且非负；`speed` 沿用现有 `0..16` 范围。成功请求进入 `playing`；目标播放源保存自己的动作与 profile 引用，过渡来源继续保留自己的绑定，不把唯一全局 profile 套给所有来源或角色。
 - `restart=true` 即使动作路径相同也从零秒开始，生成新的非零 `playback_id`；过渡从当前已显示姿态开始，沿用已有打断时冻结当前混合姿态的规则。
 - `restart=false` 且动作、profile 与相关资源代际均相同，保留播放时间与当前过渡进度，只更新本请求的速度和循环，并恢复播放；不因相同路径误判新资源。绑定不同则从零秒开始并生成新的播放身份。
-- 保留既有 `cross_fade` 的相同 GUID/代际时不重启、不解除暂停的兼容语义；新状态进入使用原子请求，不修改旧调用的含义。没有新增平行的全局播放配置。
+- `cross_fade` 对相同 GUID/代际保持当前播放及暂停状态；`play_animation` 通过请求明确指定重启、速度、循环与重定向配置。没有新增平行的全局播放配置。
 
 `AnimatorPlaybackInfo` 报告当前目标播放源；时间和时长单位为秒，不以过渡来源的时长替代。`completed` 只表示当前非循环播放实例自然到达终点，显式暂停、Seek 到末尾和停止本身不构成完成。自然完成后继续保留 `paused + completed=true`，不得只用 `isPlaying` 判断完成。新播放、停止、Seek 或资源绑定重置会失效旧完成状态与播放身份；标识在同一 Animator 实例内不复用，删除重建仍须结合组件实例身份判断。`time`、完成标志与事件按同一份时间推进结果提交，不能在姿态任务失败后提前报告成功完成。
 
@@ -179,7 +184,7 @@ classDiagram
         +BoneAttachment(Component component)
         +register_type(ComponentRegistry& registry) bool$
         +valid_settings(const BoneAttachmentDataT& data) bool$
-        +settings() BoneAttachmentDataT
+
         +get_settings(BoneAttachmentDataT& output) bool
         +set_settings(const BoneAttachmentDataT& data) bool
         +set_source(Animator source) bool

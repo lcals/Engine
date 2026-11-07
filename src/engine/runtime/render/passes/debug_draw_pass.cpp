@@ -188,10 +188,11 @@ bool DebugDrawPass::draw(const WorldSystem& world, Camera camera, std::span<cons
                 const auto target = node.get_component<Camera>();
                 const auto transform = node.get_component<Transform>();
                 float model[16]{}, observer[16]{}, lens[16]{}, combined[16]{};
-                if (target && target.active() && target.visible_in_hierarchy() && transform &&
-                    transform.world_matrix(model) && camera_detail::view_matrix(model, observer) &&
-                    camera_detail::projection_matrix(target.settings(),
-                                                     static_cast<double>(width) / height,
+                CameraSettings settings;
+                if (target.get_settings(settings) && target.active() &&
+                    target.visible_in_hierarchy() && transform && transform.world_matrix(model) &&
+                    camera_detail::view_matrix(model, observer) &&
+                    camera_detail::projection_matrix(settings, static_cast<double>(width) / height,
                                                      bgfx::getCaps()->homogeneousDepth, lens))
                 {
                     bx::mtxMul(combined, observer, lens);

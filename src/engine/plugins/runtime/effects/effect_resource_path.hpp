@@ -13,9 +13,9 @@
 namespace engine::plugins::effects::detail
 {
 
-using EffectBindings = std::map<std::string, resource_detail::ResourceReference, std::less<>>;
+using EffectBindings = std::map<std::string, ResourceReference, std::less<>>;
 
-[[nodiscard]] bool load_effect_bindings(const resource_detail::ResourceReference& resource,
+[[nodiscard]] bool load_effect_bindings(const ResourceReference& resource,
                                         const schema::EffectAssetDataT& asset,
                                         EffectBindings& output, std::string& error);
 [[nodiscard]] std::string effect_dependency_path(std::string_view path);

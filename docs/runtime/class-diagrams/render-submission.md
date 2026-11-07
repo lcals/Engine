@@ -10,11 +10,7 @@
 classDiagram
     direction TB
     class RenderSystem
-    class SceneGpuResources {
-        <<private>>
-        +draw_meshes(const WorldSystem& world, const RenderSettings& settings, const SceneDrawView& view, SceneDrawMode mode) bool
-        +view_stats vector~RenderViewStats~
-    }
+    class SceneGpuResources
     class SceneDrawView {
         <<struct>>
         +id ViewId
@@ -24,18 +20,9 @@ classDiagram
         +projection float*
         +lod_observer uint64_t[2]
     }
-    class GpuMesh {
-        <<private>>
-        +minimum Vec3
-        +maximum Vec3
-    }
-    class GpuGeometry {
-        <<private>>
-    }
-    class GpuProgram {
-        <<private>>
-        +supports_instancing() bool
-    }
+    class GpuMesh
+    class GpuGeometry
+    class GpuProgram
     class ShaderData {
         <<schema>>
         +instanced_vertex_code bytes
@@ -65,7 +52,7 @@ classDiagram
     GpuProgram ..> ShaderData : copies compiled variants
 ```
 
-图中方法按阅读宽度简写；现有 draw_meshes 的引用签名保持不变。新增的私有 supports_instancing() 为 const noexcept bool 查询。RenderViewStats 为普通值快照，不拥有 GPU、场景或组件；RenderSystem 的按值查询契约统一在功能控制图定义。
+SceneGpuResources、GpuMesh、GpuGeometry 与 GpuProgram 的方法只在[渲染主图](render-system.md)维护，本页引用其职责关系。RenderViewStats 为普通值快照，不拥有 GPU、场景或组件；RenderSystem 的按值查询契约统一在功能控制图定义。
 
 ## 自动视锥剔除
 

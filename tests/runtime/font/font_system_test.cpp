@@ -161,7 +161,7 @@ int main()
     test_support::ResourceServices resources;
     engine::FontSystem fonts(&resources.loader);
     test_support::ResourceFixture fixture;
-    engine::resource_detail::ResourceReference font;
+    engine::ResourceReference font;
     if (!expect(resources.initialize({}) && fonts.initialize({}), "CPU systems initialize") ||
         !expect(publish_font(fixture, resources.core, data), "publish independent font resource") ||
         !expect(resources.load("fonts/test.ttf", font), "load font through catalog"))
@@ -206,7 +206,7 @@ int main()
     {
         return 1;
     }
-    engine::resource_detail::ResourceReference missing;
+    engine::ResourceReference missing;
     if (!expect(!resources.load("fonts/missing.ttf", missing) && !missing,
                 "failed font load resets output"))
     {
@@ -239,7 +239,7 @@ int main()
     const auto held_shader = text.shader();
     fixture.catalog.entries.pop_back();
     shader_data.fragment_code = {3};
-    engine::resource_detail::ResourceReference newer_shader;
+    engine::ResourceReference newer_shader;
     if (!expect(fixture.add(shader_data) && fixture.publish(resources.core) &&
                     resources.load(shader_data.path, newer_shader) &&
                     newer_shader.handle().id != held_shader.id,

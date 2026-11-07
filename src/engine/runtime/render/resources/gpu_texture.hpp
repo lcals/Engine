@@ -26,7 +26,7 @@ struct PreparedTexture
     // 仅访问本对象和不可变资源；可在 worker 执行，不调用 bgfx。
     [[nodiscard]] bool prepare();
 
-    resource_detail::ResourceReference resource;
+    ResourceReference resource;
     const schema::TextureDataT* data = nullptr;
     bgfx::TextureFormat::Enum format = bgfx::TextureFormat::RGBA8;
     std::uint64_t flags = 0;
@@ -55,7 +55,7 @@ struct GpuTexture
                value == resource.get();
     }
 
-    resource_detail::ResourceReference resource;
+    ResourceReference resource;
     bgfx::TextureHandle handle = BGFX_INVALID_HANDLE;
     std::uint32_t sampler_flags = 0;
 };

@@ -171,7 +171,7 @@ struct SceneBakeSystem::State
     std::unique_ptr<LightingBakeJob> lighting;
     bool invalidated = false;
     SceneBakeFiles files;
-    editor::resource_access::ResourceReference source;
+    engine::ResourceReference source;
     std::string job;
     std::string scene;
     std::string status = "idle";

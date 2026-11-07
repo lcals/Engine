@@ -42,7 +42,12 @@ void boolean_setting(const Arguments& arguments)
     auto value = binding_detail::component<effects::EffectComponent>(arguments, 3);
     if (value && arguments.is_boolean(2))
     {
-        auto settings = value.settings();
+        effects::EffectComponent::Data settings{};
+        if (!value.get_settings(settings))
+        {
+            arguments.set_return(false);
+            return;
+        }
         if (arguments.data() == 0)
         {
             settings.loop = arguments.boolean(2);
@@ -60,7 +65,12 @@ void speed(const Arguments& arguments)
     float speed = 0;
     if (value && BindingContext::scalar(arguments, 2, speed))
     {
-        auto settings = value.settings();
+        effects::EffectComponent::Data settings{};
+        if (!value.get_settings(settings))
+        {
+            arguments.set_return(false);
+            return;
+        }
         settings.speed = speed;
         arguments.set_return(value.set_settings(settings));
     }

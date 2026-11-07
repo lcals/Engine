@@ -12,7 +12,7 @@ classDiagram
         +NavigationAgent(Component component)
         +register_type(ComponentRegistry& registry) bool$
         +valid_settings(const NavigationAgentDataT& settings)$ bool
-        +settings() NavigationAgentDataT
+
         +get_settings(NavigationAgentDataT& output) bool
         +set_settings(const NavigationAgentDataT& settings) bool
         +move_to(const Vec3& target) bool
@@ -83,4 +83,4 @@ classDiagram
 
 常驻代理保持原 Scene、组件实例、目标请求和 Detour 句柄；没有活动玩法 Scene 时仍可推进。活动场景切换本身不清空 Crowd；调用方发布新导航网格后沿现有 navigation revision 路径重新挂接，网格和代理所有权规则不变。
 
-本页组件均为可复制值句柄，生成设置唯一存于 `ComponentStorage<Data>` 的 ECS 列；`settings()` 返回独立值，`get_settings(output)` 明确返回失败。Runtime 为 ECS 中的领域运行列，资源引用、请求和缓存归该列或所属 System；句柄不拥有这些数据。Runtime 定义与可变访问仅供所属模块内部实现使用，公开组件不提供 `runtime()`；原生系统的 ECS 列借用仅在当前结构稳定阶段有效，不能跨结构修改留存。类型注册、失效身份与查询规则见 [ECS 场景](../../../runtime/class-diagrams/ecs-scene.md)。
+本页组件均为可复制值句柄，生成设置唯一存于 `ComponentStorage<Data>` 的 ECS 列；`get_settings(output)` 返回独立值并明确报告失败，失败输出安全默认值；不保留吞掉失败的 settings() 包装。Runtime 为 ECS 中的领域运行列，资源引用、请求和缓存归该列或所属 System；句柄不拥有这些数据。Runtime 定义与可变访问仅供所属模块内部实现使用，公开组件不提供 `runtime()`；原生系统的 ECS 列借用仅在当前结构稳定阶段有效，不能跨结构修改留存。类型注册、失效身份与查询规则见 [ECS 场景](../../../runtime/class-diagrams/ecs-scene.md)。

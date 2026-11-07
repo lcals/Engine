@@ -57,7 +57,12 @@ void box(const Arguments& arguments)
     if (value.valid() && BindingContext::number(arguments, 2, x) &&
         BindingContext::number(arguments, 3, y) && BindingContext::number(arguments, 4, z))
     {
-        auto settings = value.settings();
+        Collider::Data settings{};
+        if (!value.get_settings(settings))
+        {
+            arguments.set_return(false);
+            return;
+        }
         settings.shape = schema::ColliderShape::box;
         settings.hulls.clear();
         settings.mesh_guid.clear();
@@ -72,7 +77,12 @@ void sphere(const Arguments& arguments)
     float radius = 0.0F;
     if (value.valid() && BindingContext::scalar(arguments, 2, radius))
     {
-        auto settings = value.settings();
+        Collider::Data settings{};
+        if (!value.get_settings(settings))
+        {
+            arguments.set_return(false);
+            return;
+        }
         settings.shape = schema::ColliderShape::sphere;
         settings.hulls.clear();
         settings.mesh_guid.clear();
@@ -89,7 +99,12 @@ void capsule(const Arguments& arguments)
     if (value.valid() && BindingContext::scalar(arguments, 2, radius) &&
         BindingContext::scalar(arguments, 3, half_height))
     {
-        auto settings = value.settings();
+        Collider::Data settings{};
+        if (!value.get_settings(settings))
+        {
+            arguments.set_return(false);
+            return;
+        }
         settings.shape = schema::ColliderShape::capsule;
         settings.hulls.clear();
         settings.mesh_guid.clear();
@@ -115,7 +130,12 @@ void set_scalar(const Arguments& arguments, float schema::ColliderDataT::* field
     float number = 0.0F;
     if (value.valid() && BindingContext::scalar(arguments, 2, number))
     {
-        auto settings = value.settings();
+        Collider::Data settings{};
+        if (!value.get_settings(settings))
+        {
+            arguments.set_return(false);
+            return;
+        }
         settings.*field = number;
         arguments.set_return(value.set_settings(settings));
     }
@@ -136,7 +156,12 @@ void trigger(const Arguments& arguments)
     auto value = binding_detail::component<Collider>(arguments, 3);
     if (value.valid() && arguments.is_boolean(2))
     {
-        auto settings = value.settings();
+        Collider::Data settings{};
+        if (!value.get_settings(settings))
+        {
+            arguments.set_return(false);
+            return;
+        }
         settings.is_trigger = arguments.boolean(2);
         arguments.set_return(value.set_settings(settings));
     }

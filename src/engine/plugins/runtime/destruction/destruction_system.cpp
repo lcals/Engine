@@ -252,13 +252,16 @@ bool release_groups(WorldSystem& world, PhysicsSystem& physics,
             {
                 return false;
             }
-            if (!physics.set_collider_data(collider, collider.settings()))
+            Collider::Data settings;
+            if (!collider.get_settings(settings) || !physics.set_collider_data(collider, settings))
             {
                 bool restored = collider.set_enabled(enabled);
                 for (auto& [previous, previous_enabled] : disabled)
                 {
-                    if (!previous.set_enabled(previous_enabled) ||
-                        !physics.set_collider_data(previous, previous.settings()))
+                    Collider::Data previous_settings;
+                    if (!previous.get_settings(previous_settings) ||
+                        !previous.set_enabled(previous_enabled) ||
+                        !physics.set_collider_data(previous, previous_settings))
                     {
                         restored = false;
                     }
@@ -290,14 +293,16 @@ bool read_group(const Scene& scene, const GeneratedGroup& group,
     auto node = scene.find_node(group.node);
     auto transform = node ? node.get_component<Transform>() : Transform{};
     auto body = node ? node.get_component<RigidBody>() : RigidBody{};
-    if (!transform || !body || !node.transient())
+    TransformSettings pose;
+    RigidBody::Data body_settings;
+    if (!transform.get_settings(pose) || !body.get_settings(body_settings) || !node.transient())
     {
         return false;
     }
     output.chunks = group.chunks;
-    output.transform = std::make_unique<TransformSettings>(transform.settings());
-    output.linear_velocity = body.settings().linear_velocity;
-    output.angular_velocity = body.settings().angular_velocity;
+    output.transform = std::make_unique<TransformSettings>(pose);
+    output.linear_velocity = body_settings.linear_velocity;
+    output.angular_velocity = body_settings.angular_velocity;
     return true;
 }
 
@@ -499,6 +504,11 @@ bool DestructionSystem::publish(DestructionComponent component, DestructionGraph
                                 const std::vector<schema::DestructionGroupStateT>& groups,
                                 bool reuse_groups, const std::vector<PreparedGroup>* prepared)
 {
+    DestructionComponent::Data component_settings;
+    if (!component.get_settings(component_settings))
+    {
+        return false;
+    }
     if (!component || component.node().world() != &world_ || !world_.can_modify())
     {
         return false;
@@ -522,8 +532,8 @@ bool DestructionSystem::publish(DestructionComponent component, DestructionGraph
     }
     ecs_detail::ResourceBindingScope binding(world_, material_resource.handle());
     std::string material = material_resource->info().path;
-    if (!component.settings().material_guid.empty() &&
-        !ecs_detail::resource_path(component.node(), component.settings().material_guid, material))
+    if (!component_settings.material_guid.empty() &&
+        !ecs_detail::resource_path(component.node(), component_settings.material_guid, material))
     {
         engine::ecs_detail::component_runtime(component)->last_error_ =
             "Cannot resolve destruction material";
@@ -579,23 +589,27 @@ bool DestructionSystem::publish(DestructionComponent component, DestructionGraph
             {
                 return fail("A generated destruction fragment cannot be reused");
             }
-            if (transform.settings() != *saved.transform)
+            TransformSettings pose;
+            RigidBody::Data previous_settings;
+            Collider::Data collider_settings;
+            if (!transform.get_settings(pose) || !body.get_settings(previous_settings) ||
+                !collider.get_settings(collider_settings) || pose != *saved.transform)
             {
                 return fail("Preserved destruction group pose changed during preparation");
             }
             // Preserve damping, gravity and pending impulses on an unchanged physical group.
-            auto settings = body.settings();
+            auto settings = previous_settings;
             settings.linear_velocity = saved.linear_velocity;
             settings.angular_velocity = saved.angular_velocity;
             if (!RigidBody::valid_settings(settings) ||
                 settings.motion != (description.anchored ? schema::BodyMotion::static_body
                                                          : schema::BodyMotion::dynamic) ||
-                collider.settings().shape != schema::ColliderShape::compound ||
+                collider_settings.shape != schema::ColliderShape::compound ||
                 renderer.enabled() != enabled || collider.enabled() != enabled || !body.enabled())
             {
                 return fail("Preserved destruction group has invalid body settings");
             }
-            if (settings != body.settings())
+            if (settings != previous_settings)
             {
                 velocity_updates.emplace_back(body, std::move(settings));
                 changed = true;
@@ -608,7 +622,7 @@ bool DestructionSystem::publish(DestructionComponent component, DestructionGraph
         PreparedGroup synchronous;
         if (prepared == nullptr)
         {
-            if (!build_group_geometry(asset, description, component.settings(), synchronous.mesh,
+            if (!build_group_geometry(asset, description, component_settings, synchronous.mesh,
                                       synchronous.collision))
             {
                 return fail("Cannot prepare destruction fragment tangent frames");
@@ -618,7 +632,7 @@ bool DestructionSystem::publish(DestructionComponent component, DestructionGraph
         double volume = 0;
         (void)center_of(asset, description.chunks, volume);
         const double scale = saved.transform->scale.x();
-        const double mass = volume * scale * scale * scale * component.settings().density;
+        const double mass = volume * scale * scale * scale * component_settings.density;
         if (!std::isfinite(mass) || mass < 0.0001 || mass > 1000000)
         {
             return fail("Destruction group mass is outside the physics range");
@@ -711,7 +725,8 @@ bool DestructionSystem::prepare_groups(DestructionComponent component,
     }
     ENGINE_PROFILE_ZONE("Destruction.prepare_groups");
     auto transform = component.node().get_component<Transform>();
-    if (!transform || !valid_transform(transform.settings()))
+    TransformSettings pose;
+    if (!transform.get_settings(pose) || !valid_transform(pose))
     {
         engine::ecs_detail::component_runtime(component)->last_error_ =
             "Destruction requires a positive uniform scale";
@@ -728,7 +743,7 @@ bool DestructionSystem::prepare_groups(DestructionComponent component,
     {
         schema::DestructionGroupStateT value;
         value.chunks = group.chunks;
-        value.transform = std::make_unique<TransformSettings>(transform.settings());
+        value.transform = std::make_unique<TransformSettings>(pose);
         if (preserve)
         {
             const auto found =
@@ -794,6 +809,11 @@ bool DestructionSystem::rebuild(DestructionComponent component, DestructionGraph
 bool DestructionSystem::damage(DestructionComponent component, const Vec3& center, float radius,
                                float damage_value, float impulse)
 {
+    DestructionComponent::Data component_settings;
+    if (!component.get_settings(component_settings))
+    {
+        return false;
+    }
     if (!component || component.node().world() != &world_ || !world_.can_modify())
     {
         return false;
@@ -828,13 +848,15 @@ bool DestructionSystem::damage(DestructionComponent component, const Vec3& cente
                         : Node{};
         auto transform = node ? node.get_component<Transform>() : Transform{};
         float matrix[16];
-        if (!transform || !valid_transform(transform.settings()) || !transform.world_matrix(matrix))
+        TransformSettings pose;
+        if (!transform.get_settings(pose) || !valid_transform(pose) ||
+            !transform.world_matrix(matrix))
         {
             engine::ecs_detail::component_runtime(component)->last_error_ =
                 "Cannot locate destruction group transform";
             return false;
         }
-        const double scale = transform.settings().scale.x();
+        const double scale = pose.scale.x();
         if (!candidate.damage_sphere(group.id, local_point(matrix, center, scale),
                                      static_cast<float>(radius / scale), damage_value,
                                      engine::ecs_detail::component_runtime(component)->last_error_))
@@ -884,7 +906,7 @@ bool DestructionSystem::damage(DestructionComponent component, const Vec3& cente
         }
         auto& state = states[index];
         const double scale = state.transform->scale.x();
-        const double mass = volume * scale * scale * scale * component.settings().density;
+        const double mass = volume * scale * scale * scale * component_settings.density;
         const double amount = impulse * (1 - distance / radius) / mass;
         const Vec3 direction =
             distance > 0.0001 ? Vec3{x / distance, y / distance, z / distance} : Vec3{0, 1, 0};
@@ -913,6 +935,11 @@ bool DestructionSystem::apply_stress(DestructionComponent component, const Vec3&
                                      std::uint32_t iterations, std::uint32_t& broken_bonds)
 {
     broken_bonds = 0;
+    DestructionComponent::Data component_settings;
+    if (!component.get_settings(component_settings))
+    {
+        return false;
+    }
     if (!component || component.node().world() != &world_ || !world_.can_modify())
     {
         return false;
@@ -953,7 +980,9 @@ bool DestructionSystem::apply_stress(DestructionComponent component, const Vec3&
                         : Node{};
         auto transform = node ? node.get_component<Transform>() : Transform{};
         float matrix[16];
-        if (!transform || !valid_transform(transform.settings()) || !transform.world_matrix(matrix))
+        TransformSettings pose;
+        if (!transform.get_settings(pose) || !valid_transform(pose) ||
+            !transform.world_matrix(matrix))
         {
             engine::ecs_detail::component_runtime(component)->last_error_ =
                 "Cannot locate destruction stress group transform";
@@ -966,7 +995,7 @@ bool DestructionSystem::apply_stress(DestructionComponent component, const Vec3&
             matrix[4] * gravity.x() + matrix[5] * gravity.y() + matrix[6] * gravity.z(),
             matrix[8] * gravity.x() + matrix[9] * gravity.y() + matrix[10] * gravity.z()};
         std::uint32_t group_broken = 0;
-        if (!candidate.apply_stress(group.id, local_gravity, component.settings().density,
+        if (!candidate.apply_stress(group.id, local_gravity, component_settings.density,
                                     elastic_limit, fatal_limit, iterations, group_broken,
                                     engine::ecs_detail::component_runtime(component)->last_error_))
         {
@@ -1094,8 +1123,9 @@ void DestructionSystem::process_requests()
                     auto fragment =
                         found != generated->second.end() ? world_.find_node(found->node) : Node{};
                     auto transform = fragment ? fragment.get_component<Transform>() : Transform{};
-                    success = transform && valid_transform(transform.settings()) &&
-                              transform.settings().scale.x() == source.scale;
+                    TransformSettings pose;
+                    success = transform.get_settings(pose) && valid_transform(pose) &&
+                              pose.scale.x() == source.scale;
                 }
                 if (!success)
                 {
@@ -1179,12 +1209,13 @@ void DestructionSystem::process_requests()
                     generated != found->second.end() ? world_.find_node(generated->node) : Node{};
                 auto transform = fragment ? fragment.get_component<Transform>() : Transform{};
                 State::SourceGroup source;
-                valid = transform && valid_transform(transform.settings()) &&
+                TransformSettings pose;
+                valid = transform.get_settings(pose) && valid_transform(pose) &&
                         transform.world_matrix(source.matrix.data());
                 if (valid)
                 {
                     source.group = group;
-                    source.scale = transform.settings().scale.x();
+                    source.scale = pose.scale.x();
                     prepared->sources.push_back(std::move(source));
                 }
             }
@@ -1198,11 +1229,18 @@ void DestructionSystem::process_requests()
             }
             owner.prepared = std::move(prepared);
         }
+        DestructionComponent::Data component_settings;
+        if (!component.get_settings(component_settings))
+        {
+            owner.requests.clear();
+            continue;
+        }
         const auto& request = owner.requests.front();
         owner.completion = tasks_->submit(
-            "Destruction.prepare", [prepared = owner.prepared, center = request.center,
-                                    radius = request.radius, damage_value = request.damage,
-                                    impulse = request.impulse, settings = component.settings()]
+            "Destruction.prepare",
+            [prepared = owner.prepared, center = request.center, radius = request.radius,
+             damage_value = request.damage, impulse = request.impulse,
+             settings = std::move(component_settings)]
             { return State::prepare(*prepared, center, radius, damage_value, impulse, settings); });
         if (!owner.completion.valid())
         {
@@ -1292,14 +1330,17 @@ bool DestructionSystem::retire_fragments(DestructionComponent component, std::ui
         auto renderer = node ? node.get_component<MeshRenderer>() : MeshRenderer{};
         auto collider = node ? node.get_component<Collider>() : Collider{};
         auto body = node ? node.get_component<RigidBody>() : RigidBody{};
-        if (!node || !node.transient() || node.parent() || !transform || !renderer || !collider ||
-            !body || renderer.instance_id() != group.renderer_instance ||
-            collider.instance_id() != group.collider_instance ||
-            !valid_transform(transform.settings()) ||
-            !Collider::valid_settings(collider.settings()) ||
-            collider.settings().shape != schema::ColliderShape::compound ||
-            !RigidBody::valid_settings(body.settings()) ||
-            body.settings().motion !=
+        TransformSettings pose;
+        Collider::Data collider_settings;
+        RigidBody::Data body_settings;
+        if (!node || !node.transient() || node.parent() || !transform.get_settings(pose) ||
+            !collider.get_settings(collider_settings) || !body.get_settings(body_settings) ||
+            !renderer || !collider || !body || renderer.instance_id() != group.renderer_instance ||
+            collider.instance_id() != group.collider_instance || !valid_transform(pose) ||
+            !Collider::valid_settings(collider_settings) ||
+            collider_settings.shape != schema::ColliderShape::compound ||
+            !RigidBody::valid_settings(body_settings) ||
+            body_settings.motion !=
                 (group.anchored ? schema::BodyMotion::static_body : schema::BodyMotion::dynamic))
         {
             engine::ecs_detail::component_runtime(component)->last_error_ =
@@ -1372,9 +1413,12 @@ bool DestructionSystem::refresh_support(DestructionComponent component, Collider
         return false;
     }
     auto support_body = support.node().get_component<RigidBody>();
-    if (support.settings().is_trigger || support.node() == component.node() ||
-        owns_fragment(component, support.node().id()) ||
-        (support_body && support_body.settings().motion != schema::BodyMotion::static_body))
+    Collider::Data support_settings;
+    RigidBody::Data support_body_settings;
+    if (!support.get_settings(support_settings) || support_settings.is_trigger ||
+        support.node() == component.node() || owns_fragment(component, support.node().id()) ||
+        (support_body && (!support_body.get_settings(support_body_settings) ||
+                          support_body_settings.motion != schema::BodyMotion::static_body)))
     {
         engine::ecs_detail::component_runtime(component)->last_error_ =
             "Destruction support must be an external static solid collider";
@@ -1408,7 +1452,9 @@ bool DestructionSystem::refresh_support(DestructionComponent component, Collider
         auto node = group != found->second.end() ? world_.find_node(group->node) : Node{};
         auto transform = node ? node.get_component<Transform>() : Transform{};
         float matrix[16];
-        if (!transform || !valid_transform(transform.settings()) || !transform.world_matrix(matrix))
+        TransformSettings pose;
+        if (!transform.get_settings(pose) || !valid_transform(pose) ||
+            !transform.world_matrix(matrix))
         {
             engine::ecs_detail::component_runtime(component)->last_error_ =
                 "Cannot locate the current foundation group transform";
@@ -1711,7 +1757,10 @@ bool DestructionSystem::synchronize(Node owner)
         return true;
     }
     auto transform = node.get_component<Transform>();
-    if (!transform || node.parent() || !valid_transform(transform.settings()))
+    TransformSettings pose;
+    DestructionComponent::Data component_settings;
+    if (!transform.get_settings(pose) || !component.get_settings(component_settings) ||
+        node.parent() || !valid_transform(pose))
     {
         engine::ecs_detail::component_runtime(component)->last_error_ =
             "Destruction requires a root node with positive uniform scale";
@@ -1738,9 +1787,15 @@ bool DestructionSystem::synchronize(Node owner)
             return false;
         }
         const bool previous_enabled = collider.enabled();
-        const auto previous_transform = fragment_transform.settings();
-        const auto previous_body = body.settings();
-        const bool moved = group.anchored && previous_transform != transform.settings();
+        TransformSettings previous_transform;
+        RigidBody::Data previous_body;
+        Collider::Data collider_settings;
+        if (!fragment_transform.get_settings(previous_transform) ||
+            !body.get_settings(previous_body) || !collider.get_settings(collider_settings))
+        {
+            return false;
+        }
+        const bool moved = group.anchored && previous_transform != pose;
         if (previous_enabled != enabled || moved)
         {
             if (!collider.set_enabled(enabled))
@@ -1751,13 +1806,12 @@ bool DestructionSystem::synchronize(Node owner)
             double volume = 0;
             (void)center_of(engine::ecs_detail::component_runtime(component)->graph_.data(),
                             group.chunks, volume);
-            const double scale =
-                group.anchored ? transform.settings().scale.x() : previous_transform.scale.x();
+            const double scale = group.anchored ? pose.scale.x() : previous_transform.scale.x();
             body_settings.mass =
-                static_cast<float>(volume * scale * scale * scale * component.settings().density);
-            if ((moved && !fragment_transform.set_settings(transform.settings())) ||
+                static_cast<float>(volume * scale * scale * scale * component_settings.density);
+            if ((moved && !fragment_transform.set_settings(pose)) ||
                 !body.set_settings(body_settings) ||
-                !physics_.set_collider_data(collider, collider.settings()))
+                !physics_.set_collider_data(collider, collider_settings))
             {
                 const bool restored = collider.set_enabled(previous_enabled) &&
                                       fragment_transform.set_settings(previous_transform) &&

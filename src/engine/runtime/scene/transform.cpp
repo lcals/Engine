@@ -27,13 +27,6 @@ bool Transform::register_type(ComponentRegistry& registry)
     return register_component_storage<Transform, Data>(registry);
 }
 
-TransformSettings Transform::settings() const noexcept
-{
-    Data output{};
-    (void)get_settings(output);
-    return output;
-}
-
 bool Transform::get_settings(Data& output) const noexcept
 {
     const auto* value = read_data<Data>();

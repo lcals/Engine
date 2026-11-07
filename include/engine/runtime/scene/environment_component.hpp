@@ -18,7 +18,6 @@ public:
     static constexpr ComponentType component_type = ComponentType::EnvironmentData;
     [[nodiscard]] bool restore_data(const schema::ComponentDataT& data);
 
-    [[nodiscard]] EnvironmentSettings settings() const noexcept;
     [[nodiscard]] bool get_settings(Data& output) const noexcept;
     [[nodiscard]] bool set_settings(const EnvironmentSettings& settings);
     [[nodiscard]] bool remap_node_references(schema::ComponentDataT& data,

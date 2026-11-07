@@ -34,13 +34,6 @@ bool AudioSource::valid_settings(const schema::AudioSourceDataT& settings) noexc
            std::isfinite(settings.max_distance) && settings.max_distance > settings.min_distance;
 }
 
-schema::AudioSourceDataT AudioSource::settings() const noexcept
-{
-    Data output{};
-    (void)get_settings(output);
-    return output;
-}
-
 bool AudioSource::get_settings(Data& output) const noexcept
 {
     const auto* value = read_data<Data>();
@@ -53,7 +46,7 @@ bool AudioSource::set_settings(const schema::AudioSourceDataT& settings)
     return apply_settings(settings, {});
 }
 
-bool AudioSource::apply_settings(const Data& settings, resource_detail::ResourceReference prepared)
+bool AudioSource::apply_settings(const Data& settings, ResourceReference prepared)
 {
     if (!writable())
     {
@@ -63,8 +56,13 @@ bool AudioSource::apply_settings(const Data& settings, resource_detail::Resource
     {
         return false;
     }
-    const bool changed_clip = settings.clip_guid != this->settings().clip_guid;
-    resource_detail::ResourceReference replacement;
+    const auto* current = read_data<Data>();
+    if (!current)
+    {
+        return false;
+    }
+    const bool changed_clip = settings.clip_guid != current->clip_guid;
+    ResourceReference replacement;
     if (runtime()->clip_ && !replacement.retain(runtime()->clip_))
     {
         return false;
@@ -127,8 +125,12 @@ bool AudioSource::set_clip(std::string_view path)
     {
         return false;
     }
-    resource_detail::ResourceReference prepared;
-    schema::AudioSourceDataT replacement(settings());
+    ResourceReference prepared;
+    Data replacement;
+    if (!get_settings(replacement))
+    {
+        return false;
+    }
     if (path.empty())
     {
         replacement.clip_guid.clear();

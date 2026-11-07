@@ -57,7 +57,12 @@ void color(const Arguments& arguments)
     {
         return;
     }
-    auto settings = light.settings();
+    Light::Data settings{};
+    if (!light.get_settings(settings))
+    {
+        arguments.set_return(false);
+        return;
+    }
     settings.color = Color(r, g, b, 1.0F);
     arguments.set_return(light.set_settings(settings));
 }
@@ -70,7 +75,12 @@ void intensity(const Arguments& arguments)
     float value = 0.0F;
     if (light.valid() && arguments.count() == 3 && BindingContext::scalar(arguments, 2, value))
     {
-        auto settings = light.settings();
+        Light::Data settings{};
+        if (!light.get_settings(settings))
+        {
+            arguments.set_return(false);
+            return;
+        }
         settings.intensity = value;
         arguments.set_return(light.set_settings(settings));
     }
@@ -85,7 +95,12 @@ void shadows(const Arguments& arguments)
     {
         return;
     }
-    auto value = light.settings();
+    Light::Data value{};
+    if (!light.get_settings(value))
+    {
+        arguments.set_return(false);
+        return;
+    }
     value.cast_shadows = arguments.boolean(2);
     value.shadow_resolution = static_cast<std::uint16_t>(arguments.unsigned_integer(3));
     if (BindingContext::scalar(arguments, 4, value.shadow_bias))
@@ -101,7 +116,12 @@ void directional(const Arguments& arguments)
     auto light = !node ? Light{} : node.get_component<Light>();
     if (light.valid() && arguments.count() == 2)
     {
-        auto value = light.settings();
+        Light::Data value{};
+        if (!light.get_settings(value))
+        {
+            arguments.set_return(false);
+            return;
+        }
         value.kind = schema::LightKind::directional;
         arguments.set_return(light.set_settings(value));
     }
@@ -121,7 +141,12 @@ void shadow_cascades(const Arguments& arguments)
     {
         return;
     }
-    auto settings = light.settings();
+    Light::Data settings{};
+    if (!light.get_settings(settings))
+    {
+        arguments.set_return(false);
+        return;
+    }
     settings.shadow_cascades = static_cast<std::uint8_t>(count);
     if (BindingContext::scalar(arguments, 3, settings.shadow_distance) &&
         BindingContext::scalar(arguments, 4, settings.shadow_split_lambda) &&
@@ -138,7 +163,12 @@ void point(const Arguments& arguments)
     auto light = !node ? Light{} : node.get_component<Light>();
     if (light.valid() && arguments.count() == 3)
     {
-        auto value = light.settings();
+        Light::Data value{};
+        if (!light.get_settings(value))
+        {
+            arguments.set_return(false);
+            return;
+        }
         value.kind = schema::LightKind::point;
         arguments.set_return(BindingContext::scalar(arguments, 2, value.range) &&
                              light.set_settings(value));
@@ -152,7 +182,12 @@ void spot(const Arguments& arguments)
     auto light = !node ? Light{} : node.get_component<Light>();
     if (light.valid() && arguments.count() == 5)
     {
-        auto value = light.settings();
+        Light::Data value{};
+        if (!light.get_settings(value))
+        {
+            arguments.set_return(false);
+            return;
+        }
         value.kind = schema::LightKind::spot;
         arguments.set_return(BindingContext::scalar(arguments, 2, value.range) &&
                              BindingContext::scalar(arguments, 3, value.inner_angle) &&

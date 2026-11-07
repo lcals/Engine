@@ -44,7 +44,7 @@ classDiagram
 
 `SceneBakeSystem` 通过私有 `State` 持有 GPU 任务、文件事务、输入资源的独立获取、任务身份和状态；ValidateCallback / PublishCallback 由宿主提供且依赖对象覆盖系统生命周期。ValidateCallback 输出当前场景身份并检查已保存预览，PublishCallback 只执行通用导入刷新。注册命令与 MCP 回调均为借用，必须先关闭命令服务再销毁模块。
 
-资源加载通过 `ResourceSystem::loader()` 的核心契约，不引用具体 `ResourceGraphSystem`。默认单项加载器可直接读取当前目录挂载中的输入；IBL 输入引用由 State 持有，几何、材质、Shader 与纹理依赖由场景组件及材质持有，GPU 捕获复用其已有引用。
+资源加载使用宿主注入的 `ResourceLoader` 契约，不引用具体 `ResourceGraphSystem`；缺少加载器时资源作业返回错误。调用方先显式加载当前目录中的输入，领域模块只使用已加载资源；IBL 输入引用由 State 持有，几何、材质、Shader 与纹理依赖由场景组件及材质持有，GPU 捕获复用其已有引用。
 
 ```mermaid
 classDiagram

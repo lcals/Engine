@@ -78,7 +78,12 @@ void ambient(const Arguments& arguments)
     {
         return;
     }
-    auto value = target.settings();
+    EnvironmentComponent::Data value{};
+    if (!target.get_settings(value))
+    {
+        arguments.set_return(false);
+        return;
+    }
     value.ambient_tricolor = false;
     if (read_color(arguments, 2, value.ambient_color) &&
         BindingContext::scalar(arguments, 5, value.ambient_intensity))
@@ -94,7 +99,12 @@ void tricolor(const Arguments& arguments)
     {
         return;
     }
-    auto value = target.settings();
+    EnvironmentComponent::Data value{};
+    if (!target.get_settings(value))
+    {
+        arguments.set_return(false);
+        return;
+    }
     value.ambient_tricolor = true;
     if (read_color(arguments, 2, value.ambient_sky_color) &&
         read_color(arguments, 5, value.ambient_equator_color) &&
@@ -112,7 +122,12 @@ void linear_fog(const Arguments& arguments)
     {
         return;
     }
-    auto value = target.settings();
+    EnvironmentComponent::Data value{};
+    if (!target.get_settings(value))
+    {
+        arguments.set_return(false);
+        return;
+    }
     value.fog_mode = arguments.boolean(2) ? schema::FogMode::linear : schema::FogMode::none;
     if (read_color(arguments, 3, value.fog_color) &&
         BindingContext::scalar(arguments, 6, value.fog_start) &&
@@ -129,7 +144,12 @@ void exponential_fog(const Arguments& arguments)
     {
         return;
     }
-    auto value = target.settings();
+    EnvironmentComponent::Data value{};
+    if (!target.get_settings(value))
+    {
+        arguments.set_return(false);
+        return;
+    }
     value.fog_mode = !arguments.boolean(2)  ? schema::FogMode::none
                      : arguments.boolean(7) ? schema::FogMode::exponential_squared
                                             : schema::FogMode::exponential;
@@ -147,7 +167,12 @@ void clear_color(const Arguments& arguments)
     {
         return;
     }
-    auto value = target.settings();
+    EnvironmentComponent::Data value{};
+    if (!target.get_settings(value))
+    {
+        arguments.set_return(false);
+        return;
+    }
     value.clear_color = arguments.unsigned_integer(2);
     arguments.set_return(target.set_settings(value));
 }
@@ -159,7 +184,12 @@ void ibl(const Arguments& arguments)
     {
         return;
     }
-    auto value = target.settings();
+    EnvironmentComponent::Data value{};
+    if (!target.get_settings(value))
+    {
+        arguments.set_return(false);
+        return;
+    }
     value.ibl_enabled = arguments.boolean(2);
     if (BindingContext::scalar(arguments, 3, value.ibl_intensity))
     {
@@ -180,19 +210,25 @@ void atmosphere(const Arguments& arguments)
     {
         return;
     }
-    auto settings = target.settings();
+    EnvironmentComponent::Data settings{};
+    if (!target.get_settings(settings))
+    {
+        arguments.set_return(false);
+        return;
+    }
     settings.atmosphere_enabled = arguments.boolean(2);
     settings.atmosphere_sun_node_id = 0;
     if (sun_id != 0)
     {
         const auto sun = context->find_node(sun_scene, sun_id);
         const auto light = sun ? sun.get_component<Light>() : Light{};
-        if (!sun || sun.scene() != target.node().scene() || !light ||
-            light.settings().kind != schema::LightKind::directional)
+        LightSettings light_settings;
+        if (!sun || sun.scene() != target.node().scene() || !light.get_settings(light_settings) ||
+            light_settings.kind != schema::LightKind::directional)
         {
             return;
         }
-        settings.atmosphere_sun_node_id = sun.info().properties->id;
+        settings.atmosphere_sun_node_id = sun.local_id();
     }
     const auto parameters = nlohmann::json::parse(text, nullptr, false);
     if (!parameters.is_object())

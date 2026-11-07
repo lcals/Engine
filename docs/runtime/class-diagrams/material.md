@@ -10,7 +10,9 @@ classDiagram
         +valid() bool
         +instance_id() uint64_t
         +type_path() string
+        +resource() ResourceHandle
         +shader_path() string
+        +shader() ResourceHandle
         +shader_data() const ShaderDataT#42;
         +has_overrides() bool
         +set_type(string_view path) bool
@@ -36,7 +38,6 @@ classDiagram
     class MaterialState
     class MeshRendererRuntime
     class ecs_world_t
-    class ResourceSystem
     class ResourceLoader
     class Resource
     class MaterialDataT
@@ -65,7 +66,6 @@ classDiagram
     MaterialState *-- MaterialDataT : 唯一生成实例数据
     Material ..> CullMode : 通用面剔除状态
     Material ..> BlendMode : 持久透明混合状态
-    Material ..> ResourceSystem : 路径与GUID查询
     Material ..> ResourceLoader : 取得所选实现的资源引用
     MaterialState o-- Resource : 材质与当前Shader共享引用
     Material ..> ShaderDataT : 查询声明的参数
@@ -95,6 +95,8 @@ classDiagram
 - 当前材质 sampler 的契约为二维贴图，可使用 LDR 或线性 HDR KTX；立方体贴图由环境 IBL 使用，不能赋给普通材质槽。资源依赖校验、材质换型和 `set_texture()` 都检查维度，失败保留原材质引用。
 
 - `shader_data()` 为 const noexcept，只读借用当前材质持有的 Shader 资源数据；不经过可选插件缓存查询。材质换型、Shader 切换或实例销毁后旧借用失效，目录换代不使已有材质转向其他版本。
+- `shader()` 为 const noexcept，返回当前持有 Shader 的借用获取句柄，失效材质返回空值；复制句柄不加计数，跨材质修改使用须自行 retain。保存通过该句柄读取实际持有的 GUID，不按路径重新加载当前目录中的另一份资源。
+- `resource()` 按相同借用规则返回当前材质定义句柄；保存未覆盖的材质时使用实际持有的定义身份。
 
 - `builtin://shaders/blinn-phong` 与 `builtin://materials/default-blinn-phong` 提供通用 Lambert 漫反射与 Blinn–Phong 高光，以资源路径选择。`smoothnessSource` 为 0 时使用 `smoothness * specularTexture.a`，为 1 时使用 `baseColorTexture.a * baseColor.a`；平滑度映射为指数 `2^(10*s+1)`。`specularHighlights`（默认 1）在 PBR 与 Blinn–Phong 中控制直接高光。Blinn–Phong 不执行 PBR 的能量扣减，环境光仍为 albedo 乘环境照明。Material 类不增加算法枚举或专用 API。
 

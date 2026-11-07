@@ -17,13 +17,6 @@ bool AudioListener::valid_settings(const schema::AudioListenerDataT& settings) n
     return std::isfinite(settings.volume) && settings.volume >= 0.0F && settings.volume <= 1.0F;
 }
 
-schema::AudioListenerDataT AudioListener::settings() const noexcept
-{
-    Data output{};
-    (void)get_settings(output);
-    return output;
-}
-
 bool AudioListener::get_settings(Data& output) const noexcept
 {
     const auto* value = read_data<Data>();

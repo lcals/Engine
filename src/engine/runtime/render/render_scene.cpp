@@ -61,9 +61,10 @@ bool RenderSystem::draw_scene(Camera view_camera, const RenderSettings& renderin
     const Camera camera = view_camera ? view_camera : scene->active_camera();
     float camera_world[16]{}, view[16]{}, projection[16]{};
     const auto camera_transform = camera.node().get_component<Transform>();
-    const auto& settings = camera.settings();
+    CameraSettings settings;
     const float aspect = static_cast<float>(width_) / static_cast<float>(height_);
-    if (!camera_transform || !camera_transform.world_matrix(camera_world) ||
+    if (!camera.get_settings(settings) || !camera_transform ||
+        !camera_transform.world_matrix(camera_world) ||
         !camera_detail::view_matrix(camera_world, view) ||
         !camera_detail::projection_matrix(settings, aspect, bgfx::getCaps()->homogeneousDepth,
                                           projection))
@@ -136,9 +137,10 @@ bool RenderSystem::draw_scene(Camera view_camera, const RenderSettings& renderin
             continue;
         }
         const auto node = planes[index].node;
-        const auto& options = node.get_component<PlanarReflectionComponent>().settings();
+        PlanarReflectionSettings options;
         float matrix[16]{};
-        if (!node.get_component<Transform>().world_matrix(matrix))
+        if (!node.get_component<PlanarReflectionComponent>().get_settings(options) ||
+            !node.get_component<Transform>().world_matrix(matrix))
         {
             return false;
         }

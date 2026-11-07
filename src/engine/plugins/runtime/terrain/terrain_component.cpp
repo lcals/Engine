@@ -65,13 +65,6 @@ bool TerrainComponent::valid_settings(const schema::TerrainDataT& settings) noex
            std::isfinite(settings.uv_scale) && settings.uv_scale > 0 && settings.uv_scale <= 100;
 }
 
-schema::TerrainDataT TerrainComponent::settings() const noexcept
-{
-    Data output{};
-    (void)get_settings(output);
-    return output;
-}
-
 bool TerrainComponent::get_settings(Data& output) const noexcept
 {
     const auto* value = read_data<Data>();
@@ -91,8 +84,8 @@ bool TerrainComponent::set_settings(const schema::TerrainDataT& value)
         return false;
     }
     auto* resources = node().world()->resource_loader();
-    resource_detail::ResourceReference replacement;
-    resource_detail::ResourceReference material;
+    ResourceReference replacement;
+    ResourceReference material;
     TerrainVolume candidate;
     if (!value.terrain_guid.empty())
     {
@@ -118,9 +111,14 @@ bool TerrainComponent::set_settings(const schema::TerrainDataT& value)
         runtime()->resource_ && replacement &&
         runtime()->resource_->info().guid == replacement->info().guid &&
         runtime()->resource_->info().content_hash == replacement->info().content_hash;
+    Data previous_settings;
+    if (!get_settings(previous_settings))
+    {
+        return false;
+    }
     if (retain)
     {
-        if (runtime()->detached_ && value != settings())
+        if (runtime()->detached_ && value != previous_settings)
         {
             runtime()->last_error_ =
                 "Reset terrain fragments before changing their material or settings";
@@ -128,7 +126,6 @@ bool TerrainComponent::set_settings(const schema::TerrainDataT& value)
         }
         candidate = runtime()->volume_;
     }
-    const auto previous_settings = settings();
     auto previous_resource = std::move(runtime()->resource_);
     auto previous_material = std::move(runtime()->material_);
     *write_data<Data>() = value;

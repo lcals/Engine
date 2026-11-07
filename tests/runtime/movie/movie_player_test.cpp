@@ -46,7 +46,7 @@ bool run()
     {
         return expect(false, "initialize services and fixture");
     }
-    resource_detail::ResourceReference movie, sound;
+    ResourceReference movie, sound;
     if (!resources.load("movies/test.mp4", movie))
     {
         return expect(false, "preload movie");
@@ -205,7 +205,7 @@ bool catch_up()
     {
         return false;
     }
-    resource_detail::ResourceReference movie;
+    ResourceReference movie;
     if (!resources.load("movies/test.mp4", movie))
     {
         return expect(false, "preload long movie");

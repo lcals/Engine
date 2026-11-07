@@ -9,11 +9,11 @@ namespace engine
 {
 struct AnimatorRuntime
 {
-    resource_detail::ResourceReference animation_;
-    resource_detail::ResourceReference target_skeleton_;
-    resource_detail::ResourceReference source_skeleton_;
-    resource_detail::ResourceReference previous_source_skeleton_;
-    resource_detail::ResourceReference previous_animation_;
+    ResourceReference animation_;
+    ResourceReference target_skeleton_;
+    ResourceReference source_skeleton_;
+    ResourceReference previous_source_skeleton_;
+    ResourceReference previous_animation_;
     std::shared_ptr<const animation_detail::AnimationPose> frozen_pose_;
     double previous_time_ = 0.0;
     float previous_speed_ = 1.0F;
@@ -25,8 +25,8 @@ struct AnimatorRuntime
     std::uint64_t prepared_revision_ = 0;
     double time_ = 0.0;
     AnimationPlayback playback_ = AnimationPlayback::stopped;
-    resource_detail::ResourceReference retarget_profile_;
-    resource_detail::ResourceReference previous_retarget_profile_;
+    ResourceReference retarget_profile_;
+    ResourceReference previous_retarget_profile_;
     std::shared_ptr<const AnimationRetargetBinding> retarget_binding_;
     std::shared_ptr<const AnimationRetargetBinding> previous_retarget_binding_;
     std::vector<std::array<float, 16>> committed_models_;

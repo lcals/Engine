@@ -75,7 +75,12 @@ void capsule(const Arguments& arguments)
     if (value.valid() && BindingContext::scalar(arguments, 2, radius) &&
         BindingContext::scalar(arguments, 3, half_height))
     {
-        auto settings = value.settings();
+        CharacterMotor::Data settings{};
+        if (!value.get_settings(settings))
+        {
+            arguments.set_return(false);
+            return;
+        }
         settings.radius = radius;
         settings.half_height = half_height;
         arguments.set_return(value.set_settings(settings));
@@ -88,7 +93,12 @@ void set_number(const Arguments& arguments, float schema::CharacterMotorDataT::*
     float number = 0;
     if (value.valid() && BindingContext::scalar(arguments, 2, number))
     {
-        auto settings = value.settings();
+        CharacterMotor::Data settings{};
+        if (!value.get_settings(settings))
+        {
+            arguments.set_return(false);
+            return;
+        }
         settings.*field = number;
         arguments.set_return(value.set_settings(settings));
     }

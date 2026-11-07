@@ -844,7 +844,7 @@ bool test_scene_sampling(const engine::EngineConfig& config)
     auto mesh = test_support::scene_nodes(*scene).front().get_component<engine::MeshRenderer>();
     auto environment =
         scene->create_node("Sampling background").add_component<engine::EnvironmentComponent>();
-    auto background = environment.settings();
+    auto background = test_support::read_settings(environment);
     background.clear_color = 0x000000ff;
     Screenshot baseline;
     if (!mesh || !environment || !environment.set_settings(background) ||
@@ -945,7 +945,7 @@ bool test_scene_sampling(const engine::EngineConfig& config)
     engine::TransformSettings pose;
     pose.rotation = {80, 0, 0};
     auto camera = scene->active_camera();
-    auto lens = camera.settings();
+    auto lens = test_support::read_settings(camera);
     lens.projection = engine::schema::Projection::orthographic;
     lens.orthographic_size = 2;
     engine::TransformSettings camera_pose;
@@ -1020,11 +1020,11 @@ bool test_orthographic_pbr_view(const engine::EngineConfig& config)
     }
     auto* scene = world.scene();
     auto camera = scene->active_camera();
-    auto lens = camera.settings();
+    auto lens = test_support::read_settings(camera);
     lens.projection = engine::schema::Projection::orthographic;
     lens.orthographic_size = 2.0F;
     auto transform = camera.node().get_component<engine::Transform>();
-    auto settings = transform.settings();
+    auto settings = test_support::read_settings(transform);
     Screenshot near_view;
     Screenshot far_view;
     if (!camera.set_settings(lens) ||
@@ -1149,7 +1149,7 @@ bool test_pbr_occlusion_lighting(const engine::EngineConfig& config)
     {
         return false;
     }
-    auto env_settings = environment.settings();
+    auto env_settings = test_support::read_settings(environment);
     env_settings.ambient_intensity = 1;
     if (!light.set_enabled(false) || !environment.set_settings(env_settings) ||
         !material.set_texture("ormTexture", occluded.path) ||
@@ -1493,7 +1493,7 @@ bool test_pbr_occlusion_lighting(const engine::EngineConfig& config)
     camera_pose.position = {0, 0, 3};
     camera_pose.rotation = {0, 0, 0};
     light_pose.rotation = {0, 0, 0};
-    auto light_settings = light.settings();
+    auto light_settings = test_support::read_settings(light);
     light_settings.intensity = 0.0001F;
     Screenshot smooth_peak;
     if (!camera_node.get_component<engine::Transform>().set_settings(camera_pose) ||
@@ -1671,7 +1671,7 @@ bool test_ibl_white_furnace(const engine::EngineConfig& config)
     engine::CameraSettings lens;
     lens.projection = engine::schema::Projection::orthographic;
     lens.orthographic_size = 2;
-    auto env = environment.settings();
+    auto env = test_support::read_settings(environment);
     env.ibl_enabled = true;
     env.ibl_intensity = 1;
     if (!resources.catalog().identities().path_to_guid(irradiance.path, env.ibl_irradiance_guid) ||
@@ -1865,7 +1865,7 @@ bool test_ibl_white_furnace(const engine::EngineConfig& config)
     // this tests scene composition with quantization, not float HDR readback.
     auto light_node = scene->create_node("HDR composition light");
     auto light = light_node ? light_node.add_component<engine::Light>() : engine::Light{};
-    auto light_settings = light.settings();
+    auto light_settings = test_support::read_settings(light);
     light_settings.intensity = 3;
     if (!light || !light.set_settings(light_settings) || !light.set_enabled(false) ||
         !material.set_float("specularWorkflow", 0) || !material.set_v4("baseColor", {1, 1, 1, 1}) ||
@@ -1991,10 +1991,10 @@ bool test_gpu_skinning(const engine::EngineConfig& config)
     {
         return false;
     }
-    auto camera_settings = camera.settings();
+    auto camera_settings = test_support::read_settings(camera);
     camera_settings.projection = engine::schema::Projection::orthographic;
     camera_settings.orthographic_size = 2;
-    auto pose = camera_node.get_component<engine::Transform>().settings();
+    auto pose = test_support::read_settings(camera_node.get_component<engine::Transform>());
     pose.position = {0, 0, 3};
     if (!camera.set_settings(camera_settings) ||
         !camera_node.get_component<engine::Transform>().set_settings(pose) ||
@@ -2211,7 +2211,7 @@ bool test_textured_renderer(const engine::EngineConfig& config, bool shared)
     // the former gamma 2.2 approximation even when middle gray looks similar.
     auto environment_node = scene->create_node("Clear color");
     auto environment = environment_node.add_component<engine::EnvironmentComponent>();
-    auto background = environment.settings();
+    auto background = test_support::read_settings(environment);
     background.clear_color = 0x0a407fff;
     Screenshot srgb_dark;
     if (!expect(
@@ -2624,7 +2624,7 @@ bool test_render_settings_and_capture(const engine::EngineConfig& config)
     {
         return false;
     }
-    auto invalid = post_process.settings();
+    auto invalid = test_support::read_settings(post_process);
     invalid.exposure = std::numeric_limits<float>::quiet_NaN();
     if (!expect(!post_process.set_settings(invalid) && renderer.settings().exposure == 1.0F,
                 "invalid post-process settings preserve the previous configuration"))
@@ -2652,9 +2652,9 @@ bool test_render_settings_and_capture(const engine::EngineConfig& config)
     {
         return false;
     }
-    auto environment_settings = environment.settings();
-    auto post_settings = post_process.settings();
-    auto light_settings = light.settings();
+    auto environment_settings = test_support::read_settings(environment);
+    auto post_settings = test_support::read_settings(post_process);
+    auto light_settings = test_support::read_settings(light);
     const auto apply_settings = [&]()
     {
         return environment.set_settings(environment_settings) &&
@@ -2673,7 +2673,7 @@ bool test_render_settings_and_capture(const engine::EngineConfig& config)
     for (const auto projection :
          {engine::schema::Projection::perspective, engine::schema::Projection::orthographic})
     {
-        auto camera_projection = scene->active_camera().settings();
+        auto camera_projection = test_support::read_settings(scene->active_camera());
         camera_projection.projection = projection;
         camera_projection.orthographic_size = 6.0F;
         post_settings.ao_enabled = false;
@@ -2716,7 +2716,7 @@ bool test_render_settings_and_capture(const engine::EngineConfig& config)
             return false;
         }
     }
-    auto perspective = scene->active_camera().settings();
+    auto perspective = test_support::read_settings(scene->active_camera());
     perspective.projection = engine::schema::Projection::perspective;
     environment_settings.ambient_intensity = 0.0F;
     Screenshot direct_only;
@@ -3081,9 +3081,9 @@ bool test_reflections_water_and_diffuse_capture(const engine::EngineConfig& conf
     {
         return false;
     }
-    auto environment_settings = environment.settings();
+    auto environment_settings = test_support::read_settings(environment);
     environment_settings.ambient_intensity = 0.2F;
-    auto post_settings = post.settings();
+    auto post_settings = test_support::read_settings(post);
     post_settings.ssr_enabled = false;
     post_settings.ao_enabled = true;
     post_settings.hdr_enabled = true;
@@ -3436,7 +3436,7 @@ bool test_reflections_water_and_diffuse_capture(const engine::EngineConfig& conf
     }
     for (auto light : local_lights)
     {
-        auto settings = light.settings();
+        auto settings = test_support::read_settings(light);
         const auto name = settings.kind == engine::schema::LightKind::point ? "point" : "spot";
         Screenshot unshadowed;
         settings.cast_shadows = false;
@@ -3695,13 +3695,13 @@ bool test_hdr_and_bloom(const engine::EngineConfig& config)
     }
     auto environment_component = environment.get_component<engine::EnvironmentComponent>();
     auto post_process = scene->active_camera().node().get_component<engine::PostProcessComponent>();
-    auto environment_settings = environment_component.settings();
+    auto environment_settings = test_support::read_settings(environment_component);
     environment_settings.clear_color = 0x000000ff;
     if (!environment_component.set_settings(environment_settings))
     {
         return false;
     }
-    auto settings = post_process.settings();
+    auto settings = test_support::read_settings(post_process);
     settings.filmic_tonemap = true;
     Screenshot sdr;
     if (!post_process.set_settings(settings) || !render_frames(windows, renderer, 8) ||
@@ -3913,7 +3913,7 @@ bool test_render_extensions(const engine::EngineConfig& config)
             preview_node.valid() ? preview_node.add_component<engine::Camera>() : engine::Camera{};
         engine::TransformSettings preview_transform;
         preview_transform.position = {3, 2, 5};
-        auto post_settings = post.settings();
+        auto post_settings = test_support::read_settings(post);
         post_settings.hdr_enabled = true;
         post_settings.bloom_enabled = true;
         if (!expect(preview &&

@@ -109,7 +109,7 @@ bool tick_one(engine::RuntimeHost& host)
 
 engine::Vec3 position(engine::Node node)
 {
-    return node.get_component<engine::Transform>().settings().position;
+    return test_support::read_settings(node.get_component<engine::Transform>()).position;
 }
 
 bool same_horizontal_position(const engine::Vec3& first, const engine::Vec3& second)
@@ -169,7 +169,7 @@ bool host_input_physics_camera_order()
     {
         return false;
     }
-    auto floor_pose = floor.get_component<engine::Transform>().settings();
+    auto floor_pose = test_support::read_settings(floor.get_component<engine::Transform>());
     floor_pose.position = {0, -0.5, 0};
     auto collider = floor.add_component<engine::Collider>();
     auto motor = player.add_component<engine::CharacterMotor>();
@@ -181,12 +181,12 @@ bool host_input_physics_camera_order()
     {
         return false;
     }
-    auto collision = collider.settings();
+    auto collision = test_support::read_settings(collider);
     collision.half_extents = {20, 0.5, 20};
-    auto control = controller.settings();
-    control.camera_node_id = camera_node.info().properties->id;
-    auto camera_settings = follow.settings();
-    camera_settings.target_node_id = player.info().properties->id;
+    auto control = test_support::read_settings(controller);
+    control.camera_node_id = camera_node.local_id();
+    auto camera_settings = test_support::read_settings(follow);
+    camera_settings.target_node_id = player.local_id();
     camera_settings.mode = engine::schema::CharacterView::third_person;
     camera_settings.eye_height = 1.6F;
     camera_settings.camera_distance = 4.0F;

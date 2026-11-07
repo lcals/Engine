@@ -65,11 +65,10 @@ void release_fragment(WorldSystem& world, PhysicsSystem& physics, std::uint64_t 
 bool collapse_pose(const Node& node, TransformSettings& pose)
 {
     const auto transform = node.get_component<Transform>();
-    if (node.parent() || !transform || !transform.enabled())
+    if (node.parent() || !transform.get_settings(pose) || !transform.enabled())
     {
         return false;
     }
-    pose = transform.settings();
     const double scale = pose.scale.x();
     return std::isfinite(scale) && scale > 0 && scale <= 100 &&
            std::abs(scale - pose.scale.y()) <= 0.000001 * scale &&
@@ -176,6 +175,11 @@ bool TerrainSystem::on_initialize(const EngineConfig&)
 
 bool TerrainSystem::commit(TerrainComponent component, TerrainVolume candidate)
 {
+    TerrainComponent::Data component_settings;
+    if (!component.get_settings(component_settings))
+    {
+        return false;
+    }
     if (!component || component.node().world() != &world_)
     {
         return false;
@@ -186,13 +190,18 @@ bool TerrainSystem::commit(TerrainComponent component, TerrainVolume candidate)
     {
         return false;
     }
-    decorate(mesh, component.settings());
+    decorate(mesh, component_settings);
     return commit_prepared(component, std::move(candidate), std::move(mesh));
 }
 
 bool TerrainSystem::commit_prepared(TerrainComponent component, TerrainVolume candidate,
                                     schema::MeshDataT mesh)
 {
+    TerrainComponent::Data component_settings;
+    if (!component.get_settings(component_settings))
+    {
+        return false;
+    }
     if (!component || component.node().world() != &world_)
     {
         return false;
@@ -264,8 +273,8 @@ bool TerrainSystem::commit_prepared(TerrainComponent component, TerrainVolume ca
     }
     ecs_detail::ResourceBindingScope binding(world_, material_resource.handle());
     std::string material = material_resource->info().path;
-    if ((!component.settings().material_guid.empty() &&
-         !ecs_detail::resource_path(component.node(), component.settings().material_guid,
+    if ((!component_settings.material_guid.empty() &&
+         !ecs_detail::resource_path(component.node(), component_settings.material_guid,
                                     material)) ||
         !renderer.material().set_type(material))
     {
@@ -285,9 +294,9 @@ bool TerrainSystem::commit_prepared(TerrainComponent component, TerrainVolume ca
     }
     const MeshCollisionData no_collision;
     const bool previous_collision_enabled = collider.enabled();
-    if (!collider.set_enabled(component.enabled() && component.settings().collision && !empty) ||
-        !physics_.set_mesh_parts(
-            collider, component.settings().collision ? candidate.collision_data() : no_collision))
+    if (!collider.set_enabled(component.enabled() && component_settings.collision && !empty) ||
+        !physics_.set_mesh_parts(collider, component_settings.collision ? candidate.collision_data()
+                                                                        : no_collision))
     {
         (void)collider.set_enabled(previous_collision_enabled);
         const bool restored = renderer.set_mesh_data(previous_mesh) &&
@@ -451,11 +460,17 @@ void TerrainSystem::process_requests()
             owner.prepared = std::make_shared<AsyncState::Prepared>();
             owner.prepared->volume = engine::ecs_detail::component_runtime(component)->volume_;
         }
+        TerrainComponent::Data component_settings;
+        if (!component.get_settings(component_settings))
+        {
+            owner.requests.clear();
+            continue;
+        }
         const auto& request = owner.requests.front();
         owner.completion = tasks_->submit(
             "Terrain.prepare",
             [prepared = owner.prepared, center = request.center, radius = request.radius,
-             fill = request.fill, settings = component.settings()]
+             fill = request.fill, settings = std::move(component_settings)]
             {
                 ENGINE_PROFILE_ZONE("Terrain.async_prepare");
                 if (!prepared->volume.apply_sphere(center, radius, fill, prepared->error) ||
@@ -614,11 +629,13 @@ bool TerrainSystem::retire_fragments(TerrainComponent component, std::uint32_t m
         const auto collider = node ? node.get_component<Collider>() : Collider{};
         const auto body = node ? node.get_component<RigidBody>() : RigidBody{};
         std::vector<Component> components;
+        RigidBody::Data body_settings;
         if (!node || !node.collect_components(components) || node.scene() != source.scene() ||
             node.parent() || !node.transient() || components.size() != 4 || !transform ||
             !transform.transient() || !renderer || !renderer.transient() || !collider ||
             !collider.transient() || collider.instance_id() != fragment.collider_instance ||
-            !body || !body.transient() || body.settings().motion != schema::BodyMotion::dynamic)
+            !body.get_settings(body_settings) || !body.transient() ||
+            body_settings.motion != schema::BodyMotion::dynamic)
         {
             engine::ecs_detail::component_runtime(component)->last_error_ =
                 "Terrain fragment components are missing or replaced";
@@ -692,6 +709,11 @@ bool TerrainSystem::collapse_detached(TerrainComponent component, std::uint32_t 
                                       std::uint32_t max_fragments, std::uint32_t fragment_cells,
                                       float density)
 {
+    TerrainComponent::Data component_settings;
+    if (!component.get_settings(component_settings))
+    {
+        return false;
+    }
     if (!component || component.node().world() != &world_)
     {
         return false;
@@ -701,7 +723,7 @@ bool TerrainSystem::collapse_detached(TerrainComponent component, std::uint32_t 
     TransformSettings pose;
     if (!is_initialized() || world_.find_node(component.node().id()) != component.node() ||
         !engine::ecs_detail::component_runtime(component)->ready_ || !component.active() ||
-        !component.settings().collision || !collapse_pose(component.node(), pose) ||
+        !component_settings.collision || !collapse_pose(component.node(), pose) ||
         !std::isfinite(density) || density <= 0 || density > 100000 || max_fragments == 0 ||
         max_fragments > 128)
     {
@@ -737,8 +759,8 @@ bool TerrainSystem::collapse_detached(TerrainComponent component, std::uint32_t 
     }
     ecs_detail::ResourceBindingScope binding(world_, material_resource.handle());
     std::string material = material_resource->info().path;
-    if (!component.settings().material_guid.empty() &&
-        !ecs_detail::resource_path(component.node(), component.settings().material_guid, material))
+    if (!component_settings.material_guid.empty() &&
+        !ecs_detail::resource_path(component.node(), component_settings.material_guid, material))
     {
         engine::ecs_detail::component_runtime(component)->last_error_ =
             "Cannot resolve terrain fragment material";
@@ -779,7 +801,7 @@ bool TerrainSystem::collapse_detached(TerrainComponent component, std::uint32_t 
             auto body = node.add_component<RigidBody>();
             schema::RigidBodyDataT body_settings;
             body_settings.mass = static_cast<float>(mass);
-            decorate(fragment.mesh, component.settings());
+            decorate(fragment.mesh, component_settings);
             if (!renderer || !collider || !body ||
                 !node.get_component<Transform>().set_settings(pose) ||
                 !renderer.material().set_type(material) || !renderer.set_mesh_data(fragment.mesh) ||
@@ -866,7 +888,9 @@ bool TerrainSystem::synchronize()
                     {
                         return false;
                     }
-                    if (!physics_.set_collider_data(collider, collider.settings()))
+                    Collider::Data settings;
+                    if (!collider.get_settings(settings) ||
+                        !physics_.set_collider_data(collider, settings))
                     {
                         (void)collider.set_enabled(previous);
                         engine::ecs_detail::component_runtime(component)->last_error_ =
@@ -940,8 +964,10 @@ bool TerrainSystem::synchronize()
             }
             if (auto collider = node.get_component<Collider>())
             {
-                if (!collider.set_enabled(
-                        component.enabled() && component.settings().collision &&
+                TerrainComponent::Data settings;
+                if (!component.get_settings(settings) ||
+                    !collider.set_enabled(
+                        component.enabled() && settings.collision &&
                         engine::ecs_detail::component_runtime(component)->triangles_ != 0))
                 {
                     return false;

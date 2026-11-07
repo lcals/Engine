@@ -1,5 +1,6 @@
 #include "resource_fixture.hpp"
 #include "resource_services.hpp"
+#include "scene_snapshot.hpp"
 
 #include "plugins/runtime/resource_graph/resource_graph_system.hpp"
 #include "runtime/engine_config.hpp"
@@ -89,7 +90,7 @@ schema::LightProbeDataT probes(const char* path, bool left)
 
 bool set_culling(Camera camera, bool enabled)
 {
-    auto settings = camera.settings();
+    auto settings = test_support::read_settings(camera);
     settings.frustum_culling_enabled = enabled;
     return camera.set_settings(settings);
 }
@@ -266,7 +267,7 @@ int test()
     lens.frustum_culling_enabled = false;
     TransformSettings camera_pose;
     camera_pose.position = {0, 0, 6};
-    auto lighting = environment.settings();
+    auto lighting = test_support::read_settings(environment);
     lighting.ambient_intensity = .3F;
     if (!camera || !post || !environment || !light || !camera.set_settings(lens) ||
         !camera_node.get_component<Transform>().set_settings(camera_pose) ||
@@ -345,7 +346,7 @@ int test()
     {
         return 1;
     }
-    auto mirrored = visible[1].node().get_component<Transform>().settings();
+    auto mirrored = test_support::read_settings(visible[1].node().get_component<Transform>());
     mirrored.scale = {-1, 1, 1};
     if (!visible[0].material().set_v4("baseColor", {.9, .2, .1, 1}) ||
         !visible[1].node().get_component<Transform>().set_settings(mirrored) ||
@@ -361,7 +362,7 @@ int test()
     {
         return 1;
     }
-    auto large = visible[0].node().get_component<Transform>().settings();
+    auto large = test_support::read_settings(visible[0].node().get_component<Transform>());
     large.scale = {2.5, 2.5, 1};
     if (!visible[0].material().set_v4("baseColor", {.2, .6, .9, 1}) ||
         !visible[0].node().get_component<Transform>().set_settings(large) ||
@@ -400,7 +401,7 @@ int test()
     {
         auto node = scene->create_node(resource->path);
         auto volume = node.add_component<LightProbeVolumeComponent>();
-        auto settings = volume.settings();
+        auto settings = test_support::read_settings(volume);
         if (!volume ||
             !resources.catalog().identities().path_to_guid(resource->path, settings.probes_guid) ||
             !volume.set_settings(settings))

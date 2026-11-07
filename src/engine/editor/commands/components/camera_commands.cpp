@@ -24,7 +24,12 @@ constexpr std::uint64_t frustum_culling_field = std::uint64_t{1} << 5;
         error = "Camera target no longer exists";
         return false;
     }
-    auto current = camera.settings();
+    CameraSettings current;
+    if (!camera.get_settings(current))
+    {
+        error = "Cannot read component settings";
+        return false;
+    }
     if (((selected & projection_field) && current.projection != expected.projection) ||
         ((selected & fov_field) && current.fov_degrees != expected.fov_degrees) ||
         ((selected & near_clip_field) && current.near_clip != expected.near_clip) ||
@@ -90,7 +95,12 @@ bool prepare_camera(WorldSystem& world, NodeAliases& aliases, const Json& argume
         error = "Node has no Camera";
         return false;
     }
-    const auto before = camera.settings();
+    CameraSettings before;
+    if (!camera.get_settings(before))
+    {
+        error = "Cannot read component settings";
+        return false;
+    }
     auto after = before;
     std::uint64_t selected = 0;
     if (arguments.contains("projection"))

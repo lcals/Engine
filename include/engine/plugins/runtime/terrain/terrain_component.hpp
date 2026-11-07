@@ -29,7 +29,6 @@ public:
     using Runtime = TerrainComponentRuntime;
     static constexpr ComponentType component_type = ComponentType::TerrainData;
     [[nodiscard]] static bool valid_settings(const schema::TerrainDataT& settings) noexcept;
-    [[nodiscard]] schema::TerrainDataT settings() const noexcept;
     [[nodiscard]] bool get_settings(Data& output) const noexcept;
     [[nodiscard]] bool set_settings(const schema::TerrainDataT& settings);
     [[nodiscard]] bool restore_data(const schema::ComponentDataT& data);

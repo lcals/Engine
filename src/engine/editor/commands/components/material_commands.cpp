@@ -184,7 +184,7 @@ private:
         auto renderer = node ? node.get_component<MeshRenderer>() : MeshRenderer{};
         auto material = renderer ? renderer.material(slot) : Material{};
         auto* loader = target.world.resource_loader();
-        resource_access::ResourceReference available;
+        ResourceReference available;
         const auto* current =
             resource_access::get(loader, material ? material.texture(name) : ResourceHandle{});
         if (!current || current->info() != expected ||
@@ -364,7 +364,7 @@ public:
     }
     bool retain_version(std::string_view resource_path)
     {
-        resource_access::ResourceReference resource;
+        ResourceReference resource;
         return resource_access::load(target.world.resource_loader(), resource_path, resource) &&
                resource_access::collect_versions(resource, versions);
     }
@@ -380,7 +380,7 @@ private:
             error = "Material changed outside this edit; undo or redo is stale";
             return false;
         }
-        std::vector<resource_access::ResourceReference> pins;
+        std::vector<ResourceReference> pins;
         if (!resource_access::load_versions(target.world.resource_loader(), versions, pins))
         {
             error = "Material dependency version changed or is unavailable";
@@ -493,7 +493,7 @@ bool prepare_texture(WorldSystem& world, NodeAliases& aliases, const Json& argum
     edit->name = arguments["name"].get<std::string>();
     std::string_view previous_path;
     Guid guid;
-    resource_access::ResourceReference replacement;
+    ResourceReference replacement;
     auto* loader = world.resource_loader();
     if (!material.get_texture(edit->name, previous_path) ||
         !resource_access::load(loader, arguments["path"].get<std::string>(), replacement) ||
@@ -537,7 +537,7 @@ bool prepare_material_type(WorldSystem& world, NodeAliases& aliases, const Json&
     const auto& material = renderer.material(record->slot);
     record->path = arguments["path"].get<std::string>();
     Guid guid;
-    resource_access::ResourceReference requested;
+    ResourceReference requested;
     auto* loader = world.resource_loader();
     if (!resource_access::load(loader, record->path, requested) ||
         !requested.data<MaterialResource>())

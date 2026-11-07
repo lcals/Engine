@@ -283,7 +283,7 @@ bool test_movie_clock_and_startup(const EngineConfig& config, const RuntimeParal
     auto mounts = std::make_shared<MountList>(MountList{{"content", fixture.root}});
     const auto generation = resources.generation();
     auto& player = *host.movie_player();
-    engine::resource_detail::ResourceReference movie;
+    engine::ResourceReference movie;
     if (!services.load("movies/test.mp4", movie))
     {
         return false;

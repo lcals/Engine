@@ -219,7 +219,7 @@ bool prepare(test_support::ResourceServices& services,
     {
         return false;
     }
-    engine::resource_detail::ResourceReference root;
+    engine::ResourceReference root;
     if (!services.load(entry, root))
     {
         return false;
@@ -269,7 +269,7 @@ bool execute(test_support::ResourceServices& services,
         error = services.loader.last_error();
         return false;
     }
-    engine::resource_detail::ResourceReference reference;
+    engine::ResourceReference reference;
     if (!reference.adopt(&services.loader, handle))
     {
         return false;
@@ -1054,7 +1054,8 @@ bool run_scene_cases(test_support::ResourceServices& services, const fs::path& w
     if (!expect(
             cube.get_component<engine::MeshRenderer>().material().get_float("metallic", metallic) &&
                 metallic == .7F && world.scene()->active_camera().valid() && script.tick(.25) &&
-                cube.get_component<engine::Transform>().settings().rotation.y() == 2.5,
+                test_support::read_settings(cube.get_component<engine::Transform>()).rotation.y() ==
+                    2.5,
             "component settings and Time.deltaTime reach the native scene"))
     {
         return false;
@@ -1396,12 +1397,15 @@ export default class extends Gameplay {
     const auto motor =
         test_support::scene_nodes(*scene).back().get_component<engine::CharacterMotor>();
     if (!expect(collider.valid() && body.valid() && source_component.valid() && listener.valid() &&
-                    motor.valid() && motor.settings().radius == .4F &&
-                    motor.settings().external_damping == 3.5F &&
-                    collider.settings().shape == engine::schema::ColliderShape::box &&
-                    body.settings().mass == 2 && body.linear_velocity().z() == 3 &&
-                    source_component.clip_data() != nullptr && source_component.settings().loop &&
-                    source_component.settings().volume == .5F && listener.settings().volume == .75F,
+                    motor.valid() && test_support::read_settings(motor).radius == .4F &&
+                    test_support::read_settings(motor).external_damping == 3.5F &&
+                    test_support::read_settings(collider).shape ==
+                        engine::schema::ColliderShape::box &&
+                    test_support::read_settings(body).mass == 2 &&
+                    body.linear_velocity().z() == 3 && source_component.clip_data() != nullptr &&
+                    test_support::read_settings(source_component).loop &&
+                    test_support::read_settings(source_component).volume == .5F &&
+                    test_support::read_settings(listener).volume == .75F,
                 "script settings reach native physics and audio components"))
     {
         return false;
@@ -1946,7 +1950,7 @@ export default class extends Gameplay {
             {
                 return false;
             }
-            auto settings = motor.settings();
+            auto settings = test_support::read_settings(motor);
             settings.gravity_factor = 0;
             if (!motor.set_settings(settings))
             {

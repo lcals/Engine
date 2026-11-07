@@ -66,7 +66,7 @@ Scene* WorldSystem::load_scene(std::string_view path)
     {
         return nullptr;
     }
-    resource_detail::ResourceReference resource;
+    ResourceReference resource;
     if (!resource.acquire(resources_, path))
     {
         return nullptr;
@@ -100,7 +100,7 @@ std::uint64_t WorldSystem::begin_restore_scene(const ResourceHandle& handle)
     {
         return 0;
     }
-    resource_detail::ResourceReference resource;
+    ResourceReference resource;
     if (!resource.retain(resources_, handle))
     {
         return 0;

@@ -8,6 +8,7 @@
 #include "runtime/scene/scene.hpp"
 #include "runtime/window/window_system.hpp"
 #include "runtime/world/world_system.hpp"
+#include "scene_snapshot.hpp"
 
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
@@ -73,8 +74,8 @@ public:
             constexpr std::array<float, 9> positions{-1, -1, 0, 3, -1, 0, -1, 3, 0};
             bgfx::VertexLayout layout;
             layout.begin().add(bgfx::Attrib::Position, 3, bgfx::AttribType::Float).end();
-            vertices_ = bgfx::createVertexBuffer(bgfx::copy(positions.data(), sizeof(positions)),
-                                                 layout);
+            vertices_ =
+                bgfx::createVertexBuffer(bgfx::copy(positions.data(), sizeof(positions)), layout);
         }
         if (!bgfx::isValid(program_) || !bgfx::isValid(vertices_))
         {
@@ -88,7 +89,9 @@ public:
         return true;
     }
 
-    void release_scene() noexcept override {}
+    void release_scene() noexcept override
+    {
+    }
 
     void release_gpu() noexcept override
     {
@@ -146,8 +149,8 @@ bool verify(const engine::SceneCaptureImage& image, bool extension_enabled)
     for (std::size_t channel = 0; channel < 3; ++channel)
     {
         const float srgb = static_cast<float>(clear[channel]) / 255.0F;
-        background[channel] = srgb <= 0.04045F ? srgb / 12.92F
-                                             : std::pow((srgb + 0.055F) / 1.055F, 2.4F);
+        background[channel] =
+            srgb <= 0.04045F ? srgb / 12.92F : std::pow((srgb + 0.055F) / 1.055F, 2.4F);
     }
     float maximum_error = 0;
     for (std::uint32_t y = 0; y < image.height; ++y)
@@ -166,8 +169,8 @@ bool verify(const engine::SceneCaptureImage& image, bool extension_enabled)
                 if (!std::isfinite(value) || error > 0.002F)
                 {
                     std::fprintf(stderr,
-                                 "pixel (%u,%u) channel %zu: %.6f expected %.6f, enabled=%d\n",
-                                 x, y, channel, value, expected[channel], extension_enabled);
+                                 "pixel (%u,%u) channel %zu: %.6f expected %.6f, enabled=%d\n", x,
+                                 y, channel, value, expected[channel], extension_enabled);
                     return false;
                 }
             }
@@ -205,7 +208,7 @@ bool test()
     {
         return expect(false, "create camera and environment");
     }
-    auto environment = env.settings();
+    auto environment = test_support::read_settings(env);
     environment.clear_color = 0x204060ff;
     if (!env.set_settings(environment))
     {
@@ -224,7 +227,7 @@ bool test()
     {
         return false;
     }
-    auto settings = post.settings();
+    auto settings = test_support::read_settings(post);
     settings.hdr_enabled = true;
     settings.exposure = 4.0F;
     settings.filmic_tonemap = true;

@@ -515,10 +515,10 @@ bool model_loading(ThreadSystem& threads, const Project& project, const Resource
     test_support::ResourceServices services(&threads);
     auto& resources = services.core;
     auto& graph = services.loader;
-    engine::resource_detail::ResourceReference model;
+    engine::ResourceReference model;
     const auto is_loaded = [&](std::string_view guid)
     {
-        engine::resource_detail::ResourceReference value;
+        engine::ResourceReference value;
         return value.acquire(&graph, guid);
     };
     if (!expect(

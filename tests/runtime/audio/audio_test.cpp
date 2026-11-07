@@ -155,7 +155,7 @@ bool settings_and_resources()
         return false;
     }
     const auto* retained = source.clip_data();
-    auto settings = source.settings();
+    auto settings = test_support::read_settings(source);
     settings.clip_guid = "20000000-0000-4000-8000-000000000099";
     if (!expect(engine::AudioSource::valid_settings(settings) && !source.set_settings(settings) &&
                     source.clip_data() == retained,
@@ -165,25 +165,26 @@ bool settings_and_resources()
     {
         return false;
     }
-    settings = source.settings();
+    settings = test_support::read_settings(source);
     settings.pitch = 0.0F;
-    if (!expect(!source.set_settings(settings) && source.settings().pitch == 1.0F,
+    if (!expect(!source.set_settings(settings) && test_support::read_settings(source).pitch == 1.0F,
                 "invalid pitch leaves settings unchanged"))
     {
         return false;
     }
-    settings = source.settings();
+    settings = test_support::read_settings(source);
     settings.volume = std::numeric_limits<float>::quiet_NaN();
     if (!expect(!engine::AudioSource::valid_settings(settings), "reject nonfinite volume"))
     {
         return false;
     }
-    settings = source.settings();
+    settings = test_support::read_settings(source);
     settings.max_distance = settings.min_distance;
-    auto listener_settings = listener.settings();
+    auto listener_settings = test_support::read_settings(listener);
     listener_settings.volume = -1.0F;
     if (!expect(!source.set_settings(settings), "reject empty attenuation interval") ||
-        !expect(!listener.set_settings(listener_settings) && listener.settings().volume == 1.0F,
+        !expect(!listener.set_settings(listener_settings) &&
+                    test_support::read_settings(listener).volume == 1.0F,
                 "listener rejects invalid gain"))
     {
         return false;
@@ -207,7 +208,7 @@ bool settings_and_resources()
     missing_flags.flags.reset();
     missing_flags.payload.AsAudioSourceData()->volume = 0.25F;
     if (!expect(source.play() && !source.restore_data(missing_flags) &&
-                    source.settings() == *snapshot.payload.AsAudioSourceData() &&
+                    test_support::read_settings(source) == *snapshot.payload.AsAudioSourceData() &&
                     source.playback() == engine::AudioPlayback::pending && source.stop(),
                 "typed restore with missing flags preserves settings and pending playback"))
     {
@@ -261,7 +262,7 @@ bool playback_and_lifecycle()
     auto listener_node = scene->create_node("Listener");
     auto listener = listener_node ? listener_node.add_component<engine::AudioListener>()
                                   : engine::AudioListener{};
-    auto settings = source.settings();
+    auto settings = test_support::read_settings(source);
     settings.loop = true;
     settings.pitch = 1.5F;
     settings.volume = 0.5F;
@@ -283,7 +284,8 @@ bool playback_and_lifecycle()
     edited_settings->pitch = 0.75F;
     if (!expect(source.restore_data(edited) && source.playing() && audio.tick(0.0) &&
                     source.playing() && audio.voice_count() == 1 &&
-                    source.settings().volume == 0.25F && source.settings().pitch == 0.75F,
+                    test_support::read_settings(source).volume == 0.25F &&
+                    test_support::read_settings(source).pitch == 0.75F,
                 "editing same-clip settings preserves active playback") ||
         !expect(source.pause() && audio.tick(0.0) && !source.playing() && audio.voice_count() == 1,
                 "source pause retains one unbound stream"))
@@ -308,7 +310,7 @@ bool playback_and_lifecycle()
     {
         return false;
     }
-    auto second_settings = second.settings();
+    auto second_settings = test_support::read_settings(second);
     second_settings.spatial = false;
     if (!expect(second.set_settings(second_settings) && audio.set_paused(true) && audio.tick(0.0) &&
                     audio.paused() && audio.voice_count() == 2 && second.playing(),
@@ -321,7 +323,7 @@ bool playback_and_lifecycle()
     {
         return false;
     }
-    auto transform = listener_node.get_component<engine::Transform>().settings();
+    auto transform = test_support::read_settings(listener_node.get_component<engine::Transform>());
     transform.position = engine::Vec3(100.0, 0.0, 0.0);
     transform.rotation = engine::Vec3(0.0, 90.0, 0.0);
     if (!expect(listener_node.get_component<engine::Transform>().set_settings(transform) &&
@@ -462,7 +464,7 @@ bool independent_voice()
     test_support::ResourceFixture fixture;
     test_support::ResourceServices resources;
     engine::AudioSystem audio(&resources.loader);
-    engine::resource_detail::ResourceReference clip;
+    engine::ResourceReference clip;
     engine::AudioVoiceHandle handle;
     engine::AudioPlaybackStatus status;
     if (!expect(prepare(fixture, resources) && audio.initialize({}) &&

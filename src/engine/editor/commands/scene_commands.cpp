@@ -25,7 +25,11 @@ using components::Target;
 std::vector<std::uint8_t> node_snapshot(const Node& node)
 {
     schema::NodeDataT data;
-    data.info = std::make_unique<schema::NodeInfoT>(node.info());
+    data.info = std::make_unique<schema::NodeInfoT>();
+    if (!node.build_info(*data.info))
+    {
+        return {};
+    }
     std::vector<Component> components;
     if (!node.collect_components(components))
     {
@@ -33,7 +37,12 @@ std::vector<std::uint8_t> node_snapshot(const Node& node)
     }
     for (const auto& component : components)
     {
-        data.components.push_back(std::make_unique<schema::ComponentDataT>(component.data()));
+        auto snapshot = std::make_unique<schema::ComponentDataT>();
+        if (!component.get_data(*snapshot))
+        {
+            return {};
+        }
+        data.components.push_back(std::move(snapshot));
     }
     flatbuffers::FlatBufferBuilder builder;
     builder.Finish(schema::NodeData::Pack(builder, &data));

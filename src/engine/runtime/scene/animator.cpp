@@ -24,8 +24,7 @@ namespace engine
 {
 namespace
 {
-bool same_resource(const resource_detail::ResourceReference& a,
-                   const resource_detail::ResourceReference& b)
+bool same_resource(const ResourceReference& a, const ResourceReference& b)
 {
     return (!a && !b) ||
            (a && b && a->info().guid == b->info().guid && a->generation() == b->generation());
@@ -40,7 +39,7 @@ bool validate_overlay(const schema::AnimationDataT& animation,
     }
     return AnimationResourceCodec::validate(data);
 }
-bool target_skeleton(Animator animator, resource_detail::ResourceReference& target)
+bool target_skeleton(Animator animator, ResourceReference& target)
 {
     target.reset();
     const auto renderer = animator.node().get_component<MeshRenderer>();
@@ -50,8 +49,7 @@ bool target_skeleton(Animator animator, resource_detail::ResourceReference& targ
            target.dependency(resources, renderer.mesh_resource(), mesh->skeleton_guid) && target &&
            target.data<SkeletonResource>();
 }
-bool committed_pose(Animator animator, resource_detail::ResourceReference& target,
-                    MeshRenderer& renderer)
+bool committed_pose(Animator animator, ResourceReference& target, MeshRenderer& renderer)
 {
     target.reset();
     renderer = {};
@@ -93,12 +91,6 @@ bool Animator::valid_settings(const Data& data) noexcept
     return (data.animation_guid.empty() || GuidMap::valid_guid(data.animation_guid)) &&
            std::isfinite(data.speed) && data.speed >= 0.0F && data.speed <= 16.0F;
 }
-Animator::Data Animator::settings() const noexcept
-{
-    Data output{};
-    (void)get_settings(output);
-    return output;
-}
 bool Animator::get_settings(Data& output) const noexcept
 {
     const auto* value = read_data<Data>();
@@ -110,15 +102,20 @@ bool Animator::set_settings(const Data& data)
     return apply_settings(data, {});
 }
 
-bool Animator::apply_settings(const Data& data, resource_detail::ResourceReference prepared)
+bool Animator::apply_settings(const Data& data, ResourceReference prepared)
 {
     if (!writable() || !valid_settings(data))
     {
         return false;
     }
     auto* state = runtime();
-    const bool changed = data.animation_guid != settings().animation_guid;
-    resource_detail::ResourceReference replacement;
+    Data previous;
+    if (!get_settings(previous))
+    {
+        return false;
+    }
+    const bool changed = data.animation_guid != previous.animation_guid;
+    ResourceReference replacement;
     if (state->animation_ && !replacement.retain(state->animation_))
     {
         return false;
@@ -181,8 +178,12 @@ bool Animator::set_animation(std::string_view path)
     {
         return false;
     }
-    resource_detail::ResourceReference prepared;
-    auto data = settings();
+    ResourceReference prepared;
+    Data data;
+    if (!get_settings(data))
+    {
+        return false;
+    }
     if (path.empty())
     {
         data.animation_guid.clear();
@@ -223,8 +224,7 @@ bool Animator::play_animation(const AnimationPlayRequest& request)
 {
     return apply_animation(request, {});
 }
-bool Animator::apply_animation(const AnimationPlayRequest& request,
-                               resource_detail::ResourceReference clip)
+bool Animator::apply_animation(const AnimationPlayRequest& request, ResourceReference clip)
 {
     if (!writable() || !active() || request.animation_path.empty() ||
         !std::isfinite(request.fade_seconds) || request.fade_seconds < 0 ||
@@ -236,7 +236,7 @@ bool Animator::apply_animation(const AnimationPlayRequest& request,
     const auto renderer = node().get_component<MeshRenderer>();
     const auto* mesh = renderer ? renderer.mesh_data() : nullptr;
     auto* resources = node().world()->resource_loader();
-    resource_detail::ResourceReference source, target, profile;
+    ResourceReference source, target, profile;
     if (!resources || !mesh || mesh->skeleton_guid.empty() ||
         (!clip && !ecs_detail::acquire_resource(node(), request.animation_path, clip)) || !clip ||
         !clip.data<AnimationResource>() ||
@@ -307,13 +307,18 @@ bool Animator::apply_animation(const AnimationPlayRequest& request,
     {
         return false;
     }
+    Data previous;
+    if (!get_settings(previous))
+    {
+        return false;
+    }
     state->previous_animation_ = std::move(state->animation_);
     state->previous_source_skeleton_ = std::move(state->source_skeleton_);
     state->previous_retarget_profile_ = std::move(state->retarget_profile_);
     state->previous_retarget_binding_ = state->retarget_binding_;
     state->previous_time_ = state->time_;
-    state->previous_speed_ = settings().speed;
-    state->previous_loop_ = settings().loop;
+    state->previous_speed_ = previous.speed;
+    state->previous_loop_ = previous.loop;
     state->previous_advancing_ = state->playback_ == AnimationPlayback::playing;
     state->frozen_pose_.reset();
     if (!same_resource(state->target_skeleton_, target))
@@ -351,8 +356,13 @@ bool Animator::cross_fade(std::string_view path, double seconds)
     {
         return false;
     }
-    // 旧接口的同一资源 no-op（包括保持暂停）保留。
-    resource_detail::ResourceReference clip;
+    // 对同一资源保持当前播放状态，包括暂停状态。
+    Data data;
+    if (!get_settings(data))
+    {
+        return false;
+    }
+    ResourceReference clip;
     if (!ecs_detail::acquire_resource(node(), path, clip) || !clip ||
         !clip.data<AnimationResource>())
     {
@@ -366,8 +376,8 @@ bool Animator::cross_fade(std::string_view path, double seconds)
     AnimationPlayRequest request;
     request.animation_path = std::string(path);
     request.fade_seconds = seconds;
-    request.speed = settings().speed;
-    request.loop = settings().loop;
+    request.speed = data.speed;
+    request.loop = data.loop;
     return apply_animation(request, std::move(clip));
 }
 std::string_view Animator::animation_path() const noexcept
@@ -482,7 +492,7 @@ double Animator::time() const noexcept
 {
     return valid() ? runtime()->time_ : 0;
 }
-bool Animator::get_playback_info(AnimatorPlaybackInfo& output) const noexcept
+bool Animator::get_playback_info(AnimatorPlaybackInfo& output) const
 {
     output = {};
     if (!valid())
@@ -501,12 +511,15 @@ bool Animator::get_playback_info(AnimatorPlaybackInfo& output) const noexcept
     output.completed = state->completed_;
     output.transitioning = state->fade_seconds_ > 0 && state->fade_elapsed_ < state->fade_seconds_;
     output.playback_id = state->playback_id_;
+    output.animation_guid = state->animation_ ? state->animation_->info().guid : "";
+    output.resource_generation = state->animation_ ? state->animation_->generation() : 0;
+    output.track_revision = state->track_revision_;
     return true;
 }
 bool Animator::get_bone_pose(std::string_view path, AnimationPoseTransform& output) const
 {
     output = {};
-    resource_detail::ResourceReference target;
+    ResourceReference target;
     MeshRenderer renderer;
     std::vector<std::string> paths;
     if (!committed_pose(*this, target, renderer) ||
@@ -538,7 +551,7 @@ bool Animator::get_bone_pose(std::string_view path, AnimationPoseTransform& outp
 bool Animator::get_socket_pose(std::string_view name, AnimationPoseTransform& output) const
 {
     output = {};
-    resource_detail::ResourceReference target;
+    ResourceReference target;
     MeshRenderer renderer;
     if (!committed_pose(*this, target, renderer))
     {

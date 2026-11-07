@@ -53,7 +53,7 @@ bool read(WorldSystem& world, Node&, const Json& arguments, schema::CharacterCon
             }
             return false;
         }
-        value.camera_node_id = camera.info().properties->id;
+        value.camera_node_id = camera.local_id();
     }
     if (!CharacterController::valid_settings(value))
     {

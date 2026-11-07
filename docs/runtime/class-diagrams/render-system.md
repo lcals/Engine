@@ -1,5 +1,7 @@
 # 渲染系统
 
+插件的原生纹理接入由 `engine::render::upload_texture(ResourceLoader& loader, ResourceHandle resource, bgfx::TextureHandle& output) -> bool` 提供，声明于 `runtime/render/texture_upload.hpp`。该普通函数在 bgfx API 线程同步准备并上传已加载资源，不加载文件；输出须为空，失败保持为空，成功转交 GPU 纹理所有权，由调用方在 bgfx 关闭前销毁。CPU 资源仅在调用期间保活；插件按需独立持有获取。PreparedTexture/GpuTexture 的转码缓冲、采样标志和生命周期实现继续私有，不向插件公开。bgfx 句柄仅用于原生渲染扩展，不进入场景或脚本接口。
+
 无场景 YUV 影片呈现及世界借用绑定见[影片播放器](movie-player.md#帧视图与呈现)。现已支持帧呈现与绑定；启动交接契约见[影片启动](movie-startup.md)。
 
 [类图索引](../../class-diagrams/index.md) · [引擎与系统](engine-system.md) · [完整引用关系](../../class-diagrams/references.md)
@@ -25,7 +27,15 @@ classDiagram
         +release() void
         +resource_count() uint32_t
         +prepare_ibl(const Scene* scene, size_t staging_bytes) bool
+        +draw_meshes(const WorldSystem& world, const RenderSettings& settings, const SceneDrawView& view, SceneDrawMode mode) bool
+        +view_stats vector~RenderViewStats~
     }
+    class SceneDrawView
+    class SceneDrawMode
+    class RenderViewStats
+    SceneGpuResources ..> SceneDrawView : 提交期间借用
+    SceneGpuResources ..> SceneDrawMode : 本次提交模式
+    SceneGpuResources ..> RenderViewStats : 发布帧统计快照
     class GpuTexture {
         +uint32_t sampler_flags
         +create(const PreparedTexture& prepared) bool
@@ -38,11 +48,14 @@ classDiagram
         +size_t bytes
     }
     class GpuProgram {
+        +supports_instancing() bool
         +create(const ShaderDataT& shader) bool
         +bind_material(const Material& material, const vector~GpuTexture~& textures, span~const TextureHandle~ frame_textures, bool max_anisotropy) bool
         +release() void
     }
     class GpuMesh {
+        +minimum Vec3
+        +maximum Vec3
         +create(const MeshRenderer& renderer, shared_ptr~GpuGeometry~ geometry) bool
         +update_deformation(const MeshRenderer& renderer, SkinningPass& skinning) bool
         +bind_vertices() void

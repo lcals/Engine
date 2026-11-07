@@ -1,5 +1,6 @@
 #include "resource_fixture.hpp"
 #include "resource_services.hpp"
+#include "scene_snapshot.hpp"
 
 #include "runtime/engine_config.hpp"
 #include "runtime/render/render_system.hpp"
@@ -185,10 +186,10 @@ bool test()
     lens.orthographic_size = 1;
     engine::TransformSettings camera_pose;
     camera_pose.position = {0, 0, 3};
-    auto environment = env.settings();
+    auto environment = test_support::read_settings(env);
     environment.ibl_enabled = true;
     environment.ibl_intensity = 1;
-    auto lighting = light.settings();
+    auto lighting = test_support::read_settings(light);
     lighting.intensity = 8;
     if (!camera || !post || !env || !light || !camera.set_settings(lens) ||
         !camera_node.get_component<engine::Transform>().set_settings(camera_pose) ||
@@ -266,7 +267,7 @@ bool test()
     {
         return false;
     }
-    auto post_settings = post.settings();
+    auto post_settings = test_support::read_settings(post);
     post_settings.hdr_enabled = true;
     post_settings.bloom_enabled = true;
     post_settings.bloom_threshold = 0.2F;

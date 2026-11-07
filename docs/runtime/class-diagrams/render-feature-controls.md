@@ -90,7 +90,7 @@ classDiagram
 ```
 
 - `set_debug_feature()` 主线程调用，只允许 `wireframe/debug_draw/mesh_bounds/camera_frusta/stats` 五个诊断项；传入前三种运行功能一律失败。临时状态不进入场景保存、预制体或 TS 写接口。不存在第二份渲染器全局优化请求。
-- Camera 用既有 `settings()/set_settings()` 完整生成数据接口修改 `frustum_culling_enabled`；MeshRenderer 两项专用 bool setter 校验值句柄身份并更新对应 ECS 列。它们均默认 false，支持保存、恢复、预制体属性覆盖；剔除使用该观察镜头字段，实例化与 LOD 逐 MeshRenderer 读取，不要求所有对象使用相同策略。
+- Camera 用既有 `get_settings(output)/set_settings()` 完整生成数据接口修改 `frustum_culling_enabled`；MeshRenderer 两项专用 bool setter 校验值句柄身份并更新对应 ECS 列。它们均默认 false，支持保存、恢复、预制体属性覆盖；剔除使用该观察镜头字段，实例化与 LOD 逐 MeshRenderer 读取，不要求所有对象使用相同策略。
 - `feature_state()` 不修改状态：前三项的 `requested` 是当前活动场景相机及当前世界已发布可渲染对象的只读汇总（相机剔除属性，以及是否有 MeshRenderer 请求该能力），包含常驻场景，与真实提交范围一致；其他项读取临时诊断请求。`supported` 是当前设备和实现是否具有能力；`effective` 由最近实际提交的帧派生。`requested` 改变后，`effective` 保留最近成功提交帧的状态，直到下帧发布；两者暂时不同表示尚待应用。未请求且未生效时 `effective=false, reason=none`。未就绪、无场景、无可用资源或没有适用物体分别报告原因，不能把请求接受报告为画面生效，也不能把整个世界的合批结果归因到某个被选中的 MeshRenderer。`effective` 不要求每一物体都走同一路径：实例化有单画回退、LOD 无资源使用 LOD0，帧计数明确列出实际使用量。
 - `stats` 复用现有 `set_stats_visible()/stats_visible()` 的唯一状态。现有方法是宿主临时诊断入口，与 MCP 的 stats 读写同一临时字段；不得同时保存 `stats_visible_` 与新开关副本。
 - `mesh_bounds` 和 `camera_frusta` 各自是完整可开关诊断项；其内部可以调用同一调试通道，不要求用户另开 `debug_draw`。`debug_draw` 只控制调用方提交的通用线数据，避免隐式开关依赖。

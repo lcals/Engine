@@ -1,4 +1,5 @@
 #include "runtime/render/resources/gpu_texture.hpp"
+#include "runtime/render/texture_upload.hpp"
 
 #include "runtime/performance/profiling.hpp"
 #include "runtime/resource/resource.hpp"
@@ -42,7 +43,7 @@ bool PreparedTexture::describe(ResourceLoader* loader, ResourceHandle source,
                                const bgfx::Caps& caps, std::size_t max_bytes)
 {
     *this = {};
-    resource_detail::ResourceReference input;
+    ResourceReference input;
     if (!input.retain(loader, source))
     {
         return false;
@@ -327,3 +328,25 @@ void GpuTexture::release() noexcept
 }
 
 } // namespace engine::render_detail
+
+namespace engine::render
+{
+bool upload_texture(ResourceLoader& loader, ResourceHandle resource, bgfx::TextureHandle& output)
+{
+    if (bgfx::isValid(output))
+    {
+        return false;
+    }
+    const auto* caps = bgfx::getCaps();
+    render_detail::PreparedTexture prepared;
+    render_detail::GpuTexture candidate;
+    if (!caps ||
+        !prepared.describe(&loader, resource, *caps, std::numeric_limits<std::size_t>::max()) ||
+        !prepared.prepare() || !candidate.create(prepared))
+    {
+        return false;
+    }
+    output = std::exchange(candidate.handle, bgfx::TextureHandle{bgfx::kInvalidHandle});
+    return true;
+}
+} // namespace engine::render

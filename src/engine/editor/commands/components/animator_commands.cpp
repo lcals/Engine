@@ -8,7 +8,7 @@ namespace engine::editor::components
 namespace
 {
 bool read(ResourceLoader* loader, const Json& arguments, schema::AnimatorDataT& value,
-          std::string& error)
+          std::vector<ResourceReference>& prepared, std::string& error)
 {
     if (!fields(arguments, {"enabled", "animation", "speed", "loop", "playOnAwake"}, error))
     {
@@ -26,7 +26,7 @@ bool read(ResourceLoader* loader, const Json& arguments, schema::AnimatorDataT& 
         {
             value.animation_guid.clear();
         }
-        else if (!resource_access::load_guid(loader, path, value.animation_guid))
+        else if (!resource_access::prepare_guid(loader, path, value.animation_guid, prepared))
         {
             error = "Animation resource path not found";
             return false;
@@ -94,8 +94,8 @@ bool register_animator(WorldSystem& world, EditorCommands& commands, NodeAliases
 {
     if (!register_component<Animator, schema::AnimatorDataT>(
             world, commands, "animator", aliases,
-            [&world](const auto& args, auto& data, auto& error)
-            { return read(world.resource_loader(), args, data, error); },
+            [&world](const auto& args, auto& data, auto& prepared, auto& error)
+            { return read(world.resource_loader(), args, data, prepared, error); },
             [&world](const auto& data) { return write(world.resource_loader(), data); }))
     {
         return false;

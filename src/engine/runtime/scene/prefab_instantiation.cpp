@@ -49,7 +49,7 @@ Node Scene::instantiate_prefab(std::string_view path, std::string_view name,
         created->clear();
     }
     auto* resources = world_.resource_loader();
-    resource_detail::ResourceReference resource;
+    ResourceReference resource;
     const auto owner = ecs_detail::ResourceBindingScope::owner(world_);
     if (!resources ||
         !(owner.id ? ecs_detail::acquire_dependency(resources, owner, path, resource)
@@ -148,7 +148,11 @@ Node Scene::instantiate_prefab(std::string_view path, std::string_view name,
     {
         auto override = std::make_unique<schema::PrefabNodeOverrideT>();
         override->node_id = prefab.root_id;
-        override->info = std::make_unique<schema::NodeInfoT>(root.info());
+        override->info = std::make_unique<schema::NodeInfoT>();
+        if (!root.build_info(*override->info))
+        {
+            return rollback();
+        }
         override->fields.push_back("name");
         instance.overrides.push_back(std::move(override));
     }

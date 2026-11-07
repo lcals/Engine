@@ -326,7 +326,7 @@ bool run(const fs::path& project)
     {
         return false;
     }
-    auto parent_settings = parent.get_component<engine::Transform>().settings();
+    auto parent_settings = test_support::read_settings(parent.get_component<engine::Transform>());
     parent_settings.position = {10, 0, 0};
     if (!expect(parent.get_component<engine::Transform>().set_settings(parent_settings) &&
                     source_node.set_parent(parent) && execute("modeling_duplicate", target),

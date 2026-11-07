@@ -99,8 +99,10 @@ inline bool resolve_attachment_source(BoneAttachment attachment, const BoneAttac
     for (auto current = source_node; current; current = current.parent())
     {
         const auto parent_attachment = current.get_component<BoneAttachment>();
-        if (current == owner || (parent_attachment && parent_attachment.active() &&
-                                 parent_attachment.settings().follow_enabled))
+        BoneAttachment::Data parent_settings;
+        if (current == owner ||
+            (parent_attachment && parent_attachment.active() &&
+             (!parent_attachment.get_settings(parent_settings) || parent_settings.follow_enabled)))
         {
             return false;
         }
@@ -113,7 +115,7 @@ inline bool resolve_attachment_source(BoneAttachment attachment, const BoneAttac
     auto mesh = source_node.get_component<MeshRenderer>();
     const auto* mesh_data = mesh ? mesh.mesh_data() : nullptr;
     auto* resources = source_node.world()->resource_loader();
-    resource_detail::ResourceReference skeleton;
+    ResourceReference skeleton;
     if (!mesh_data || mesh_data->skeleton_guid.empty() || !resources ||
         !skeleton.dependency(resources, mesh.mesh_resource(), mesh_data->skeleton_guid) ||
         !skeleton.data<SkeletonResource>())

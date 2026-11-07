@@ -285,9 +285,10 @@ bool run(Fixture& fixture)
     const auto damaged_groups = component.group_count();
     auto density = identity;
     density["density"] = 200;
-    if (!expect(call("set_destruction", density) && component.settings().density == 200 &&
+    if (!expect(call("set_destruction", density) &&
+                    test_support::read_settings(component).density == 200 &&
                     component.group_count() == damaged_groups && call("undo", scene_identity) &&
-                    component.settings().density == 100 &&
+                    test_support::read_settings(component).density == 100 &&
                     component.group_count() == damaged_groups && call("undo", scene_identity) &&
                     component.group_count() == 1 && call("redo", scene_identity),
                 "settings edits preserve damage and remain in the same undo sequence", error) ||

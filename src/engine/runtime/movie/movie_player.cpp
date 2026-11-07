@@ -234,11 +234,11 @@ struct MoviePlayer::Impl
     MoviePlaybackHandle active{};
     MoviePlaybackStatus state{};
     std::string error;
-    resource_detail::ResourceReference movie;
-    resource_detail::ResourceReference clip;
+    ResourceReference movie;
+    ResourceReference clip;
     struct Retired
     {
-        resource_detail::ResourceReference movie;
+        ResourceReference movie;
         std::shared_ptr<Decoder> decoder;
         std::future<bool> pending;
     };
@@ -285,7 +285,7 @@ bool MoviePlayer::play(const ResourceHandle& handle, MoviePlaybackHandle& output
         p.error = "Movie player is busy or services are not ready";
         return false;
     }
-    resource_detail::ResourceReference movie, clip;
+    ResourceReference movie, clip;
     if (!movie.retain(&p.resources, handle) || !movie.data<MovieResource>())
     {
         p.error = "Movie resource is not loaded or has the wrong type";

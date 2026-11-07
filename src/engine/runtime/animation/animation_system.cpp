@@ -420,11 +420,12 @@ bool candidate_world(Node node, const std::map<std::uint64_t, ozz::math::Float4x
     for (auto current = chain.rbegin(); current != chain.rend(); ++current)
     {
         const auto transform = current->get_component<Transform>();
-        if (!transform)
+        TransformSettings pose;
+        if (!transform.get_settings(pose))
         {
             return false;
         }
-        output = output * animation_detail::authored_matrix(transform.settings());
+        output = output * animation_detail::authored_matrix(pose);
     }
     return true;
 }
@@ -455,7 +456,11 @@ bool publish_attachments(WorldSystem& world)
     {
         AttachmentCommit commit;
         commit.attachment = attachment;
-        const auto data = attachment.settings();
+        BoneAttachment::Data data;
+        if (!attachment.get_settings(data))
+        {
+            return false;
+        }
         const auto source = engine::ecs_detail::component_runtime(attachment)->source;
         AnimationPoseTransform socket;
         if (attachment.active() && data.follow_enabled && source && source.active() &&
@@ -531,7 +536,7 @@ struct AnimationSystem::State
         clips;
     std::map<std::uint64_t, std::unique_ptr<AnimationEntry>> entries;
     std::vector<AnimationSample> samples;
-    bool skeleton(const resource_detail::ResourceReference& resource,
+    bool skeleton(const ResourceReference& resource,
                   std::shared_ptr<const animation_detail::CompiledSkeleton>& output)
     {
         const auto key = animation_detail::identity(*resource);
@@ -550,15 +555,15 @@ struct AnimationSystem::State
         return true;
     }
     bool compile(ResourceLoader* resources, ResourceHandle mesh_resource,
-                 const resource_detail::ResourceReference& clip, const schema::MeshDataT& mesh,
-                 const resource_detail::ResourceReference& profile,
+                 const ResourceReference& clip, const schema::MeshDataT& mesh,
+                 const ResourceReference& profile,
                  const std::shared_ptr<const AnimationRetargetBinding>& binding,
-                 const resource_detail::ResourceReference& bound_source,
+                 const ResourceReference& bound_source,
                  std::shared_ptr<const animation_detail::CompiledAnimation>& output)
     {
         output.reset();
-        resource_detail::ResourceReference target;
-        resource_detail::ResourceReference source;
+        ResourceReference target;
+        ResourceReference source;
         if (bound_source && !source.retain(bound_source))
         {
             return false;
@@ -823,7 +828,7 @@ bool AnimationSystem::on_tick(double delta_time)
                     {
                         runtime->ik_targets_.clear();
                     }
-                    resource_detail::ResourceReference target, source;
+                    ResourceReference target, source;
                     if (!target.retain(compiled->target->resource) ||
                         !source.retain(compiled->source))
                     {

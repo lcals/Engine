@@ -36,7 +36,12 @@ template <typename T, typename Data, typename Read, typename Write>
                            return false;
                        }
                    }
-                   Data value = component.valid() ? component.settings() : Data{};
+                   Data value{};
+                   if (component && !component.get_settings(value))
+                   {
+                       error = "Cannot read character settings";
+                       return false;
+                   }
                    if (!read(world, node, arguments, value, error) || !T::valid_settings(value))
                    {
                        if (error.empty())
@@ -93,7 +98,13 @@ template <typename T, typename Data, typename Read, typename Write>
                        }
                        return false;
                    }
-                   result = write(world, component.settings());
+                   Data value{};
+                   if (!component.get_settings(value))
+                   {
+                       error = "Cannot read character settings";
+                       return false;
+                   }
+                   result = write(world, value);
                    result["enabled"] = component.enabled();
                    result["sceneId"] = std::to_string(node.scene()->id());
                    result["nodeId"] = std::to_string(node.id());

@@ -1,5 +1,6 @@
 #include "resource_fixture.hpp"
 #include "resource_services.hpp"
+#include "scene_snapshot.hpp"
 
 #include "runtime/engine_config.hpp"
 #include "runtime/render/render_system.hpp"
@@ -197,10 +198,10 @@ bool test()
     camera_transform.position = {0, 2, 4};
     engine::TransformSettings sun_transform;
     sun_transform.rotation = {-60, 20, 0};
-    auto sky = environment.settings();
+    auto sky = test_support::read_settings(environment);
     sky.atmosphere_enabled = true;
-    sky.atmosphere_sun_node_id = sun_node.info().properties->id;
-    auto sun_settings = sun.settings();
+    sky.atmosphere_sun_node_id = sun_node.local_id();
+    auto sun_settings = test_support::read_settings(sun);
     sun_settings.intensity = 1;
     if (!camera || !post || !sun || !environment || !scene->set_active_camera(camera) ||
         !camera_node.get_component<engine::Transform>().set_settings(camera_transform) ||
@@ -241,7 +242,7 @@ bool test()
     {
         return false;
     }
-    auto post_settings = post.settings();
+    auto post_settings = test_support::read_settings(post);
     post_settings.exposure = 3;
     post_settings.filmic_tonemap = true;
     if (!post.set_settings(post_settings) || !capture(window, renderer, exposed) ||

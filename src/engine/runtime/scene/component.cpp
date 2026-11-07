@@ -164,13 +164,7 @@ void* Component::runtime_value() const noexcept
     }
     return node_.world()->component_registry().operations(type_)->runtime(node_);
 }
-schema::ComponentDataT Component::data() const
-{
-    schema::ComponentDataT result;
-    (void)build_storage_data(result);
-    return result;
-}
-bool Component::build_storage_data(schema::ComponentDataT& output) const
+bool Component::get_data(schema::ComponentDataT& output) const
 {
     output = {};
     return valid() &&

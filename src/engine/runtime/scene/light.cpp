@@ -11,13 +11,6 @@ bool Light::register_type(ComponentRegistry& registry)
     return register_component_storage<Light, Data>(registry);
 }
 
-LightSettings Light::settings() const noexcept
-{
-    Data output{};
-    (void)get_settings(output);
-    return output;
-}
-
 bool Light::get_settings(Data& output) const noexcept
 {
     const auto* value = read_data<Data>();

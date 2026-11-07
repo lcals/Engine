@@ -35,12 +35,6 @@ bool UiComponent::valid_settings(const schema::UiDataT& settings) noexcept
 {
     return settings.document_guid.empty() || GuidMap::valid_guid(settings.document_guid);
 }
-schema::UiDataT UiComponent::settings() const noexcept
-{
-    Data output{};
-    (void)get_settings(output);
-    return output;
-}
 
 bool UiComponent::get_settings(Data& output) const noexcept
 {
@@ -53,7 +47,7 @@ bool UiComponent::set_settings(const schema::UiDataT& value)
     return apply_settings(value, {});
 }
 
-bool UiComponent::apply_settings(const Data& value, resource_detail::ResourceReference prepared)
+bool UiComponent::apply_settings(const Data& value, ResourceReference prepared)
 {
     if (!writable())
     {
@@ -63,12 +57,17 @@ bool UiComponent::apply_settings(const Data& value, resource_detail::ResourceRef
     {
         return false;
     }
-    resource_detail::ResourceReference next;
+    ResourceReference next;
     if (runtime()->document_ && !next.retain(runtime()->document_))
     {
         return false;
     }
-    if (value.document_guid != settings().document_guid)
+    Data previous;
+    if (!get_settings(previous))
+    {
+        return false;
+    }
+    if (value.document_guid != previous.document_guid)
     {
         if (runtime()->document_revision_ == std::numeric_limits<std::uint64_t>::max())
         {
@@ -98,7 +97,7 @@ bool UiComponent::set_document(std::string_view path)
     {
         return false;
     }
-    resource_detail::ResourceReference prepared;
+    ResourceReference prepared;
     schema::UiDataT value;
     if (!path.empty() && !ecs_detail::acquire_resource(node(), path, prepared))
     {

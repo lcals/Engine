@@ -211,7 +211,7 @@ bool run()
     }
     const auto expanded =
         std::find_if(saved.nodes.begin(), saved.nodes.end(), [child](const auto& value)
-                     { return value->info->properties->id == child.info().properties->id; });
+                     { return value->info->properties->id == child.local_id(); });
     if (!expect(expanded != saved.nodes.end() && !(*expanded)->info->properties->enabled &&
                     (*expanded)->components.front()->payload.AsTransformData()->position.x() == 0 &&
                     (*expanded)->components.front()->payload.AsTransformData()->scale.x() == 1 &&

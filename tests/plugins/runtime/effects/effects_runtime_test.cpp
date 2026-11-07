@@ -287,7 +287,7 @@ int main(int argc, char** argv)
     {
         return 1;
     }
-    auto settings = first.settings();
+    auto settings = test_support::read_settings(first);
     settings.loop = true;
     if (!expect(first.set_settings(settings), "loop the independent first emitter") ||
         !advance(windows, renderer, effects) || !expect(first.playing(), "play-on-awake starts"))
@@ -345,7 +345,7 @@ int main(int argc, char** argv)
     }
     auto stopped_node = scene->create_node("Stopped across resource refresh");
     auto stopped = stopped_node ? stopped_node.add_component<EffectComponent>() : EffectComponent{};
-    auto manual = second.settings();
+    auto manual = test_support::read_settings(second);
     manual.play_on_awake = false;
     if (!expect(stopped && stopped.set_settings(settings) && stopped.stop() && first.pause() &&
                     second.set_settings(manual) &&
@@ -368,9 +368,9 @@ int main(int argc, char** argv)
     {
         return 1;
     }
-    auto paused_data = first.data();
-    auto stopped_data = stopped.data();
-    auto playing_data = second.data();
+    auto paused_data = test_support::read_data(first);
+    auto stopped_data = test_support::read_data(stopped);
+    auto playing_data = test_support::read_data(second);
     paused_data.payload.AsEffectData()->speed = 0.5F;
     stopped_data.payload.AsEffectData()->speed = 0.5F;
     playing_data.payload.AsEffectData()->speed = 0.5F;
@@ -399,7 +399,7 @@ int main(int argc, char** argv)
     {
         return 1;
     }
-    auto green = third.settings();
+    auto green = test_support::read_settings(third);
     green.loop = true;
     if (!expect(third.set_settings(green), "loop the second effect resource") ||
         !advance(windows, renderer, effects) ||
@@ -416,7 +416,7 @@ int main(int argc, char** argv)
     {
         return 1;
     }
-    auto model_settings = model.settings();
+    auto model_settings = test_support::read_settings(model);
     model_settings.loop = true;
     if (!expect(model.set_settings(model_settings), "loop the model effect") ||
         !advance(windows, renderer, effects, 16) ||
@@ -485,7 +485,7 @@ int main(int argc, char** argv)
     {
         return 1;
     }
-    auto retained_settings = retained.settings();
+    auto retained_settings = test_support::read_settings(retained);
     retained_settings.loop = true;
     if (!expect(retained.set_settings(retained_settings) && retained.play(),
                 "loop the retained effect") ||

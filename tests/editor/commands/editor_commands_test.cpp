@@ -128,7 +128,7 @@ bool scene_render_settings_tests()
     {
         return false;
     }
-    auto shadow = second.settings();
+    auto shadow = test_support::read_settings(second);
     shadow.cast_shadows = true;
     shadow.shadow_resolution = 1024;
     shadow.shadow_bias = .004F;
@@ -161,20 +161,23 @@ bool scene_render_settings_tests()
                 camera_node.get_component<engine::PostProcessComponent>().valid() &&
                 renderer.settings().ambient_intensity == .7F && renderer.settings().ibl_enabled &&
                 renderer.settings().ibl_intensity == .5F && renderer.settings().exposure == 1.3F &&
-                !second.settings().cast_shadows && renderer.settings().ao_enabled &&
-                renderer.settings().ao_radius == 1.4F && renderer.settings().ao_strength == .8F &&
-                renderer.settings().ao_power == 2 && renderer.settings().ao_fade_start == 40 &&
-                renderer.settings().ao_fade_end == 140 && renderer.settings().hdr_enabled &&
-                renderer.settings().bloom_enabled && renderer.settings().bloom_threshold == 1.2F &&
+                !test_support::read_settings(second).cast_shadows &&
+                renderer.settings().ao_enabled && renderer.settings().ao_radius == 1.4F &&
+                renderer.settings().ao_strength == .8F && renderer.settings().ao_power == 2 &&
+                renderer.settings().ao_fade_start == 40 && renderer.settings().ao_fade_end == 140 &&
+                renderer.settings().hdr_enabled && renderer.settings().bloom_enabled &&
+                renderer.settings().bloom_threshold == 1.2F &&
                 renderer.settings().bloom_intensity == .3F &&
-                renderer.settings().bloom_radius == 2 && !first.settings().cast_shadows &&
-                result["shadowResolution"] == first.settings().shadow_resolution &&
-                result["shadowCascades"] == first.settings().shadow_cascades &&
-                result["shadowDistance"] == first.settings().shadow_distance &&
-                second.settings().shadow_cascades == 4 &&
-                second.settings().shadow_distance == 240.0F &&
-                second.settings().shadow_split_lambda == .5F &&
-                second.settings().shadow_cascade_blend == .15F &&
+                renderer.settings().bloom_radius == 2 &&
+                !test_support::read_settings(first).cast_shadows &&
+                result["shadowResolution"] ==
+                    test_support::read_settings(first).shadow_resolution &&
+                result["shadowCascades"] == test_support::read_settings(first).shadow_cascades &&
+                result["shadowDistance"] == test_support::read_settings(first).shadow_distance &&
+                test_support::read_settings(second).shadow_cascades == 4 &&
+                test_support::read_settings(second).shadow_distance == 240.0F &&
+                test_support::read_settings(second).shadow_split_lambda == .5F &&
+                test_support::read_settings(second).shadow_cascade_blend == .15F &&
                 commands.mutation_revision() > initial_revision,
             "scene edits create components, mark dirty and target the active shadow caster"))
     {
@@ -242,28 +245,33 @@ bool scene_render_settings_tests()
                 "scene snapshot contains the environment node") ||
         !expect(execute("undo", identity) && test_support::scene_nodes(*scene).size() == count &&
                     camera_node.get_component<engine::PostProcessComponent>().valid() == false &&
-                    second.settings().cast_shadows && second.settings().shadow_resolution == 1024 &&
-                    second.settings() == shadow && !first.settings().cast_shadows,
+                    test_support::read_settings(second).cast_shadows &&
+                    test_support::read_settings(second).shadow_resolution == 1024 &&
+                    test_support::read_settings(second) == shadow &&
+                    !test_support::read_settings(first).cast_shadows,
                 "undo removes created components and restores the exact second light") ||
         !expect(
             execute("redo", identity) && test_support::scene_nodes(*scene).size() == count + 1 &&
-                renderer.settings().exposure == 1.3F && !second.settings().cast_shadows &&
+                renderer.settings().exposure == 1.3F &&
+                !test_support::read_settings(second).cast_shadows &&
                 renderer.settings().hdr_enabled && renderer.settings().bloom_enabled &&
                 renderer.settings().bloom_threshold == 1.2F &&
                 renderer.settings().bloom_intensity == .3F &&
                 renderer.settings().bloom_radius == 2 && renderer.settings().ao_enabled &&
                 renderer.settings().ao_radius == 1.4F && renderer.settings().ao_strength == .8F &&
                 renderer.settings().ao_power == 2 && renderer.settings().ao_fade_start == 40 &&
-                renderer.settings().ao_fade_end == 140 && second.settings().shadow_cascades == 4 &&
-                second.settings().shadow_distance == 240.0F &&
-                second.settings().shadow_split_lambda == .5F &&
-                second.settings().shadow_cascade_blend == .15F,
+                renderer.settings().ao_fade_end == 140 &&
+                test_support::read_settings(second).shadow_cascades == 4 &&
+                test_support::read_settings(second).shadow_distance == 240.0F &&
+                test_support::read_settings(second).shadow_split_lambda == .5F &&
+                test_support::read_settings(second).shadow_cascade_blend == .15F,
             "redo recreates the environment with a new node identity") ||
         !expect(execute("undo", identity), "undo before checking rejected settings") ||
         !expect(!execute("set_render_settings", {{"ambientIntensity", .8}, {"exposure", 0}}) &&
                     test_support::scene_nodes(*scene).size() == count &&
                     camera_node.get_component<engine::PostProcessComponent>().valid() == false &&
-                    second.settings().cast_shadows && renderer.settings().ambient_intensity == 0,
+                    test_support::read_settings(second).cast_shadows &&
+                    renderer.settings().ambient_intensity == 0,
                 "invalid combined edits leave no partial nodes or components"))
     {
         return false;
@@ -299,7 +307,8 @@ bool scene_render_settings_tests()
                       {{"bloomRadius", .24}},
                       {{"bloomRadius", std::numeric_limits<double>::quiet_NaN()}}}))
     {
-        if (!expect(!execute("set_render_settings", invalid) && second.settings() == shadow &&
+        if (!expect(!execute("set_render_settings", invalid) &&
+                        test_support::read_settings(second) == shadow &&
                         commands.mutation_revision() == revision &&
                         test_support::scene_nodes(*scene).size() == count &&
                         camera_node.get_component<engine::PostProcessComponent>().valid() == false,
@@ -422,7 +431,7 @@ bool render_component_tests()
     {
         return false;
     }
-    auto moved = transform.settings();
+    auto moved = test_support::read_settings(transform);
     moved.position = Vec3(1, 0, 0);
     if (!expect(transform.set_settings(moved) && execute("get_light_probe_volume", target(node)) &&
                     result["valid"] == false && result["resource"] == probes.path &&
@@ -468,10 +477,11 @@ bool render_component_tests()
     {
         return false;
     }
-    if (!expect(!set("set_mesh_lighting", {{"bakeStatic", true}, {"lightmap", lightmap.path}}) &&
-                    !mesh.bake_static() &&
-                    mesh.data().payload.AsMeshRendererData()->lightmap_guid.empty(),
-                "missing UV2 rejects the lightmap and rolls back bakeStatic"))
+    if (!expect(
+            !set("set_mesh_lighting", {{"bakeStatic", true}, {"lightmap", lightmap.path}}) &&
+                !mesh.bake_static() &&
+                test_support::read_data(mesh).payload.AsMeshRendererData()->lightmap_guid.empty(),
+            "missing UV2 rejects the lightmap and rolls back bakeStatic"))
     {
         return false;
     }
@@ -525,7 +535,8 @@ bool render_component_tests()
         {"commands", Json::array({{{"command", "set_planar_reflection"}, {"arguments", planar}},
                                   {{"command", "set_mesh_lighting"}, {"arguments", invalid}}})}};
     if (!expect(!execute("batch", batch) &&
-                    node.get_component<PlanarReflectionComponent>().settings().clip_bias == .02F,
+                    test_support::read_settings(node.get_component<PlanarReflectionComponent>())
+                            .clip_bias == .02F,
                 "a later mesh failure rolls back the earlier component edit in the batch"))
     {
         return false;
@@ -626,11 +637,11 @@ bool render_command_tests()
     const Json identity = {{"sceneId", std::to_string(scene->id())}};
     auto args = target(node);
     args.update({{"projection", "orthographic"}, {"orthographicSize", 3}});
-    if (!expect(execute("set_camera", args) &&
-                    camera.settings().projection == engine::schema::Projection::orthographic,
+    if (!expect(execute("set_camera", args) && test_support::read_settings(camera).projection ==
+                                                   engine::schema::Projection::orthographic,
                 "camera projection editable") ||
-        !expect(execute("undo", identity) &&
-                    camera.settings().projection == engine::schema::Projection::perspective,
+        !expect(execute("undo", identity) && test_support::read_settings(camera).projection ==
+                                                 engine::schema::Projection::perspective,
                 "camera undo restores projection"))
     {
         return false;
@@ -643,13 +654,14 @@ bool render_command_tests()
                  {"castShadows", true},
                  {"shadowResolution", 512},
                  {"shadowBias", .005}});
-    if (!expect(execute("set_light", args) && light.settings().range == 7 &&
-                    light.settings().kind == engine::schema::LightKind::spot &&
-                    light.settings().cast_shadows && light.settings().shadow_resolution == 512 &&
-                    light.settings().shadow_bias == .005F,
+    if (!expect(execute("set_light", args) && test_support::read_settings(light).range == 7 &&
+                    test_support::read_settings(light).kind == engine::schema::LightKind::spot &&
+                    test_support::read_settings(light).cast_shadows &&
+                    test_support::read_settings(light).shadow_resolution == 512 &&
+                    test_support::read_settings(light).shadow_bias == .005F,
                 "spotlight editing") ||
-        !expect(execute("undo", identity) &&
-                    light.settings().kind == engine::schema::LightKind::directional,
+        !expect(execute("undo", identity) && test_support::read_settings(light).kind ==
+                                                 engine::schema::LightKind::directional,
                 "spotlight undo"))
     {
         return false;
@@ -659,8 +671,8 @@ bool render_command_tests()
     {
         args = target(node);
         args.update(invalid);
-        const auto before = light.settings();
-        if (!expect(!execute("set_light", args) && light.settings() == before,
+        const auto before = test_support::read_settings(light);
+        if (!expect(!execute("set_light", args) && test_support::read_settings(light) == before,
                     "invalid local shadow values preserve the whole light"))
         {
             return false;
@@ -681,7 +693,7 @@ bool render_command_tests()
     args = target(node);
     args.update(
         {{"slot", 1}, {"name", "baseColorTexture"}, {"path", "builtin://textures/white-linear"}});
-    engine::resource_detail::ResourceReference original;
+    engine::ResourceReference original;
     if (!original.retain(&loader, mesh.material(1).texture("baseColorTexture")))
     {
         return false;
@@ -705,7 +717,7 @@ bool render_command_tests()
         return false;
     }
     args["path"] = "missing.png";
-    engine::resource_detail::ResourceReference previous;
+    engine::ResourceReference previous;
     if (!previous.retain(&loader, mesh.material(1).texture("baseColorTexture")))
     {
         return false;
@@ -796,7 +808,7 @@ bool state_command_tests()
     };
     const Json identity = {{"sceneId", std::to_string(scene->id())}};
     const auto instance = light.instance_id();
-    auto light_settings = light.settings();
+    auto light_settings = test_support::read_settings(light);
     light_settings.intensity = 2.5F;
     if (!light.set_settings(light_settings) ||
         !expect(set("set_component_state", child,
@@ -817,7 +829,7 @@ bool state_command_tests()
         !expect(execute("undo", identity) && child.active() && child.visible_in_hierarchy() &&
                     light.active() && !light.visible_in_hierarchy() && execute("undo", identity) &&
                     light.visible_in_hierarchy() && light.instance_id() == instance &&
-                    light.settings() == light_settings,
+                    test_support::read_settings(light) == light_settings,
                 "undo restores flags without recreating a component or its payload") ||
         !expect(execute("redo", identity) && execute("redo", identity) && !parent.enabled() &&
                     !parent.visible(),
@@ -932,7 +944,7 @@ bool combined_component_history_tests()
     {
         return false;
     }
-    const auto before_light = light.settings();
+    const auto before_light = test_support::read_settings(light);
     editor::SceneCommands module(world);
     editor::EditorCommands commands([&] { return world.scene() ? world.scene()->id() : 0; });
     if (!module.register_commands(commands))
@@ -953,7 +965,7 @@ bool combined_component_history_tests()
     const auto original = test_support::scene_nodes(*scene).back();
     const auto original_id = original.id();
     auto camera = original.get_component<Camera>();
-    const auto before_camera = camera.settings();
+    const auto before_camera = test_support::read_settings(camera);
     auto transform_args = target(original);
     transform_args["position"] = {2, 1, 3};
     auto camera_args = target(original);
@@ -972,9 +984,11 @@ bool combined_component_history_tests()
     {
         float roughness = 0;
         const auto current = node.get_component<Camera>();
-        return current && node.get_component<Transform>().settings().position.x() == 2 &&
-               current.settings().fov_degrees == 73 && current.settings().frustum_culling_enabled &&
-               light.settings().intensity == 6.5F &&
+        return current &&
+               test_support::read_settings(node.get_component<Transform>()).position.x() == 2 &&
+               test_support::read_settings(current).fov_degrees == 73 &&
+               test_support::read_settings(current).frustum_culling_enabled &&
+               test_support::read_settings(light).intensity == 6.5F &&
                mesh.material(1).get_float("roughness", roughness) && roughness == .75F;
     };
     if (!expect(execute("batch", batch) && applied(original) && commands.undo_count() == 2,
@@ -983,24 +997,27 @@ bool combined_component_history_tests()
         return false;
     }
     if (!expect(mesh.material(1).set_float("roughness", .9F) && !execute("undo", identity) &&
-                    light.settings().intensity == 6.5F && camera.settings().fov_degrees == 73 &&
-                    original.get_component<Transform>().settings().position.x() == 2 &&
+                    test_support::read_settings(light).intensity == 6.5F &&
+                    test_support::read_settings(camera).fov_degrees == 73 &&
+                    test_support::read_settings(original.get_component<Transform>()).position.x() ==
+                        2 &&
                     commands.undo_count() == 2 && commands.redo_count() == 0,
                 "a stale material rejects mixed undo and restores the light already reverted"))
     {
         return false;
     }
-    auto unrelated_camera = camera.settings();
+    auto unrelated_camera = test_support::read_settings(camera);
     unrelated_camera.near_clip = .25F;
     float roughness = 0;
     if (!expect(mesh.material(1).set_float("roughness", .75F) &&
                     camera.set_settings(unrelated_camera) && execute("undo", identity) &&
-                    camera.settings().fov_degrees == before_camera.fov_degrees &&
-                    camera.settings().near_clip == .25F &&
-                    camera.settings().frustum_culling_enabled ==
+                    test_support::read_settings(camera).fov_degrees == before_camera.fov_degrees &&
+                    test_support::read_settings(camera).near_clip == .25F &&
+                    test_support::read_settings(camera).frustum_culling_enabled ==
                         before_camera.frustum_culling_enabled &&
-                    original.get_component<Transform>().settings().position.x() == 0 &&
-                    light.settings() == before_light &&
+                    test_support::read_settings(original.get_component<Transform>()).position.x() ==
+                        0 &&
+                    test_support::read_settings(light) == before_light &&
                     mesh.material(1).get_float("roughness", roughness) &&
                     roughness == before_roughness,
                 "mixed undo restores edited fields and preserves an unrelated camera field"))
@@ -1120,31 +1137,35 @@ bool command_tests()
                     result["scene"]["nodes"][0]["nodeId"] == std::to_string(cube.id()) &&
                     result["scene"]["nodes"][0]["components"].size() == 2,
                 "query exposes complete string identities and component data") ||
-        !expect(execute("set_transform", position) && transform.settings().position.x() == 1 &&
+        !expect(execute("set_transform", position) &&
+                    test_support::read_settings(transform).position.x() == 1 &&
                     commands.undo_count() == 1,
                 "apply transform once") ||
-        !expect(execute("undo", identity) && transform.settings().position.x() == 0 &&
+        !expect(execute("undo", identity) &&
+                    test_support::read_settings(transform).position.x() == 0 &&
                     cube.get_component<engine::Transform>() == transform &&
                     scene->find_node(cube.id()) == cube,
                 "undo preserves node and component identities") ||
-        !expect(execute("redo", identity) && transform.settings().position.x() == 1,
+        !expect(execute("redo", identity) &&
+                    test_support::read_settings(transform).position.x() == 1,
                 "redo reapplies the same edit"))
     {
         return false;
     }
-    auto changed = transform.settings();
+    auto changed = test_support::read_settings(transform);
     changed.rotation.mutate_y(50);
     if (!expect(transform.set_settings(changed) && execute("undo", identity) &&
-                    transform.settings().rotation.y() == 50,
+                    test_support::read_settings(transform).rotation.y() == 50,
                 "undo preserves unrelated script changes") ||
         !expect(execute("redo", identity), "redo after unrelated field change"))
     {
         return false;
     }
-    changed = transform.settings();
+    changed = test_support::read_settings(transform);
     changed.position.mutate_x(99);
     if (!expect(transform.set_settings(changed) && !execute("undo", identity) &&
-                    transform.settings().position.x() == 99 && commands.undo_count() == 1,
+                    test_support::read_settings(transform).position.x() == 99 &&
+                    commands.undo_count() == 1,
                 "stale undo cannot overwrite a script change"))
     {
         return false;
@@ -1152,7 +1173,8 @@ bool command_tests()
     commands.clear_history();
     auto invalid = position;
     invalid["scale"] = {1, 0, 1};
-    if (!expect(!execute("set_transform", invalid) && transform.settings().position.x() == 99 &&
+    if (!expect(!execute("set_transform", invalid) &&
+                    test_support::read_settings(transform).position.x() == 99 &&
                     commands.undo_count() == 0,
                 "invalid setter leaves all fields unchanged"))
     {
@@ -1174,7 +1196,8 @@ bool command_tests()
     const Json failed_batch = {{"commands",
                                 {{{"command", "set_transform"}, {"arguments", position}},
                                  {{"command", "set_light"}, {"arguments", bad_light}}}}};
-    if (!expect(!execute("batch", failed_batch) && transform.settings().position.x() == 99 &&
+    if (!expect(!execute("batch", failed_batch) &&
+                    test_support::read_settings(transform).position.x() == 99 &&
                     commands.undo_count() == 0,
                 "failed batch rolls back earlier edits without creating history"))
     {
@@ -1185,40 +1208,44 @@ bool command_tests()
     const Json batch = {{"commands",
                          {{{"command", "set_transform"}, {"arguments", position}},
                           {{"command", "set_light"}, {"arguments", lighting}}}}};
-    const float old_light = light.settings().intensity;
+    const float old_light = test_support::read_settings(light).intensity;
     if (!expect(execute("batch", batch) && commands.undo_count() == 1 &&
-                    light.settings().intensity == 9,
+                    test_support::read_settings(light).intensity == 9,
                 "successful batch is one history item"))
     {
         return false;
     }
-    changed = transform.settings();
+    changed = test_support::read_settings(transform);
     changed.position.mutate_x(77);
     if (!expect(transform.set_settings(changed) && !execute("undo", identity) &&
-                    transform.settings().position.x() == 77 && light.settings().intensity == 9,
+                    test_support::read_settings(transform).position.x() == 77 &&
+                    test_support::read_settings(light).intensity == 9,
                 "stale batch undo restores any members it already reverted"))
     {
         return false;
     }
     changed.position = {1, 2, 3};
     if (!expect(transform.set_settings(changed) && execute("undo", identity) &&
-                    transform.settings().position.x() == 99 &&
-                    light.settings().intensity == old_light && commands.redo_count() == 1,
+                    test_support::read_settings(transform).position.x() == 99 &&
+                    test_support::read_settings(light).intensity == old_light &&
+                    commands.redo_count() == 1,
                 "one undo restores the whole batch"))
     {
         return false;
     }
-    auto external_light = light.settings();
+    auto external_light = test_support::read_settings(light);
     external_light.intensity = 14;
     if (!expect(light.set_settings(external_light) && !execute("redo", identity) &&
-                    transform.settings().position.x() == 99 && light.settings().intensity == 14,
+                    test_support::read_settings(transform).position.x() == 99 &&
+                    test_support::read_settings(light).intensity == 14,
                 "stale batch redo rolls back its earlier applied members"))
     {
         return false;
     }
     external_light.intensity = old_light;
     if (!expect(light.set_settings(external_light) && execute("redo", identity) &&
-                    transform.settings().position.x() == 1 && light.settings().intensity == 9,
+                    test_support::read_settings(transform).position.x() == 1 &&
+                    test_support::read_settings(light).intensity == 9,
                 "redo restores whole batch after target values match"))
     {
         return false;
@@ -1230,8 +1257,9 @@ bool command_tests()
                             {{{"command", "set_transform"}, {"arguments", position}},
                              {{"command", "set_transform"}, {"arguments", second_position}}}}};
     if (!expect(execute("batch", repeated) && execute("undo", identity) &&
-                    transform.settings().position.x() == 1 && execute("redo", identity) &&
-                    transform.settings().position.x() == 4,
+                    test_support::read_settings(transform).position.x() == 1 &&
+                    execute("redo", identity) &&
+                    test_support::read_settings(transform).position.x() == 4,
                 "batch records sequential changes to the same property"))
     {
         return false;

@@ -30,7 +30,12 @@ void volume(const Arguments& arguments)
     float value = 0.0F;
     if (listener.valid() && arguments.count() == 3 && BindingContext::scalar(arguments, 2, value))
     {
-        auto settings = listener.settings();
+        AudioListener::Data settings{};
+        if (!listener.get_settings(settings))
+        {
+            arguments.set_return(false);
+            return;
+        }
         settings.volume = value;
         arguments.set_return(listener.set_settings(settings));
     }

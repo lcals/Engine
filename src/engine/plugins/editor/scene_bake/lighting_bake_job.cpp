@@ -281,7 +281,7 @@ bool LightingBakeJob::start(const schema::SceneDataT& scene, const Scene& active
     }
     for (const auto& node : active_nodes)
     {
-        s.runtime_ids.emplace(node.info().properties->id, node.id());
+        s.runtime_ids.emplace(node.local_id(), node.id());
     }
     for (const auto& node : scene.nodes)
     {
@@ -289,7 +289,7 @@ bool LightingBakeJob::start(const schema::SceneDataT& scene, const Scene& active
                                               : s.runtime_ids.end();
         const auto active =
             found == s.runtime_ids.end() ? Node{} : active_scene.find_node(found->second);
-        if (!active || active.info().parent_id != node->info->parent_id)
+        if (!active || active.parent().local_id() != node->info->parent_id)
         {
             error = "Saved scene identities no longer match the active preview";
             return false;
@@ -351,7 +351,7 @@ bool LightingBakeJob::start(const schema::SceneDataT& scene, const Scene& active
         {
             continue;
         }
-        editor::resource_access::ResourceReference resource;
+        engine::ResourceReference resource;
         BakedMeshLighting item;
         item.node_id = node->info->properties->id;
         if (dynamic ||
@@ -372,7 +372,7 @@ bool LightingBakeJob::start(const schema::SceneDataT& scene, const Scene& active
             {
                 continue;
             }
-            editor::resource_access::ResourceReference material;
+            engine::ResourceReference material;
             if (!editor::resource_access::load(active_scene.world().resource_loader(), guid,
                                                material) ||
                 !material || !material.data<MaterialResource>() ||

@@ -62,7 +62,7 @@ classDiagram
 - `ChangeFields = bool (*)(const Target&, const DataT& expected, const DataT& replacement, uint64_t fields, std::string& error)`；它是每类型文件里的普通函数，无捕获、无 RTTI、无字段名运行时分派。fields 是该类型内部的明确位集合，不新增持久字段。准备函数拒绝空字段请求和未知字段，从允许字段生成非空位集合，并直接绑定本类型的非空回调；构造仅保存安全数据。
 - apply 调用 change(target, before, after, fields, error)，revert 交换前后值。每次先通过 Target 核对活动场景与共享节点身份，再获取当前组件并读取设置；缺失组件返回原类型错误，不创建组件。
 - 类型函数只比较选中字段与 expected，比较规则与原实现相同；在当前设置副本上只替换选中字段，再通过组件 set_settings 一次提交。其他字段被外部修改不构成本记录的冲突，也不会被撤销覆盖；非法新值或冲突保持当前对象不变。各命令现有错误文本及返回值保持。
-- Target 复用现有 NodeAliases / shared_ptr<uint64_t> 身份单元；创建命令重做可更新单元值。PropertyEdit 与 ComponentEdit 不各自维护节点映射；ComponentEdit 现有构造参数保持，由其内部构造 Target。Target 不拥有世界、节点或组件，resolved_id/node 为 const，read 只在准备时修改描述。
+- Target 复用现有 NodeAliases / shared_ptr<uint64_t> 身份单元；创建命令重做可更新单元值。PropertyEdit 与 ComponentEdit 不各自维护节点映射；ComponentEdit 内部构造 Target。Target 不拥有世界、节点或组件，resolved_id/node 为 const，read 只在准备时修改描述。
 - apply/revert 标注 nodiscard 与 override，禁止复制编辑记录；独占记录继续交给 EditorCommands。字段编辑仍接受同一个 Prefab 包装器，显式字段、同值写入及 false 的覆盖意图不丢失。
 - MaterialEdit、TextureEdit、StateEdit、模型实例化和插件状态编辑有材质槽、资源版本、结构或运行状态语义，本轮保持各自记录，不用完整快照替代字段冲突检查。
 
@@ -72,7 +72,7 @@ classDiagram
 classDiagram
     class ComponentEdit {
         <<final>>
-        +ComponentEdit(WorldSystem& world, uint64_t scene, shared_ptr~uint64_t~ node, optional~ComponentDataT~ before, ComponentDataT after, vector~AssetEntryT~ versions, ComponentType required_component)
+        +ComponentEdit(WorldSystem& world, uint64_t scene, shared_ptr~uint64_t~ node, optional~ComponentDataT~ before, ComponentDataT after, vector~AssetEntryT~ versions, ComponentType required_component, vector~ResourceReference~ prepared)
         +apply(string& error) bool
         +revert(string& error) bool
         -replace(const optional~ComponentDataT~& expected, const optional~ComponentDataT~& value, string& error) bool
@@ -83,6 +83,7 @@ classDiagram
     class Component
     class ComponentRegistry
     class AssetEntryT
+    class ResourceReference
     class ComponentDataT {
         <<generated>>
     }
@@ -90,7 +91,8 @@ classDiagram
     class Target
     ComponentEdit *-- Target : 共用场景与节点身份解析
     ComponentEdit *-- ComponentDataT : 独立前后快照值
-    ComponentEdit *-- AssetEntryT : 独立资源版本快照，不持有载荷
+    ComponentEdit *-- AssetEntryT : 独立资源版本快照
+    ComponentEdit *-- ResourceReference : 准备至首次apply结束的临时获取
     ComponentEdit ..> Node : 每次按场景与节点身份查找
     ComponentEdit ..> ComponentRegistry : 缺失时按生成类型创建
     ComponentEdit ..> Component : 保存与恢复生成数据
@@ -100,7 +102,7 @@ classDiagram
 
 节点身份使用与创建命令共享的 `shared_ptr<uint64_t>`，允许编辑器重做创建后更新内部身份；这不是节点所有权，外部请求仍须使用新查询的 ID。物理步进可能改变刚体快照中的速度，撤销此时返回冲突，不覆盖模拟结果。
 
-渲染及 UI 命令同样通过 `SceneCommands::node_identity()` 取得共享身份，不单独复制节点 ID。资源绑定仅记录 `AssetEntryT` 版本值，准备时可临时加载并检查类型；应用、撤销和重做先核对当前目录，再调用组件接口恢复，不因历史记录而延长旧资源载荷生命周期。`versions` 默认空、`required_component` 默认 NONE。
+渲染及 UI 命令同样通过 `SceneCommands::node_identity()` 取得共享身份，不单独复制节点 ID。资源绑定在准备时显式加载并检查类型，所得 ResourceReference 随记录保留到首次 apply 成功或失败结束，避免准备后释放、提交时重新读取。长期历史只保存 AssetEntryT 版本值；应用、撤销和重做仍核对当前目录，不因临时保活跳过版本检查。`versions` 与 `prepared` 默认空、`required_component` 默认 NONE。
 
 以下是命名空间函数，不代表额外 C++ 类：
 

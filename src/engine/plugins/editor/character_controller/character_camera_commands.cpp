@@ -42,7 +42,7 @@ bool read(WorldSystem& world, Node& node, const Json& arguments,
             {
                 return false;
             }
-            value.target_node_id = target_node.info().properties->id;
+            value.target_node_id = target_node.local_id();
         }
     }
     if (arguments.contains("mode"))

@@ -196,8 +196,8 @@ bool commands_and_identity()
     }
     auto controller = node.get_component<CharacterController>();
     if (!expect(controller &&
-                    controller.settings().camera_node_id == camera.info().properties->id &&
-                    controller.settings().move_speed == 7 &&
+                    test_support::read_settings(controller).camera_node_id == camera.local_id() &&
+                    test_support::read_settings(controller).move_speed == 7 &&
                     commands.execute("get_character_controller", identity, result, error) &&
                     result["cameraNodeId"] == std::to_string(camera.id()),
                 "commands translate runtime camera identity into persistent local identity"))
@@ -207,7 +207,8 @@ bool commands_and_identity()
     const auto history = commands.undo_count();
     edit["moveSpeed"] = -1;
     if (!expect(!commands.execute("set_character_controller", edit, result, error) &&
-                    controller.settings().move_speed == 7 && commands.undo_count() == history,
+                    test_support::read_settings(controller).move_speed == 7 &&
+                    commands.undo_count() == history,
                 "invalid edits leave component and history unchanged") ||
         !expect(commands.execute("undo", scene, result, error) &&
                     !node.get_component<CharacterController>(),
@@ -231,8 +232,8 @@ bool commands_and_identity()
         }
     }
     if (!expect(node && node.get_component<CharacterController>() &&
-                    node.get_component<CharacterController>().settings().camera_node_id ==
-                        camera.info().properties->id,
+                    test_support::read_settings(node.get_component<CharacterController>())
+                            .camera_node_id == camera.local_id(),
                 "component redo keeps persistent camera reference after node recreation"))
     {
         return false;
@@ -245,11 +246,11 @@ bool commands_and_identity()
     camera_edit["collisionRadius"] = 0.25;
     if (!expect(commands.execute("set_character_camera", camera_edit, result, error) &&
                     camera.get_component<CharacterCamera>() &&
-                    camera.get_component<CharacterCamera>().settings().target_node_id ==
-                        node.info().properties->id &&
+                    test_support::read_settings(camera.get_component<CharacterCamera>())
+                            .target_node_id == node.local_id() &&
                     commands.execute("get_character_camera", camera_identity, result, error) &&
                     result["targetNodeId"] == std::to_string(node.id()) &&
-                    result["targetLocalId"] == std::to_string(node.info().properties->id),
+                    result["targetLocalId"] == std::to_string(node.local_id()),
                 "follow-camera commands translate target identity independently of player input"))
     {
         return false;
@@ -257,13 +258,14 @@ bool commands_and_identity()
     const auto camera_history = commands.undo_count();
     camera_edit["collisionRadius"] = -1;
     if (!expect(!commands.execute("set_character_camera", camera_edit, result, error) &&
-                    camera.get_component<CharacterCamera>().settings().collision_radius == 0.25F &&
+                    test_support::read_settings(camera.get_component<CharacterCamera>())
+                            .collision_radius == 0.25F &&
                     commands.undo_count() == camera_history &&
                     commands.execute("undo", scene, result, error) &&
                     camera.get_component<CharacterCamera>().valid() == false &&
                     commands.execute("redo", scene, result, error) &&
-                    camera.get_component<CharacterCamera>().settings().target_node_id ==
-                        node.info().properties->id,
+                    test_support::read_settings(camera.get_component<CharacterCamera>())
+                            .target_node_id == node.local_id(),
                 "invalid follow edits are atomic and valid edits support undo and redo"))
     {
         return false;
@@ -292,7 +294,7 @@ bool commands_and_identity()
     if (!expect(commands.execute("set_character_visual", visual_edit, result, error) &&
                     commands.execute("get_character_visual", player_identity, result, error) &&
                     result["kind"] == "head" &&
-                    node.get_component<CharacterVisual>().settings().kind ==
+                    test_support::read_settings(node.get_component<CharacterVisual>()).kind ==
                         engine::schema::CharacterVisualKind::head,
                 "visual classification has independent typed set and get commands"))
     {
@@ -339,8 +341,8 @@ bool commands_and_identity()
     const auto motor_history = commands.undo_count();
     motor_edit["externalDamping"] = 1001.0;
     if (!expect(!commands.execute("set_character_motor", motor_edit, result, error) &&
-                    node.get_component<engine::CharacterMotor>().settings().external_damping ==
-                        12.0F &&
+                    test_support::read_settings(node.get_component<engine::CharacterMotor>())
+                            .external_damping == 12.0F &&
                     commands.undo_count() == motor_history,
                 "external damping range is enforced without changing component or undo history"))
     {

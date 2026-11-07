@@ -10,8 +10,8 @@ namespace engine
 {
 struct MeshRendererRuntime
 {
-    resource_detail::ResourceReference mesh_resource_;
-    resource_detail::ResourceReference lightmap_resource_;
+    ResourceReference mesh_resource_;
+    ResourceReference lightmap_resource_;
     std::vector<MaterialState> materials_;
     std::uint64_t next_material_identity_ = 1;
     std::vector<schema::MeshVertex> deformed_vertices_;

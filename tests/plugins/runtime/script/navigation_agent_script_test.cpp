@@ -179,8 +179,10 @@ bool run(test_support::ResourceFixture& files)
                     ? test_support::scene_nodes(*scene).front()
                     : engine::Node{};
     auto old_agent = node.valid() ? node.get_component<NavigationAgent>() : NavigationAgent{};
-    if (!expect(old_agent.valid() && std::abs(old_agent.settings().radius - .45F) < .0001F &&
-                    old_agent.settings().max_speed == 4.0F && !old_agent.settings().face_velocity &&
+    if (!expect(old_agent.valid() &&
+                    std::abs(test_support::read_settings(old_agent).radius - .45F) < .0001F &&
+                    test_support::read_settings(old_agent).max_speed == 4.0F &&
+                    !test_support::read_settings(old_agent).face_velocity &&
                     old_agent.state() == engine::NavigationAgentStatus::pending,
                 "script configuration and pending target use the native component", script))
     {
@@ -195,7 +197,7 @@ bool run(test_support::ResourceFixture& files)
     auto fresh = node.add_component<NavigationAgent>();
     if (!expect(fresh.valid() && fresh.instance_id() != old_identity && script.tick(.016) &&
                     script.status().running && fresh.enabled() &&
-                    fresh.settings() == engine::schema::NavigationAgentDataT{} &&
+                    test_support::read_settings(fresh) == engine::schema::NavigationAgentDataT{} &&
                     fresh.state() == engine::NavigationAgentStatus::idle,
                 "stale handle is rejected and the replacement uses schema defaults", script) ||
         !expect(world.tick(.016) && script.tick(.016) && script.status().running,

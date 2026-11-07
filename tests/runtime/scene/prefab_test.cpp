@@ -139,7 +139,7 @@ Node local_node(Scene& scene, std::uint64_t id)
 {
     for (const auto node : test_support::scene_nodes(scene))
     {
-        if (node.info().properties->id == id)
+        if (node.local_id() == id)
         {
             return node;
         }
@@ -206,7 +206,7 @@ bool round_trip_and_lifecycle()
     auto light_node = mapped_node(*scene, first_link, 7);
     if (!expect(camera_node && light_node && camera_node.parent() == first &&
                     light_node.parent() == first &&
-                    light_node.get_component<Light>().settings().intensity == 8 &&
+                    test_support::read_settings(light_node.get_component<Light>()).intensity == 8 &&
                     !light_node.get_component<Light>().visible() &&
                     first_link.overrides.size() == 1 &&
                     first_link.overrides[0]->fields == std::vector<std::string>{"name"} &&
@@ -216,11 +216,11 @@ bool round_trip_and_lifecycle()
         return false;
     }
     auto invalid = first_link;
-    invalid.node_mappings.back()->target_id = second.info().properties->id;
+    invalid.node_mappings.back()->target_id = second.local_id();
     if (!expect(!scene->set_prefab_instance(invalid) &&
                     test_support::prefab_instances(*scene)[0] == first_link,
                 "foreign subtree mapping is rejected without replacing existing metadata") ||
-        !expect(scene->remove_prefab_instance(first.info().properties->id) &&
+        !expect(scene->remove_prefab_instance(first.local_id()) &&
                     scene->find_node(first.id()) == first && scene->set_prefab_instance(first_link),
                 "unlinking and relinking only changes source metadata"))
     {
@@ -230,7 +230,7 @@ bool round_trip_and_lifecycle()
     {
         return false;
     }
-    const auto camera_local_id = camera_node.info().properties->id;
+    const auto camera_local_id = camera_node.local_id();
     schema::SceneDataT snapshot;
     if (!expect(second.set_parent(first) && !scene->build_data(snapshot) && second.set_parent({}),
                 "nested source links cannot silently enter a saved scene"))
@@ -254,7 +254,7 @@ bool round_trip_and_lifecycle()
     }
     scene = fixture.world.load_scene("saved.scene");
     if (!expect(scene && scene->active_camera() &&
-                    scene->active_camera().node().info().properties->id == camera_local_id &&
+                    scene->active_camera().node().local_id() == camera_local_id &&
                     test_support::prefab_instances(*scene).size() == 2 &&
                     test_support::prefab_instances(*scene)[1].root_id == first_link.root_id &&
                     test_support::prefab_instances(*scene)[1] == first_link,
@@ -337,7 +337,7 @@ bool explicit_removal_and_reserved_identities()
         return false;
     }
     auto fresh = scene->create_node("Fresh");
-    if (!expect(fresh && fresh.info().properties->id > 9000,
+    if (!expect(fresh && fresh.local_id() > 9000,
                 "new nodes cannot reuse deleted template mapping identities"))
     {
         return false;
@@ -420,17 +420,17 @@ bool rollback_and_plugin_references()
         const auto player = mapped_node(*scene, link, 9);
         const auto view = mapped_node(*scene, link, 20);
         if (!expect(player && view &&
-                        player.get_component<CharacterController>().settings().camera_node_id ==
-                            view.info().properties->id &&
-                        view.get_component<CharacterCamera>().settings().target_node_id ==
-                            player.info().properties->id,
+                        test_support::read_settings(player.get_component<CharacterController>())
+                                .camera_node_id == view.local_id() &&
+                        test_support::read_settings(view.get_component<CharacterCamera>())
+                                .target_node_id == player.local_id(),
                     "each instance remaps both directions of the plugin-owned camera binding"))
         {
             return false;
         }
         std::array<schema::NodeIdMappingT, 1> retired;
         retired[0].source_id = 9;
-        retired[0].target_id = player.info().properties->id;
+        retired[0].target_id = player.local_id();
         retired[0].retired = true;
         auto reference = *character.nodes[0]->components.back();
         const auto before = reference;

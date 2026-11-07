@@ -11,7 +11,7 @@ namespace engine::plugins::effects
 struct EffectComponentRuntime
 {
 
-    resource_detail::ResourceReference effect_;
+    ResourceReference effect_;
     std::uint64_t revision_ = 0;
     EffectComponent::Playback requested_ = EffectComponent::Playback::stopped;
     bool awake_pending_ = true;

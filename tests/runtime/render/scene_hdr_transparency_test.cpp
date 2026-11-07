@@ -1,5 +1,6 @@
 #include "resource_fixture.hpp"
 #include "resource_services.hpp"
+#include "scene_snapshot.hpp"
 
 #include "runtime/engine_config.hpp"
 #include "runtime/render/render_system.hpp"
@@ -175,9 +176,9 @@ bool test()
     lens.orthographic_size = 1;
     engine::TransformSettings camera_pose;
     camera_pose.position = {0, 0, 3};
-    auto lighting = light.settings();
+    auto lighting = test_support::read_settings(light);
     lighting.intensity = 8;
-    auto post_settings = post.settings();
+    auto post_settings = test_support::read_settings(post);
     post_settings.hdr_enabled = true;
     post_settings.bloom_enabled = true;
     post_settings.bloom_threshold = 0.2F;

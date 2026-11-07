@@ -48,6 +48,35 @@ classDiagram
 
 ## 获取身份与错误
 
+跨模块 C++ 所有者复用核心 `ResourceReference`（`runtime/resource/resource_reference.hpp`）。该可移动、不可复制的 RAII 对象只持有一次 ResourceHandle 获取及借用的 ResourceLoader，不维护第二套引用计数；加载器寿命必须覆盖对象，清理在协调线程执行。业务加载契约仍为 ResourceLoader。
+
+```mermaid
+classDiagram
+    class ResourceReference {
+        +ResourceReference()
+        +~ResourceReference()
+        +acquire(ResourceLoader* loader, string_view path_or_guid) bool
+        +retain(ResourceLoader* loader, const ResourceHandle& source) bool
+        +retain(const ResourceReference& source) bool
+        +dependency(ResourceLoader* loader, const ResourceHandle& owner, string_view guid) bool
+        +adopt(ResourceLoader* loader, ResourceHandle& handle) bool
+        +reset() void
+        +detach() ResourceHandle
+        +handle() ResourceHandle
+        +loader() ResourceLoader*
+        +get() const Resource*
+        +data~T~() const Data*
+    }
+    class ResourceLoader
+    class ResourceHandle
+    class Resource
+    ResourceReference --> ResourceLoader : 借用 覆盖获取寿命
+    ResourceReference *-- ResourceHandle : 独占一次获取
+    ResourceReference ..> Resource : 校验后只读借用
+```
+
+`acquire` 只获取已加载资源，`retain/dependency` 显式增加独立获取；这些操作及 `adopt` 要求自身为空，失败保持原状态。`adopt` 成功才消耗输入句柄，`detach` 转交释放责任，`reset` 与析构重复安全；查询每次委托加载器验证，不读文件。bool 与解引用操作仅为已验证资源访问；跨越释放或加载器销毁不得保存裸借用。
+
 ```mermaid
 classDiagram
     class ResourceHandle {
@@ -81,7 +110,7 @@ owner 标识加载器实例，id 标识一次获取槽，generation 是该槽的
 
 槽复用、插件销毁重建及整数耗尽都不能令旧句柄重新有效。owner 空间耗尽时基类保持 0 安全状态，该实例初始化/加载必须失败；槽代数耗尽则弃用该槽，不能回绕。全零是唯一空句柄，其他不完整值无效。
 
-复制 ResourceHandle 不增加引用；所有副本代表同一次获取，一处释放后全部失效。独立使用者必须 retain；一个原始业务句柄的多份结构副本不能分别 release。运行模块内部以 RAII 清理自己取得的身份，公共接口不引入另一套智能指针。
+复制 ResourceHandle 不增加引用；所有副本代表同一次获取，一处释放后全部失效。独立使用者必须 retain；一个原始业务句柄的多份结构副本不能分别 release。C++ 所有者通过上述 ResourceReference 清理自己取得的身份，加载器仍是唯一计数来源；不另建共享指针控制块。
 
 <a id="分步与后台加载操作"></a>
 

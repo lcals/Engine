@@ -46,7 +46,12 @@ void motion(const Arguments& arguments)
     {
         return;
     }
-    auto settings = value.settings();
+    RigidBody::Data settings{};
+    if (!value.get_settings(settings))
+    {
+        arguments.set_return(false);
+        return;
+    }
     if (name == "static")
     {
         settings.motion = schema::BodyMotion::static_body;
@@ -72,7 +77,12 @@ void mass(const Arguments& arguments)
     float number = 0.0F;
     if (value.valid() && BindingContext::scalar(arguments, 2, number))
     {
-        auto settings = value.settings();
+        RigidBody::Data settings{};
+        if (!value.get_settings(settings))
+        {
+            arguments.set_return(false);
+            return;
+        }
         settings.mass = number;
         arguments.set_return(value.set_settings(settings));
     }

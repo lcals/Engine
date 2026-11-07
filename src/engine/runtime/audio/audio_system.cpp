@@ -70,11 +70,12 @@ Listener find_listener(const Scene& scene)
     return result;
 }
 
-bool spatial_mix(const AudioSource& source, const Listener& listener, float& gain, float& pan)
+bool spatial_mix(const AudioSource& source, const AudioSource::Data& settings,
+                 const Listener& listener, float& gain, float& pan)
 {
-    gain = source.settings().volume * listener.volume;
+    gain = settings.volume * listener.volume;
     pan = 0.0F;
-    if (!source.settings().spatial)
+    if (!settings.spatial)
     {
         return true;
     }
@@ -93,7 +94,6 @@ bool spatial_mix(const AudioSource& source, const Listener& listener, float& gai
     const double y = static_cast<double>(matrix[13]) - listener.matrix[13];
     const double z = static_cast<double>(matrix[14]) - listener.matrix[14];
     const double distance = std::sqrt(x * x + y * y + z * z);
-    const auto& settings = source.settings();
     const double attenuation =
         std::clamp((static_cast<double>(settings.max_distance) - distance) /
                        (static_cast<double>(settings.max_distance) - settings.min_distance),
@@ -207,7 +207,7 @@ struct AudioSystem::Impl
         }
 
         SDL_AudioStream* stream = nullptr;
-        resource_detail::ResourceReference clip;
+        ResourceReference clip;
         const schema::AudioClipDataT* data = nullptr;
         std::uint64_t instance_id = 0;
         std::uint64_t revision = 0;
@@ -334,7 +334,8 @@ struct AudioSystem::Impl
         finished = false;
         float gain = 1.0F;
         float pan = 0.0F;
-        if (!spatial_mix(source, listener, gain, pan))
+        AudioSource::Data settings;
+        if (!source.get_settings(settings) || !spatial_mix(source, settings, listener, gain, pan))
         {
             error = "Audio source or listener world transform is invalid";
             return false;
@@ -346,13 +347,12 @@ struct AudioSystem::Impl
             return fail("Cannot lock audio stream settings");
         }
         // 与 SDL 回调共用流锁，只发布标量参数并查询状态，不在锁内生成 PCM。
-        voice.loop = source.settings().loop;
-        voice.spatial = source.settings().spatial;
+        voice.loop = settings.loop;
+        voice.spatial = settings.spatial;
         voice.left_gain = left_gain;
         voice.right_gain = right_gain;
-        const bool updated =
-            SDL_SetAudioStreamFrequencyRatio(voice.stream, source.settings().pitch) &&
-            SDL_SetAudioStreamGain(voice.stream, gain);
+        const bool updated = SDL_SetAudioStreamFrequencyRatio(voice.stream, settings.pitch) &&
+                             SDL_SetAudioStreamGain(voice.stream, gain);
         const int available = SDL_GetAudioStreamAvailable(voice.stream);
         const int queued = SDL_GetAudioStreamQueued(voice.stream);
         const bool feed_failed = voice.feed_failed;
@@ -688,7 +688,7 @@ bool AudioSystem::set_world(WorldSystem* world)
 bool AudioSystem::play(const ResourceHandle& handle, AudioVoiceHandle& output)
 {
     output = {};
-    resource_detail::ResourceReference clip;
+    ResourceReference clip;
     if (!impl_ || !is_initialized() || !clip.retain(resources_, handle) ||
         !clip.data<AudioResource>() || !valid_clip(*clip.data<AudioResource>()))
     {

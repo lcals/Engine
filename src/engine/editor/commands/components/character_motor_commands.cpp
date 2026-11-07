@@ -7,7 +7,8 @@ namespace engine::editor::components
 namespace
 {
 
-bool read(const Json& arguments, schema::CharacterMotorDataT& value, std::string& error)
+bool read(const Json& arguments, schema::CharacterMotorDataT& value,
+          std::vector<ResourceReference>&, std::string& error)
 {
     if (!fields(arguments,
                 {"enabled", "radius", "halfHeight", "maxSlopeDegrees", "stepHeight",

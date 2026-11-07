@@ -212,7 +212,7 @@ bool MeshRenderer::set_lightmap(std::string_view path)
     }
     const auto* mesh = mesh_data();
     auto transform = node().get_component<Transform>();
-    resource_detail::ResourceReference replacement;
+    ResourceReference replacement;
     std::array<float, 16> matrix{};
     if (!runtime()->mesh_resource_ || !mesh || runtime()->skin_joint_count_ != 0 ||
         !runtime()->deformed_vertices_.empty() || !runtime()->skinning_palette_.empty() ||
@@ -267,7 +267,7 @@ bool MeshRenderer::set_mesh(std::string_view path)
     {
         return false;
     }
-    resource_detail::ResourceReference replacement;
+    ResourceReference replacement;
     std::uint32_t joint_count = 0;
     if (runtime()->mesh_revision_ == std::numeric_limits<std::uint64_t>::max() ||
         !ecs_detail::acquire_resource(node(), path, replacement) ||
@@ -330,7 +330,7 @@ bool MeshRenderer::set_mesh_data(const schema::MeshDataT& data)
     entry.kind = schema::AssetKind::mesh;
     auto payload = data;
     payload.path = entry.path;
-    resource_detail::ResourceReference skeleton;
+    ResourceReference skeleton;
     std::vector<ResourceHandle> dependencies;
     if (!data.skeleton_guid.empty())
     {
@@ -348,7 +348,7 @@ bool MeshRenderer::set_mesh_data(const schema::MeshDataT& data)
     {
         return false;
     }
-    resource_detail::ResourceReference replacement;
+    ResourceReference replacement;
     if (!replacement.adopt(loader, loaded))
     {
         (void)loader->release(loaded);
@@ -604,7 +604,7 @@ bool MeshRenderer::build_data(schema::ComponentDataT& output) const
 {
     output = {};
     schema::ComponentDataT snapshot;
-    if (!build_storage_data(snapshot))
+    if (!get_data(snapshot))
     {
         return false;
     }

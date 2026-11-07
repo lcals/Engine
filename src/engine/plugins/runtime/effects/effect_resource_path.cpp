@@ -21,15 +21,14 @@ std::string effect_dependency_path(std::string_view path)
     return PathUtils::to_utf8(PathUtils::from_utf8(normalized).lexically_normal());
 }
 
-bool load_effect_bindings(const resource_detail::ResourceReference& resource,
-                          const schema::EffectAssetDataT& asset, EffectBindings& output,
-                          std::string& error)
+bool load_effect_bindings(const ResourceReference& resource, const schema::EffectAssetDataT& asset,
+                          EffectBindings& output, std::string& error)
 {
     output.clear();
     EffectBindings candidate;
     for (const auto& binding : asset.bindings)
     {
-        resource_detail::ResourceReference dependency;
+        ResourceReference dependency;
         if (!binding ||
             !dependency.dependency(resource.loader(), resource.handle(), binding->guid) ||
             dependency->kind() != binding->kind)

@@ -10,7 +10,7 @@ classDiagram
         +CharacterController(Component component)
         +register_type(ComponentRegistry& registry) bool$
         +valid_settings(const CharacterControllerDataT& settings) bool$
-        +settings() CharacterControllerDataT
+
         +get_settings(CharacterControllerDataT& output) bool
         +set_settings(const CharacterControllerDataT& settings) bool
         +set_input(const CharacterInput& input) bool
@@ -30,7 +30,7 @@ classDiagram
         +CharacterCamera(Component component)
         +register_type(ComponentRegistry& registry) bool$
         +valid_settings(const CharacterCameraDataT& settings) bool$
-        +settings() CharacterCameraDataT
+
         +get_settings(CharacterCameraDataT& output) bool
         +set_settings(const CharacterCameraDataT& settings) bool
         +synchronize_angles() bool
@@ -50,7 +50,7 @@ classDiagram
         +CharacterVisual(Component component)
         +register_type(ComponentRegistry& registry) bool$
         +valid_settings(const CharacterVisualDataT& settings) bool$
-        +settings() CharacterVisualDataT
+
         +get_settings(CharacterVisualDataT& output) bool
         +set_settings(const CharacterVisualDataT& settings) bool
         +restore_data(const ComponentDataT& data) bool
@@ -133,4 +133,4 @@ CharacterControllerSystem 不借用 WindowSystem，也不提供固定按键 fall
 
 常驻玩家与相机继续在原 Scene 中更新，选中玩家的组件实例和观察角不随活动 Scene 更换而重置。组件中的 local ID 引用只在所属 Scene 内解析；目标或外部相机正常卸载后停止对应跟随/主动输入，清理失效的视图隐藏，不转向新场景同 local ID 的节点。非法层级、数值和必要组件配置仍返回失败。视图隐藏列表覆盖全部已发布场景中的 MeshRenderer，保持每相机独立可见性。
 
-本页组件均为可复制值句柄，生成设置唯一存于 `ComponentStorage<Data>` 的 ECS 列；`settings()` 返回独立值，`get_settings(output)` 明确返回失败。Runtime 为 ECS 中的领域运行列，资源引用、请求和缓存归该列或所属 System；句柄不拥有这些数据。Runtime 定义与可变访问仅供所属模块内部实现使用，公开组件不提供 `runtime()`；原生系统的 ECS 列借用仅在当前结构稳定阶段有效，不能跨结构修改留存。类型注册、失效身份与查询规则见 [ECS 场景](../../../runtime/class-diagrams/ecs-scene.md)。
+本页组件均为可复制值句柄，生成设置唯一存于 `ComponentStorage<Data>` 的 ECS 列；`get_settings(output)` 返回独立值并明确报告失败，失败输出安全默认值；不保留吞掉失败的 settings() 包装。Runtime 为 ECS 中的领域运行列，资源引用、请求和缓存归该列或所属 System；句柄不拥有这些数据。Runtime 定义与可变访问仅供所属模块内部实现使用，公开组件不提供 `runtime()`；原生系统的 ECS 列借用仅在当前结构稳定阶段有效，不能跨结构修改留存。类型注册、失效身份与查询规则见 [ECS 场景](../../../runtime/class-diagrams/ecs-scene.md)。

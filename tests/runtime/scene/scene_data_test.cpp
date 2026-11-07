@@ -118,7 +118,7 @@ bool round_trip(std::vector<std::uint8_t>& bytes)
     light_settings.shadow_cascade_blend = 0.2F;
     engine::EnvironmentSettings environment_settings;
     environment_settings.atmosphere_enabled = true;
-    environment_settings.atmosphere_sun_node_id = light_node.info().properties->id;
+    environment_settings.atmosphere_sun_node_id = light_node.local_id();
     environment_settings.atmosphere_ground_height = 17;
     environment_settings.atmosphere_mie_anisotropy = 0.6F;
     environment_settings.atmosphere_ground_albedo = {0.2, 0.3, 0.4};
@@ -171,7 +171,8 @@ bool round_trip(std::vector<std::uint8_t>& bytes)
     }
     auto invalid_planar = planar_settings;
     invalid_planar.resolution_scale = .1F;
-    if (!expect(!planar.set_settings(invalid_planar) && planar.settings() == planar_settings,
+    if (!expect(!planar.set_settings(invalid_planar) &&
+                    test_support::read_settings(planar) == planar_settings,
                 "invalid reflection scale preserves old settings"))
     {
         return false;
@@ -198,10 +199,11 @@ bool round_trip(std::vector<std::uint8_t>& bytes)
     auto invalid_light = light_settings;
     invalid_light.kind = static_cast<engine::schema::LightKind>(255);
     if (!expect(!environment.set_settings(invalid_environment) &&
-                    environment.settings() == environment_settings &&
+                    test_support::read_settings(environment) == environment_settings &&
                     !post_process.set_settings(invalid_post_process) &&
-                    post_process.settings() == post_process_settings &&
-                    !light.set_settings(invalid_light) && light.settings() == light_settings,
+                    test_support::read_settings(post_process) == post_process_settings &&
+                    !light.set_settings(invalid_light) &&
+                    test_support::read_settings(light) == light_settings,
                 "invalid scene effects preserve the previous component settings"))
     {
         return false;
@@ -209,7 +211,7 @@ bool round_trip(std::vector<std::uint8_t>& bytes)
     invalid_environment = environment_settings;
     invalid_environment.atmosphere_mie_anisotropy = 1;
     if (!expect(!environment.set_settings(invalid_environment) &&
-                    environment.settings() == environment_settings,
+                    test_support::read_settings(environment) == environment_settings,
                 "atmosphere rejects a singular phase function without altering other fields"))
     {
         return false;
@@ -221,20 +223,20 @@ bool round_trip(std::vector<std::uint8_t>& bytes)
     {
         return false;
     }
-    auto remapped_environment = environment.data();
+    auto remapped_environment = test_support::read_data(environment);
     engine::schema::NodeIdMappingT sun_mapping;
     sun_mapping.source_id = environment_settings.atmosphere_sun_node_id;
     sun_mapping.target_id = sun_mapping.source_id + 100;
     if (!expect(environment.remap_node_references(remapped_environment, {&sun_mapping, 1}) &&
                     remapped_environment.payload.AsEnvironmentData()->atmosphere_sun_node_id ==
                         sun_mapping.target_id &&
-                    environment.settings() == environment_settings,
+                    test_support::read_settings(environment) == environment_settings,
                 "prefab sun references remap only the boundary snapshot"))
     {
         return false;
     }
     sun_mapping.retired = true;
-    remapped_environment = environment.data();
+    remapped_environment = test_support::read_data(environment);
     if (!expect(!environment.remap_node_references(remapped_environment, {&sun_mapping, 1}),
                 "retired prefab suns cannot revive through reference remapping"))
     {
@@ -255,7 +257,7 @@ bool round_trip(std::vector<std::uint8_t>& bytes)
     invalid_post_process = post_process_settings;
     invalid_post_process.ssr_max_steps = 7;
     if (!expect(!post_process.set_settings(invalid_post_process) &&
-                    post_process.settings() == post_process_settings,
+                    test_support::read_settings(post_process) == post_process_settings,
                 "invalid SSR iteration budget preserves all post-process fields"))
     {
         return false;
@@ -270,7 +272,7 @@ bool round_trip(std::vector<std::uint8_t>& bytes)
     invalid_post_process = post_process_settings;
     invalid_post_process.ao_radius = std::numeric_limits<float>::quiet_NaN();
     if (!expect(!post_process.set_settings(invalid_post_process) &&
-                    post_process.settings() == post_process_settings,
+                    test_support::read_settings(post_process) == post_process_settings,
                 "nonfinite AO radius preserves the complete post-process component"))
     {
         return false;
@@ -278,7 +280,7 @@ bool round_trip(std::vector<std::uint8_t>& bytes)
     invalid_post_process = post_process_settings;
     invalid_post_process.ao_fade_end = invalid_post_process.ao_fade_start;
     if (!expect(!post_process.set_settings(invalid_post_process) &&
-                    post_process.settings() == post_process_settings,
+                    test_support::read_settings(post_process) == post_process_settings,
                 "invalid AO fade interval preserves the complete post-process component"))
     {
         return false;
@@ -286,7 +288,7 @@ bool round_trip(std::vector<std::uint8_t>& bytes)
     invalid_post_process = post_process_settings;
     invalid_post_process.hdr_enabled = false;
     if (!expect(!post_process.set_settings(invalid_post_process) &&
-                    post_process.settings() == post_process_settings,
+                    test_support::read_settings(post_process) == post_process_settings,
                 "Bloom without HDR preserves the complete post-process component"))
     {
         return false;
@@ -294,35 +296,39 @@ bool round_trip(std::vector<std::uint8_t>& bytes)
     invalid_post_process = post_process_settings;
     invalid_post_process.bloom_intensity = std::numeric_limits<float>::quiet_NaN();
     if (!expect(!post_process.set_settings(invalid_post_process) &&
-                    post_process.settings() == post_process_settings,
+                    test_support::read_settings(post_process) == post_process_settings,
                 "nonfinite Bloom intensity preserves the complete post-process component"))
     {
         return false;
     }
     invalid_light = light_settings;
     invalid_light.shadow_cascades = 3;
-    if (!expect(!light.set_settings(invalid_light) && light.settings() == light_settings,
+    if (!expect(!light.set_settings(invalid_light) &&
+                    test_support::read_settings(light) == light_settings,
                 "unsupported cascade count leaves the light unchanged"))
     {
         return false;
     }
     invalid_light = light_settings;
     invalid_light.shadow_distance = std::numeric_limits<float>::quiet_NaN();
-    if (!expect(!light.set_settings(invalid_light) && light.settings() == light_settings,
+    if (!expect(!light.set_settings(invalid_light) &&
+                    test_support::read_settings(light) == light_settings,
                 "nonfinite cascade distance leaves the light unchanged"))
     {
         return false;
     }
     invalid_light = light_settings;
     invalid_light.shadow_split_lambda = 1.01F;
-    if (!expect(!light.set_settings(invalid_light) && light.settings() == light_settings,
+    if (!expect(!light.set_settings(invalid_light) &&
+                    test_support::read_settings(light) == light_settings,
                 "out-of-range cascade split leaves the light unchanged"))
     {
         return false;
     }
     invalid_light = light_settings;
     invalid_light.shadow_cascade_blend = 0.31F;
-    if (!expect(!light.set_settings(invalid_light) && light.settings() == light_settings,
+    if (!expect(!light.set_settings(invalid_light) &&
+                    test_support::read_settings(light) == light_settings,
                 "out-of-range cascade blend leaves the light unchanged"))
     {
         return false;
@@ -331,7 +337,8 @@ bool round_trip(std::vector<std::uint8_t>& bytes)
     {
         auto local_light = light_settings;
         local_light.kind = kind;
-        if (!expect(light.set_settings(local_light) && light.settings() == local_light,
+        if (!expect(light.set_settings(local_light) &&
+                        test_support::read_settings(light) == local_light,
                     "point and spot lights accept the same atomic shadow settings"))
         {
             return false;
@@ -383,8 +390,7 @@ bool round_trip(std::vector<std::uint8_t>& bytes)
         engine::schema::GetSceneData(bytes.data())->UnPack());
     if (!expect(restored != nullptr && restored->info != nullptr &&
                     restored->info->name == "Shared scene model" && restored->nodes.size() == 4 &&
-                    restored->info->active_camera_node ==
-                        camera_node.info().properties->id + identity_offset,
+                    restored->info->active_camera_node == camera_node.local_id() + identity_offset,
                 "scene metadata and active camera survive round trip"))
     {
         return false;
@@ -395,12 +401,10 @@ bool round_trip(std::vector<std::uint8_t>& bytes)
     const auto decoded_root = find_node(*restored, "Root");
     if (!expect(decoded_cube != nullptr && decoded_camera != nullptr && decoded_light != nullptr &&
                     decoded_root != nullptr &&
-                    decoded_cube->info->properties->id ==
-                        cube_node.info().properties->id + identity_offset &&
-                    decoded_cube->info->parent_id == root.info().properties->id + identity_offset &&
-                    decoded_camera->info->parent_id ==
-                        root.info().properties->id + identity_offset &&
-                    decoded_light->info->parent_id == root.info().properties->id + identity_offset,
+                    decoded_cube->info->properties->id == cube_node.local_id() + identity_offset &&
+                    decoded_cube->info->parent_id == root.local_id() + identity_offset &&
+                    decoded_camera->info->parent_id == root.local_id() + identity_offset &&
+                    decoded_light->info->parent_id == root.local_id() + identity_offset,
                 "node identities and parent links survive round trip"))
     {
         return false;
@@ -465,8 +469,8 @@ bool round_trip(std::vector<std::uint8_t>& bytes)
                     loaded_camera.add_component<engine::Camera>().valid() &&
                     loaded_environment.restore_data(*environment_data) &&
                     loaded_post_process.restore_data(*post_process_data) &&
-                    loaded_environment.settings() == environment_settings &&
-                    loaded_post_process.settings() == post_process_settings,
+                    test_support::read_settings(loaded_environment) == environment_settings &&
+                    test_support::read_settings(loaded_post_process) == post_process_settings,
                 "public component contract restores environment and post-process behavior"))
     {
         return false;

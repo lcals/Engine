@@ -1,5 +1,6 @@
 #include "resource_fixture.hpp"
 #include "resource_services.hpp"
+#include "scene_snapshot.hpp"
 
 #include "runtime/engine_config.hpp"
 #include "runtime/scene/ecs_storage.hpp"
@@ -49,7 +50,7 @@ bool producer_transform_drive()
     auto child = scene ? scene->create_node("Child") : Node{};
     auto light = owner.add_component<Light>();
     auto transform = child.get_component<Transform>();
-    auto settings = transform.settings();
+    auto settings = test_support::read_settings(transform);
     settings.position = {1, 0, 0};
     if (!light || !child.set_parent(owner) || !transform.set_settings(settings))
     {
@@ -103,7 +104,7 @@ bool scene_lifetime_phases()
     auto* active = world.create_scene("Active");
     auto node = active ? active->create_node("Retained until safe point") : Node{};
     schema::SceneDataT snapshot;
-    engine::resource_detail::ResourceReference resource;
+    engine::ResourceReference resource;
     if (!node || !active->build_data(snapshot) || !fixture.add("phases.scene", snapshot) ||
         !fixture.publish(resources) || !services.load("phases.scene", resource))
     {
@@ -249,7 +250,8 @@ bool check()
         }
     }
     ecs_readonly_begin(world.native_world(), true);
-    const bool readonly_safe = original.valid() && original.settings().position.x() == 0 &&
+    const bool readonly_safe = original.valid() &&
+                               test_support::read_settings(original).position.x() == 0 &&
                                !root.set_enabled(false) && !scene->create_node("Rejected") &&
                                !nodes.front().remove_component(Transform::component_type);
     ecs_readonly_end(world.native_world());

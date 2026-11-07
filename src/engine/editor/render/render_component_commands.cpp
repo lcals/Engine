@@ -33,19 +33,21 @@ std::string configured_path(ResourceLoader* loader, std::string_view guid)
 }
 
 bool retain_resource(ResourceLoader* loader, std::string_view guid,
-                     std::vector<schema::AssetEntryT>& versions, std::string& error)
+                     std::vector<schema::AssetEntryT>& versions,
+                     std::vector<ResourceReference>& prepared, std::string& error)
 {
     if (guid.empty())
     {
         return true;
     }
-    resource_access::ResourceReference resource;
+    ResourceReference resource;
     if (!resource_access::load(loader, guid, resource))
     {
         error = "Cannot retain the configured resource version";
         return false;
     }
     versions.push_back(resource->info());
+    prepared.push_back(std::move(resource));
     return true;
 }
 
@@ -89,7 +91,12 @@ bool prepare_planar(WorldSystem& world, SceneCommands& scene_commands, const Jso
     after.payload.Set(PlanarReflectionSettings{});
     if (component)
     {
-        before = component.data();
+        before.emplace();
+        if (!component.get_data(*before))
+        {
+            error = "Cannot read component settings";
+            return false;
+        }
         after = *before;
     }
     auto& settings = *after.payload.AsPlanarReflectionData();
@@ -132,12 +139,19 @@ bool prepare_probe(WorldSystem& world, SceneCommands& scene_commands, const Json
     after.flags = std::make_unique<schema::ComponentFlagsT>();
     after.payload.Set(LightProbeVolumeSettings{});
     std::vector<schema::AssetEntryT> versions;
+    std::vector<ResourceReference> prepared;
     if (component)
     {
-        before = component.data();
+        before.emplace();
+        if (!component.get_data(*before))
+        {
+            error = "Cannot read component settings";
+            return false;
+        }
         after = *before;
-        if (!retain_resource(world.resource_loader(), component.settings().probes_guid, versions,
-                             error))
+        if (!retain_resource(world.resource_loader(),
+                             after.payload.AsLightProbeVolumeData()->probes_guid, versions,
+                             prepared, error))
         {
             return false;
         }
@@ -156,10 +170,11 @@ bool prepare_probe(WorldSystem& world, SceneCommands& scene_commands, const Json
         }
         const auto path = arguments["resource"].get<std::string>();
         settings.probes_guid.clear();
-        if (!path.empty() &&
-            (!resource_access::load_guid(world.resource_loader(), path, settings.probes_guid) ||
-             !retain_resource(world.resource_loader(), settings.probes_guid, versions, error) ||
-             versions.back().kind != schema::AssetKind::light_probe))
+        if (!path.empty() && (!resource_access::prepare_guid(world.resource_loader(), path,
+                                                             settings.probes_guid, prepared) ||
+                              !retain_resource(world.resource_loader(), settings.probes_guid,
+                                               versions, prepared, error) ||
+                              versions.back().kind != schema::AssetKind::light_probe))
         {
             error = "resource must identify a light-probe resource in the current catalog";
             return false;
@@ -169,7 +184,7 @@ bool prepare_probe(WorldSystem& world, SceneCommands& scene_commands, const Json
               {"nodeId", std::to_string(node.id())}};
     edit = std::make_unique<components::ComponentEdit>(
         world, node.scene()->id(), scene_commands.node_identity(node.id()), std::move(before),
-        std::move(after), std::move(versions));
+        std::move(after), std::move(versions), ComponentType::NONE, std::move(prepared));
     return true;
 }
 
@@ -181,13 +196,18 @@ public:
                      const MeshRenderer& mesh, Json arguments)
         : world_(world), identity_(std::move(identity)), scene_id_(mesh.node().scene()->id()),
           node_id_(mesh.node().id()), instance_(mesh.instance_id()),
-          revision_(mesh.mesh_revision()), before_(mesh.data()), after_(before_),
-          arguments_(std::move(arguments))
+          revision_(mesh.mesh_revision()), arguments_(std::move(arguments))
     {
     }
 
     bool prepare(const MeshRenderer& mesh, std::string& error)
     {
+        if (!mesh.get_data(before_))
+        {
+            error = "Cannot read mesh settings";
+            return false;
+        }
+        after_ = before_;
         auto* settings = after_.payload.AsMeshRendererData();
         for (const auto* name : {"castShadows", "bakeStatic"})
         {
@@ -235,10 +255,13 @@ public:
         after_path_ = arguments_["lightmap"].get<std::string>();
         Guid requested;
         if ((!after_path_.empty() &&
-             !resource_access::load_guid(world_.resource_loader(), after_path_, requested)) ||
-            !retain_resource(world_.resource_loader(), settings->mesh_guid, versions_, error) ||
-            !retain_resource(world_.resource_loader(), settings->lightmap_guid, versions_, error) ||
-            !retain_resource(world_.resource_loader(), requested, versions_, error))
+             !resource_access::prepare_guid(world_.resource_loader(), after_path_, requested,
+                                            prepared_)) ||
+            !retain_resource(world_.resource_loader(), settings->mesh_guid, versions_, prepared_,
+                             error) ||
+            !retain_resource(world_.resource_loader(), settings->lightmap_guid, versions_,
+                             prepared_, error) ||
+            !retain_resource(world_.resource_loader(), requested, versions_, prepared_, error))
         {
             if (error.empty())
             {
@@ -251,6 +274,7 @@ public:
 
     bool apply(std::string& error) override
     {
+        auto prepared = std::move(prepared_);
         return change(before_, after_, after_path_, true, error);
     }
     bool revert(std::string& error) override
@@ -266,15 +290,16 @@ private:
         auto node = scene && scene->id() == scene_id_ ? scene->find_node(*identity_) : Node{};
         auto mesh = node ? node.get_component<MeshRenderer>() : MeshRenderer{};
         const bool recreated = node && node.id() != node_id_;
-        if (!mesh ||
+        schema::ComponentDataT current;
+        if (!mesh.get_data(current) ||
             (!recreated &&
              (mesh.instance_id() != instance_ || mesh.mesh_revision() != revision_)) ||
-            mesh.data() != expected)
+            current != expected)
         {
             error = "Mesh or lighting settings changed outside this edit";
             return false;
         }
-        std::vector<resource_access::ResourceReference> pins;
+        std::vector<ResourceReference> pins;
         if (arguments_.contains("lightmap"))
         {
             const auto transform = node.get_component<Transform>();
@@ -309,9 +334,10 @@ private:
         {
             mesh.set_cast_shadows(desired->cast_shadows);
         }
-        if (applying)
+        if (applying && !mesh.get_data(replacement))
         {
-            replacement = mesh.data();
+            error = "Cannot read applied mesh settings";
+            return false;
         }
         node_id_ = node.id();
         instance_ = mesh.instance_id();
@@ -332,6 +358,7 @@ private:
     std::string after_path_;
     std::array<float, 16> transform_{};
     std::vector<schema::AssetEntryT> versions_;
+    std::vector<ResourceReference> prepared_;
 };
 
 bool prepare_mesh(WorldSystem& world, SceneCommands& scene_commands, const Json& arguments,
@@ -368,24 +395,38 @@ bool prepare_mesh(WorldSystem& world, SceneCommands& scene_commands, const Json&
 
 nlohmann::json planar_reflection_json(const PlanarReflectionComponent& component)
 {
+    PlanarReflectionSettings settings;
+    if (!component.get_settings(settings))
+    {
+        return nullptr;
+    }
     return {{"enabled", component.enabled()},
-            {"resolutionScale", component.settings().resolution_scale},
-            {"clipBias", component.settings().clip_bias}};
+            {"resolutionScale", settings.resolution_scale},
+            {"clipBias", settings.clip_bias}};
 }
 
 nlohmann::json light_probe_volume_json(const LightProbeVolumeComponent& component)
 {
+    LightProbeVolumeSettings settings;
+    if (!component.get_settings(settings))
+    {
+        return nullptr;
+    }
     return {{"enabled", component.enabled()},
             {"resource", configured_path(component.node().scene()->world().resource_loader(),
-                                         component.settings().probes_guid)},
-            {"resourceGuid", component.settings().probes_guid},
+                                         settings.probes_guid)},
+            {"resourceGuid", settings.probes_guid},
             {"valid", resource_access::get(component.node().scene()->world().resource_loader(),
                                            component.resource()) != nullptr}};
 }
 
 nlohmann::json mesh_lighting_json(const MeshRenderer& component)
 {
-    const auto snapshot = component.data();
+    schema::ComponentDataT snapshot;
+    if (!component.get_data(snapshot))
+    {
+        return {};
+    }
     const auto* settings = snapshot.payload.AsMeshRendererData();
     if (!settings)
     {

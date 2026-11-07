@@ -86,7 +86,7 @@ bool empty(const engine::PhysicsQueryHit& hit)
 bool position(engine::Node node, const engine::Vec3& value)
 {
     auto transform = node.get_component<engine::Transform>();
-    auto settings = transform.settings();
+    auto settings = test_support::read_settings(transform);
     settings.position = value;
     return transform.set_settings(settings);
 }
@@ -113,7 +113,7 @@ struct Fixture
         {
             return {};
         }
-        auto shape = collider.settings();
+        auto shape = test_support::read_settings(collider);
         shape.half_extents = extents;
         shape.is_trigger = trigger;
         shape.restitution = 0;
@@ -128,7 +128,7 @@ struct Fixture
             {
                 return {};
             }
-            auto settings = body.settings();
+            auto settings = test_support::read_settings(body);
             settings.motion = motion;
             settings.gravity_factor = 0;
             settings.linear_damping = 0;
@@ -149,7 +149,7 @@ struct Fixture
         {
             return {};
         }
-        auto settings = motor.settings();
+        auto settings = test_support::read_settings(motor);
         settings.gravity_factor = 0;
         settings.external_damping = 0;
         return motor.set_settings(settings) ? node : engine::Node{};
@@ -494,7 +494,7 @@ bool resting_contacts_and_substeps()
         return false;
     }
     auto body = falling.get_component<engine::RigidBody>();
-    auto settings = body.settings();
+    auto settings = test_support::read_settings(body);
     settings.gravity_factor = 1;
     if (!body.set_settings(settings))
     {
@@ -720,7 +720,7 @@ bool contact_type_changes()
     auto previous = started.front();
     for (const bool trigger : {true, false})
     {
-        auto settings = collider.settings();
+        auto settings = test_support::read_settings(collider);
         settings.is_trigger = trigger;
         if (!collider.set_settings(settings) || !fixture.physics.tick(fixed_step))
         {
@@ -802,7 +802,8 @@ bool character_trigger_contacts()
     if (!expect(phases[static_cast<std::size_t>(PhysicsContactPhase::begin)] &&
                     phases[static_cast<std::size_t>(PhysicsContactPhase::stay)] &&
                     phases[static_cast<std::size_t>(PhysicsContactPhase::end)] &&
-                    character.get_component<engine::Transform>().settings().position.x() > 3,
+                    test_support::read_settings(character.get_component<engine::Transform>())
+                            .position.x() > 3,
                 "walking through a trigger gives begin/stay/end without blocking the motor"))
     {
         return false;
@@ -899,7 +900,8 @@ bool transient_contact_in_one_tick()
     if (!expect(current.size() >= 2 && current.front().phase == PhysicsContactPhase::begin &&
                     current.back().phase == PhysicsContactPhase::end &&
                     current.front().step < current.back().step &&
-                    character.get_component<engine::Transform>().settings().position.x() > 1.5,
+                    test_support::read_settings(character.get_component<engine::Transform>())
+                            .position.x() > 1.5,
                 "one host tick preserves both entry and exit of a fast character trigger crossing"))
     {
         return false;
@@ -942,7 +944,7 @@ bool persistent_world_objects()
     const auto moving_id = object(moving, PhysicsObjectKind::collider);
     const auto character_id = object(character, PhysicsObjectKind::character);
     auto body = moving.get_component<engine::RigidBody>();
-    auto motion = body.settings();
+    auto motion = test_support::read_settings(body);
     motion.linear_velocity = {1, 0, 0};
     if (!body.set_settings(motion) ||
         !character.get_component<engine::CharacterMotor>().set_velocity({1, 0, 0}) ||
@@ -952,7 +954,8 @@ bool persistent_world_objects()
     {
         return false;
     }
-    const auto x = moving.get_component<engine::Transform>().settings().position.x();
+    const auto x =
+        test_support::read_settings(moving.get_component<engine::Transform>()).position.x();
     fixture.world.unload_scene();
     if (!expect(fixture.world.scene() == nullptr && fixture.physics.is_object_valid(moving_id) &&
                     fixture.physics.is_object_valid(character_id) &&
@@ -966,10 +969,13 @@ bool persistent_world_objects()
                     fixture.physics.is_object_valid(sensor_id),
                 "persistent receiver gets one exit for its unloaded contact") ||
         !fixture.physics.tick(fixed_step) ||
-        !expect(moving.get_component<engine::Transform>().settings().position.x() > x &&
-                    body.settings().linear_velocity.x() > 0.99 &&
-                    character.get_component<engine::Transform>().settings().position.x() > 10,
-                "retained physics advances and preserves velocity without an active scene") ||
+        !expect(
+            test_support::read_settings(moving.get_component<engine::Transform>()).position.x() >
+                    x &&
+                test_support::read_settings(body).linear_velocity.x() > 0.99 &&
+                test_support::read_settings(character.get_component<engine::Transform>())
+                        .position.x() > 10,
+            "retained physics advances and preserves velocity without an active scene") ||
         fixture.world.create_scene("New gameplay") == nullptr)
     {
         return false;
@@ -1030,7 +1036,7 @@ bool cross_scene_impacts()
         return false;
     }
     auto body = falling.get_component<engine::RigidBody>();
-    auto motion = body.settings();
+    auto motion = test_support::read_settings(body);
     motion.linear_velocity = {0, -6, 0};
     if (!body.set_settings(motion))
     {

@@ -21,7 +21,12 @@ bool snapshot(const Node& node, schema::NodeDataT& output)
     {
         return false;
     }
-    output.info = std::make_unique<schema::NodeInfoT>(node.info());
+    output.info = std::make_unique<schema::NodeInfoT>();
+    if (!node.build_info(*output.info))
+    {
+        output = {};
+        return false;
+    }
     std::vector<Component> components;
     if (!node.collect_components(components))
     {
@@ -65,7 +70,7 @@ public:
             error = "Model instance targets a stale scene";
             return false;
         }
-        std::vector<resource_access::ResourceReference> pins;
+        std::vector<ResourceReference> pins;
         if (!resource_access::load_versions(loader, versions_, pins))
         {
             error = "Model resources changed; the prepared edit is stale";
@@ -136,7 +141,7 @@ public:
             }
             for (const auto& instance : instances)
             {
-                if (instance.root_id == root.info().properties->id)
+                if (instance.root_id == root.local_id())
                 {
                     prefab_snapshot_ = instance;
                 }
@@ -251,7 +256,7 @@ bool prepare_hierarchy(WorldSystem& world, NodeAliases& aliases, const Json& arg
         error = "Model instance name must contain 1..128 bytes";
         return false;
     }
-    resource_access::ResourceReference model;
+    ResourceReference model;
     std::vector<schema::AssetEntryT> retained;
     if (!resource_access::load(world.resource_loader(), path, model) ||
         (prefab ? !model.data<PrefabResource>() : !model.data<ModelResource>()) ||

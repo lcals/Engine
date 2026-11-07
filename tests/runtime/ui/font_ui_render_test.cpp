@@ -339,7 +339,7 @@ struct Systems
         {
             return nullptr;
         }
-        engine::resource_detail::ResourceReference resource;
+        engine::ResourceReference resource;
         if (!resource.adopt(&tracked, handle))
         {
             return nullptr;
@@ -357,7 +357,7 @@ struct Systems
         {
             return false;
         }
-        engine::resource_detail::ResourceReference resource;
+        engine::ResourceReference resource;
         return resource.adopt(&tracked, handle) && component.set_document(path);
     }
     const engine::schema::UiDocumentDataT* document(engine::UiComponent component)
@@ -792,7 +792,7 @@ bool custom_shader_scenes(Systems& systems, const fs::path& project, const fs::p
     {
         if (auto component = node.get_component<engine::TextComponent>())
         {
-            auto settings = component.settings();
+            auto settings = test_support::read_settings(component);
             settings.shader_path = custom_shader;
             if (!expect(component.set_settings(settings), "3D text accepts a project font shader"))
             {

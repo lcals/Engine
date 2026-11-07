@@ -9,6 +9,6 @@ namespace engine
 {
 struct LightProbeVolumeComponentRuntime
 {
-    resource_detail::ResourceReference resource_;
+    ResourceReference resource_;
 };
 } // namespace engine
