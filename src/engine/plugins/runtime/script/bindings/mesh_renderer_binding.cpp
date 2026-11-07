@@ -1,4 +1,5 @@
 #include "plugins/runtime/script/bindings/mesh_renderer_binding.hpp"
+#include "plugins/runtime/script/bindings/binding_helpers.hpp"
 
 #include "plugins/runtime/script/bindings/binding_context.hpp"
 #include "runtime/scene/mesh_renderer.hpp"
@@ -63,12 +64,6 @@ Object.freeze(MeshRenderer.prototype);
 Object.freeze(MeshRenderer);
 )js";
 
-void add(const Arguments& arguments)
-{
-    auto node = BindingContext::node(arguments);
-    arguments.set_return(arguments.count() == 2 && node.valid() &&
-                         node.add_component<MeshRenderer>().valid());
-}
 void mesh(const Arguments& arguments)
 {
     auto node = BindingContext::node(arguments);
@@ -181,7 +176,8 @@ std::string_view MeshRendererBinding::source() const noexcept
 bool MeshRendererBinding::register_functions(vm::ScriptVm& vm) const
 {
     return vm.integer("MeshRendererKind", static_cast<int>(MeshRenderer::component_type)) &&
-           vm.function("MeshRendererAdd", add) && vm.function("MeshRendererMesh", mesh) &&
+           vm.function("MeshRendererAdd", binding_detail::add_component<MeshRenderer>) &&
+           vm.function("MeshRendererMesh", mesh) &&
            vm.function("MeshRendererStaticInstancing", static_feature, 0) &&
            vm.function("MeshRendererStaticLod", static_feature, 1) &&
            vm.function("MeshRendererSetStaticInstancing", set_static_feature, 0) &&

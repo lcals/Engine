@@ -103,48 +103,41 @@ struct MeshHotspotOptions
     bool allow_rotation = true;
 };
 
-class MeshGeometry final
+namespace mesh
 {
-public:
-    // 操作仅依赖模型数据。所有失败均保持传入模型/输出模型不变。
-    [[nodiscard]] static bool sweep(const MeshSweepOptions& options,
-                                    schema::EditableMeshDataT& output, std::string& error);
-    [[nodiscard]] static bool lathe(const MeshLatheOptions& options,
-                                    schema::EditableMeshDataT& output, std::string& error);
-    [[nodiscard]] static bool mirror(schema::EditableMeshDataT& data,
-                                     const MeshMirrorOptions& options, std::string& error);
-    [[nodiscard]] static bool clip(schema::EditableMeshDataT& data, const MeshClipOptions& options,
-                                   std::string& error);
-    [[nodiscard]] static bool boolean_operation(schema::EditableMeshDataT& data,
-                                                const schema::EditableMeshDataT& other,
-                                                MeshBooleanOperation operation, std::string& error);
-    // 选择真实拓扑边；当前接受闭合凸多面体，不对凹体执行全局切平面近似。
-    [[nodiscard]] static bool bevel(schema::EditableMeshDataT& data,
-                                    const MeshBevelOptions& options, std::string& error);
-    [[nodiscard]] static bool project_uv(schema::EditableMeshDataT& data,
-                                         std::span<const std::uint64_t> faces,
-                                         const MeshUvProjectionOptions& options,
-                                         std::string& error);
-    [[nodiscard]] static bool transform_uv(schema::EditableMeshDataT& data,
-                                           std::span<const std::uint64_t> faces,
-                                           const MeshUvTransformOptions& options,
-                                           std::string& error);
-    [[nodiscard]] static bool unwrap_uv(schema::EditableMeshDataT& data,
-                                        std::span<const std::uint64_t> faces,
-                                        const MeshUvUnwrapOptions& options, std::string& error);
-    // 独立平面岛是另一项操作，不代替 xatlas 跨面图表展开。
-    [[nodiscard]] static bool unwrap_face_uv(schema::EditableMeshDataT& data,
-                                             std::span<const std::uint64_t> faces,
-                                             const MeshUvUnwrapOptions& options,
-                                             std::string& error);
-    [[nodiscard]] static bool hotspot_uv(schema::EditableMeshDataT& data,
-                                         std::span<const std::uint64_t> faces,
-                                         const MeshHotspotOptions& options, std::string& error);
-    [[nodiscard]] static bool set_smoothing(schema::EditableMeshDataT& data,
-                                            std::span<const std::uint64_t> faces,
-                                            std::uint32_t group, std::string& error);
-    [[nodiscard]] static bool auto_smooth(schema::EditableMeshDataT& data, double angle_degrees,
-                                          std::string& error);
-};
+// 操作仅依赖模型数据。所有失败均保持传入模型/输出模型不变。
+[[nodiscard]] bool sweep(const MeshSweepOptions& options, schema::EditableMeshDataT& output,
+                         std::string& error);
+[[nodiscard]] bool lathe(const MeshLatheOptions& options, schema::EditableMeshDataT& output,
+                         std::string& error);
+[[nodiscard]] bool mirror(schema::EditableMeshDataT& data, const MeshMirrorOptions& options,
+                          std::string& error);
+[[nodiscard]] bool clip(schema::EditableMeshDataT& data, const MeshClipOptions& options,
+                        std::string& error);
+[[nodiscard]] bool boolean_operation(schema::EditableMeshDataT& data,
+                                     const schema::EditableMeshDataT& other,
+                                     MeshBooleanOperation operation, std::string& error);
+// 选择真实拓扑边；当前接受闭合凸多面体，不对凹体执行全局切平面近似。
+[[nodiscard]] bool bevel(schema::EditableMeshDataT& data, const MeshBevelOptions& options,
+                         std::string& error);
+[[nodiscard]] bool project_uv(schema::EditableMeshDataT& data, std::span<const std::uint64_t> faces,
+                              const MeshUvProjectionOptions& options, std::string& error);
+[[nodiscard]] bool transform_uv(schema::EditableMeshDataT& data,
+                                std::span<const std::uint64_t> faces,
+                                const MeshUvTransformOptions& options, std::string& error);
+[[nodiscard]] bool unwrap_uv(schema::EditableMeshDataT& data, std::span<const std::uint64_t> faces,
+                             const MeshUvUnwrapOptions& options, std::string& error);
+// 独立平面岛是另一项操作，不代替 xatlas 跨面图表展开。
+[[nodiscard]] bool unwrap_face_uv(schema::EditableMeshDataT& data,
+                                  std::span<const std::uint64_t> faces,
+                                  const MeshUvUnwrapOptions& options, std::string& error);
+[[nodiscard]] bool hotspot_uv(schema::EditableMeshDataT& data, std::span<const std::uint64_t> faces,
+                              const MeshHotspotOptions& options, std::string& error);
+[[nodiscard]] bool set_smoothing(schema::EditableMeshDataT& data,
+                                 std::span<const std::uint64_t> faces, std::uint32_t group,
+                                 std::string& error);
+[[nodiscard]] bool auto_smooth(schema::EditableMeshDataT& data, double angle_degrees,
+                               std::string& error);
+} // namespace mesh
 
 } // namespace engine::plugins::modeling

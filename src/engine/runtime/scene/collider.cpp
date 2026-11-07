@@ -91,8 +91,9 @@ bool Collider::valid_settings(const schema::ColliderDataT& value,
 
 schema::ColliderDataT Collider::settings() const noexcept
 {
-    const auto* value = read_data<Data>();
-    return value ? *value : Data{};
+    Data output{};
+    (void)get_settings(output);
+    return output;
 }
 
 bool Collider::get_settings(Data& output) const noexcept
@@ -103,6 +104,11 @@ bool Collider::get_settings(Data& output) const noexcept
 }
 
 bool Collider::set_settings(const schema::ColliderDataT& value)
+{
+    return apply_settings(value, {});
+}
+
+bool Collider::apply_settings(const Data& value, resource_detail::ResourceReference prepared)
 {
     if (!writable())
     {
@@ -132,10 +138,11 @@ bool Collider::set_settings(const schema::ColliderDataT& value)
         }
         else if (!replacement || value.mesh_guid != settings().mesh_guid)
         {
-            replacement.reset();
+            replacement = std::move(prepared);
             auto* resources = node().world()->resource_loader();
             if (resources == nullptr ||
-                !ecs_detail::acquire_resource(node(), value.mesh_guid, replacement) ||
+                (!replacement &&
+                 !ecs_detail::acquire_resource(node(), value.mesh_guid, replacement)) ||
                 !replacement || replacement.data<MeshResource>() == nullptr)
             {
                 return false;
@@ -211,14 +218,19 @@ bool Collider::set_mesh(std::string_view path)
     {
         return false;
     }
+    resource_detail::ResourceReference prepared;
     auto replacement = settings();
-    if (!ecs_detail::resource_guid(node(), path, replacement.mesh_guid))
+    if (!ecs_detail::acquire_resource(node(), path, prepared))
     {
         return false;
     }
+    if (prepared)
+    {
+        replacement.mesh_guid = prepared->info().guid;
+    }
     replacement.shape = schema::ColliderShape::mesh;
     replacement.hulls.clear();
-    return set_settings(replacement);
+    return apply_settings(replacement, std::move(prepared));
 }
 
 std::string_view Collider::mesh_path() const noexcept

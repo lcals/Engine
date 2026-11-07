@@ -55,12 +55,12 @@ struct Target
     {
     }
 
-    std::uint64_t resolved_id() const noexcept
+    [[nodiscard]] std::uint64_t resolved_id() const noexcept
     {
         return identity ? *identity : node_id;
     }
 
-    Node node(std::string& error) const
+    [[nodiscard]] Node node(std::string& error) const
     {
         auto* scene = world.scene();
         if (scene == nullptr || scene->id() != scene_id)
@@ -76,7 +76,7 @@ struct Target
         return found;
     }
 
-    bool read(const Json& arguments, std::string& error)
+    [[nodiscard]] bool read(const Json& arguments, std::string& error)
     {
         if (!identifier(arguments, "sceneId", scene_id) ||
             !identifier(arguments, "nodeId", node_id))
@@ -111,6 +111,42 @@ struct Target
                                      std::vector<schema::AssetEntryT>& versions,
                                      std::string& error);
 
+template <class DataT> class PropertyEdit final : public EditorEdit
+{
+public:
+    using ChangeFields = bool (*)(const Target&, const DataT&, const DataT&, std::uint64_t,
+                                  std::string&);
+
+    PropertyEdit(Target target, DataT before, DataT after, std::uint64_t fields,
+                 ChangeFields change)
+        : target_(std::move(target)), before_(std::move(before)), after_(std::move(after)),
+          fields_(fields), change_(change)
+    {
+    }
+
+    PropertyEdit(const PropertyEdit&) = delete;
+    PropertyEdit& operator=(const PropertyEdit&) = delete;
+    PropertyEdit(PropertyEdit&&) = delete;
+    PropertyEdit& operator=(PropertyEdit&&) = delete;
+
+    [[nodiscard]] bool apply(std::string& error) override
+    {
+        return change_(target_, before_, after_, fields_, error);
+    }
+
+    [[nodiscard]] bool revert(std::string& error) override
+    {
+        return change_(target_, after_, before_, fields_, error);
+    }
+
+private:
+    Target target_;
+    DataT before_;
+    DataT after_;
+    std::uint64_t fields_;
+    ChangeFields change_;
+};
+
 class ComponentEdit final : public EditorEdit
 {
 public:
@@ -125,9 +161,7 @@ private:
     [[nodiscard]] bool replace(const std::optional<schema::ComponentDataT>& expected,
                                const std::optional<schema::ComponentDataT>& value,
                                std::string& error);
-    WorldSystem& world_;
-    std::uint64_t scene_;
-    std::shared_ptr<std::uint64_t> node_;
+    Target target_;
     ComponentType type_;
     std::optional<schema::ComponentDataT> before_;
     schema::ComponentDataT after_;

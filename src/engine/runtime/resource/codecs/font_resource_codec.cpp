@@ -1,6 +1,6 @@
 #include "runtime/resource/codecs/font_resource_codec.hpp"
+#include "runtime/resource/codecs/resource_decode.hpp"
 
-#include <flatbuffers/verifier.h>
 #include <set>
 
 #include <algorithm>
@@ -103,34 +103,27 @@ schema::AssetKind FontResourceCodec::kind() const noexcept
 bool FontResourceCodec::decode(const schema::AssetEntryT& entry, ByteView payload,
                                std::unique_ptr<Resource>& output, std::string& error) const
 {
-    if (output)
+    const auto validate = [](ByteView payload, std::string& error)
     {
-        error = "Resource output must be empty";
-        return false;
-    }
-    error.clear();
-    if (entry.kind != kind() || payload.empty() || payload.size() > 64U * 1024U * 1024U)
-    {
-        error = "Invalid resource kind or payload size";
-        return false;
-    }
-    const auto* bytes = reinterpret_cast<const std::uint8_t*>(payload.data());
-    flatbuffers::Verifier verifier(bytes, payload.size());
-    if (!schema::VerifyFontDataBuffer(verifier))
-    {
-        error = "Invalid Font FlatBuffer";
-        return false;
-    }
-    const auto* encoded = schema::GetFontData(bytes);
-    if (encoded->glyphs()->size() > maximum_glyphs || encoded->curves()->size() > maximum_curves ||
-        (encoded->kerning() && encoded->kerning()->size() > maximum_kerning))
-    {
-        error = "Font payload limit exceeded";
-        return false;
-    }
-    auto data = schema::UnPackFontData(bytes);
-    output = std::make_unique<ResourceType>(entry, std::move(*data));
-    return true;
+        if (!resource_decode_detail::verify_flatbuffer(payload, schema::VerifyFontDataBuffer,
+                                                       "Invalid Font FlatBuffer", error))
+        {
+            return false;
+        }
+        const auto* bytes = reinterpret_cast<const std::uint8_t*>(payload.data());
+        const auto* encoded = schema::GetFontData(bytes);
+        if (encoded->glyphs()->size() > maximum_glyphs ||
+            encoded->curves()->size() > maximum_curves ||
+            (encoded->kerning() && encoded->kerning()->size() > maximum_kerning))
+        {
+            error = "Font payload limit exceeded";
+            return false;
+        }
+        return true;
+    };
+    return resource_decode_detail::decode_flatbuffer<ResourceType>(
+        entry, payload, 64U * 1024U * 1024U, validate,
+        [](const std::uint8_t* bytes) { return schema::UnPackFontData(bytes); }, output, error);
 }
 
 bool FontResourceCodec::validate_data(const Resource& resource, std::string& error) const

@@ -29,8 +29,9 @@ bool Transform::register_type(ComponentRegistry& registry)
 
 TransformSettings Transform::settings() const noexcept
 {
-    const auto* value = read_data<Data>();
-    return value ? *value : Data{};
+    Data output{};
+    (void)get_settings(output);
+    return output;
 }
 
 bool Transform::get_settings(Data& output) const noexcept

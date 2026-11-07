@@ -73,6 +73,8 @@ classDiagram
     McpHost ..> register_ui_editor_tools : 宿主启动时调用
     register_ui_editor_tools --> EditorMcpTools : 借用固定目标通道
     register_ui_editor_tools ..> McpSystem : 注册工具
+    class mcp_functions
+    register_ui_editor_tools ..> mcp_functions : 精简目标 共用命令登记
     McpSystem --> EditorMcpTools : 工具回调直接借用通道
     register_ui_editor_tools ..> UiEditorCommands : 经通道转发
 ```
@@ -239,3 +241,5 @@ sequenceDiagram
 - 宿主在 Run 身份变更、停止和关闭之前调用取消，插件自身也检查窗口逻辑/像素尺寸与文档身份。临时 View 文字变更不会触发全局代次。
 
 `register_ui_editor_tools` 是模块登记函数，没有适配器对象或独立状态；工具回调直接借用 EditorMcpTools，宿主保证通道存活到 McpSystem 关闭。
+
+**登记精简已实现：** 直接转发项使用[共用工具登记函数](editor-mcp-tools.md#共用工具登记目标)，工具名、schema、命令名和回执语义保持。原有特定参数转换仍由本模块执行，不迁入公共登记函数。

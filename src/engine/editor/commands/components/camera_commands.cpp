@@ -6,85 +6,67 @@ namespace engine::editor::components
 {
 namespace
 {
-class CameraEdit final : public EditorEdit
-{
-public:
-    explicit CameraEdit(Target value) : target(value)
-    {
-    }
-    Target target;
-    CameraSettings before;
-    CameraSettings after;
-    bool projection = false;
-    bool fov = false;
-    bool near_clip = false;
-    bool far_clip = false;
-    bool size = false;
-    bool frustum_culling = false;
-    bool apply(std::string& error) override
-    {
-        return change(before, after, error);
-    }
-    bool revert(std::string& error) override
-    {
-        return change(after, before, error);
-    }
+constexpr std::uint64_t projection_field = std::uint64_t{1} << 0;
+constexpr std::uint64_t fov_field = std::uint64_t{1} << 1;
+constexpr std::uint64_t near_clip_field = std::uint64_t{1} << 2;
+constexpr std::uint64_t far_clip_field = std::uint64_t{1} << 3;
+constexpr std::uint64_t size_field = std::uint64_t{1} << 4;
+constexpr std::uint64_t frustum_culling_field = std::uint64_t{1} << 5;
 
-private:
-    bool change(const CameraSettings& expected, const CameraSettings& replacement,
-                std::string& error)
+[[nodiscard]] bool change_camera(const Target& target, const CameraSettings& expected,
+                                 const CameraSettings& replacement, std::uint64_t selected,
+                                 std::string& error)
+{
+    auto node = target.node(error);
+    auto camera = node ? node.get_component<Camera>() : Camera{};
+    if (!camera)
     {
-        auto node = target.node(error);
-        auto camera = node ? node.get_component<Camera>() : Camera{};
-        if (!camera)
-        {
-            error = "Camera target no longer exists";
-            return false;
-        }
-        auto current = camera.settings();
-        if ((projection && current.projection != expected.projection) ||
-            (fov && current.fov_degrees != expected.fov_degrees) ||
-            (near_clip && current.near_clip != expected.near_clip) ||
-            (far_clip && current.far_clip != expected.far_clip) ||
-            (size && current.orthographic_size != expected.orthographic_size) ||
-            (frustum_culling &&
-             current.frustum_culling_enabled != expected.frustum_culling_enabled))
-        {
-            error = "Camera changed outside this edit; undo or redo is stale";
-            return false;
-        }
-        if (projection)
-        {
-            current.projection = replacement.projection;
-        }
-        if (fov)
-        {
-            current.fov_degrees = replacement.fov_degrees;
-        }
-        if (near_clip)
-        {
-            current.near_clip = replacement.near_clip;
-        }
-        if (far_clip)
-        {
-            current.far_clip = replacement.far_clip;
-        }
-        if (size)
-        {
-            current.orthographic_size = replacement.orthographic_size;
-        }
-        if (frustum_culling)
-        {
-            current.frustum_culling_enabled = replacement.frustum_culling_enabled;
-        }
-        if (!camera.set_settings(current))
-        {
-            error = "Invalid camera settings";
-            return false;
-        }
-        return true;
+        error = "Camera target no longer exists";
+        return false;
     }
-};
+    auto current = camera.settings();
+    if (((selected & projection_field) && current.projection != expected.projection) ||
+        ((selected & fov_field) && current.fov_degrees != expected.fov_degrees) ||
+        ((selected & near_clip_field) && current.near_clip != expected.near_clip) ||
+        ((selected & far_clip_field) && current.far_clip != expected.far_clip) ||
+        ((selected & size_field) && current.orthographic_size != expected.orthographic_size) ||
+        ((selected & frustum_culling_field) &&
+         current.frustum_culling_enabled != expected.frustum_culling_enabled))
+    {
+        error = "Camera changed outside this edit; undo or redo is stale";
+        return false;
+    }
+    if (selected & projection_field)
+    {
+        current.projection = replacement.projection;
+    }
+    if (selected & fov_field)
+    {
+        current.fov_degrees = replacement.fov_degrees;
+    }
+    if (selected & near_clip_field)
+    {
+        current.near_clip = replacement.near_clip;
+    }
+    if (selected & far_clip_field)
+    {
+        current.far_clip = replacement.far_clip;
+    }
+    if (selected & size_field)
+    {
+        current.orthographic_size = replacement.orthographic_size;
+    }
+    if (selected & frustum_culling_field)
+    {
+        current.frustum_culling_enabled = replacement.frustum_culling_enabled;
+    }
+    if (!camera.set_settings(current))
+    {
+        error = "Invalid camera settings";
+        return false;
+    }
+    return true;
+}
 
 } // namespace
 
@@ -108,25 +90,25 @@ bool prepare_camera(WorldSystem& world, NodeAliases& aliases, const Json& argume
         error = "Node has no Camera";
         return false;
     }
-    auto edit = std::make_unique<CameraEdit>(target);
-    edit->before = camera.settings();
-    edit->after = edit->before;
+    const auto before = camera.settings();
+    auto after = before;
+    std::uint64_t selected = 0;
     if (arguments.contains("projection"))
     {
         if (arguments["projection"] == "perspective")
         {
-            edit->after.projection = schema::Projection::perspective;
+            after.projection = schema::Projection::perspective;
         }
         else if (arguments["projection"] == "orthographic")
         {
-            edit->after.projection = schema::Projection::orthographic;
+            after.projection = schema::Projection::orthographic;
         }
         else
         {
             error = "Unknown camera projection";
             return false;
         }
-        edit->projection = true;
+        selected |= projection_field;
     }
     if (arguments.contains("frustumCullingEnabled"))
     {
@@ -135,8 +117,8 @@ bool prepare_camera(WorldSystem& world, NodeAliases& aliases, const Json& argume
             error = "frustumCullingEnabled must be boolean";
             return false;
         }
-        edit->frustum_culling = true;
-        edit->after.frustum_culling_enabled = arguments["frustumCullingEnabled"].get<bool>();
+        selected |= frustum_culling_field;
+        after.frustum_culling_enabled = arguments["frustumCullingEnabled"].get<bool>();
     }
     for (const char* name : {"fovDegrees", "nearClip", "farClip", "orthographicSize"})
     {
@@ -153,27 +135,28 @@ bool prepare_camera(WorldSystem& world, NodeAliases& aliases, const Json& argume
         const auto number = static_cast<float>(value);
         if (std::string_view(name) == "fovDegrees")
         {
-            edit->fov = true;
-            edit->after.fov_degrees = number;
+            selected |= fov_field;
+            after.fov_degrees = number;
         }
         else if (std::string_view(name) == "nearClip")
         {
-            edit->near_clip = true;
-            edit->after.near_clip = number;
+            selected |= near_clip_field;
+            after.near_clip = number;
         }
         else if (std::string_view(name) == "farClip")
         {
-            edit->far_clip = true;
-            edit->after.far_clip = number;
+            selected |= far_clip_field;
+            after.far_clip = number;
         }
         else
         {
-            edit->size = true;
-            edit->after.orthographic_size = number;
+            selected |= size_field;
+            after.orthographic_size = number;
         }
     }
     result = {{"sceneId", std::to_string(target.scene_id)}};
-    output = std::move(edit);
+    output = std::make_unique<PropertyEdit<schema::CameraDataT>>(
+        std::move(target), before, std::move(after), selected, change_camera);
     return true;
 }
 

@@ -1,12 +1,11 @@
 #include "runtime/resource/codecs/mesh_resource_codec.hpp"
+#include "runtime/resource/codecs/resource_decode.hpp"
 
 #include "runtime/core/guid_map.hpp"
 #include "runtime/resource/codecs/model_value_utils.hpp"
 #include "runtime/resource/types/skeleton_resource.hpp"
 #include "runtime/utils/mesh_utils.hpp"
 #include <set>
-
-#include <flatbuffers/verifier.h>
 
 #include <utility>
 
@@ -57,27 +56,14 @@ schema::AssetKind MeshResourceCodec::kind() const noexcept
 bool MeshResourceCodec::decode(const schema::AssetEntryT& entry, ByteView payload,
                                std::unique_ptr<Resource>& output, std::string& error) const
 {
-    if (output)
+    const auto validate = [](ByteView payload, std::string& error)
     {
-        error = "Resource output must be empty";
-        return false;
-    }
-    error.clear();
-    if (entry.kind != kind() || payload.empty() || payload.size() > 64U * 1024U * 1024U)
-    {
-        error = "Invalid resource kind or payload size";
-        return false;
-    }
-    const auto* bytes = reinterpret_cast<const std::uint8_t*>(payload.data());
-    flatbuffers::Verifier verifier(bytes, payload.size());
-    if (!schema::VerifyMeshDataBuffer(verifier))
-    {
-        error = "Invalid Mesh FlatBuffer";
-        return false;
-    }
-    auto data = schema::UnPackMeshData(bytes);
-    output = std::make_unique<ResourceType>(entry, std::move(*data));
-    return true;
+        return resource_decode_detail::verify_flatbuffer(payload, schema::VerifyMeshDataBuffer,
+                                                         "Invalid Mesh FlatBuffer", error);
+    };
+    return resource_decode_detail::decode_flatbuffer<ResourceType>(
+        entry, payload, 64U * 1024U * 1024U, validate,
+        [](const std::uint8_t* bytes) { return schema::UnPackMeshData(bytes); }, output, error);
 }
 
 bool MeshResourceCodec::validate_data(const Resource& resource, std::string& error) const

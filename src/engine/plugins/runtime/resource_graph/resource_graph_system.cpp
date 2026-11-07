@@ -126,7 +126,6 @@ struct ResourceGraphSystem::State : std::enable_shared_from_this<State>
         std::uint64_t acquisitions = 0;
         std::uint64_t dependency_references = 0;
         std::uint64_t request_references = 0;
-        std::uint64_t task_references = 0;
         ResourceError error = ResourceError::none;
         std::string message;
     };
@@ -219,7 +218,6 @@ struct ResourceGraphSystem::State : std::enable_shared_from_this<State>
                 (void)item->read->cancel();
                 item->read.reset();
             }
-            item->task_references = 0;
             auto dependencies = std::move(item->dependencies);
             paths.erase({item->key.first, item->info.path});
             // Destroy the item before withdrawing its dependency ownership.
@@ -457,7 +455,6 @@ struct ResourceGraphSystem::State : std::enable_shared_from_this<State>
         record.message = std::move(text);
         record.candidate.reset();
         record.read.reset();
-        record.task_references = 0;
     }
 
     bool memory_inputs(const Resource& candidate, std::span<const ResourceHandle> handles,
@@ -855,7 +852,6 @@ void ResourceGraphSystem::State::advance()
                 continue;
             }
             record.phase = Phase::reading;
-            record.task_references = 1;
             --budget;
         }
         if (record.phase != Phase::reading || record.read->status() == ResourceReadStatus::reading)
@@ -870,7 +866,6 @@ void ResourceGraphSystem::State::advance()
         else
         {
             record.read.reset();
-            record.task_references = 0;
             if (!publish(record, record.candidate))
             {
                 fail_record(record, error, message);
@@ -912,8 +907,12 @@ void ResourceGraphSystem::State::advance()
         }
         if (operation->progress.completed == operation->progress.total)
         {
-            auto& root = *records.at({generation, operation->plan->root});
-            if (!acquire(root, operation->result))
+            const auto root = records.find({generation, operation->plan->root});
+            if (root == records.end())
+            {
+                finish(*operation, ResourceError::not_loaded, "Loaded root record is missing");
+            }
+            else if (!acquire(*root->second, operation->result))
             {
                 finish(*operation, error, message);
             }
@@ -1051,7 +1050,10 @@ bool ResourceGraphSystem::load(std::string_view input, ResourceHandle& output)
             return false;
         }
     }
-    const bool success = state.acquire(*state.records.at({state.generation, guid}), output);
+    const auto root = state.records.find({state.generation, guid});
+    const bool success = root != state.records.end() ? state.acquire(*root->second, output)
+                                                     : state.fail(ResourceError::not_loaded,
+                                                                  "Loaded root record is missing");
     state.unpin(scope);
     return success;
 }

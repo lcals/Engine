@@ -1,6 +1,7 @@
 #if defined(ENGINE_HAS_CHARACTER_CONTROLLER_PLUGIN) && ENGINE_HAS_CHARACTER_CONTROLLER_PLUGIN
 
 #include "plugins/runtime/script/bindings/character_controller_binding.hpp"
+#include "plugins/runtime/script/bindings/binding_helpers.hpp"
 
 #include "plugins/runtime/character_controller/character_controller.hpp"
 #include "plugins/runtime/character_controller/character_input.hpp"
@@ -30,13 +31,6 @@ componentTypes.set(CharacterController, {
 Object.freeze(CharacterController.prototype);
 Object.freeze(CharacterController);
 )js";
-
-void add(const Arguments& arguments)
-{
-    auto node = BindingContext::node(arguments);
-    arguments.set_return(arguments.count() == 2 && node.valid() &&
-                         node.add_component<character_controller::CharacterController>().valid());
-}
 
 void set_input(const Arguments& arguments)
 {
@@ -93,7 +87,8 @@ bool CharacterControllerBinding::register_functions(vm::ScriptVm& vm) const
     return vm.integer(
                "CharacterControllerKind",
                static_cast<int>(character_controller::CharacterController::component_type)) &&
-           vm.function("CharacterControllerAdd", add) &&
+           vm.function("CharacterControllerAdd",
+                       binding_detail::add_component<character_controller::CharacterController>) &&
            vm.function("CharacterControllerInput", set_input) &&
            vm.function("CharacterControllerClear", clear_input);
 }

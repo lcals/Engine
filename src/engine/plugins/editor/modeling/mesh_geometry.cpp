@@ -55,8 +55,8 @@ void reverse_face(schema::ModelingFaceT& face)
 
 } // namespace
 
-bool MeshGeometry::sweep(const MeshSweepOptions& options, schema::EditableMeshDataT& output,
-                         std::string& error)
+bool mesh::sweep(const MeshSweepOptions& options, schema::EditableMeshDataT& output,
+                 std::string& error)
 {
     if (!valid_profile(options.profile, options.closed_profile, error))
     {
@@ -189,8 +189,8 @@ bool MeshGeometry::sweep(const MeshSweepOptions& options, schema::EditableMeshDa
     return math::commit(output, std::move(candidate), error);
 }
 
-bool MeshGeometry::lathe(const MeshLatheOptions& options, schema::EditableMeshDataT& output,
-                         std::string& error)
+bool mesh::lathe(const MeshLatheOptions& options, schema::EditableMeshDataT& output,
+                 std::string& error)
 {
     if (!valid_profile(options.profile, false, error))
     {
@@ -315,15 +315,15 @@ bool MeshGeometry::lathe(const MeshLatheOptions& options, schema::EditableMeshDa
     return math::commit(output, std::move(candidate), error);
 }
 
-bool MeshGeometry::mirror(schema::EditableMeshDataT& data, const MeshMirrorOptions& options,
-                          std::string& error)
+bool mesh::mirror(schema::EditableMeshDataT& data, const MeshMirrorOptions& options,
+                  std::string& error)
 {
     error.clear();
     Point normal = math::point(options.normal);
     const double normal_length = math::length(normal);
     if (!math::normalize(normal) || !std::isfinite(options.offset) ||
         !std::isfinite(options.tolerance) || options.tolerance <= 0.0 ||
-        !EditableMesh::validate(data, error))
+        !mesh::validate(data, error))
     {
         if (error.empty())
         {

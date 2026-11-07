@@ -1,4 +1,5 @@
 #include "plugins/runtime/script/bindings/light_binding.hpp"
+#include "plugins/runtime/script/bindings/binding_helpers.hpp"
 
 #include "plugins/runtime/script/bindings/binding_context.hpp"
 #include "runtime/scene/light.hpp"
@@ -42,13 +43,6 @@ componentTypes.set(Light, { add: native.LightAdd, kind: native.LightKind });
 Object.freeze(Light.prototype);
 Object.freeze(Light);
 )js";
-
-void add(const Arguments& arguments)
-{
-    auto node = BindingContext::node(arguments);
-    arguments.set_return(arguments.count() == 2 && node.valid() &&
-                         node.add_component<Light>().valid());
-}
 
 void color(const Arguments& arguments)
 {
@@ -181,8 +175,9 @@ std::string_view LightBinding::source() const noexcept
 bool LightBinding::register_functions(vm::ScriptVm& vm) const
 {
     return vm.integer("LightKind", static_cast<int>(Light::component_type)) &&
-           vm.function("LightAdd", add) && vm.function("LightColor", color) &&
-           vm.function("LightIntensity", intensity) && vm.function("LightShadows", shadows) &&
+           vm.function("LightAdd", binding_detail::add_component<Light>) &&
+           vm.function("LightColor", color) && vm.function("LightIntensity", intensity) &&
+           vm.function("LightShadows", shadows) &&
            vm.function("LightShadowCascades", shadow_cascades) &&
            vm.function("LightDirectional", directional) && vm.function("LightPoint", point) &&
            vm.function("LightSpot", spot);

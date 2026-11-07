@@ -1,4 +1,5 @@
 #include "plugins/runtime/script/bindings/environment_component_binding.hpp"
+#include "plugins/runtime/script/bindings/binding_helpers.hpp"
 
 #include "plugins/runtime/script/bindings/binding_context.hpp"
 #include "runtime/scene/environment_component.hpp"
@@ -55,14 +56,6 @@ Object.freeze(EnvironmentComponent.prototype);
 Object.freeze(EnvironmentComponent);
 )js";
 
-EnvironmentComponent environment(const Arguments& arguments, int count)
-{
-    arguments.set_return(false);
-    auto node = BindingContext::node(arguments);
-    return node.valid() && arguments.count() == count ? node.get_component<EnvironmentComponent>()
-                                                      : EnvironmentComponent{};
-}
-
 bool read_color(const Arguments& arguments, int index, Color& output)
 {
     float r = 0.0F;
@@ -78,16 +71,9 @@ bool read_color(const Arguments& arguments, int index, Color& output)
     return true;
 }
 
-void add(const Arguments& arguments)
-{
-    auto node = BindingContext::node(arguments);
-    arguments.set_return(arguments.count() == 2 && node.valid() &&
-                         node.add_component<EnvironmentComponent>().valid());
-}
-
 void ambient(const Arguments& arguments)
 {
-    auto target = environment(arguments, 6);
+    auto target = binding_detail::component<EnvironmentComponent>(arguments, 6);
     if (!target)
     {
         return;
@@ -103,7 +89,7 @@ void ambient(const Arguments& arguments)
 
 void tricolor(const Arguments& arguments)
 {
-    auto target = environment(arguments, 12);
+    auto target = binding_detail::component<EnvironmentComponent>(arguments, 12);
     if (!target)
     {
         return;
@@ -121,7 +107,7 @@ void tricolor(const Arguments& arguments)
 
 void linear_fog(const Arguments& arguments)
 {
-    auto target = environment(arguments, 8);
+    auto target = binding_detail::component<EnvironmentComponent>(arguments, 8);
     if (!target || !arguments.is_boolean(2))
     {
         return;
@@ -138,7 +124,7 @@ void linear_fog(const Arguments& arguments)
 
 void exponential_fog(const Arguments& arguments)
 {
-    auto target = environment(arguments, 8);
+    auto target = binding_detail::component<EnvironmentComponent>(arguments, 8);
     if (!target || !arguments.is_boolean(2) || !arguments.is_boolean(7))
     {
         return;
@@ -156,7 +142,7 @@ void exponential_fog(const Arguments& arguments)
 
 void clear_color(const Arguments& arguments)
 {
-    auto target = environment(arguments, 3);
+    auto target = binding_detail::component<EnvironmentComponent>(arguments, 3);
     if (!target || !arguments.is_uint32(2))
     {
         return;
@@ -168,7 +154,7 @@ void clear_color(const Arguments& arguments)
 
 void ibl(const Arguments& arguments)
 {
-    auto target = environment(arguments, 4);
+    auto target = binding_detail::component<EnvironmentComponent>(arguments, 4);
     if (!target || !arguments.is_boolean(2))
     {
         return;
@@ -183,7 +169,7 @@ void ibl(const Arguments& arguments)
 
 void atmosphere(const Arguments& arguments)
 {
-    auto target = environment(arguments, 6);
+    auto target = binding_detail::component<EnvironmentComponent>(arguments, 6);
     auto* context = BindingContext::current(arguments);
     std::uint64_t sun_scene = 0, sun_id = 0;
     std::string text;
@@ -301,7 +287,8 @@ std::string_view EnvironmentComponentBinding::source() const noexcept
 bool EnvironmentComponentBinding::register_functions(vm::ScriptVm& vm) const
 {
     return vm.integer("EnvironmentKind", static_cast<int>(EnvironmentComponent::component_type)) &&
-           vm.function("EnvironmentAdd", add) && vm.function("EnvironmentAmbient", ambient) &&
+           vm.function("EnvironmentAdd", binding_detail::add_component<EnvironmentComponent>) &&
+           vm.function("EnvironmentAmbient", ambient) &&
            vm.function("EnvironmentTricolor", tricolor) &&
            vm.function("EnvironmentLinearFog", linear_fog) &&
            vm.function("EnvironmentExponentialFog", exponential_fog) &&

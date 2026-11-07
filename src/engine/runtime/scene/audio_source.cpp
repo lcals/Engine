@@ -36,8 +36,9 @@ bool AudioSource::valid_settings(const schema::AudioSourceDataT& settings) noexc
 
 schema::AudioSourceDataT AudioSource::settings() const noexcept
 {
-    const auto* value = read_data<Data>();
-    return value ? *value : Data{};
+    Data output{};
+    (void)get_settings(output);
+    return output;
 }
 
 bool AudioSource::get_settings(Data& output) const noexcept
@@ -48,6 +49,11 @@ bool AudioSource::get_settings(Data& output) const noexcept
 }
 
 bool AudioSource::set_settings(const schema::AudioSourceDataT& settings)
+{
+    return apply_settings(settings, {});
+}
+
+bool AudioSource::apply_settings(const Data& settings, resource_detail::ResourceReference prepared)
 {
     if (!writable())
     {
@@ -69,12 +75,13 @@ bool AudioSource::set_settings(const schema::AudioSourceDataT& settings)
         {
             return false;
         }
-        replacement.reset();
+        replacement = std::move(prepared);
         if (!settings.clip_guid.empty())
         {
             auto* resources = node().world()->resource_loader();
             if (resources == nullptr ||
-                !ecs_detail::acquire_resource(node(), settings.clip_guid, replacement) ||
+                (!replacement &&
+                 !ecs_detail::acquire_resource(node(), settings.clip_guid, replacement)) ||
                 !replacement || replacement.data<AudioResource>() == nullptr)
             {
                 return false;
@@ -120,16 +127,21 @@ bool AudioSource::set_clip(std::string_view path)
     {
         return false;
     }
+    resource_detail::ResourceReference prepared;
     schema::AudioSourceDataT replacement(settings());
     if (path.empty())
     {
         replacement.clip_guid.clear();
     }
-    else if (!ecs_detail::resource_guid(node(), path, replacement.clip_guid))
+    else if (!ecs_detail::acquire_resource(node(), path, prepared))
     {
         return false;
     }
-    return set_settings(replacement);
+    if (prepared)
+    {
+        replacement.clip_guid = prepared->info().guid;
+    }
+    return apply_settings(replacement, std::move(prepared));
 }
 
 std::string_view AudioSource::clip_path() const noexcept

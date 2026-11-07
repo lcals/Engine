@@ -4,6 +4,29 @@
 
 本页定义 Component 基类及变换、相机、灯光、网格组件；[物理组件](physics-components.md)与[音频组件](audio-components.md)独立维护，同样采用非虚 Component 值句柄，真实状态存入 ECS 列。
 
+## 组件实现精简目标
+
+**状态：本节访问流程已按确认类图实现；以下公开值句柄契约不变。** Transform、Camera、Light 以及具备同样访问模式的领域组件保留 settings/get_settings 两个入口，由 settings 调用本类型 get_settings；后者通过既有受保护的 read_data<Data>() 完成一次身份检查和数据复制。settings 在无效句柄时返回默认值，get_settings 返回 false 并重置输出，既有区别保留。
+
+```mermaid
+sequenceDiagram
+    participant Caller as 调用方
+    participant Typed as 具体组件值句柄
+    participant Base as Component既有身份访问
+    participant Ecs as 世界中的生成Data列
+    Caller->>Typed: settings() 或 get_settings(output)
+    Typed->>Typed: settings仅委托本类型get_settings
+    Typed->>Base: read_data(Data)
+    Base->>Ecs: 核对世界代次 实体及组件实例
+    Ecs-->>Base: 当前阶段只读借用或空
+    Base-->>Typed: 数据借用或空
+    Typed-->>Caller: 独立设置值 或 bool及安全输出
+```
+
+快照与恢复复用既有 build_storage_data/restore_flags 和类型登记表；公共流程只处理身份、生成数据与标志。类型自己的校验、资源获取、提交副作用、Camera 隐藏列表以及动画/音频运行状态仍由该类型处理，不把它们移入 Component 的类型分支。恢复保持失败原子性，运行列不变成第二份持久模型。内部辅助实现不增加公共访问权限，不引入新的组件模板基类或虚函数。
+
+## 值句柄与公开方法
+
 ```mermaid
 classDiagram
     class Component {

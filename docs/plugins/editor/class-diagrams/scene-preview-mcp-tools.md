@@ -15,6 +15,8 @@ classDiagram
     McpHost ..> register_scene_preview_tools : 宿主启动时调用
     register_scene_preview_tools ..> EditorMcpTools : 注册参数借用固定目标通道
     register_scene_preview_tools ..> McpSystem : 注册工具描述和回调
+    class mcp_functions
+    register_scene_preview_tools ..> mcp_functions : 精简目标 共用命令登记
     McpSystem --> EditorMcpTools : 工具回调直接借用通道
     register_scene_preview_tools ..> ScenePreview : 经编辑器命令转发请求和回执
 ```
@@ -28,3 +30,5 @@ classDiagram
 - 预览不启动 Gameplay、物理模拟或音频播放。既有场景编辑命令直接修改同一预览场景，下一帧显示结果；关闭预览释放场景和 GPU 引用并恢复空白窗口。玩法运行与预览的切换由编辑器协调。
 
 `register_scene_preview_tools` 是模块登记函数，没有适配器对象或独立状态；工具回调直接借用 EditorMcpTools，宿主保证通道存活到 McpSystem 关闭。
+
+**登记精简已实现：** 直接转发项使用[共用工具登记函数](editor-mcp-tools.md#共用工具登记目标)，工具名、schema、命令名和回执语义保持。原有特定参数转换仍由本模块执行，不迁入公共登记函数。

@@ -164,10 +164,12 @@ ComponentEdit::ComponentEdit(WorldSystem& world, std::uint64_t scene,
                              schema::ComponentDataT after,
                              std::vector<schema::AssetEntryT> versions,
                              ComponentType required_component)
-    : world_(world), scene_(scene), node_(std::move(node)), type_(after.payload.type),
-      before_(std::move(before)), after_(std::move(after)), versions_(std::move(versions)),
+    : target_(world), type_(after.payload.type), before_(std::move(before)),
+      after_(std::move(after)), versions_(std::move(versions)),
       required_component_(required_component)
 {
+    target_.scene_id = scene;
+    target_.identity = std::move(node);
 }
 bool ComponentEdit::apply(std::string& error)
 {
@@ -180,15 +182,14 @@ bool ComponentEdit::revert(std::string& error)
 bool ComponentEdit::replace(const std::optional<schema::ComponentDataT>& expected,
                             const std::optional<schema::ComponentDataT>& value, std::string& error)
 {
-    auto* scene = world_.scene();
-    auto node = scene && scene->id() == scene_ ? scene->find_node(*node_) : Node{};
+    auto node = target_.node(error);
     if (!node)
     {
         error = "Component edit targets a stale scene or node";
         return false;
     }
     std::vector<resource_access::ResourceReference> pins;
-    if (!resource_access::load_versions(world_.resource_loader(), versions_, pins))
+    if (!resource_access::load_versions(target_.world.resource_loader(), versions_, pins))
     {
         error = "Component resource version changed since the edit";
         return false;
@@ -214,7 +215,7 @@ bool ComponentEdit::replace(const std::optional<schema::ComponentDataT>& expecte
     const bool created = !current;
     if (created)
     {
-        current = world_.component_registry().create(type_, node);
+        current = target_.world.component_registry().create(type_, node);
     }
     if (!current || !current.restore_data(*value))
     {

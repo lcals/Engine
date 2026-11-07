@@ -1,4 +1,5 @@
 #include "plugins/runtime/script/bindings/audio_listener_binding.hpp"
+#include "plugins/runtime/script/bindings/binding_helpers.hpp"
 
 #include "plugins/runtime/script/bindings/binding_context.hpp"
 #include "runtime/scene/audio_listener.hpp"
@@ -20,13 +21,6 @@ componentTypes.set(AudioListener, { add: native.AudioListenerAdd, kind: native.A
 Object.freeze(AudioListener.prototype);
 Object.freeze(AudioListener);
 )js";
-
-void add(const Arguments& arguments)
-{
-    auto node = BindingContext::node(arguments);
-    arguments.set_return(arguments.count() == 2 && node.valid() &&
-                         node.add_component<AudioListener>().valid());
-}
 
 void volume(const Arguments& arguments)
 {
@@ -56,6 +50,7 @@ std::string_view AudioListenerBinding::source() const noexcept
 bool AudioListenerBinding::register_functions(vm::ScriptVm& vm) const
 {
     return vm.integer("AudioListenerKind", static_cast<int>(AudioListener::component_type)) &&
-           vm.function("AudioListenerAdd", add) && vm.function("AudioListenerVolume", volume);
+           vm.function("AudioListenerAdd", binding_detail::add_component<AudioListener>) &&
+           vm.function("AudioListenerVolume", volume);
 }
 } // namespace engine::plugins::script::bindings

@@ -2,7 +2,7 @@
 
 [类图索引](index.md)
 
-下图只维护拥有、借用、调用及参数类型关系；方法和字段在各自独立类图维护。同名节点指向同一个类型，宿主节点表示入口程序，不是新增 C++ 架构类。
+下图只维护拥有、借用、调用及参数类型关系；方法和字段在各自独立类图维护。全仓精简的目标与保留边界见[评审清单](index.md#全仓精简评审)；建模函数和私有编辑记录的新结构尚待代码迁移。同名节点指向同一个类型，宿主节点表示入口程序，不是新增 C++ 架构类。
 
 资源核心与调用方的方向汇总见[资源调用关系](#资源调用关系)。
 
@@ -242,7 +242,7 @@ classDiagram
 
 EnvironmentComponent 持有环境光、雾、清屏色及 IBL 参数与纹理 GUID；PostProcessComponent 持有活动相机的曝光和色调映射；Light 持有自身阴影参数。RenderSettings 只是本帧组件只读快照，场景参数只经组件修改和校验；渲染器仅保存无场景清屏色。组件缺少或停用时使用固定默认值，切场景不继承旧参数；预览隐藏镜头只提供观察视角，后处理仍取项目活动相机。IBL 的实际纹理共享引用与 GPU 句柄由渲染器按资源代际管理，组件只保存生成数据中的 GUID。
 
-领域模块通过 ResourceSystem 取得 ResourceLoader，按需加载 Shader、Material、Mesh 等 Resource，项目路径直接相对资源根，引擎资源以 builtin:// 标识来源。Scene 从资源加载时持有根资源；MeshRendererRuntime 与其 MaterialState 槽持有实际资源共享引用，MeshRenderer/Material 句柄按身份重新访问这些 ECS 运行列，材质参数按 Shader 定义校验。RenderSystem 拥有本次场景使用的顶点/索引缓冲、Shader、Program、Uniform；来自资源的 GpuGeometry 及 GpuTexture 共享持有对应 CPU Resource，以区分资源版本并保证存活；临时网格没有 Resource 引用。切换场景按存活节点增量释放 GPU 资源，常驻节点保留实际所需资源；停止运行或图形设备重建时完整释放 GPU 资源；CPU 资源随最后一个共享引用释放。ResourceSystem 不设通用资源共享缓存，必要依赖保活由 ResourceGraphSystem 插件负责；动画编译物及 GPU 派生缓存遵守各自的场景生命周期。Material::shader_data 直接借用自己持有的 Shader 资源，渲染器不再通过全局缓存查找定义。图形设备可在编辑器待机期间保留。参数、返回值和配置数据关系分别在[场景](../runtime/class-diagrams/scene.md)、[节点](../runtime/class-diagrams/node.md)、[组件](../runtime/class-diagrams/component.md)与[渲染](../runtime/class-diagrams/render-system.md)中维护。
+领域模块借用宿主直接注入的 ResourceLoader，获取已由调用方加载的 Shader、Material、Mesh 等 Resource，项目路径直接相对资源根，引擎资源以 builtin:// 标识来源。Scene 从资源加载时持有根资源；MeshRendererRuntime 与其 MaterialState 槽持有实际资源共享引用，MeshRenderer/Material 句柄按身份重新访问这些 ECS 运行列，材质参数按 Shader 定义校验。RenderSystem 拥有本次场景使用的顶点/索引缓冲、Shader、Program、Uniform；来自资源的 GpuGeometry 及 GpuTexture 共享持有对应 CPU Resource，以区分资源版本并保证存活；临时网格没有 Resource 引用。切换场景按存活节点增量释放 GPU 资源，常驻节点保留实际所需资源；停止运行或图形设备重建时完整释放 GPU 资源；CPU 资源随最后一个共享引用释放。ResourceSystem 不设通用资源共享缓存，必要依赖保活由 ResourceGraphSystem 插件负责；动画编译物及 GPU 派生缓存遵守各自的场景生命周期。Material::shader_data 直接借用自己持有的 Shader 资源，渲染器不再通过全局缓存查找定义。图形设备可在编辑器待机期间保留。参数、返回值和配置数据关系分别在[场景](../runtime/class-diagrams/scene.md)、[节点](../runtime/class-diagrams/node.md)、[组件](../runtime/class-diagrams/component.md)与[渲染](../runtime/class-diagrams/render-system.md)中维护。
 
 ## 物理与音频引用
 
@@ -942,16 +942,16 @@ classDiagram
 | ModelingCommands | WorldSystem | 借用；仅编辑器主线程访问，场景切换使旧模型身份失效 |
 | ModelingCommands | EditableMeshDataT | 独占模型及操作前后快照；不借用临时序列化内存 |
 | ModelingCommands | EditorCommands / EditorEdit | 注册模块命令；编辑记录交命令历史独占 |
-| ModelingCommands | MeshPrimitives / MeshTopology / MeshGeometry / EditableMesh | 调用纯数据计算，无反向依赖 |
-| EditableMesh | EditableMeshDataT / MeshDataT | 输入生成模型，输出独立渲染网格；没有场景/编辑器状态 |
-| MeshGeometry | Manifold | 实体运算，检查返回状态；不对外暴露第三方类型 |
-| EditableMesh | Earcut | 多边形三角化；输入验证及编译由建模核心负责 |
+| ModelingCommands | modeling::mesh 命名空间函数 | 精简目标：统一调用纯数据计算，无反向依赖；代码待迁移 |
+| modeling::mesh 函数 | EditableMeshDataT / MeshDataT | 输入生成模型，输出独立渲染网格；没有场景/编辑器状态 |
+| modeling::mesh 函数 | Manifold | 实体运算，检查返回状态；不对外暴露第三方类型 |
+| modeling::mesh 函数 | Earcut | 多边形三角化；输入验证及编译由建模核心负责 |
 | ModelingCommands | MeshRenderer | 通过节点查询借用；只提交完整有效的新网格 |
 | 建模MCP注册函数 | EditorMcpTools | 借用固定项目及会话通道，转发请求与完成回执 |
 | 建模MCP注册函数 | McpSystem | 登记工具描述、参数模型和借用回调，回调借用的通道存活到服务关闭 |
 | editor_app / asset_build_app / mcp_app 宿主 | ModelingMeshImporter | 按已启用目标创建插件导入器，通过 set_importer 转交资源管线 |
 | AssetPipelineSystem | AssetImporterRegistry / AssetImporter | 独占登记与导入器接口；不引用具体建模插件，GUID/meta 与缓存发布仍归管线 |
-| ModelingMeshImporter | MeshImporter / EditableMesh | 继承编辑器普通网格导入器；权威建模源由插件几何层编译为运行时 MeshData |
+| ModelingMeshImporter | MeshImporter / modeling::mesh 函数 | 继承编辑器普通网格导入器；权威建模源由插件几何层编译为运行时 MeshData |
 
 建模计算核心、场景业务和 MCP 适配均位于 `plugins/editor/modeling/`，插件内部按计算与调用边界分别编译。MCP 适配只调用工具通道，不直接引用几何接口；工具宿主提供资源构建时仍会通过导入管线链接几何编译能力。几何目标不依赖编辑器状态或 MCP，运行时场景、组件和渲染器不引用任何建模编辑器类型。
 

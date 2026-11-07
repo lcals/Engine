@@ -4,6 +4,47 @@
 
 模块向 MCP 注册项目启停、场景查询、组件修改、批量编辑、撤销、重做和回执查询。组件本身提供普通 C++ 接口；MCP 客户端通过文件通道提交命令，编辑器主线程执行。
 
+## 共用工具登记目标
+
+**状态：本节共用函数已按确认类图实现。** 各模块的直接转发工具共用登记函数和对象 schema 函数；EditorMcpTools 继续拥有项目及目标配置并提供命令通道，McpSystem 继续只管理协议和工具表。两者不合并。
+
+```mermaid
+classDiagram
+    class mcp_functions {
+        <<namespace functions>>
+        +register_editor_command_tool(McpSystem& system, EditorMcpTools& editor, string name, string description, Json input_schema, string command) bool
+        +object_schema(Json properties, Json required) Json
+    }
+    class McpSystem
+    class EditorMcpTools
+    class McpTool
+    class Json
+    class register_render_tools {
+        <<function>>
+    }
+    class register_scene_preview_tools {
+        <<function>>
+    }
+    class register_modeling_tools {
+        <<function>>
+    }
+    register_render_tools ..> mcp_functions : 复用登记及schema组装
+    register_scene_preview_tools ..> mcp_functions : 复用登记及schema组装
+    register_modeling_tools ..> mcp_functions : 复用登记及schema组装
+    mcp_functions ..> McpTool : 构造一项描述及回调并转交
+    mcp_functions ..> McpSystem : 调用既有register_tool
+    mcp_functions ..> EditorMcpTools : 回调持续借用命令通道
+    mcp_functions ..> Json : 参数及按值输出
+```
+
+- 图中 mcp_functions 表示 `engine::plugins::mcp` 的两个命名空间函数，不生成同名类、注册表或管理器。声明放插件公开的 `mcp/editor_tool_registration.hpp`，供已声明依赖 mcp 的编辑器插件复用；参数类型沿用现有 McpTool/Json，不新增工具描述模型。
+- register_editor_command_tool 标注 nodiscard。name、description、input_schema 按值转交 McpSystem；command 独立于工具名，按值捕获到回调中，因此工具别名仍可映射到不同的编辑器命令。editor 是持续借用，必须存活到 McpSystem 清空登记。空命令拒绝；其他登记限制、失败状态及登记时机沿用 register_tool。
+- 回调仅调用 editor.call_command(command, arguments, reply)，原样保留返回状态、回执和 pending 身份；不增加等待、重试、参数改写或异常。需要参数翻译的工具仍自行登记原处理函数；execute_batch 到 batch 等映射必须显式给出。
+- object_schema 接受对象 properties 和字符串数组 required，按值组装现有 type/properties/required/additionalProperties=false；即使 required 为空也保留该字段。参数与各字段限制由类型文件声明，合法性由 McpSystem 统一检查；不建立通用 schema DSL。函数保留分配行为，不标 noexcept。
+- 渲染、预览、建模、烘焙、UI、动画制作及 Prefab 的直接转发登记复用此入口；特定参数、默认值、范围、工具名称及逐模块显式装配保持。字段只在工具所属文件定义，公共函数不集中登记业务工具。
+
+## 命令通道
+
 ```mermaid
 classDiagram
     direction TB

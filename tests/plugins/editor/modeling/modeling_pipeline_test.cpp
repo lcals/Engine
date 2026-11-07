@@ -108,9 +108,9 @@ int main()
     schema::MeshDataT expected;
     std::vector<std::uint8_t> bytes;
     std::string error;
-    if (!expect(MeshPrimitives::create({}, model, error), error) ||
-        !expect(EditableMesh::compile(model, "cube.mesh", expected, error), error) ||
-        !expect(EditableMesh::serialize(model, bytes, error), error))
+    if (!expect(mesh::create({}, model, error), error) ||
+        !expect(mesh::compile(model, "cube.mesh", expected, error), error) ||
+        !expect(mesh::serialize(model, bytes, error), error))
     {
         return 1;
     }

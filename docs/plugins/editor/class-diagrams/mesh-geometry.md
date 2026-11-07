@@ -1,30 +1,31 @@
 # 建模几何操作
 
-图中的建模类、枚举和配置类型属于 `engine::plugins::modeling`；生成数据仍属于 `engine::schema`。
+**状态：本轮精简已按确认类图实现。** 四个静态工具类统一为 mesh 命名空间函数；[评审入口](../../../class-diagrams/index.md#全仓精简评审)。
 
-`MeshGeometry` 位于插件的纯 C++ 核心。它只读取和修改 FlatBuffers 生成的可编辑模型，
+图中的 mesh 表示 `engine::plugins::modeling::mesh` 命名空间，不是 C++ 类。选择、枚举和配置类型仍属于 `engine::plugins::modeling`；生成数据仍属于 `engine::schema`。
+
+`mesh` 位于插件的纯 C++ 核心。它只读取和修改 FlatBuffers 生成的可编辑模型，
 不认识场景、编辑器、文件、JSON 或 MCP。编辑器负责选择、撤销、持续镜像状态与资源发布，
 MCP 通过编辑器注册的命令调用这些能力。每次操作先在候选数据上完成，失败不改调用者模型。
 
 ```mermaid
 classDiagram
-    class MeshGeometry {
-        <<final>>
-        +sweep(const MeshSweepOptions& options, EditableMeshDataT& output, string& error) bool$
-        +lathe(const MeshLatheOptions& options, EditableMeshDataT& output, string& error) bool$
-        +mirror(EditableMeshDataT& data, const MeshMirrorOptions& options, string& error) bool$
-        +clip(EditableMeshDataT& data, const MeshClipOptions& options, string& error) bool$
-        +boolean_operation(EditableMeshDataT& data, const EditableMeshDataT& other, MeshBooleanOperation operation, string& error) bool$
-        +bevel(EditableMeshDataT& data, const MeshBevelOptions& options, string& error) bool$
-        +project_uv(EditableMeshDataT& data, span~const uint64_t~ faces, const MeshUvProjectionOptions& options, string& error) bool$
-        +transform_uv(EditableMeshDataT& data, span~const uint64_t~ faces, const MeshUvTransformOptions& options, string& error) bool$
-        +unwrap_uv(EditableMeshDataT& data, span~const uint64_t~ faces, const MeshUvUnwrapOptions& options, string& error) bool$
-        +unwrap_face_uv(EditableMeshDataT& data, span~const uint64_t~ faces, const MeshUvUnwrapOptions& options, string& error) bool$
-        +hotspot_uv(EditableMeshDataT& data, span~const uint64_t~ faces, const MeshHotspotOptions& options, string& error) bool$
-        +set_smoothing(EditableMeshDataT& data, span~const uint64_t~ faces, uint32_t group, string& error) bool$
-        +auto_smooth(EditableMeshDataT& data, double angle_degrees, string& error) bool$
+    class mesh {
+        <<namespace>>
+        +sweep(const MeshSweepOptions& options, EditableMeshDataT& output, string& error) bool
+        +lathe(const MeshLatheOptions& options, EditableMeshDataT& output, string& error) bool
+        +mirror(EditableMeshDataT& data, const MeshMirrorOptions& options, string& error) bool
+        +clip(EditableMeshDataT& data, const MeshClipOptions& options, string& error) bool
+        +boolean_operation(EditableMeshDataT& data, const EditableMeshDataT& other, MeshBooleanOperation operation, string& error) bool
+        +bevel(EditableMeshDataT& data, const MeshBevelOptions& options, string& error) bool
+        +project_uv(EditableMeshDataT& data, span~const uint64_t~ faces, const MeshUvProjectionOptions& options, string& error) bool
+        +transform_uv(EditableMeshDataT& data, span~const uint64_t~ faces, const MeshUvTransformOptions& options, string& error) bool
+        +unwrap_uv(EditableMeshDataT& data, span~const uint64_t~ faces, const MeshUvUnwrapOptions& options, string& error) bool
+        +unwrap_face_uv(EditableMeshDataT& data, span~const uint64_t~ faces, const MeshUvUnwrapOptions& options, string& error) bool
+        +hotspot_uv(EditableMeshDataT& data, span~const uint64_t~ faces, const MeshHotspotOptions& options, string& error) bool
+        +set_smoothing(EditableMeshDataT& data, span~const uint64_t~ faces, uint32_t group, string& error) bool
+        +auto_smooth(EditableMeshDataT& data, double angle_degrees, string& error) bool
     }
-    class EditableMesh
     class EditableMeshDataT
     class MeshSweepOptions
     class MeshLatheOptions
@@ -37,19 +38,18 @@ classDiagram
     class MeshHotspotOptions
     class Manifold
     class Xatlas
-    MeshGeometry ..> EditableMesh : 验证和多边形三角化
-    MeshGeometry ..> EditableMeshDataT : 借用并原子替换模型数据
-    MeshGeometry ..> MeshSweepOptions : 借用扫掠参数
-    MeshGeometry ..> MeshLatheOptions : 借用旋转参数
-    MeshGeometry ..> MeshMirrorOptions : 借用镜像参数
-    MeshGeometry ..> MeshClipOptions : 借用切割参数
-    MeshGeometry ..> MeshBevelOptions : 借用倒角参数
-    MeshGeometry ..> MeshUvProjectionOptions : 借用投影参数
-    MeshGeometry ..> MeshUvTransformOptions : 借用变换参数
-    MeshGeometry ..> MeshUvUnwrapOptions : 借用展开参数
-    MeshGeometry ..> MeshHotspotOptions : 借用图集参数
-    MeshGeometry ..> Manifold : 局部实体布尔与切面封口
-    MeshGeometry ..> Xatlas : 局部跨面展开和图集打包
+    mesh ..> EditableMeshDataT : 借用并原子替换模型数据
+    mesh ..> MeshSweepOptions : 借用扫掠参数
+    mesh ..> MeshLatheOptions : 借用旋转参数
+    mesh ..> MeshMirrorOptions : 借用镜像参数
+    mesh ..> MeshClipOptions : 借用切割参数
+    mesh ..> MeshBevelOptions : 借用倒角参数
+    mesh ..> MeshUvProjectionOptions : 借用投影参数
+    mesh ..> MeshUvTransformOptions : 借用变换参数
+    mesh ..> MeshUvUnwrapOptions : 借用展开参数
+    mesh ..> MeshHotspotOptions : 借用图集参数
+    mesh ..> Manifold : 局部实体布尔与切面封口
+    mesh ..> Xatlas : 局部跨面展开和图集打包
 ```
 
 - 扫掠使用平行传输标架，可设置自定义二维轮廓、开放路径、扭转和端面；闭环路径需要

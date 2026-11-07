@@ -1,4 +1,5 @@
 #include "plugins/runtime/script/bindings/transform_binding.hpp"
+#include "plugins/runtime/script/bindings/binding_helpers.hpp"
 
 #include "plugins/runtime/script/bindings/binding_context.hpp"
 #include "runtime/scene/node.hpp"
@@ -33,13 +34,6 @@ componentTypes.set(Transform, { add: native.TransformAdd, kind: native.Transform
 Object.freeze(Transform.prototype);
 Object.freeze(Transform);
 )js";
-
-void add(const Arguments& arguments)
-{
-    auto node = BindingContext::node(arguments);
-    arguments.set_return(arguments.count() == 2 && node.valid() &&
-                         node.add_component<Transform>().valid());
-}
 
 void set_vector(const Arguments& arguments, Vec3 TransformSettings::* field)
 {
@@ -117,7 +111,8 @@ std::string_view TransformBinding::source() const noexcept
 bool TransformBinding::register_functions(vm::ScriptVm& vm) const
 {
     return vm.integer("TransformKind", static_cast<int>(Transform::component_type)) &&
-           vm.function("TransformAdd", add) && vm.function("TransformPosition", position) &&
+           vm.function("TransformAdd", binding_detail::add_component<Transform>) &&
+           vm.function("TransformPosition", position) &&
            vm.function("TransformRotation", rotation) && vm.function("TransformScale", scale) &&
            vm.function("TransformWorldPosition", world_vector, 0) &&
            vm.function("TransformWorldForward", world_vector, 1);

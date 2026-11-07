@@ -1,12 +1,15 @@
 # 参数化基本体
 
-图中的建模类、枚举和配置类型属于 `engine::plugins::modeling`；生成数据仍属于 `engine::schema`。
+**状态：本轮精简已按确认类图实现。** 四个静态工具类统一为 mesh 命名空间函数；[评审入口](../../../class-diagrams/index.md#全仓精简评审)。
+
+图中的 mesh 表示 `engine::plugins::modeling::mesh` 命名空间，不是 C++ 类。选择、枚举和配置类型仍属于 `engine::plugins::modeling`；生成数据仍属于 `engine::schema`。
 
 ```mermaid
 classDiagram
-    class MeshPrimitives {
-        +create(const MeshPrimitiveOptions& options, EditableMeshDataT& output, string& error) bool$
-        +polygon(span~const Vec3~ points, const vector~vector~Vec3~~& holes, EditableMeshDataT& output, string& error) bool$
+    class mesh {
+        <<namespace>>
+        +create(const MeshPrimitiveOptions& options, EditableMeshDataT& output, string& error) bool
+        +polygon(span~const Vec3~ points, const vector~vector~Vec3~~& holes, EditableMeshDataT& output, string& error) bool
     }
     class MeshPrimitiveOptions {
         +MeshPrimitive type
@@ -24,11 +27,9 @@ classDiagram
     }
     class MeshPrimitive
     class EditableMeshDataT
-    class EditableMesh
     MeshPrimitiveOptions --> MeshPrimitive : 基本体种类
-    MeshPrimitives ..> MeshPrimitiveOptions : 参数
-    MeshPrimitives ..> EditableMeshDataT : 输出
-    MeshPrimitives ..> EditableMesh : 验证
+    mesh ..> MeshPrimitiveOptions : 参数
+    mesh ..> EditableMeshDataT : 输出
 ```
 
 支持方块、网格平面、圆柱、圆锥、经纬球、环面、三棱柱、直楼梯、拱体、管、门框、弧形楼梯、XY 精灵平面、二十面体细分球，以及含洞的自定义共面多边形。

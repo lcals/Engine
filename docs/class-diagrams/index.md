@@ -6,6 +6,29 @@
 
 统一评审原则：**业务、运行宿主和编辑器都驱动最小核心，核心不承载调用方流程。** 评审每个方法时区分“提供能力”和“决定何时使用能力”，后者归调用方。完整边界见[调用方驱动核心](../architecture.md#调用方驱动核心)。
 
+## 全仓精简评审
+
+**状态：2026-11-07 按确认类图完成本轮代码精简。** 评审范围覆盖当前 144 份模块类图：运行时 64 份、编辑器 18 份、运行时插件 29 份、编辑器插件 33 份。下表列出的合并已落到代码，其余领域保持现有职责边界；已确认资源迁移的旧名称、签名和任务域说明一并校正。验证范围见[测试记录](../testing.md#2026-11-07全仓类图精简落地)。
+
+| 范围 | 合并或精简目标 | 保留的职责与行为 |
+| --- | --- | --- |
+| [编辑器字段编辑](../editor/class-diagrams/component-commands.md#字段编辑合并目标) | TransformEdit、CameraEdit、LightEdit 合并为一个私有 PropertyEdit<DataT> 模板；与 ComponentEdit 共用 Target 身份解析 | 字段编辑只比较、修改选中字段；ComponentEdit 继续比较完整快照；创建重做的共享节点身份、批量回滚、Prefab 显式覆盖不变 |
+| [建模计算](../plugins/editor/class-diagrams/editable-mesh.md) | EditableMesh、MeshPrimitives、MeshTopology、MeshGeometry 四个静态工具类收敛为 modeling::mesh 命名空间函数 | 原函数的参数、结果、校验、稳定 ID 和失败原子性不变；生成 Data、配置和选择结构不另造模型 |
+| [MCP 工具登记](../plugins/editor/class-diagrams/editor-mcp-tools.md#共用工具登记目标) | 各模块重复的命令转发登记与对象 schema 组装共用两个普通函数 | 工具名称、参数、回执、超时和目标检查不变；有专门参数转换的工具仍自行处理 |
+| [组件访问](../runtime/class-diagrams/component.md#组件实现精简目标) | settings/get_settings 共用一次身份校验与数据读取；快照、标志恢复复用既有 Component 能力 | 公开访问器、失败输出、组件实例校验和类型专属副作用不变 |
+| [逐类脚本绑定](../plugins/runtime/class-diagrams/script-bindings.md#绑定公共步骤精简目标) | 创建组件、获取组件及参数数量检查复用私有函数；数值和字符串检查继续复用 BindingContext | 每类绑定与显式登记保留，Run 权限、原生错误、JS 外观和两种 VM 的共同语义不变 |
+| [资源解码](../runtime/class-diagrams/resource-codecs.md#解码实现精简目标) | 核心 Codec 共用固定 FlatBuffers 解码步骤；业务绑定直接从一次获取读取 GUID | 每类格式、大小限制、错误和依赖校验不变；使用仍须先加载 |
+| [资源记录](../plugins/runtime/class-diagrams/resource-graph.md#记录获取和在途合并) | 删除只写不读的 task_references；私有记录只在插件图定义一次 | 获取、依赖、请求三种计数保留；核心读取任务拥有工作状态，业务任务持有独立资源获取 |
+| [引擎与宿主](../runtime/class-diagrams/engine-system.md)、[运行会话](../runtime/class-diagrams/gameplay-session.md)、[任务域](../runtime/class-diagrams/task-system.md) | 保留类边界；校正宿主签名和预算类型，初始化、失败清理继续复用已有生命周期入口 | Engine/System 管系统；RuntimeHost 管呈现及装配；GameplaySession 管玩法与部署；各模块任务域共享 worker |
+| [世界与场景](../runtime/class-diagrams/ecs-scene.md)、[预制体](../editor/class-diagrams/prefab.md) | 保留 WorldSystem、Scene、Node、Component；不增加另一份运行数据或通用对象层 | Flecs 是唯一运行数据；节点和组件为身份句柄；结构编辑、字段编辑和完整快照各自保持冲突规则 |
+| [渲染](../runtime/class-diagrams/render-system.md)、[影片](../runtime/class-diagrams/movie-player.md)、[音频](../runtime/class-diagrams/audio-system.md)、[字体](../runtime/class-diagrams/font-system.md)、[UI](../runtime/class-diagrams/ui-system.md) | 保留领域系统、GPU Pass 和播放/文档身份；本轮不合并不同执行阶段的类 | CPU 资源、GPU 资源、解码、设备声部、字体和文档有不同所有者及释放时机 |
+| [输入](../runtime/class-diagrams/input-system.md)、[物理](../runtime/class-diagrams/physics-system.md)、[动画](../runtime/class-diagrams/animation-system.md)、[导航](../runtime/class-diagrams/navigation-system.md)及领域插件 | 保留核心能力与可替换插件；复用组件和绑定的公共步骤，不合并领域状态机 | 输入帧发布、物理步进、动画采样、导航提交与角色更新顺序不变；地形、破坏、特效的业务状态继续独立 |
+| [编辑器项目环境](../editor/class-diagrams/editor-environment.md)、[资源管线](../editor/class-diagrams/asset-pipeline-system.md)及[插件](../plugins/plugins.md) | 保留 ProjectSystem/EditorEnvironment、导入器登记、构建和同步边界；格式处理复用已有编解码入口 | 项目校验、路径准备、导入、打包、部署及可选插件装配仍由各自所有者负责 |
+
+迁移约定：同一函数或类的方法只在所属图定义，跨图仅引用；命名空间和函数节点明确标注，不能当作新增 C++ 类。建模函数一次替换旧静态类调用，不保留兼容壳；其余公开契约除本节明确列出的函数增量外保持不变。保留尚未实现的影片 MCP、异步导入等规划标记，不把精简范围扩大成新增功能。
+
+C++ 约束随迁移一并落实：C++20、无原生异常与 RTTI，失败返回明确状态且输出安全；独占对象用 unique_ptr，实际共享控制状态和身份单元才用 shared_ptr；借用和异步捕获有明确寿命。公共步骤使用普通函数或必要的简单模板，类型校验留在所属模块；不增加宏反射、通用 Manager 或另一层虚接口。const、noexcept、nodiscard、头文件自包含和命名格式按根 AGENTS.md 核对。
+
 [统一输入模块](../runtime/input.md)由 TS 加载 / 覆盖 / 保存绑定并显式配对多手柄，原生采集设备、执行最终映射并处理虚拟触摸。接口入口为[输入系统](../runtime/class-diagrams/input-system.md)、[生成数据](../runtime/class-diagrams/input-data.md)、[输入脚本接口](../plugins/runtime/class-diagrams/input-script-api.md)，脚本声明位于 `include/engine.d.ts`；平台验证范围见[测试与范例](../testing.md)。
 
 [角色与动画制作流程（规划）](../editor/character-production.md)记录 AI 离线加工、骨骼不匹配处理及引擎运行时动作复用的方向，并与[当前动画能力](../runtime/animation.md)区分。该规划尚未新增类或公开接口；后续骨架适配数据与重定向契约须先在所属类图及本索引中评审，不能把工具调研当成已实现契约。

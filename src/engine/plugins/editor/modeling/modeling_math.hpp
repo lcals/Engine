@@ -64,7 +64,7 @@ inline Vector position(const schema::ModelingVertex& vertex)
 
 inline Vector position(const schema::EditableMeshDataT& data, std::uint64_t id)
 {
-    const auto* value = EditableMesh::find_vertex(data, id);
+    const auto* value = mesh::find_vertex(data, id);
     return value ? position(*value) : Vector{};
 }
 

@@ -8,6 +8,11 @@
 #include <cstdint>
 #include <string_view>
 
+namespace engine::resource_detail
+{
+class ResourceReference;
+}
+
 namespace engine
 {
 struct UiComponentRuntime;
@@ -33,6 +38,8 @@ public:
     [[nodiscard]] bool restore_data(const schema::ComponentDataT& data);
 
 private:
+    [[nodiscard]] bool apply_settings(const Data& settings,
+                                      resource_detail::ResourceReference prepared);
     template <class T> friend auto engine::ecs_detail::component_runtime(T component) noexcept;
     [[nodiscard]] Runtime* runtime() const noexcept;
 };

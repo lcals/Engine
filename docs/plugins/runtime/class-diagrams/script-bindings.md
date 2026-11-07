@@ -6,6 +6,43 @@
 
 绑定类型统一位于 `engine::plugins::script::bindings`，包含 `ScriptBinding`、`ScriptBindingRegistry`、`BindingContext` 及各模块绑定类；它们通过 `engine` 中的核心公开接口实现脚本操作。
 
+## 绑定公共步骤精简目标
+
+**状态：本节私有辅助函数已按确认类图实现；ScriptBinding、BindingContext 和 JS 公开方法保持。** 重复的组件创建和获取步骤在同一插件内部复用简单函数模板；它们只组合已经存在的参数、Run 权限和 Node 契约。
+
+```mermaid
+classDiagram
+    class binding_detail {
+        <<private namespace>>
+        +component~T~(const Arguments& arguments, int expected_count) T
+        +add_component~T~(const Arguments& arguments) void
+    }
+    class Arguments
+    class BindingContext
+    class Node
+    class LightBinding
+    class AudioSourceBinding
+    class TransformBinding
+    class ScriptBinding
+    ScriptBinding <|-- LightBinding
+    ScriptBinding <|-- AudioSourceBinding
+    ScriptBinding <|-- TransformBinding
+    LightBinding ..> binding_detail : 复用公共步骤
+    AudioSourceBinding ..> binding_detail : 复用公共步骤
+    TransformBinding ..> binding_detail : 复用公共步骤
+    binding_detail ..> Arguments : 本次调用借用及写返回值
+    binding_detail ..> BindingContext : 复用node及权限检查
+    binding_detail ..> Node : 临时值句柄 按类型操作
+```
+
+- binding_detail 位于 `engine::plugins::script::bindings` 内部，不是类，也不进入核心或公开插件接口。T 是已登记的具体组件值句柄；不得使用 RTTI、宏反射或通用属性表。
+- component<T> 先把脚本返回值设置为 false，核对参数总数，再通过 BindingContext::node 获取当前调用有权访问的节点并调用 get_component<T>。失败返回空 T；成功只返回本次调用使用的值句柄，不缓存 ECS 指针。
+- add_component<T> 只用于既有两个身份参数的创建入口，复用同一 Run/节点权限检查并把创建成功与否写入返回值；不自动加载资源，不接受新参数形式。该函数直接作为所选 VM 的原生回调登记，不改 ScriptVm/Arguments 接口。
+- 数字、标量、字符串、身份转换继续使用 BindingContext::number/scalar/text/identifier；类型文件保留自身参数范围和失败语义。已有标量或向量成员指针辅助函数继续复用，不为复用再引入虚接口。
+- 每个 ScriptBinding 的 source、注册项、JS 名称、空值/布尔返回以及句柄生命周期保持；仅把符合上述约定的重复步骤迁入公共函数，具有不同参数布局或返回值的入口沿用专门处理。Run、UI 控制器、动画状态机及两种 VM 的生命周期不合并。
+
+## 现有绑定契约
+
 InputBinding 提供统一输入能力，BindingContext 借用 InputSystem 并清理本 Run 创建的通道与捕获；公开方法、数据依赖与失败语义见[输入脚本接口](input-script-api.md)。
 
 JSON 扩展：下方登记关系中的 JsonBinding 为本轮新增实现，公开方法与 `Json.Load(path): unknown` 门面只在 [JSON 资源脚本接口](json-script-api.md)定义。它复用 BindingContext 的活动回调检查和 ResourceSystem 的标准加载能力，不增加上下文服务、字段或第二套 JSON 值模型；已按评审契约实现。

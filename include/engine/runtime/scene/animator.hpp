@@ -12,6 +12,11 @@
 #include <string_view>
 #include <vector>
 
+namespace engine::resource_detail
+{
+class ResourceReference;
+}
+
 namespace engine
 {
 
@@ -64,6 +69,10 @@ public:
     [[nodiscard]] double time() const noexcept;
 
 private:
+    [[nodiscard]] bool apply_animation(const AnimationPlayRequest& request,
+                                       resource_detail::ResourceReference clip);
+    [[nodiscard]] bool apply_settings(const Data& settings,
+                                      resource_detail::ResourceReference prepared);
     template <class T> friend auto engine::ecs_detail::component_runtime(T component) noexcept;
     [[nodiscard]] Runtime* runtime() const noexcept;
 };

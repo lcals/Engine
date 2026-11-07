@@ -6,6 +6,11 @@
 #include <memory>
 #include <string_view>
 
+namespace engine::resource_detail
+{
+class ResourceReference;
+}
+
 namespace engine
 {
 
@@ -47,6 +52,8 @@ public:
     [[nodiscard]] std::string_view mesh_path() const noexcept;
 
 private:
+    [[nodiscard]] bool apply_settings(const Data& settings,
+                                      resource_detail::ResourceReference prepared);
     template <class T> friend auto engine::ecs_detail::component_runtime(T component) noexcept;
     [[nodiscard]] Runtime* runtime() const noexcept;
     friend class PhysicsSystem;

@@ -1,5 +1,7 @@
 # 建模编辑业务
 
+**精简状态：代码已切换到 mesh 命名空间函数；本模块公开方法保持。** 函数签名见[建模计算](editable-mesh.md)。
+
 图中的建模类、枚举和配置类型属于 `engine::plugins::modeling`；生成数据仍属于 `engine::schema`。 `WorldSystem`、`Node` 等运行时类型属于 `engine`，`EditorCommands`、`EditorEdit` 属于 `engine::editor`。
 
 [类图索引](../../../class-diagrams/index.md) · [核心建模](editable-mesh.md)
@@ -19,20 +21,16 @@ classDiagram
     class WorldSystem
     class EditorCommands
     class EditorEdit
-    class EditableMesh
-    class MeshTopology
-    class MeshGeometry
-    class MeshPrimitives
+    class mesh {
+        <<namespace>>
+    }
     class MeshRenderer
     class EditableMeshDataT
     ModelingCommands --> WorldSystem : 借用场景
     ModelingCommands ..> EditorCommands : 注册建模命令
     ModelingCommands ..> EditorEdit : 创建可撤销编辑记录
     ModelingCommands *-- EditableMeshDataT : 保存建模源与选择
-    ModelingCommands ..> EditableMesh : 校验及编译
-    ModelingCommands ..> MeshTopology : 拓扑运算
-    ModelingCommands ..> MeshGeometry : 几何和UV运算
-    ModelingCommands ..> MeshPrimitives : 创建初始模型
+    ModelingCommands ..> mesh : 创建 验证 编译 拓扑及几何运算
     ModelingCommands ..> MeshRenderer : 提交生成网格
 ```
 

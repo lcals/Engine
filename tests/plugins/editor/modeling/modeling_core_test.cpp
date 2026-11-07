@@ -87,15 +87,14 @@ bool mirrored_uv_tangents()
     schema::EditableMeshDataT model;
     schema::MeshDataT mesh;
     std::string error;
-    if (!engine::plugins::modeling::MeshPrimitives::create(options, model, error) ||
+    if (!engine::plugins::modeling::mesh::create(options, model, error) ||
         !expect(model.faces.size() == 1 && model.faces.front()->vertices.size() == 4,
                 "create quad for mirrored UV tangent test"))
     {
         return false;
     }
     model.faces.front()->texcoords = {{0, 0}, {1, 1}, {0, 1}, {1, 0}};
-    if (!expect(engine::plugins::modeling::EditableMesh::compile(model, "mirrored.mesh", mesh,
-                                                                 error),
+    if (!expect(engine::plugins::modeling::mesh::compile(model, "mirrored.mesh", mesh, error),
                 "compile modeling mesh with mirrored UVs", error) ||
         !expect(mesh.vertices.size() > 4 && mesh.indices.size() == 6 &&
                     mesh.tangents.size() == mesh.vertices.size() &&
@@ -136,11 +135,10 @@ bool primitives()
         options.type = type;
         schema::EditableMeshDataT model;
         schema::MeshDataT mesh;
-        if (!expect(engine::plugins::modeling::MeshPrimitives::create(options, model, error),
+        if (!expect(engine::plugins::modeling::mesh::create(options, model, error),
                     "primitive creation", error) ||
-            !expect(
-                engine::plugins::modeling::EditableMesh::compile(model, "model.mesh", mesh, error),
-                "primitive compiles", error) ||
+            !expect(engine::plugins::modeling::mesh::compile(model, "model.mesh", mesh, error),
+                    "primitive compiles", error) ||
             !expect(MeshUtils::validate(mesh), "primitive render mesh validates") ||
             !expect(type == engine::plugins::modeling::MeshPrimitive::plane ||
                         type == engine::plugins::modeling::MeshPrimitive::sprite ||
@@ -162,9 +160,9 @@ bool polygon_hole()
     const std::vector<std::vector<schema::Vec3>> holes{
         {{1, 1, 0}, {1, 3, 0}, {3, 3, 0}, {3, 1, 0}}};
     schema::MeshDataT mesh;
-    if (!expect(engine::plugins::modeling::MeshPrimitives::polygon(outer, holes, model, error),
+    if (!expect(engine::plugins::modeling::mesh::polygon(outer, holes, model, error),
                 "polygon hole", error) ||
-        !expect(engine::plugins::modeling::EditableMesh::compile(model, "hole.mesh", mesh, error),
+        !expect(engine::plugins::modeling::mesh::compile(model, "hole.mesh", mesh, error),
                 "hole compile", error))
     {
         return false;
@@ -184,24 +182,24 @@ bool polygon_hole()
     }
     std::vector<std::uint8_t> bytes;
     schema::EditableMeshDataT decoded;
-    if (!expect(engine::plugins::modeling::EditableMesh::serialize(model, bytes, error),
-                "serialize", error) ||
-        !expect(engine::plugins::modeling::EditableMesh::deserialize(bytes, decoded, error),
-                "deserialize", error) ||
+    if (!expect(engine::plugins::modeling::mesh::serialize(model, bytes, error), "serialize",
+                error) ||
+        !expect(engine::plugins::modeling::mesh::deserialize(bytes, decoded, error), "deserialize",
+                error) ||
         !expect(decoded.faces.front()->holes.size() == 1 && decoded.next_id == model.next_id,
                 "schema round trip preserves hole and identity"))
     {
         return false;
     }
     bytes[0] = 0xFF;
-    if (!expect(!engine::plugins::modeling::EditableMesh::deserialize(bytes, decoded, error) &&
+    if (!expect(!engine::plugins::modeling::mesh::deserialize(bytes, decoded, error) &&
                     decoded.faces.empty(),
                 "bad binary returns empty output"))
     {
         return false;
     }
     const std::vector<schema::Vec3> bowtie{{0, 0, 0}, {2, 2, 0}, {0, 2, 0}, {2, 0, 0}};
-    return expect(!engine::plugins::modeling::MeshPrimitives::polygon(bowtie, {}, decoded, error),
+    return expect(!engine::plugins::modeling::mesh::polygon(bowtie, {}, decoded, error),
                   "self-intersection rejected");
 }
 
@@ -209,7 +207,7 @@ bool topology()
 {
     std::string error;
     schema::EditableMeshDataT model;
-    if (!engine::plugins::modeling::MeshPrimitives::create({}, model, error))
+    if (!engine::plugins::modeling::mesh::create({}, model, error))
     {
         return expect(false, "cube", error);
     }
@@ -217,33 +215,30 @@ bool topology()
     const std::array<std::uint64_t, 1> selected{face};
     std::vector<std::uint8_t> before;
     std::vector<std::uint8_t> after;
-    if (!engine::plugins::modeling::EditableMesh::serialize(model, before, error))
+    if (!engine::plugins::modeling::mesh::serialize(model, before, error))
     {
         return false;
     }
-    if (!expect(!engine::plugins::modeling::MeshTopology::inset(model, selected, 2.0, error),
+    if (!expect(!engine::plugins::modeling::mesh::inset(model, selected, 2.0, error),
                 "invalid inset fails") ||
-        !engine::plugins::modeling::EditableMesh::serialize(model, after, error) ||
+        !engine::plugins::modeling::mesh::serialize(model, after, error) ||
         !expect(before == after, "failed operation is atomic") ||
-        !expect(
-            engine::plugins::modeling::MeshTopology::extrude(model, selected, 0.5, false, error),
-            "extrude", error) ||
-        !expect(model.faces.size() == 10 &&
-                    engine::plugins::modeling::EditableMesh::find_face(model, face),
+        !expect(engine::plugins::modeling::mesh::extrude(model, selected, 0.5, false, error),
+                "extrude", error) ||
+        !expect(model.faces.size() == 10 && engine::plugins::modeling::mesh::find_face(model, face),
                 "extrude retains cap identity and adds side walls") ||
-        !expect(engine::plugins::modeling::MeshTopology::inset(model, selected, 0.1, error),
-                "inset", error) ||
-        !expect(engine::plugins::modeling::MeshTopology::subdivide(model, selected, 1, error),
-                "subdivide", error) ||
-        !expect(engine::plugins::modeling::MeshTopology::triangulate(model, selected, error),
-                "triangulate", error))
+        !expect(engine::plugins::modeling::mesh::inset(model, selected, 0.1, error), "inset",
+                error) ||
+        !expect(engine::plugins::modeling::mesh::subdivide(model, selected, 1, error), "subdivide",
+                error) ||
+        !expect(engine::plugins::modeling::mesh::triangulate(model, selected, error), "triangulate",
+                error))
     {
         return false;
     }
     schema::MeshDataT compiled;
-    return expect(
-        engine::plugins::modeling::EditableMesh::compile(model, "edited.mesh", compiled, error),
-        "edited model compiles", error);
+    return expect(engine::plugins::modeling::mesh::compile(model, "edited.mesh", compiled, error),
+                  "edited model compiles", error);
 }
 
 bool attributes_and_edges()
@@ -252,7 +247,7 @@ bool attributes_and_edges()
     schema::EditableMeshDataT model;
     engine::plugins::modeling::MeshPrimitiveOptions options;
     options.type = engine::plugins::modeling::MeshPrimitive::plane;
-    if (!engine::plugins::modeling::MeshPrimitives::create(options, model, error))
+    if (!engine::plugins::modeling::mesh::create(options, model, error))
     {
         return false;
     }
@@ -262,16 +257,16 @@ bool attributes_and_edges()
     const auto a = face.vertices[0];
     const auto b = face.vertices[1];
     const auto c = face.vertices[2];
-    if (!expect(engine::plugins::modeling::MeshTopology::split_edge(model, {a, b}, 0.5, error),
+    if (!expect(engine::plugins::modeling::mesh::split_edge(model, {a, b}, 0.5, error),
                 "split edge", error) ||
         !expect(model.faces.front()->vertices.size() == 5 &&
                     model.faces.front()->texcoords.size() == 5,
                 "split edge interpolates corner attributes") ||
-        !expect(engine::plugins::modeling::MeshTopology::connect_vertices(model, original_face, a,
-                                                                          c, error),
-                "connect vertices", error) ||
+        !expect(
+            engine::plugins::modeling::mesh::connect_vertices(model, original_face, a, c, error),
+            "connect vertices", error) ||
         !expect(model.faces.size() == 2, "connect splits polygon") ||
-        !expect(engine::plugins::modeling::MeshTopology::dissolve_edge(model, {a, c}, error),
+        !expect(engine::plugins::modeling::mesh::dissolve_edge(model, {a, c}, error),
                 "dissolve edge", error) ||
         !expect(model.faces.size() == 1 && model.faces.front()->material_slot == 3,
                 "dissolve keeps material"))
@@ -280,8 +275,8 @@ bool attributes_and_edges()
     }
     schema::MeshDataT compiled;
     schema::EditableMeshDataT imported;
-    if (!engine::plugins::modeling::EditableMesh::compile(model, "model.mesh", compiled, error) ||
-        !engine::plugins::modeling::EditableMesh::from_mesh(compiled, imported, error))
+    if (!engine::plugins::modeling::mesh::compile(model, "model.mesh", compiled, error) ||
+        !engine::plugins::modeling::mesh::from_mesh(compiled, imported, error))
     {
         return expect(false, "compile and import", error);
     }
@@ -295,22 +290,21 @@ bool loop_cut_and_normals()
     std::string error;
     schema::EditableMeshDataT model;
     schema::MeshDataT compiled;
-    if (!engine::plugins::modeling::MeshPrimitives::create({}, model, error))
+    if (!engine::plugins::modeling::mesh::create({}, model, error))
     {
         return false;
     }
     const engine::plugins::modeling::MeshEdge edge{model.faces.front()->vertices[0],
                                                    model.faces.front()->vertices[1]};
     std::vector<engine::plugins::modeling::MeshEdge> ring;
-    if (!expect(engine::plugins::modeling::MeshTopology::edge_ring(model, edge, ring, error) &&
+    if (!expect(engine::plugins::modeling::mesh::edge_ring(model, edge, ring, error) &&
                     ring.size() == 4,
                 "cube has four-edge ring", error) ||
-        !expect(engine::plugins::modeling::MeshTopology::loop_cut(model, edge, 2, 0.2, 0.1, error),
+        !expect(engine::plugins::modeling::mesh::loop_cut(model, edge, 2, 0.2, 0.1, error),
                 "loop cut", error) ||
         !expect(model.faces.size() == 14, "loop cut splits four faces into twelve") ||
-        !expect(
-            engine::plugins::modeling::EditableMesh::compile(model, "cut.mesh", compiled, error),
-            "loop cut compile", error) ||
+        !expect(engine::plugins::modeling::mesh::compile(model, "cut.mesh", compiled, error),
+                "loop cut compile", error) ||
         !expect(closed(compiled) && std::abs(volume(compiled) - 1.0) < 1.0e-6,
                 "loop cut retains closed volume"))
     {
@@ -318,9 +312,8 @@ bool loop_cut_and_normals()
     }
     schema::EditableMeshDataT imported;
     schema::MeshDataT restored;
-    if (!engine::plugins::modeling::EditableMesh::from_mesh(compiled, imported, error) ||
-        !engine::plugins::modeling::EditableMesh::compile(imported, "imported.mesh", restored,
-                                                          error))
+    if (!engine::plugins::modeling::mesh::from_mesh(compiled, imported, error) ||
+        !engine::plugins::modeling::mesh::compile(imported, "imported.mesh", restored, error))
     {
         return expect(false, "import smooth groups", error);
     }
@@ -334,7 +327,7 @@ bool loop_cut_and_normals()
     }
     std::vector<std::uint64_t> selection;
     const std::array<std::uint64_t, 1> face{model.faces.front()->id};
-    return expect(engine::plugins::modeling::MeshTopology::select_faces(
+    return expect(engine::plugins::modeling::mesh::select_faces(
                       model, face, engine::plugins::modeling::MeshFaceSelection::connected,
                       selection, error) &&
                       selection.size() == 14,
@@ -348,25 +341,25 @@ bool extruded_hole()
     const std::vector<schema::Vec3> outer{{0, 0, 0}, {4, 0, 0}, {4, 4, 0}, {0, 4, 0}};
     const std::vector<std::vector<schema::Vec3>> holes{
         {{1, 1, 0}, {3, 1, 0}, {3, 3, 0}, {1, 3, 0}}};
-    if (!engine::plugins::modeling::MeshPrimitives::polygon(outer, holes, model, error))
+    if (!engine::plugins::modeling::mesh::polygon(outer, holes, model, error))
     {
         return false;
     }
     const std::array<std::uint64_t, 1> cap{model.faces.front()->id};
-    if (!engine::plugins::modeling::MeshTopology::duplicate_faces(model, cap, error))
+    if (!engine::plugins::modeling::mesh::duplicate_faces(model, cap, error))
     {
         return false;
     }
     const std::array<std::uint64_t, 1> bottom{model.faces.back()->id};
-    if (!engine::plugins::modeling::MeshTopology::reverse_faces(model, bottom, error) ||
-        !engine::plugins::modeling::MeshTopology::extrude(model, cap, 1.0, false, error))
+    if (!engine::plugins::modeling::mesh::reverse_faces(model, bottom, error) ||
+        !engine::plugins::modeling::mesh::extrude(model, cap, 1.0, false, error))
     {
         return expect(false, "extrude hole", error);
     }
     schema::MeshDataT compiled;
-    return expect(engine::plugins::modeling::EditableMesh::compile(model, "holed-solid.mesh",
-                                                                   compiled, error),
-                  "extruded hole compiles", error) &&
+    return expect(
+               engine::plugins::modeling::mesh::compile(model, "holed-solid.mesh", compiled, error),
+               "extruded hole compiles", error) &&
            expect(closed(compiled) && std::abs(volume(compiled) - 12.0) < 1.0e-6,
                   "extruded hole closes with inward hole walls and outward outer walls");
 }
@@ -375,33 +368,31 @@ bool boundary_and_attributes()
 {
     std::string error;
     schema::EditableMeshDataT model;
-    if (!engine::plugins::modeling::MeshPrimitives::create({}, model, error))
+    if (!engine::plugins::modeling::mesh::create({}, model, error))
     {
         return false;
     }
     const auto ring = model.faces.front()->vertices;
     const std::array<std::uint64_t, 1> selected{model.faces.front()->id};
     schema::MeshDataT compiled;
-    if (!expect(engine::plugins::modeling::MeshTopology::erase_faces(model, selected, error),
+    if (!expect(engine::plugins::modeling::mesh::erase_faces(model, selected, error),
                 "delete cube cap", error) ||
-        !expect(engine::plugins::modeling::MeshTopology::fill_hole(model, ring, error),
-                "fill cube cap", error) ||
-        !expect(
-            engine::plugins::modeling::EditableMesh::compile(model, "filled.mesh", compiled, error),
-            "filled compile", error) ||
+        !expect(engine::plugins::modeling::mesh::fill_hole(model, ring, error), "fill cube cap",
+                error) ||
+        !expect(engine::plugins::modeling::mesh::compile(model, "filled.mesh", compiled, error),
+                "filled compile", error) ||
         !expect(closed(compiled) && std::abs(volume(compiled) - 1.0) < 1.0e-6,
                 "filled cap follows boundary winding"))
     {
         return false;
     }
     const std::array<std::uint64_t, 1> cap{model.faces.back()->id};
-    if (!expect(engine::plugins::modeling::MeshTopology::set_material(model, cap, 2, error),
+    if (!expect(engine::plugins::modeling::mesh::set_material(model, cap, 2, error),
                 "set face material", error) ||
-        !expect(engine::plugins::modeling::MeshTopology::set_color(model, cap,
-                                                                   {0.2F, 0.4F, 0.6F, 1.0F}, error),
-                "set face color", error) ||
-        !expect(engine::plugins::modeling::EditableMesh::compile(model, "colored.mesh", compiled,
-                                                                 error),
+        !expect(
+            engine::plugins::modeling::mesh::set_color(model, cap, {0.2F, 0.4F, 0.6F, 1.0F}, error),
+            "set face color", error) ||
+        !expect(engine::plugins::modeling::mesh::compile(model, "colored.mesh", compiled, error),
                 "colored compile", error) ||
         !expect(compiled.submeshes.size() == 2 && compiled.submeshes.back().material_slot() == 2,
                 "face material becomes a render submesh"))
@@ -410,11 +401,11 @@ bool boundary_and_attributes()
     }
     std::vector<std::uint64_t> selection;
     if (!expect(
-            engine::plugins::modeling::MeshTopology::select_faces(
+            engine::plugins::modeling::mesh::select_faces(
                 model, cap, engine::plugins::modeling::MeshFaceSelection::grow, selection, error) &&
                 selection.size() == 5,
             "grow selection includes edge neighbors", error) ||
-        !expect(engine::plugins::modeling::MeshTopology::select_faces(
+        !expect(engine::plugins::modeling::mesh::select_faces(
                     model, cap, engine::plugins::modeling::MeshFaceSelection::shrink, selection,
                     error) &&
                     selection.empty(),
@@ -432,9 +423,9 @@ bool bridge_caps()
     schema::EditableMeshDataT model;
     schema::EditableMeshDataT other;
     std::string error;
-    if (!engine::plugins::modeling::MeshPrimitives::polygon(bottom, {}, model, error) ||
-        !engine::plugins::modeling::MeshPrimitives::polygon(top, {}, other, error) ||
-        !engine::plugins::modeling::MeshTopology::append(model, other, error))
+    if (!engine::plugins::modeling::mesh::polygon(bottom, {}, model, error) ||
+        !engine::plugins::modeling::mesh::polygon(top, {}, other, error) ||
+        !engine::plugins::modeling::mesh::append(model, other, error))
     {
         return false;
     }
@@ -442,10 +433,9 @@ bool bridge_caps()
     const auto& upper = model.faces.back()->vertices;
     const std::array<std::uint64_t, 4> second{upper[0], upper[3], upper[2], upper[1]};
     schema::MeshDataT compiled;
-    return expect(engine::plugins::modeling::MeshTopology::bridge(model, first, second, error),
+    return expect(engine::plugins::modeling::mesh::bridge(model, first, second, error),
                   "bridge caps", error) &&
-           expect(engine::plugins::modeling::EditableMesh::compile(model, "bridge.mesh", compiled,
-                                                                   error),
+           expect(engine::plugins::modeling::mesh::compile(model, "bridge.mesh", compiled, error),
                   "bridge compile", error) &&
            expect(closed(compiled) && std::abs(volume(compiled) - 1.0) < 1.0e-6,
                   "bridge has consistent outward winding");
@@ -457,27 +447,24 @@ bool extruded_edges()
     options.type = engine::plugins::modeling::MeshPrimitive::plane;
     schema::EditableMeshDataT model;
     std::string error;
-    if (!engine::plugins::modeling::MeshPrimitives::create(options, model, error))
+    if (!engine::plugins::modeling::mesh::create(options, model, error))
     {
         return false;
     }
     const auto& corners = model.faces.front()->vertices;
     const std::array<engine::plugins::modeling::MeshEdge, 2> edges{
         {{corners[0], corners[1]}, {corners[1], corners[2]}}};
-    if (!expect(
-            engine::plugins::modeling::MeshTopology::extrude_edges(model, edges, {0, 1, 0}, error),
-            "extrude connected open edges", error) ||
+    if (!expect(engine::plugins::modeling::mesh::extrude_edges(model, edges, {0, 1, 0}, error),
+                "extrude connected open edges", error) ||
         !expect(model.faces.size() == 3 && model.vertices.size() == 7,
                 "edge extrusion shares copied corner"))
     {
         return false;
     }
     schema::MeshDataT mesh;
-    return expect(
-               engine::plugins::modeling::EditableMesh::compile(model, "walls.mesh", mesh, error),
-               "edge extruded walls compile", error) &&
-           expect(!engine::plugins::modeling::MeshTopology::extrude_edges(model, edges, {0, 1, 0},
-                                                                          error),
+    return expect(engine::plugins::modeling::mesh::compile(model, "walls.mesh", mesh, error),
+                  "edge extruded walls compile", error) &&
+           expect(!engine::plugins::modeling::mesh::extrude_edges(model, edges, {0, 1, 0}, error),
                   "edge extrusion rejects now-interior edges");
 }
 
@@ -485,7 +472,7 @@ bool point_edge_transform()
 {
     std::string error;
     schema::EditableMeshDataT model;
-    if (!engine::plugins::modeling::MeshPrimitives::create({}, model, error))
+    if (!engine::plugins::modeling::mesh::create({}, model, error))
     {
         return false;
     }
@@ -498,53 +485,50 @@ bool point_edge_transform()
     selection.vertices = {selected_id};
     const std::array<double, 16> translate{1, 0, 0, 0, 0,     1,    0,    0,
                                            0, 0, 1, 0, -0.25, -0.2, -0.1, 1};
-    if (!expect(
-            engine::plugins::modeling::MeshTopology::transform(model, selection, translate, error),
-            "move single cube vertex", error) ||
+    if (!expect(engine::plugins::modeling::mesh::transform(model, selection, translate, error),
+                "move single cube vertex", error) ||
         !expect(model.faces.size() == 9, "only three affected quads are triangulated") ||
-        !expect(engine::plugins::modeling::EditableMesh::find_face(model, original_face)
-                            ->vertices.size() == 3 &&
-                    engine::plugins::modeling::EditableMesh::find_face(model, original_face)
-                            ->material_slot == 2 &&
-                    engine::plugins::modeling::EditableMesh::find_face(model, original_face)
-                            ->smoothing_group == 7 &&
-                    engine::plugins::modeling::EditableMesh::find_face(model, original_face)
-                            ->colors.size() == 3 &&
-                    engine::plugins::modeling::EditableMesh::find_face(model, original_face)
-                            ->texcoords.size() == 3,
-                "point edit preserves first face identity and corner attributes"))
+        !expect(
+            engine::plugins::modeling::mesh::find_face(model, original_face)->vertices.size() ==
+                    3 &&
+                engine::plugins::modeling::mesh::find_face(model, original_face)->material_slot ==
+                    2 &&
+                engine::plugins::modeling::mesh::find_face(model, original_face)->smoothing_group ==
+                    7 &&
+                engine::plugins::modeling::mesh::find_face(model, original_face)->colors.size() ==
+                    3 &&
+                engine::plugins::modeling::mesh::find_face(model, original_face)
+                        ->texcoords.size() == 3,
+            "point edit preserves first face identity and corner attributes"))
     {
         return false;
     }
     schema::MeshDataT compiled;
-    if (!expect(
-            engine::plugins::modeling::EditableMesh::compile(model, "point.mesh", compiled, error),
-            "point edited cube compiles", error) ||
+    if (!expect(engine::plugins::modeling::mesh::compile(model, "point.mesh", compiled, error),
+                "point edited cube compiles", error) ||
         !expect(closed(compiled) && volume(compiled) > 0.0, "point edit keeps closed outward mesh"))
     {
         return false;
     }
     selection = {};
     selection.edges.push_back({model.faces.front()->vertices[0], model.faces.front()->vertices[1]});
-    if (!expect(
-            engine::plugins::modeling::MeshTopology::transform(model, selection, translate, error),
-            "move edge", error))
+    if (!expect(engine::plugins::modeling::mesh::transform(model, selection, translate, error),
+                "move edge", error))
     {
         return false;
     }
     selection = {};
     selection.all = true;
     const std::array<double, 16> reflect_scale{-2, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0.5, 0, 0, 0, 0, 1};
-    if (!engine::plugins::modeling::EditableMesh::compile(model, "before.mesh", compiled, error))
+    if (!engine::plugins::modeling::mesh::compile(model, "before.mesh", compiled, error))
     {
         return false;
     }
     const auto before_volume = volume(compiled);
-    return expect(engine::plugins::modeling::MeshTopology::transform(model, selection,
-                                                                     reflect_scale, error),
-                  "negative nonuniform scale", error) &&
-           expect(engine::plugins::modeling::EditableMesh::compile(model, "scaled.mesh", compiled,
-                                                                   error),
+    return expect(
+               engine::plugins::modeling::mesh::transform(model, selection, reflect_scale, error),
+               "negative nonuniform scale", error) &&
+           expect(engine::plugins::modeling::mesh::compile(model, "scaled.mesh", compiled, error),
                   "scaled compile", error) &&
            expect(closed(compiled) && std::abs(volume(compiled) - before_volume * 3.0) < 1.0e-5,
                   "negative scale preserves outward winding and determinant volume");
@@ -579,7 +563,7 @@ bool group_inset()
     options.width_segments = 2;
     schema::EditableMeshDataT model;
     std::string error;
-    if (!engine::plugins::modeling::MeshPrimitives::create(options, model, error))
+    if (!engine::plugins::modeling::mesh::create(options, model, error))
     {
         return false;
     }
@@ -589,15 +573,15 @@ bool group_inset()
     {
         uv = {uv.x() + 2.0, uv.y()};
     }
-    if (!expect(engine::plugins::modeling::MeshTopology::inset(model, faces, 0.1, error, true),
+    if (!expect(engine::plugins::modeling::mesh::inset(model, faces, 0.1, error, true),
                 "group inset adjacent faces", error) ||
         !expect(model.faces.size() == 8,
                 "group inset creates only outer boundary, not internal border"))
     {
         return false;
     }
-    const auto* first = engine::plugins::modeling::EditableMesh::find_face(model, faces[0]);
-    const auto* second = engine::plugins::modeling::EditableMesh::find_face(model, faces[1]);
+    const auto* first = engine::plugins::modeling::mesh::find_face(model, faces[0]);
+    const auto* second = engine::plugins::modeling::mesh::find_face(model, faces[1]);
     std::size_t shared = 0;
     for (std::size_t i = 0; i < first->vertices.size(); ++i)
     {
@@ -618,9 +602,8 @@ bool group_inset()
     schema::MeshDataT compiled;
     if (!expect(shared == 2 && second->material_slot == 1,
                 "group keeps internal shared edge and material") ||
-        !expect(
-            engine::plugins::modeling::EditableMesh::compile(model, "group.mesh", compiled, error),
-            "group compile", error) ||
+        !expect(engine::plugins::modeling::mesh::compile(model, "group.mesh", compiled, error),
+                "group compile", error) ||
         !expect(std::abs(planar_area(compiled) - 2.0) < 1.0e-6,
                 "group inset partitions original area"))
     {
@@ -628,12 +611,12 @@ bool group_inset()
     }
     options.depth_segments = 2;
     options.size = {2, 1, 2};
-    if (!engine::plugins::modeling::MeshPrimitives::create(options, model, error))
+    if (!engine::plugins::modeling::mesh::create(options, model, error))
     {
         return false;
     }
     const std::array<std::uint64_t, 1> remove{model.faces.back()->id};
-    if (!engine::plugins::modeling::MeshTopology::erase_faces(model, remove, error))
+    if (!engine::plugins::modeling::mesh::erase_faces(model, remove, error))
     {
         return false;
     }
@@ -642,9 +625,9 @@ bool group_inset()
     {
         concave.push_back(face->id);
     }
-    if (!expect(engine::plugins::modeling::MeshTopology::inset(model, concave, 0.1, error, true),
+    if (!expect(engine::plugins::modeling::mesh::inset(model, concave, 0.1, error, true),
                 "group inset concave L region", error) ||
-        !expect(engine::plugins::modeling::EditableMesh::compile(model, "l.mesh", compiled, error),
+        !expect(engine::plugins::modeling::mesh::compile(model, "l.mesh", compiled, error),
                 "concave group compile", error) ||
         !expect(std::abs(planar_area(compiled) - 3.0) < 1.0e-6,
                 "concave inset preserves total region area"))
@@ -654,16 +637,16 @@ bool group_inset()
     const std::vector<schema::Vec3> outer{{0, 0, 0}, {4, 0, 0}, {4, 4, 0}, {0, 4, 0}};
     const std::vector<std::vector<schema::Vec3>> holes{
         {{1, 1, 0}, {3, 1, 0}, {3, 3, 0}, {1, 3, 0}}};
-    if (!engine::plugins::modeling::MeshPrimitives::polygon(outer, holes, model, error))
+    if (!engine::plugins::modeling::mesh::polygon(outer, holes, model, error))
     {
         return false;
     }
     const std::array<std::uint64_t, 1> holed{model.faces.front()->id};
-    if (!expect(engine::plugins::modeling::MeshTopology::inset(model, holed, 0.1, error, true),
+    if (!expect(engine::plugins::modeling::mesh::inset(model, holed, 0.1, error, true),
                 "group inset outer and hole boundaries", error) ||
-        !expect(engine::plugins::modeling::EditableMesh::compile(model, "holed-inset.mesh",
-                                                                 compiled, error),
-                "holed inset compile", error) ||
+        !expect(
+            engine::plugins::modeling::mesh::compile(model, "holed-inset.mesh", compiled, error),
+            "holed inset compile", error) ||
         !expect(std::abs(planar_area(compiled) - 12.0) < 1.0e-5,
                 "holed inset preserves original region area"))
     {
@@ -671,10 +654,10 @@ bool group_inset()
     }
     std::vector<std::uint8_t> before;
     std::vector<std::uint8_t> after;
-    return engine::plugins::modeling::EditableMesh::serialize(model, before, error) &&
-           expect(!engine::plugins::modeling::MeshTopology::inset(model, holed, 10.0, error, true),
+    return engine::plugins::modeling::mesh::serialize(model, before, error) &&
+           expect(!engine::plugins::modeling::mesh::inset(model, holed, 10.0, error, true),
                   "excess group inset fails") &&
-           engine::plugins::modeling::EditableMesh::serialize(model, after, error) &&
+           engine::plugins::modeling::mesh::serialize(model, after, error) &&
            expect(before == after, "failed group inset preserves all original bytes");
 }
 
@@ -682,24 +665,24 @@ bool split_and_edge_loop()
 {
     std::string error;
     schema::EditableMeshDataT model;
-    if (!engine::plugins::modeling::MeshPrimitives::create({}, model, error))
+    if (!engine::plugins::modeling::mesh::create({}, model, error))
     {
         return false;
     }
     const auto face_ids = std::array<std::uint64_t, 2>{model.faces[0]->id, model.faces[1]->id};
     std::vector<std::uint8_t> before;
     std::vector<std::uint8_t> after;
-    if (!engine::plugins::modeling::EditableMesh::serialize(model, before, error) ||
-        !expect(!engine::plugins::modeling::MeshTopology::inset(model, face_ids, 0.1, error, true),
+    if (!engine::plugins::modeling::mesh::serialize(model, before, error) ||
+        !expect(!engine::plugins::modeling::mesh::inset(model, face_ids, 0.1, error, true),
                 "noncoplanar group inset fails") ||
-        !engine::plugins::modeling::EditableMesh::serialize(model, after, error) ||
+        !engine::plugins::modeling::mesh::serialize(model, after, error) ||
         !expect(before == after, "noncoplanar group inset is atomic"))
     {
         return false;
     }
     const std::array<std::uint64_t, 1> corner{model.vertices.front().id()};
     const auto old_uv = model.faces.front()->texcoords;
-    if (!expect(engine::plugins::modeling::MeshTopology::split_vertices(model, corner, error),
+    if (!expect(engine::plugins::modeling::mesh::split_vertices(model, corner, error),
                 "split shared cube vertex", error) ||
         !expect(model.vertices.size() == 10, "split vertex creates per-face identities") ||
         !expect(model.faces.front()->texcoords[0].x() == old_uv[0].x() &&
@@ -712,17 +695,17 @@ bool split_and_edge_loop()
     options.type = engine::plugins::modeling::MeshPrimitive::plane;
     options.width_segments = 4;
     options.depth_segments = 2;
-    if (!engine::plugins::modeling::MeshPrimitives::create(options, model, error))
+    if (!engine::plugins::modeling::mesh::create(options, model, error))
     {
         return false;
     }
     const engine::plugins::modeling::MeshEdge seed{model.vertices[6].id(), model.vertices[7].id()};
     std::vector<engine::plugins::modeling::MeshEdge> loop;
     std::vector<engine::plugins::modeling::MeshEdge> ring;
-    return expect(engine::plugins::modeling::MeshTopology::edge_loop(model, seed, loop, error) &&
+    return expect(engine::plugins::modeling::mesh::edge_loop(model, seed, loop, error) &&
                       loop.size() == 4,
                   "edge loop follows connected horizontal edges", error) &&
-           expect(engine::plugins::modeling::MeshTopology::edge_ring(model, seed, ring, error) &&
+           expect(engine::plugins::modeling::mesh::edge_ring(model, seed, ring, error) &&
                       ring.size() == 3,
                   "edge ring follows opposite edges through quad rows", error);
 }

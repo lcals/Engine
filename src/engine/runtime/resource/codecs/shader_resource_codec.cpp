@@ -1,11 +1,10 @@
 #include "runtime/resource/codecs/shader_resource_codec.hpp"
+#include "runtime/resource/codecs/resource_decode.hpp"
 
 #include "runtime/core/guid_map.hpp"
 #include "runtime/resource/codecs/material_value_utils.hpp"
 #include "runtime/resource/types/texture_resource.hpp"
 #include <set>
-
-#include <flatbuffers/verifier.h>
 
 #include <map>
 #include <utility>
@@ -173,27 +172,14 @@ schema::AssetKind ShaderResourceCodec::kind() const noexcept
 bool ShaderResourceCodec::decode(const schema::AssetEntryT& entry, ByteView payload,
                                  std::unique_ptr<Resource>& output, std::string& error) const
 {
-    if (output)
+    const auto validate = [](ByteView payload, std::string& error)
     {
-        error = "Resource output must be empty";
-        return false;
-    }
-    error.clear();
-    if (entry.kind != kind() || payload.empty() || payload.size() > 64U * 1024U * 1024U)
-    {
-        error = "Invalid resource kind or payload size";
-        return false;
-    }
-    const auto* bytes = reinterpret_cast<const std::uint8_t*>(payload.data());
-    flatbuffers::Verifier verifier(bytes, payload.size());
-    if (!schema::VerifyShaderDataBuffer(verifier))
-    {
-        error = "Invalid Shader FlatBuffer";
-        return false;
-    }
-    auto data = schema::UnPackShaderData(bytes);
-    output = std::make_unique<ResourceType>(entry, std::move(*data));
-    return true;
+        return resource_decode_detail::verify_flatbuffer(payload, schema::VerifyShaderDataBuffer,
+                                                         "Invalid Shader FlatBuffer", error);
+    };
+    return resource_decode_detail::decode_flatbuffer<ResourceType>(
+        entry, payload, 64U * 1024U * 1024U, validate,
+        [](const std::uint8_t* bytes) { return schema::UnPackShaderData(bytes); }, output, error);
 }
 
 bool ShaderResourceCodec::validate_data(const Resource& resource, std::string& error) const

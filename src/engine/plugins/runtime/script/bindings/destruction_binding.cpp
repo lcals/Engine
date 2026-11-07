@@ -1,6 +1,7 @@
 #if defined(ENGINE_HAS_DESTRUCTION_PLUGIN) && ENGINE_HAS_DESTRUCTION_PLUGIN
 
 #include "plugins/runtime/script/bindings/destruction_binding.hpp"
+#include "plugins/runtime/script/bindings/binding_helpers.hpp"
 
 #include "plugins/runtime/destruction/destruction_component.hpp"
 #include "plugins/runtime/destruction/destruction_system.hpp"
@@ -59,23 +60,9 @@ Object.freeze(DestructionComponent.prototype);
 Object.freeze(DestructionComponent);
 )js";
 
-destruction::DestructionComponent component(const Arguments& arguments, int count)
-{
-    arguments.set_return(false);
-    auto node = BindingContext::node(arguments);
-    return node && arguments.count() == count
-               ? node.get_component<destruction::DestructionComponent>()
-               : destruction::DestructionComponent{};
-}
-void add(const Arguments& arguments)
-{
-    auto node = BindingContext::node(arguments);
-    arguments.set_return(arguments.count() == 2 && node &&
-                         node.add_component<destruction::DestructionComponent>().valid());
-}
 void damage(const Arguments& arguments)
 {
-    auto value = component(arguments, 8);
+    auto value = binding_detail::component<destruction::DestructionComponent>(arguments, 8);
     double x = 0;
     double y = 0;
     double z = 0;
@@ -93,7 +80,7 @@ void damage(const Arguments& arguments)
 }
 void damage_async(const Arguments& arguments)
 {
-    auto value = component(arguments, 8);
+    auto value = binding_detail::component<destruction::DestructionComponent>(arguments, 8);
     auto* context = BindingContext::current(arguments);
     auto* system = destruction::DestructionSystem::instance();
     double x = 0;
@@ -118,7 +105,7 @@ void damage_async(const Arguments& arguments)
 }
 void support(const Arguments& arguments)
 {
-    auto value = component(arguments, 6);
+    auto value = binding_detail::component<destruction::DestructionComponent>(arguments, 6);
     auto* context = BindingContext::current(arguments);
     std::uint64_t scene_id = 0;
     std::uint64_t node_id = 0;
@@ -137,20 +124,20 @@ void support(const Arguments& arguments)
 }
 void owns_fragment(const Arguments& arguments)
 {
-    const auto value = component(arguments, 3);
+    const auto value = binding_detail::component<destruction::DestructionComponent>(arguments, 3);
     std::uint64_t node_id = 0;
     arguments.set_return(value && BindingContext::identifier(arguments, 2, node_id) &&
                          value.owns_fragment(node_id));
 }
 void reset(const Arguments& arguments)
 {
-    auto value = component(arguments, 2);
+    auto value = binding_detail::component<destruction::DestructionComponent>(arguments, 2);
     arguments.set_return(value && value.reset());
 }
 
 void retire_fragments(const Arguments& arguments)
 {
-    auto value = component(arguments, 4);
+    auto value = binding_detail::component<destruction::DestructionComponent>(arguments, 4);
     arguments.set_return({});
     double max_age = 0;
     if (!value || !arguments.is_uint32(2) || !BindingContext::number(arguments, 3, max_age))
@@ -166,7 +153,7 @@ void retire_fragments(const Arguments& arguments)
 
 void stress(const Arguments& arguments)
 {
-    auto value = component(arguments, 8);
+    auto value = binding_detail::component<destruction::DestructionComponent>(arguments, 8);
     arguments.set_return({});
     double x = 0;
     double y = 0;
@@ -188,7 +175,7 @@ void stress(const Arguments& arguments)
 }
 void statistic(const Arguments& arguments)
 {
-    const auto value = component(arguments, 2);
+    const auto value = binding_detail::component<destruction::DestructionComponent>(arguments, 2);
     arguments.set_return({});
     if (!value)
     {
@@ -230,7 +217,9 @@ bool DestructionBinding::register_functions(vm::ScriptVm& vm) const
 {
     return vm.integer("DestructionKind",
                       static_cast<int>(destruction::DestructionComponent::component_type)) &&
-           vm.function("DestructionAdd", add) && vm.function("DestructionDamage", damage) &&
+           vm.function("DestructionAdd",
+                       binding_detail::add_component<destruction::DestructionComponent>) &&
+           vm.function("DestructionDamage", damage) &&
            vm.function("DestructionDamageAsync", damage_async) &&
            vm.function("DestructionSupport", support) &&
            vm.function("DestructionOwns", owns_fragment) &&

@@ -1,4 +1,5 @@
 #include "plugins/runtime/script/bindings/ui_component_binding.hpp"
+#include "plugins/runtime/script/bindings/binding_helpers.hpp"
 
 #include "plugins/runtime/script/bindings/binding_context.hpp"
 #include "runtime/scene/node.hpp"
@@ -54,13 +55,6 @@ UiSystem* system(const Arguments& arguments)
     return ui != nullptr && ui->is_initialized() ? ui : nullptr;
 }
 
-void add(const Arguments& arguments)
-{
-    auto node = BindingContext::node(arguments);
-    arguments.set_return(arguments.count() == 2 && node.valid() &&
-                         node.add_component<UiComponent>().valid());
-}
-
 void set_document(const Arguments& arguments)
 {
     arguments.set_return(false);
@@ -114,7 +108,8 @@ std::string_view UiComponentBinding::source() const noexcept
 bool UiComponentBinding::register_functions(vm::ScriptVm& vm) const
 {
     return vm.integer("UiComponentKind", static_cast<int>(UiComponent::component_type)) &&
-           vm.function("UiComponentAdd", add) && vm.function("UiDocumentSet", set_document) &&
+           vm.function("UiComponentAdd", binding_detail::add_component<UiComponent>) &&
+           vm.function("UiDocumentSet", set_document) &&
            vm.function("UiElementFind", find_element) &&
            vm.function("UiDocumentId", document_identifier);
 }

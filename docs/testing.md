@@ -4,6 +4,27 @@
 
 验证记录只对注明的日期、平台、后端和范围负责。定向测试通过不表示全仓测试通过，历史实窗结果也不代表后续修改已跨平台验收。功能检查与性能验收分开；性能指标和采样口径见[性能文档](runtime/performance.md)。CI 仅手动触发。
 
+## 2026-11-07：全仓类图精简落地
+
+按[全仓类图评审](class-diagrams/index.md#全仓精简评审)落实本轮合并：四个建模静态工具类改为 `modeling::mesh` 函数；三种字段编辑记录合并为私有 `PropertyEdit<DataT>`；MCP 登记、组件设置读取、脚本绑定及 15 个核心 FlatBuffers Codec 复用公共步骤；删除资源插件只写不读的计数字段，路径绑定保留一次获取的资源。公开业务功能、字段级撤销冲突规则和可替换插件边界保持。
+
+验证环境为 Windows x64、MSVC、QuickJS。结果：
+
+- Release 的受影响库及 `engine_app`、`engine_project_app`、`editor_app`、`mcp_app` 编译、链接通过。
+- 18 项 Release 定向测试全部通过：建模 core/geometry/commands/pipeline，编辑器 commands，MCP registry，资源 codecs/resource_graph，scene/ecs_scene，script_runtime/model_animation_script/navigation_agent_script/terrain_destruction_script，以及 animation/audio/font_system/ui_script。沿用现有用例覆盖字段撤销保留未选字段、目录换代与旧资源保活、取消和释放、格式错误、失效组件及脚本生命周期；音频现有用例补充路径绑定只调用一次 acquire_loaded 的断言。
+- 实际源码包含和解析后 CMake 目标依赖的 `engine.architecture_boundaries` 检查通过。
+- Debug 的受影响库和同四个宿主编译、链接通过；未运行 Debug 测试。
+
+本轮只运行上述定向集合与架构检查，没有重跑完整 CTest 集合；未执行 Android、iOS、macOS 或 V8 验收。Debug 沿用已有 `/DEBUG:FASTLINK /INCREMENTAL:NO` 本地缓存设置，库编译使用 5 个并行任务，宿主链接串行。文档检查覆盖修改页的 Mermaid 语法、本地链接与锚点，源码交付另执行 `git diff --check`。
+
+可重复的定向测试命令（先构建同名测试目标）：
+
+```powershell
+ctest --preset windows-static-release -R '^(modeling\.(core|geometry|commands|pipeline)|editor\.commands|resource\.codecs|plugins\.runtime\.resource_graph|engine\.(mcp_registry|ecs_scene|scene|script_runtime|model_animation_script|navigation_agent_script|terrain_destruction_script|font_system|ui_script|animation|audio))$' --output-on-failure -j 2
+ctest --preset windows-static-release -R '^engine.architecture_boundaries$' --output-on-failure
+cmake --build --preset windows-static-debug --target engine_app engine_project_app editor_app mcp_app -j 1
+```
+
 ## 2026-11-07：统一资源生命周期迁移
 
 按[已确认类图](runtime/class-diagrams/resource-lifecycle.md)一次替换旧接口，覆盖全部 21 种资源：核心文件同步/异步读取与单项解码，资源插件负责依赖、共享、计数及卸载，业务显式加载后使用。资源插件可由遵守 ResourceLoader 契约的实现替换。

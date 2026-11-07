@@ -364,8 +364,8 @@ void icosphere(schema::EditableMeshDataT& data, const MeshPrimitiveOptions& opti
 
 } // namespace
 
-bool MeshPrimitives::create(const MeshPrimitiveOptions& options, schema::EditableMeshDataT& output,
-                            std::string& error)
+bool mesh::create(const MeshPrimitiveOptions& options, schema::EditableMeshDataT& output,
+                  std::string& error)
 {
     output = {};
     error.clear();
@@ -536,7 +536,7 @@ bool MeshPrimitives::create(const MeshPrimitiveOptions& options, schema::Editabl
     default:
         return fail(error, "基本体类型未知");
     }
-    if (!EditableMesh::validate(result, error))
+    if (!mesh::validate(result, error))
     {
         return false;
     }
@@ -544,9 +544,9 @@ bool MeshPrimitives::create(const MeshPrimitiveOptions& options, schema::Editabl
     return true;
 }
 
-bool MeshPrimitives::polygon(std::span<const schema::Vec3> points,
-                             const std::vector<std::vector<schema::Vec3>>& holes,
-                             schema::EditableMeshDataT& output, std::string& error)
+bool mesh::polygon(std::span<const schema::Vec3> points,
+                   const std::vector<std::vector<schema::Vec3>>& holes,
+                   schema::EditableMeshDataT& output, std::string& error)
 {
     output = {};
     error.clear();
@@ -570,7 +570,7 @@ bool MeshPrimitives::polygon(std::span<const schema::Vec3> points,
         }
         face.holes.push_back(std::move(hole));
     }
-    if (!EditableMesh::validate(result, error))
+    if (!mesh::validate(result, error))
     {
         return false;
     }

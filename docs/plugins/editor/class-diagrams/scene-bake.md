@@ -38,6 +38,8 @@ classDiagram
     SceneBakeSystem ..> EditorCommands : 注册启动查询取消命令
     register_scene_bake_tools --> EditorMcpTools : 转发编辑器命令
     register_scene_bake_tools ..> McpSystem : 登记工具
+    class mcp_functions
+    register_scene_bake_tools ..> mcp_functions : 精简目标 共用命令登记
 ```
 
 `SceneBakeSystem` 通过私有 `State` 持有 GPU 任务、文件事务、输入资源的独立获取、任务身份和状态；ValidateCallback / PublishCallback 由宿主提供且依赖对象覆盖系统生命周期。ValidateCallback 输出当前场景身份并检查已保存预览，PublishCallback 只执行通用导入刷新。注册命令与 MCP 回调均为借用，必须先关闭命令服务再销毁模块。
@@ -118,3 +120,5 @@ classDiagram
 BRDF LUT 取决于所选 BRDF 模型与积分约定，与具体场景及天空图无关；漫反射环境图和预滤波反射图仍由各场景烘焙。迁移时同步调整场景资源引用、依赖清单与 Shader 绑定；上述优化尚未实施。
 
 `register_scene_bake_tools` 是模块登记函数，没有适配器对象或独立状态；工具回调直接借用 EditorMcpTools，宿主保证通道存活到 McpSystem 关闭。
+
+**登记精简已实现：** 直接转发项使用[共用工具登记函数](editor-mcp-tools.md#共用工具登记目标)，工具名、schema、命令名和回执语义保持。原有特定参数转换仍由本模块执行，不迁入公共登记函数。

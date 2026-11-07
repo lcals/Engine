@@ -13,8 +13,8 @@ classDiagram
     class RuntimeHost {
         +RuntimeHost()
         +~RuntimeHost()
-        +initialize(const EngineConfig& config, ResourceSystem#42; resources, ScriptRuntimeFactory script_factory, RuntimeSetup setup, ThreadSystem#42; threads, const RuntimeParallelConfig& parallel, AnimationRetargeterFactory retargeter_factory = nullptr) bool
-        +initialize_presentation(const EngineConfig& config, ResourceSystem#42; resources, ThreadSystem#42; threads, const RuntimeParallelConfig& parallel) bool
+        +initialize(const EngineConfig& config, ResourceSystem#42; resources, ResourceLoader#42; loader, ScriptRuntimeFactory script_factory, RuntimeSetup setup, ThreadSystem#42; threads, const RuntimeParallelConfig& parallel, AnimationRetargeterFactory retargeter_factory = nullptr) bool
+        +initialize_presentation(const EngineConfig& config, ResourceSystem#42; resources, ResourceLoader#42; loader, ThreadSystem#42; threads, const RuntimeParallelConfig& parallel) bool
         +begin_gameplay(ScriptRuntimeFactory script_factory, RuntimeSetup setup, AnimationRetargeterFactory retargeter_factory, shared_ptr~const ResourceCatalog~ catalog, shared_ptr~const MountList~ mounts, string_view entry, string_view scene) bool
         +step_gameplay(double max_seconds) RuntimeStartupStatus
         +activate_gameplay() bool
@@ -39,21 +39,25 @@ classDiagram
         +ThreadConfig threads
         +TaskConfig runtime
         +TaskConfig background
-        +TaskConfig loading
+        +TaskConfig file
+        +TaskConfig resource_read
+        +TaskConfig resource_graph
+        +TaskConfig movie
+        +TaskConfig render
         +TaskConfig physics
         +TaskConfig animation
         +TaskConfig navigation
-        +ResourceAsyncConfig resources
+        +ResourceReadConfig resources
         +AnimationConfig animation_sampling
         +SceneRestoreConfig scene_restore
-        +RenderConfig render
+        +RenderConfig rendering
         +size_t navigation_tile_threshold
         +size_t completions_per_frame
         +double completion_budget_seconds
     }
     class ThreadConfig
     class TaskConfig
-    class ResourceAsyncConfig
+    class ResourceReadConfig
     class AnimationConfig
     class SceneRestoreConfig
     class RenderConfig
@@ -66,6 +70,8 @@ classDiagram
     class NavigationSystem
     class AudioSystem
     class ResourceSystem
+    class ResourceLoader
+    class ExecutableHost
     class ScriptRuntime
     class ScriptRuntimeFactory
     class RuntimeSetup
@@ -90,11 +96,12 @@ classDiagram
     RuntimeHost o-- ResourceCatalog : 锁存同一目录快照
     RuntimeHost o-- MountList : 锁存同一挂载快照
     RuntimeHost ..> RuntimeStartupStatus : 分阶段返回值
-    RuntimeHost *-- TaskSystem : 独占各模块任务域，共享 worker
+    RuntimeHost *-- TaskSystem : 独占运行 部署 影片 渲染 物理 动画 导航域
+    ExecutableHost *-- TaskSystem : 独占文件 单项解析 资源组织域
     RuntimeHost *-- RuntimeParallelConfig : 运行预算快照
     RuntimeParallelConfig *-- ThreadConfig
     RuntimeParallelConfig *-- TaskConfig
-    RuntimeParallelConfig *-- ResourceAsyncConfig
+    RuntimeParallelConfig *-- ResourceReadConfig
     RuntimeParallelConfig *-- AnimationConfig
     RuntimeParallelConfig *-- SceneRestoreConfig
     RuntimeParallelConfig *-- RenderConfig
@@ -112,6 +119,7 @@ classDiagram
     RuntimeHost --> FontSystem : 装配后借用字体运行时
     RuntimeHost --> UiSystem : 装配后借用并传递窗口输入
     RuntimeHost --> ResourceSystem : 可选借用宿主已初始化底层
+    RuntimeHost --> ResourceLoader : 可空借用高层契约 传给使用模块
     RuntimeHost ..> ScriptRuntimeFactory : 可选宿主创建函数
     RuntimeHost ..> RuntimeSetup : 初始化前调用宿主装配函数
     RuntimeSetup ..> RuntimeStage : 选择子系统登记位置
@@ -125,7 +133,7 @@ classDiagram
 
 - RuntimeHost 位于运行时 app 模块，是桌面、编辑器和 Android 共用的运行组合入口。类型为 final，禁止复制和移动；构造、析构、查询、退出请求和关闭为 noexcept；initialize、tick 和 gameplay 的返回值标注 nodiscard。
 - 初始化先独立创建 WindowSystem 和 InputSystem；resources 为空时直接独占 ResourceSystem，非空时借用调用方已经初始化的资源底层。先独占并初始化 RenderSystem、AudioSystem 和 MoviePlayer，再按请求将 WorldSystem 移交 Engine。宿主初始化可选 Tracy 主线程名称，各模块独立提交采样；覆盖范围见[性能文档](../performance.md)；世界独占物理、导航、动画、字体、界面和可选脚本子系统。引擎已被其他宿主使用时拒绝初始化，不清理他人的资源。
-- 调用方必须显式提供 `config`、`resources`、`script_factory`、`setup`、`threads` 和完整的 `parallel` 预算；可空资源、工厂及装配函数由调用方显式传入 `nullptr`，不使用隐式预算。`ScriptRuntimeFactory` 是 `std::unique_ptr<ScriptRuntime> (*)(WorldSystem&, RenderSystem&, UiSystem&, PhysicsSystem&, NavigationSystem&, InputSystem&, WindowSystem&, AnimationSystem&, MoviePlayer*)` 函数指针别名，由可执行宿主选择插件并提供。先构造世界和渲染器，再调用工厂创建尚未初始化的抽象脚本子系统，交给世界统一初始化、更新和关闭；渲染器和音频在呈现阶段先初始化，随后绑定世界。非空工厂返回空或无法附属时，整个初始化失败并清理已取得的资源。渲染器与输入借用仅用于玩法回调；关闭时先由 GameplaySession 停止回调，再解除世界借用、释放世界和呈现服务。
+- 调用方必须显式提供 `config`、`resources`、`loader`、`script_factory`、`setup`、`threads` 和完整的 `parallel` 预算；可空资源、工厂及装配函数由调用方显式传入 `nullptr`，不使用隐式预算。`ScriptRuntimeFactory` 是 `std::unique_ptr<ScriptRuntime> (*)(WorldSystem&, RenderSystem&, UiSystem&, PhysicsSystem&, NavigationSystem&, InputSystem&, WindowSystem&, AnimationSystem&, MoviePlayer*)` 函数指针别名，由可执行宿主选择插件并提供。先构造世界和渲染器，再调用工厂创建尚未初始化的抽象脚本子系统，交给世界统一初始化、更新和关闭；渲染器和音频在呈现阶段先初始化，随后绑定世界。非空工厂返回空或无法附属时，整个初始化失败并清理已取得的资源。渲染器与输入借用仅用于玩法回调；关闭时先由 GameplaySession 停止回调，再解除世界借用、释放世界和呈现服务。
 
 工厂借用宿主已有窗口与可空 `MoviePlayer*`，供逐类绑定使用；不传 RuntimeHost，
 不让脚本插件持有或关闭宿主。窗口和播放器有效期覆盖全部 Run，
@@ -137,23 +145,23 @@ classDiagram
 - `world()` 返回同生命周期的可空世界借用，供宿主连接独立编辑器业务；运行时不认识命令服务或 MCP。
 - `window()` 返回同生命周期的可空窗口借用，供调用方独立组织事件处理和渲染帧；核心不判断调用方模式。
 - `renderer()` 返回同生命周期的可空渲染器借用，宿主据此装配编辑器渲染命令；截图和渲染设置接口由 RenderSystem 提供。
-- 关闭顺序统一见下方[并行配置](#并行配置)。借用的外部 ResourceSystem 仍由调用宿主管理，RuntimeHost 仅解除其异步服务，不关闭资源系统本身。部分初始化和重复关闭均安全。
+- 关闭顺序统一见下方[并行配置](#并行配置)。借用的外部 ResourceSystem 仍由调用宿主管理，RuntimeHost 仅解除借用，不驱动或关闭外部资源服务。部分初始化和重复关闭均安全。
 - RuntimeHost 不解析项目目录、不读取编辑器配置，也不实现脚本热重载；这些职责分别属于编辑器、平台路径和脚本模块。
 
 ## 并行配置
 
 `RuntimeParallelConfig` 是运行宿主装配参数，预算值完整保存在项目配置中。编辑器读取项目源 TOML 后直接传递类型配置；打包链导出聚合 `settings/runtime.json`，原生宿主读取 RuntimeSettings 的 engine / parallel 后再传入本对象。RuntimeHost 不解析项目 TOML，EngineConfig 与完整并行设置均由调用者显式提供，不以 `parallel = {}` 补预算。线程上限、各域并发/优先级/积压额度、资源在途数量与字节、动画批量及完成委托每帧预算由配置确定；核心不按调用方身份选择策略。宿主中域并发为 0 表示采用实际进程 worker 预算，传入 TaskSystem 前解析为正整数。线程预算只在启动时确定，借用进程 ThreadSystem 时沿用其预算。
 
-各任务域优先级由配置显式指定；各域共享 oneTBB workers，额度不是独占核心。物理和动画关键计算仍在当前帧 join，保持输入/事件/骨骼时序；文件等待交给 SDL AsyncIO，资源解码交给加载域。每帧按数量和总时间预算派发完成委托，然后推进场景与绘制。完成派发按任务域轮转，每次每域至多取一项；保留跨帧游标，预算耗尽后下帧从下一域继续，防止持续繁忙的运行域饿死部署和加载域。预算为零不派发，所有域均无就绪项时立即结束，不等待队列。单个委托仍须自行控制耗时，时间预算不抢占正在执行的委托。
+各任务域优先级由配置显式指定；各域共享 oneTBB workers，额度不是独占核心。物理和动画关键计算仍在当前帧 join，保持输入/事件/骨骼时序；文件范围读取由文件域负责，单项解码交给资源解析域，依赖组织由资源图域负责。每帧按数量和总时间预算派发完成委托，然后推进场景与绘制。完成派发按任务域轮转，每次每域至多取一项；保留跨帧游标，预算耗尽后下帧从下一域继续，防止持续繁忙的运行域饿死部署及其他任务域。预算为零不派发，所有域均无就绪项时立即结束，不等待队列。单个委托仍须自行控制耗时，时间预算不抢占正在执行的委托。
 
-关闭依次销毁 GameplaySession，解除渲染及音频的世界借用并关闭 Engine 的世界，销毁 MoviePlayer，调用 ResourceSystem::shutdown_async()，关闭宿主拥有的音频、渲染及可选资源系统，再销毁 InputSystem 和 WindowSystem，随后收尾并关闭各 TaskSystem，最后释放自有 ThreadSystem。领域系统先完成其 Jolt barrier、资源操作和其他借用任务，才能销毁任务域；后台候选只拥有独立数据，不能借用已经销毁的输入或窗口。未派发委托不在关闭期间执行。
+关闭依次销毁 GameplaySession，解除渲染及音频的世界借用并关闭 Engine 的世界，销毁 MoviePlayer，解除资源底层与加载器借用，关闭宿主拥有的音频、渲染及可选资源系统，再销毁 InputSystem 和 WindowSystem，随后收尾并关闭各 TaskSystem，最后释放自有 ThreadSystem。领域系统先完成其 Jolt barrier、资源操作和其他借用任务，才能销毁任务域；后台候选只拥有独立数据，不能借用已经销毁的输入或窗口。未派发委托不在关闭期间执行。
 
 [世界暂停](../world-pause.md)不改变 Engine/System 的调度接口。宿主只在
 `!window.can_render()` 时暂停整个设备；世界暂停由 AudioSystem 解绑场景声部，不暂停独立影片。
 世界暂停时仍运行正常帧循环、UI 和渲染；
 仅窗口不可绘制时沿既有 FrameStatus::paused 返回。
 
-可执行宿主负责按构建清单装配 ResourceGraphSystem 并向资源底层注入 ResourceLoader；RuntimeHost 库不 include 或链接具体资源插件。外部资源有效期覆盖本宿主及全部领域使用者，关闭消费者后先解除加载器借用，再关闭插件与资源底层。
+可执行宿主负责按构建清单装配 ResourceGraphSystem，向 RuntimeHost 及领域模块注入 ResourceLoader；RuntimeHost 库不 include 或链接具体资源插件。外部资源有效期覆盖本宿主及全部领域使用者，关闭消费者后先解除加载器借用，再关闭插件与资源底层。
 
 `RuntimeSetup = bool (*)(RuntimeStage, WorldSystem&, WindowSystem&, PhysicsSystem&, NavigationSystem&, RenderSystem&, TaskSystem&)` 是宿主回调别名。NavigationSystem 借用在调用前已构造，生命周期覆盖插件子系统；TaskSystem 为已初始化的运行域，供宿主显式注入插件。宿主可据此装配多人导航及异步地形/破坏，无需按类型扫描子系统。
 

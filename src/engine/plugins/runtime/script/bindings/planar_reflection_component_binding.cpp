@@ -1,4 +1,5 @@
 #include "plugins/runtime/script/bindings/planar_reflection_component_binding.hpp"
+#include "plugins/runtime/script/bindings/binding_helpers.hpp"
 
 #include "plugins/runtime/script/bindings/binding_context.hpp"
 #include "runtime/scene/node.hpp"
@@ -21,13 +22,6 @@ componentTypes.set(PlanarReflectionComponent,
 Object.freeze(PlanarReflectionComponent.prototype);
 Object.freeze(PlanarReflectionComponent);
 )js";
-
-void add(const Arguments& arguments)
-{
-    auto node = BindingContext::node(arguments);
-    arguments.set_return(arguments.count() == 2 && node &&
-                         node.add_component<PlanarReflectionComponent>().valid());
-}
 
 void settings(const Arguments& arguments)
 {
@@ -57,7 +51,8 @@ bool PlanarReflectionComponentBinding::register_functions(vm::ScriptVm& vm) cons
 {
     return vm.integer("PlanarReflectionKind",
                       static_cast<int>(PlanarReflectionComponent::component_type)) &&
-           vm.function("PlanarReflectionAdd", add) &&
+           vm.function("PlanarReflectionAdd",
+                       binding_detail::add_component<PlanarReflectionComponent>) &&
            vm.function("PlanarReflectionSettings", settings);
 }
 } // namespace engine::plugins::script::bindings

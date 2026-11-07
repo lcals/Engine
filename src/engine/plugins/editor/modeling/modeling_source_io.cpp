@@ -79,7 +79,7 @@ bool save_source(const fs::path& path, const schema::EditableMeshDataT& source,
                  const schema::MeshDataT& mesh, std::string& error)
 {
     std::vector<std::uint8_t> bytes;
-    if (!EditableMesh::serialize(source, bytes, error))
+    if (!mesh::serialize(source, bytes, error))
     {
         return false;
     }
@@ -201,7 +201,7 @@ bool load_source(const fs::path& path, schema::EditableMeshDataT& source, std::s
         }
         bytes.push_back(static_cast<std::uint8_t>((high << 4) | low));
     }
-    return EditableMesh::deserialize(bytes, source, error);
+    return mesh::deserialize(bytes, source, error);
 }
 
 } // namespace engine::plugins::modeling::detail

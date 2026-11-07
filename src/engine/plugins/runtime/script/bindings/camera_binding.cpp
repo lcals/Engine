@@ -1,4 +1,5 @@
 #include "plugins/runtime/script/bindings/camera_binding.hpp"
+#include "plugins/runtime/script/bindings/binding_helpers.hpp"
 
 #include "plugins/runtime/script/bindings/binding_context.hpp"
 #include "runtime/scene/camera.hpp"
@@ -36,13 +37,6 @@ componentTypes.set(Camera, { add: native.CameraAdd, kind: native.CameraKind });
 Object.freeze(Camera.prototype);
 Object.freeze(Camera);
 )js";
-
-void add(const Arguments& arguments)
-{
-    auto node = BindingContext::node(arguments);
-    arguments.set_return(arguments.count() == 2 && node.valid() &&
-                         node.add_component<Camera>().valid());
-}
 
 void settings(const Arguments& arguments)
 {
@@ -144,7 +138,8 @@ std::string_view CameraBinding::source() const noexcept
 bool CameraBinding::register_functions(vm::ScriptVm& vm) const
 {
     return vm.integer("CameraKind", static_cast<int>(Camera::component_type)) &&
-           vm.function("CameraAdd", add) && vm.function("CameraSettings", settings) &&
+           vm.function("CameraAdd", binding_detail::add_component<Camera>) &&
+           vm.function("CameraSettings", settings) &&
            vm.function("CameraOrthographic", orthographic) &&
            vm.function("CameraGetFrustumCulling", get_frustum_culling) &&
            vm.function("CameraSetFrustumCulling", set_frustum_culling) &&

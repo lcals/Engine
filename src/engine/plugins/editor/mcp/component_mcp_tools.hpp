@@ -1,5 +1,7 @@
 #pragma once
+
 #include "plugins/editor/mcp/editor_mcp_tools.hpp"
+#include "plugins/editor/mcp/editor_tool_registration.hpp"
 #include "plugins/editor/mcp/mcp_system.hpp"
 #include <cstdio>
 #include <nlohmann/json.hpp>
@@ -22,21 +24,16 @@ inline nlohmann::json component_schema(nlohmann::json properties,
     properties["nodeId"] = {{"type", "string"}, {"minLength", 1}};
     required.push_back("sceneId");
     required.push_back("nodeId");
-    return {{"type", "object"},
-            {"properties", std::move(properties)},
-            {"required", std::move(required)},
-            {"additionalProperties", false}};
+    return object_schema(std::move(properties), std::move(required));
 }
 inline bool component_tool(McpSystem& system, EditorMcpTools& editor, std::string name,
                            std::string description, nlohmann::json properties,
                            nlohmann::json required = nlohmann::json::array())
 {
     const auto command = name;
-    const bool registered = system.register_tool(
-        {std::move(name), std::move(description),
-         component_schema(std::move(properties), std::move(required)),
-         [&editor, command](const nlohmann::json& arguments, nlohmann::json& reply)
-         { return editor.call_command(command, arguments, reply); }});
+    const bool registered = register_editor_command_tool(
+        system, editor, std::move(name), std::move(description),
+        component_schema(std::move(properties), std::move(required)), command);
     if (!registered)
     {
         std::fprintf(stderr, "Cannot register component MCP tool: %s\n", command.c_str());

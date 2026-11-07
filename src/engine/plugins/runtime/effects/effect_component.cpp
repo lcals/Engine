@@ -34,8 +34,9 @@ bool EffectComponent::valid_settings(const schema::EffectDataT& settings) noexce
 
 schema::EffectDataT EffectComponent::settings() const noexcept
 {
-    const auto* value = read_data<Data>();
-    return value ? *value : Data{};
+    Data output{};
+    (void)get_settings(output);
+    return output;
 }
 
 bool EffectComponent::get_settings(Data& output) const noexcept
@@ -47,6 +48,12 @@ bool EffectComponent::get_settings(Data& output) const noexcept
 
 bool EffectComponent::set_settings(const schema::EffectDataT& settings)
 {
+    return apply_settings(settings, {});
+}
+
+bool EffectComponent::apply_settings(const Data& settings,
+                                     resource_detail::ResourceReference prepared)
+{
     if (!writable())
     {
         return false;
@@ -56,8 +63,7 @@ bool EffectComponent::set_settings(const schema::EffectDataT& settings)
         return false;
     }
     auto* resources = node().world()->resource_loader();
-    const bool identity_changed = settings.effect_guid != this->settings().effect_guid;
-    const bool changed = identity_changed;
+    const bool changed = settings.effect_guid != this->settings().effect_guid;
     resource_detail::ResourceReference replacement;
     if (runtime()->effect_ && !replacement.retain(runtime()->effect_))
     {
@@ -69,13 +75,12 @@ bool EffectComponent::set_settings(const schema::EffectDataT& settings)
         {
             return false;
         }
-        replacement.reset();
+        replacement = std::move(prepared);
         if (!settings.effect_guid.empty())
         {
-            std::string error;
-            const schema::EffectAssetData* asset = nullptr;
             if (!resources ||
-                !ecs_detail::acquire_resource(node(), settings.effect_guid, replacement) ||
+                (!replacement &&
+                 !ecs_detail::acquire_resource(node(), settings.effect_guid, replacement)) ||
                 !replacement || replacement->info().kind != schema::AssetKind::effect ||
                 !replacement.data<EffectResource>())
             {
@@ -90,11 +95,8 @@ bool EffectComponent::set_settings(const schema::EffectDataT& settings)
     {
         ++runtime()->revision_;
         runtime()->playing_ = false;
-        if (identity_changed)
-        {
-            runtime()->requested_ = Playback::stopped;
-            runtime()->awake_pending_ = settings.play_on_awake;
-        }
+        runtime()->requested_ = Playback::stopped;
+        runtime()->awake_pending_ = settings.play_on_awake;
     }
     if (!settings.play_on_awake)
     {
@@ -131,16 +133,21 @@ bool EffectComponent::set_effect(std::string_view path)
     {
         return false;
     }
+    resource_detail::ResourceReference prepared;
     auto value = settings();
     if (path.empty())
     {
         value.effect_guid.clear();
     }
-    else if (!ecs_detail::resource_guid(node(), path, value.effect_guid))
+    else if (!ecs_detail::acquire_resource(node(), path, prepared))
     {
         return false;
     }
-    return set_settings(value);
+    if (prepared)
+    {
+        value.effect_guid = prepared->info().guid;
+    }
+    return apply_settings(value, std::move(prepared));
 }
 
 std::string_view EffectComponent::effect_path() const noexcept

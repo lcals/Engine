@@ -1,6 +1,6 @@
 # 运行时线程与任务系统
 
-**资源任务目标：ThreadSystem/TaskSystem 的基础接口保持不变；统一资源设计把文件、单项解析、插件组织与影片/渲染分别配置为独立任务域，共享 worker，不共用一个 loading_tasks。组合关系见[业务与模块任务](resource-consumers.md#各模块自己的任务)，当前宿主尚未迁移。**
+**现行任务边界：ThreadSystem/TaskSystem 的基础接口保持；文件、单项解析、资源图、影片与渲染已经使用独立任务域并共享 worker。** 组合关系见[业务与模块任务](resource-consumers.md#各模块自己的任务)。本轮精简保留模块域与生命周期，不合并成单一加载队列。
 
 [类图索引](../../class-diagrams/index.md) · [资源管线](../../editor/class-diagrams/asset-pipeline-system.md)
 

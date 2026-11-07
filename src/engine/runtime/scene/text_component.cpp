@@ -54,8 +54,9 @@ bool TextComponent::valid_settings(const schema::TextDataT& settings) noexcept
 
 schema::TextDataT TextComponent::settings() const noexcept
 {
-    const auto* value = read_data<Data>();
-    return value ? *value : Data{};
+    Data output{};
+    (void)get_settings(output);
+    return output;
 }
 
 bool TextComponent::get_settings(Data& output) const noexcept
@@ -66,6 +67,12 @@ bool TextComponent::get_settings(Data& output) const noexcept
 }
 
 bool TextComponent::set_settings(const schema::TextDataT& settings)
+{
+    return apply_settings(settings, {});
+}
+
+bool TextComponent::apply_settings(const Data& settings,
+                                   resource_detail::ResourceReference prepared)
 {
     if (!writable())
     {
@@ -94,9 +101,9 @@ bool TextComponent::set_settings(const schema::TextDataT& settings)
     }
     else if (!font || font->info().guid != settings.font_guid)
     {
-        font.reset();
+        font = std::move(prepared);
         if (resources == nullptr ||
-            !ecs_detail::acquire_resource(node(), settings.font_guid, font) || !font ||
+            (!font && !ecs_detail::acquire_resource(node(), settings.font_guid, font)) || !font ||
             font.data<FontResource>() == nullptr)
         {
             return false;
@@ -105,10 +112,8 @@ bool TextComponent::set_settings(const schema::TextDataT& settings)
     if (!shader || shader->info().path != normalized.shader_path)
     {
         shader.reset();
-        std::string guid;
         if (resources == nullptr ||
-            !ecs_detail::resource_guid(node(), normalized.shader_path, guid) ||
-            !ecs_detail::acquire_resource(node(), guid, shader) || !shader ||
+            !ecs_detail::acquire_resource(node(), normalized.shader_path, shader) || !shader ||
             shader.data<ShaderResource>() == nullptr)
         {
             return false;
@@ -127,16 +132,21 @@ bool TextComponent::set_font(std::string_view path)
     {
         return false;
     }
+    resource_detail::ResourceReference prepared;
     auto replacement = settings();
     if (path.empty())
     {
         replacement.font_guid.clear();
     }
-    else if (!ecs_detail::resource_guid(node(), path, replacement.font_guid))
+    else if (!ecs_detail::acquire_resource(node(), path, prepared))
     {
         return false;
     }
-    return set_settings(replacement);
+    if (prepared)
+    {
+        replacement.font_guid = prepared->info().guid;
+    }
+    return apply_settings(replacement, std::move(prepared));
 }
 
 ResourceHandle TextComponent::font() const noexcept

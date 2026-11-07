@@ -53,11 +53,19 @@ classDiagram
 
 ## 记录、获取和在途合并
 
+**精简状态：本节私有结构已按确认类图迁移；ResourceLoader 的公开方法和完成语义保持。** 删除无读取用途的 task_references 镜像字段；后台任务安全由实际工作状态或独立资源获取的所有权保证。
+
 ```mermaid
 classDiagram
     class ResourceGraphSystem
     class ResourceRecord {
         <<private struct>>
+        +unique_ptr~Resource~ value
+        +unique_ptr~Resource~ candidate
+        +unique_ptr~ResourceRead~ read
+        +uint64_t acquisitions
+        +uint64_t dependency_references
+        +uint64_t request_references
     }
     class Acquisition {
         <<private struct>>
@@ -79,14 +87,14 @@ classDiagram
     ResourceRecord --> ResourceRecord : 去重后的直接依赖引用
 ```
 
-这些是插件内部记录示意，不是新增公开架构层。计数区分获取、依赖、请求和任务引用，所有加减在协调线程完成；计数溢出/身份耗尽返回明确错误，不回绕。共享控制状态允许请求晚于插件析构，资源引用仍由插件集中核算。
+这些是插件内部记录示意，不是新增公开架构层。计数区分获取、依赖、请求，所有加减在协调线程完成；业务模块任务通过独立获取计入 acquisitions，不再维护只反映 read 是否存在的 task_references。计数溢出/身份耗尽返回明确错误，不回绕。共享控制状态允许请求晚于插件析构，资源引用仍由插件集中核算。
 
 - 索引键固定为目录代际 + GUID，同代际路径由目录唯一映射；同一在途资源只存在一份读取/解码。多个请求只是增加各自等待关系，不各自保存一棵重复加载树。
 - 每个请求从必要依赖声明建立去重后序计划并检测环。只处理真实必要依赖，不按文件分组加载未使用的模型子资源。
 - 每项先得到核心单项候选，再在直接依赖就绪后调用核心 validate_dependencies；成功才原子发布该项及其依赖关系。根 ready 前完整闭包必须就绪。
 - 原子单位是一个资源记录及其已就绪闭包；已成功的共享依赖可服务其他请求。根失败只回滚本请求持有的临时引用；无其他引用的依赖立即卸载，不清除其他请求已取得的数据。
 - 同一资源多次成功 load 得到独立 Acquisition，数据仍只有一份。release 只撤销自己的身份；不允许 unload(guid) 强制破坏别人的使用。
-- 记录总引用归零先撤出可加载索引，取消无需求在途工作；等待其任务保活归零后销毁本项，再释放依赖边。无常驻引用的资源不能仅因索引存在而滞留。
+- 三种记录引用归零后撤出可加载索引，取消并释放本记录的 ResourceRead，再销毁本项及释放依赖边。核心单项读取任务只捕获自身共享工作状态、独立输入与输出，不借用 ResourceRecord；取消后尚未结束的工作继续由核心持有并回收，不能回写已撤出的记录。关闭核心必须回收工作后再销毁处理器和任务域。无常驻引用的资源不能仅因索引存在而滞留。
 - 模块运行实例自行 retain，任务保活由实例或独立获取负责；业务释放原始句柄不会终止别人的播放或渲染。GPU、VM、声部和 ECS 实例销毁仍由对应模块负责。
 
 ## 同步与异步执行

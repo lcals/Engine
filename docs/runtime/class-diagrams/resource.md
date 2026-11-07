@@ -48,14 +48,7 @@ classDiagram
     class ResourceSystem
     class ResourceRead
     class ResourceGraphSystem
-    class ResourceRecord {
-        <<private struct>>
-        +unique_ptr~Resource~ value
-        +acquisitions
-        +dependency_references
-        +request_references
-        +task_references
-    }
+    class ResourceRecord
     class Resource
     class ResourceHandle
     class ResourceLoader
@@ -68,11 +61,11 @@ classDiagram
     ResourceHandle ..> ResourceRecord : 经过加载器校验后访问
 ```
 
-ResourceRecord 只是插件私有实现结构示意，不新增公共 Manager。核心读取层只转交 unique_ptr；业务不能取得该所有权，也不持有公共 shared_ptr。
+ResourceRecord 仅作跨图引用；私有字段和任务保活的精简目标统一定义在[资源插件](../../plugins/runtime/class-diagrams/resource-graph.md#记录获取和在途合并)，本页不重复维护。核心读取层只转交 unique_ptr；业务不能取得该所有权，也不持有公共 shared_ptr。
 
 业务 get 返回的指针/数据视图仅在对应获取有效且加载器存活时有效。模块跨调用或跨帧使用，先 retain 得到自己的句柄。后台任务由所属模块保留独立获取至完成，只借用它保活的不可变数据；不能捕获活动系统或 ECS 列。释放某个获取后，即使另一获取仍保活同一对象，该获取导出的借用也必须停止使用。
 
-Resource 析构只释放本项 CPU 数据，不调用 GPU、音频设备或 VM。插件在任务不再访问后销毁本项，再释放其依赖引用；正在运行的模块由自身获取保活。
+Resource 析构只释放本项 CPU 数据，不调用 GPU、音频设备或 VM。已发布资源由仍在运行的模块自身获取保活，最后获取退出后销毁本项，再释放其依赖引用。取消中的单项读取工作拥有尚未发布的独立数据，其寿命不由已撤出的插件记录承担。
 
 | 不可变资源数据 | 另属模块的运行状态 |
 | --- | --- |

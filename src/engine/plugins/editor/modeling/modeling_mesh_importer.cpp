@@ -129,8 +129,8 @@ bool ModelingMeshImporter::convert(const editor::asset_pipeline::ImportAsset& as
     }
     schema::EditableMeshDataT editable;
     schema::MeshDataT mesh;
-    if (!EditableMesh::deserialize(bytes, editable, error) ||
-        !EditableMesh::compile(editable, asset.path, mesh, error))
+    if (!mesh::deserialize(bytes, editable, error) ||
+        !mesh::compile(editable, asset.path, mesh, error))
     {
         error = asset.path + ": " + error;
         return false;

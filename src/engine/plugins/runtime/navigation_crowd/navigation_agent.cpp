@@ -40,8 +40,9 @@ bool NavigationAgent::valid_settings(const schema::NavigationAgentDataT& value) 
 
 schema::NavigationAgentDataT NavigationAgent::settings() const noexcept
 {
-    const auto* value = read_data<Data>();
-    return value ? *value : Data{};
+    Data output{};
+    (void)get_settings(output);
+    return output;
 }
 
 bool NavigationAgent::get_settings(Data& output) const noexcept

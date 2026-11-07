@@ -95,8 +95,9 @@ bool Animator::valid_settings(const Data& data) noexcept
 }
 Animator::Data Animator::settings() const noexcept
 {
-    const auto* value = read_data<Data>();
-    return value ? *value : Data{};
+    Data output{};
+    (void)get_settings(output);
+    return output;
 }
 bool Animator::get_settings(Data& output) const noexcept
 {
@@ -105,6 +106,11 @@ bool Animator::get_settings(Data& output) const noexcept
     return value != nullptr;
 }
 bool Animator::set_settings(const Data& data)
+{
+    return apply_settings(data, {});
+}
+
+bool Animator::apply_settings(const Data& data, resource_detail::ResourceReference prepared)
 {
     if (!writable() || !valid_settings(data))
     {
@@ -123,12 +129,13 @@ bool Animator::set_settings(const Data& data)
         {
             return false;
         }
-        replacement.reset();
+        replacement = std::move(prepared);
         if (!data.animation_guid.empty())
         {
             auto* resources = node().world()->resource_loader();
             if (!resources ||
-                !ecs_detail::acquire_resource(node(), data.animation_guid, replacement) ||
+                (!replacement &&
+                 !ecs_detail::acquire_resource(node(), data.animation_guid, replacement)) ||
                 !replacement || !replacement.data<AnimationResource>() ||
                 !validate_overlay(*replacement.data<AnimationResource>(), state->event_markers_))
             {
@@ -174,16 +181,21 @@ bool Animator::set_animation(std::string_view path)
     {
         return false;
     }
+    resource_detail::ResourceReference prepared;
     auto data = settings();
     if (path.empty())
     {
         data.animation_guid.clear();
     }
-    else if (!ecs_detail::resource_guid(node(), path, data.animation_guid))
+    else if (!ecs_detail::acquire_resource(node(), path, prepared))
     {
         return false;
     }
-    if (!set_settings(data))
+    if (prepared)
+    {
+        data.animation_guid = prepared->info().guid;
+    }
+    if (!apply_settings(data, std::move(prepared)))
     {
         return false;
     }
@@ -209,6 +221,11 @@ bool Animator::set_animation(std::string_view path)
 }
 bool Animator::play_animation(const AnimationPlayRequest& request)
 {
+    return apply_animation(request, {});
+}
+bool Animator::apply_animation(const AnimationPlayRequest& request,
+                               resource_detail::ResourceReference clip)
+{
     if (!writable() || !active() || request.animation_path.empty() ||
         !std::isfinite(request.fade_seconds) || request.fade_seconds < 0 ||
         !std::isfinite(request.speed) || request.speed < 0 || request.speed > 16)
@@ -219,11 +236,9 @@ bool Animator::play_animation(const AnimationPlayRequest& request)
     const auto renderer = node().get_component<MeshRenderer>();
     const auto* mesh = renderer ? renderer.mesh_data() : nullptr;
     auto* resources = node().world()->resource_loader();
-    resource_detail::ResourceReference clip, source, target, profile;
-    Guid guid;
+    resource_detail::ResourceReference source, target, profile;
     if (!resources || !mesh || mesh->skeleton_guid.empty() ||
-        !ecs_detail::resource_guid(node(), request.animation_path, guid) ||
-        !ecs_detail::acquire_resource(node(), guid, clip) || !clip ||
+        (!clip && !ecs_detail::acquire_resource(node(), request.animation_path, clip)) || !clip ||
         !clip.data<AnimationResource>() ||
         !source.dependency(resources, clip.handle(),
                            clip.data<AnimationResource>()->skeleton_guid) ||
@@ -244,15 +259,13 @@ bool Animator::play_animation(const AnimationPlayRequest& request)
     }
     else
     {
-        Guid profile_guid;
         const auto* services = flecs::world(node().world()->native_world())
                                    .try_get<animation_detail::AnimationServices>();
         std::string error;
         schema::AnimationDataT rest;
         if (!services || !services->retargeter ||
-            !ecs_detail::resource_guid(node(), request.retarget_profile_path, profile_guid) ||
-            !ecs_detail::acquire_resource(node(), profile_guid, profile) || !profile ||
-            !profile.data<AnimationRetargetResource>() ||
+            !ecs_detail::acquire_resource(node(), request.retarget_profile_path, profile) ||
+            !profile || !profile.data<AnimationRetargetResource>() ||
             profile.data<AnimationRetargetResource>()->source_skeleton_guid !=
                 source->info().guid ||
             profile.data<AnimationRetargetResource>()->target_skeleton_guid !=
@@ -310,7 +323,7 @@ bool Animator::play_animation(const AnimationPlayRequest& request)
         state->committed_models_.clear();
     }
     auto* data = write_data<Data>();
-    data->animation_guid = std::move(guid);
+    data->animation_guid = clip->info().guid;
     data->speed = request.speed;
     data->loop = request.loop;
     state->animation_ = std::move(clip);
@@ -339,11 +352,8 @@ bool Animator::cross_fade(std::string_view path, double seconds)
         return false;
     }
     // 旧接口的同一资源 no-op（包括保持暂停）保留。
-    Guid guid;
     resource_detail::ResourceReference clip;
-    auto* resources = node().world()->resource_loader();
-    if (!resources || !ecs_detail::resource_guid(node(), path, guid) ||
-        !ecs_detail::acquire_resource(node(), guid, clip) || !clip ||
+    if (!ecs_detail::acquire_resource(node(), path, clip) || !clip ||
         !clip.data<AnimationResource>())
     {
         return false;
@@ -358,7 +368,7 @@ bool Animator::cross_fade(std::string_view path, double seconds)
     request.fade_seconds = seconds;
     request.speed = settings().speed;
     request.loop = settings().loop;
-    return play_animation(request);
+    return apply_animation(request, std::move(clip));
 }
 std::string_view Animator::animation_path() const noexcept
 {

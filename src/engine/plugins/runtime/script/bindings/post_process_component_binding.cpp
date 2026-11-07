@@ -1,4 +1,5 @@
 #include "plugins/runtime/script/bindings/post_process_component_binding.hpp"
+#include "plugins/runtime/script/bindings/binding_helpers.hpp"
 
 #include "plugins/runtime/script/bindings/binding_context.hpp"
 #include "runtime/scene/node.hpp"
@@ -42,13 +43,6 @@ componentTypes.set(PostProcessComponent, { add: native.PostProcessAdd, kind: nat
 Object.freeze(PostProcessComponent.prototype);
 Object.freeze(PostProcessComponent);
 )js";
-
-void add(const Arguments& arguments)
-{
-    auto node = BindingContext::node(arguments);
-    arguments.set_return(arguments.count() == 2 && node.valid() &&
-                         node.add_component<PostProcessComponent>().valid());
-}
 
 void exposure(const Arguments& arguments)
 {
@@ -170,7 +164,8 @@ std::string_view PostProcessComponentBinding::source() const noexcept
 bool PostProcessComponentBinding::register_functions(vm::ScriptVm& vm) const
 {
     return vm.integer("PostProcessKind", static_cast<int>(PostProcessComponent::component_type)) &&
-           vm.function("PostProcessAdd", add) && vm.function("PostProcessExposure", exposure) &&
+           vm.function("PostProcessAdd", binding_detail::add_component<PostProcessComponent>) &&
+           vm.function("PostProcessExposure", exposure) &&
            vm.function("PostProcessFilmicTonemap", filmic_tonemap) &&
            vm.function("PostProcessHdr", hdr) && vm.function("PostProcessBloom", bloom) &&
            vm.function("PostProcessAmbientOcclusion", ambient_occlusion) &&

@@ -1,4 +1,5 @@
 #include "plugins/runtime/script/bindings/bone_attachment_binding.hpp"
+#include "plugins/runtime/script/bindings/binding_helpers.hpp"
 
 #include "plugins/runtime/script/bindings/binding_context.hpp"
 #include "runtime/scene/animator.hpp"
@@ -32,13 +33,6 @@ componentTypes.set(BoneAttachment, {add:native.BoneAttachmentAdd, kind:native.Bo
 Object.freeze(BoneAttachment.prototype);
 Object.freeze(BoneAttachment);
 )js";
-BoneAttachment attachment(const Arguments& arguments, int count)
-{
-    arguments.set_return(false);
-    auto node = BindingContext::node(arguments);
-    return node && arguments.count() == count ? node.get_component<BoneAttachment>()
-                                              : BoneAttachment{};
-}
 void add(const Arguments& arguments)
 {
     auto node = BindingContext::node(arguments);
@@ -46,7 +40,7 @@ void add(const Arguments& arguments)
 }
 void set_source(const Arguments& arguments)
 {
-    auto value = attachment(arguments, 4);
+    auto value = binding_detail::component<BoneAttachment>(arguments, 4);
     std::uint64_t scene = 0, node = 0;
     auto* context = BindingContext::current(arguments);
     if (!value || !context || !BindingContext::identifier(arguments, 2, scene) ||
@@ -59,7 +53,7 @@ void set_source(const Arguments& arguments)
 }
 void settings(const Arguments& arguments)
 {
-    auto value = attachment(arguments, 14);
+    auto value = binding_detail::component<BoneAttachment>(arguments, 14);
     std::string socket;
     std::array<float, 10> offset{};
     if (!value || !BindingContext::text(arguments, 2, socket) || !arguments.is_boolean(3))
@@ -83,12 +77,12 @@ void settings(const Arguments& arguments)
 }
 void detach(const Arguments& arguments)
 {
-    auto value = attachment(arguments, 2);
+    auto value = binding_detail::component<BoneAttachment>(arguments, 2);
     arguments.set_return(value && value.detach());
 }
 void following(const Arguments& arguments)
 {
-    const auto value = attachment(arguments, 2);
+    const auto value = binding_detail::component<BoneAttachment>(arguments, 2);
     arguments.set_return(value && value.following());
 }
 } // namespace

@@ -1,4 +1,5 @@
 #include "plugins/runtime/script/bindings/animator_binding.hpp"
+#include "plugins/runtime/script/bindings/binding_helpers.hpp"
 
 #include "runtime/scene/animator_runtime.hpp"
 
@@ -194,13 +195,6 @@ Object.freeze(Animator.prototype);
 Object.freeze(Animator);
 )js";
 
-Animator animator(const Arguments& arguments, int count)
-{
-    arguments.set_return(false);
-    auto node = BindingContext::node(arguments);
-    return node && arguments.count() == count ? node.get_component<Animator>() : Animator{};
-}
-
 void add(const Arguments& arguments)
 {
     auto node = BindingContext::node(arguments);
@@ -209,7 +203,7 @@ void add(const Arguments& arguments)
 
 void animation(const Arguments& arguments)
 {
-    auto value = animator(arguments, 3);
+    auto value = binding_detail::component<Animator>(arguments, 3);
     std::string path;
     if (value && BindingContext::text(arguments, 2, path))
     {
@@ -219,7 +213,7 @@ void animation(const Arguments& arguments)
 
 void cross_fade(const Arguments& arguments)
 {
-    auto value = animator(arguments, 4);
+    auto value = binding_detail::component<Animator>(arguments, 4);
     std::string path;
     double seconds = 0.0;
     if (value.valid() && BindingContext::text(arguments, 2, path) &&
@@ -231,7 +225,7 @@ void cross_fade(const Arguments& arguments)
 
 void speed(const Arguments& arguments)
 {
-    auto value = animator(arguments, 3);
+    auto value = binding_detail::component<Animator>(arguments, 3);
     float number = 0;
     if (value && BindingContext::scalar(arguments, 2, number))
     {
@@ -243,7 +237,7 @@ void speed(const Arguments& arguments)
 
 void set_boolean(const Arguments& arguments, bool schema::AnimatorDataT::* field)
 {
-    auto value = animator(arguments, 3);
+    auto value = binding_detail::component<Animator>(arguments, 3);
     if (value && arguments.is_boolean(2))
     {
         auto settings = value.settings();
@@ -264,25 +258,25 @@ void awake(const Arguments& arguments)
 
 void play(const Arguments& arguments)
 {
-    auto value = animator(arguments, 2);
+    auto value = binding_detail::component<Animator>(arguments, 2);
     arguments.set_return(value && value.play());
 }
 
 void pause(const Arguments& arguments)
 {
-    auto value = animator(arguments, 2);
+    auto value = binding_detail::component<Animator>(arguments, 2);
     arguments.set_return(value && value.pause());
 }
 
 void stop(const Arguments& arguments)
 {
-    auto value = animator(arguments, 2);
+    auto value = binding_detail::component<Animator>(arguments, 2);
     arguments.set_return(value && value.stop());
 }
 
 void seek(const Arguments& arguments)
 {
-    auto value = animator(arguments, 3);
+    auto value = binding_detail::component<Animator>(arguments, 3);
     double seconds = 0;
     if (value && BindingContext::number(arguments, 2, seconds))
     {
@@ -292,13 +286,13 @@ void seek(const Arguments& arguments)
 
 void playing(const Arguments& arguments)
 {
-    const auto value = animator(arguments, 2);
+    const auto value = binding_detail::component<Animator>(arguments, 2);
     arguments.set_return(value && value.playback() == AnimationPlayback::playing);
 }
 
 void playback(const Arguments& arguments)
 {
-    const auto value = animator(arguments, 2);
+    const auto value = binding_detail::component<Animator>(arguments, 2);
     arguments.set_return({});
     if (!value)
     {
@@ -325,7 +319,7 @@ void playback(const Arguments& arguments)
 
 void time(const Arguments& arguments)
 {
-    const auto value = animator(arguments, 2);
+    const auto value = binding_detail::component<Animator>(arguments, 2);
     arguments.set_return({});
     if (value)
     {
@@ -348,7 +342,7 @@ const char* playback_name(AnimationPlayback value)
 
 void snapshot(const Arguments& arguments)
 {
-    const auto value = animator(arguments, 2);
+    const auto value = binding_detail::component<Animator>(arguments, 2);
     arguments.set_return({});
     AnimatorPlaybackInfo info;
     const auto* context = BindingContext::current(arguments);
@@ -376,7 +370,7 @@ void snapshot(const Arguments& arguments)
 
 void play_animation(const Arguments& arguments)
 {
-    auto value = animator(arguments, 8);
+    auto value = binding_detail::component<Animator>(arguments, 8);
     AnimationPlayRequest request;
     if (value && BindingContext::text(arguments, 2, request.animation_path) &&
         BindingContext::text(arguments, 3, request.retarget_profile_path) &&
@@ -392,7 +386,7 @@ void play_animation(const Arguments& arguments)
 
 void ik_enabled(const Arguments& arguments)
 {
-    auto value = animator(arguments, 3);
+    auto value = binding_detail::component<Animator>(arguments, 3);
     if (value && arguments.is_boolean(2))
     {
         auto settings = value.settings();
@@ -408,7 +402,7 @@ vm::NativeValue vector_value(const Vec3& value)
 
 void ik_set(const Arguments& arguments)
 {
-    auto value = animator(arguments, 19);
+    auto value = binding_detail::component<Animator>(arguments, 19);
     std::string name;
     AnimationIkTarget target;
     float px, py, pz, ox, oy, oz, qx, qy, qz;
@@ -447,7 +441,7 @@ void ik_set(const Arguments& arguments)
 
 void ik_target(const Arguments& arguments)
 {
-    const auto value = animator(arguments, 3);
+    const auto value = binding_detail::component<Animator>(arguments, 3);
     arguments.set_return({});
     std::string name;
     AnimationIkTarget target;
@@ -469,7 +463,7 @@ void ik_target(const Arguments& arguments)
 
 void pose(const Arguments& arguments)
 {
-    const auto value = animator(arguments, 3);
+    const auto value = binding_detail::component<Animator>(arguments, 3);
     arguments.set_return({});
     std::string path;
     AnimationPoseTransform output;
@@ -495,7 +489,7 @@ void pose(const Arguments& arguments)
 
 void event_markers(const Arguments& arguments)
 {
-    auto value = animator(arguments, 3);
+    auto value = binding_detail::component<Animator>(arguments, 3);
     std::string text;
     if (!value || !BindingContext::text(arguments, 2, text) || text.size() > 256 * 1024)
     {
@@ -556,7 +550,7 @@ void event_markers(const Arguments& arguments)
 
 void clear_events(const Arguments& arguments)
 {
-    auto value = animator(arguments, 2);
+    auto value = binding_detail::component<Animator>(arguments, 2);
     if (value)
     {
         value.clear_event_markers();

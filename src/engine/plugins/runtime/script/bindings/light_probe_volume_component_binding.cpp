@@ -1,4 +1,5 @@
 #include "plugins/runtime/script/bindings/light_probe_volume_component_binding.hpp"
+#include "plugins/runtime/script/bindings/binding_helpers.hpp"
 
 #include "plugins/runtime/script/bindings/binding_context.hpp"
 #include "runtime/scene/light_probe_volume_component.hpp"
@@ -21,12 +22,6 @@ componentTypes.set(LightProbeVolumeComponent,
 Object.freeze(LightProbeVolumeComponent.prototype);
 Object.freeze(LightProbeVolumeComponent);
 )js";
-void add(const Arguments& arguments)
-{
-    auto node = BindingContext::node(arguments);
-    arguments.set_return(arguments.count() == 2 && node &&
-                         node.add_component<LightProbeVolumeComponent>().valid());
-}
 void resource(const Arguments& arguments)
 {
     arguments.set_return(false);
@@ -54,7 +49,8 @@ bool LightProbeVolumeComponentBinding::register_functions(vm::ScriptVm& vm) cons
 {
     return vm.integer("LightProbeVolumeKind",
                       static_cast<int>(LightProbeVolumeComponent::component_type)) &&
-           vm.function("LightProbeVolumeAdd", add) &&
+           vm.function("LightProbeVolumeAdd",
+                       binding_detail::add_component<LightProbeVolumeComponent>) &&
            vm.function("LightProbeVolumeResource", resource);
 }
 } // namespace engine::plugins::script::bindings

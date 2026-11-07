@@ -2,6 +2,7 @@
 
 #include "resource_fixture.hpp"
 #include "resource_services.hpp"
+#include "tracked_resource_loader.hpp"
 
 #include "runtime/audio/audio_system.hpp"
 #include "runtime/engine_config.hpp"
@@ -135,7 +136,8 @@ bool settings_and_resources()
 {
     test_support::ResourceFixture fixture;
     test_support::ResourceServices resources;
-    engine::WorldSystem world(&resources.loader);
+    test_support::TrackedResourceLoader tracked(resources.loader);
+    engine::WorldSystem world(&tracked);
     if (!expect(prepare(fixture, resources) && world.initialize({}), "prepare audio resources"))
     {
         return false;
@@ -144,9 +146,11 @@ bool settings_and_resources()
     auto node = scene ? scene->create_node("Speaker") : engine::Node{};
     auto source = node ? node.add_component<engine::AudioSource>() : engine::AudioSource{};
     auto listener = node ? node.add_component<engine::AudioListener>() : engine::AudioListener{};
+    const auto acquires = tracked.acquires();
     if (!expect(source && listener, "attach audio components") ||
         !expect(!source.play() && source.clip_data() == nullptr, "empty clip cannot play") ||
-        !expect(source.set_clip("audio/mono.wav"), "load audio by virtual path"))
+        !expect(source.set_clip("audio/mono.wav") && tracked.acquires() == acquires + 1,
+                "path binding acquires the loaded clip once and keeps that acquisition"))
     {
         return false;
     }

@@ -122,7 +122,7 @@ classDiagram
 - 所有方法由宿主主线程调用，可能失败方法及查询标注 `[[nodiscard]]`。`movie_player()`
   返回可修改借用，函数为 `noexcept`；只在呈现阶段成功至关闭前返回非空。
   不暴露编解码器、SDL、bgfx 或 VM 对象。
-- `initialize_presentation()` 的 resources / threads 可空且由调用方显式传入；parallel 不补隐式
+- `initialize_presentation()` 的 resources / loader / threads 可空且由调用方显式传入；parallel 不补隐式
   预算。成功仅代表可派发事件、执行任务和呈现，不能据此认为玩法或主页就绪；重复初始化失败。
 - `begin_gameplay()` 只受理并锁存一次准备请求，可在影片首帧之前调用；成功不表示已经派发游戏
   任务或初始化世界。catalog / mounts 是调用方已经提交给 ResourceSystem 的同一不可变快照，
@@ -218,7 +218,7 @@ sequenceDiagram
     participant Audio as AudioSystem
     participant Workers as 现有 TaskSystem workers
     participant Game as Engine / GameplaySession
-    Caller->>Host: initialize_presentation(config, resources, threads, parallel)
+    Caller->>Host: initialize_presentation(config, resources, loader, threads, parallel)
     Note over Host,Audio: 同一窗口 GPU 音频服务全程保持
     Caller->>Workers: 校验完整持久版本，无有效版本才读取内置目录
     Note over Caller,Host: 校验期间持续事件处理与空白帧，不启动世界

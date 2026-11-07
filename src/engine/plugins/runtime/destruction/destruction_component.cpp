@@ -43,8 +43,9 @@ bool DestructionComponent::valid_settings(const schema::DestructionDataT& value)
 
 schema::DestructionDataT DestructionComponent::settings() const noexcept
 {
-    const auto* value = read_data<Data>();
-    return value ? *value : Data{};
+    Data output{};
+    (void)get_settings(output);
+    return output;
 }
 
 bool DestructionComponent::get_settings(Data& output) const noexcept

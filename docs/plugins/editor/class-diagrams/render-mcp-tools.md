@@ -13,6 +13,8 @@ classDiagram
     class RenderCommands
     register_render_tools --> EditorMcpTools : 借用编辑器通道
     register_render_tools ..> McpSystem : 注册工具及参数
+    class mcp_functions
+    register_render_tools ..> mcp_functions : 精简目标 共用命令登记
     register_render_tools ..> RenderCommands : 转发命令和原回执
 ```
 
@@ -125,3 +127,5 @@ classDiagram
 ```
 
 三个新增运行属性均默认 false；保存请求不要求 GPU 初始化，也不因设备暂不支持而拒绝。支持与实际使用独立查询。`wireframe/debug_draw/mesh_bounds/camera_frusta/stats` 五项诊断是临时状态，不进入保存、预制体或项目 TS。Frame/View uniforms 是只读实现能力，不提供假开关。
+
+**登记精简已实现：** 直接转发项使用[共用工具登记函数](editor-mcp-tools.md#共用工具登记目标)，工具名、schema、命令名和回执语义保持。原有特定参数转换仍由本模块执行，不迁入公共登记函数。

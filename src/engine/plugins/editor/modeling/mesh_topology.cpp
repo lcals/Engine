@@ -35,7 +35,7 @@ EdgeKey edge_key(Id a, Id b)
 bool face_selection(const schema::EditableMeshDataT& data, std::span<const Id> faces,
                     std::set<Id>& result, std::string& error)
 {
-    if (!EditableMesh::validate(data, error))
+    if (!mesh::validate(data, error))
     {
         return false;
     }
@@ -45,7 +45,7 @@ bool face_selection(const schema::EditableMeshDataT& data, std::span<const Id> f
     }
     for (auto id : faces)
     {
-        if (!EditableMesh::find_face(data, id) || !result.insert(id).second)
+        if (!mesh::find_face(data, id) || !result.insert(id).second)
         {
             return fail(error, "面选区包含不存在或重复的身份");
         }
@@ -69,7 +69,7 @@ void remove_orphans(schema::EditableMeshDataT& data)
 
 bool publish(schema::EditableMeshDataT& data, schema::EditableMeshDataT& result, std::string& error)
 {
-    if (!EditableMesh::validate(result, error))
+    if (!mesh::validate(result, error))
     {
         return false;
     }
@@ -118,7 +118,7 @@ bool boundary_loop(const schema::EditableMeshDataT& data, std::span<const Id> lo
     std::set<Id> unique;
     for (auto id : loop)
     {
-        if (!EditableMesh::find_vertex(data, id) || !unique.insert(id).second)
+        if (!mesh::find_vertex(data, id) || !unique.insert(id).second)
         {
             return fail(error, "边界环包含缺失或重复的顶点");
         }
@@ -248,10 +248,10 @@ void remap_and_clean(schema::EditableMeshDataT& data, const std::map<Id, Id>& ma
 
 } // namespace
 
-bool MeshTopology::transform(schema::EditableMeshDataT& data, const MeshSelection& selection,
-                             const std::array<double, 16>& matrix, std::string& error)
+bool mesh::transform(schema::EditableMeshDataT& data, const MeshSelection& selection,
+                     const std::array<double, 16>& matrix, std::string& error)
 {
-    if (!EditableMesh::validate(data, error))
+    if (!mesh::validate(data, error))
     {
         return false;
     }
@@ -268,7 +268,7 @@ bool MeshTopology::transform(schema::EditableMeshDataT& data, const MeshSelectio
         return fail(error, "建模变换只接受仿射矩阵");
     }
     std::vector<Id> selected;
-    if (!EditableMesh::selected_vertices(data, selection, selected, error))
+    if (!mesh::selected_vertices(data, selection, selected, error))
     {
         return false;
     }
@@ -318,7 +318,7 @@ bool MeshTopology::transform(schema::EditableMeshDataT& data, const MeshSelectio
     if (!non_planar.empty())
     {
         schema::EditableMeshDataT triangulated(data);
-        if (!MeshTopology::triangulate(triangulated, non_planar, error))
+        if (!mesh::triangulate(triangulated, non_planar, error))
         {
             return false;
         }
@@ -343,8 +343,8 @@ bool MeshTopology::transform(schema::EditableMeshDataT& data, const MeshSelectio
     return publish(data, result, error);
 }
 
-bool MeshTopology::extrude(schema::EditableMeshDataT& data, std::span<const Id> faces,
-                           double distance, bool individual, std::string& error)
+bool mesh::extrude(schema::EditableMeshDataT& data, std::span<const Id> faces, double distance,
+                   bool individual, std::string& error)
 {
     std::set<Id> selected;
     if (!face_selection(data, faces, selected, error))
@@ -404,7 +404,7 @@ bool MeshTopology::extrude(schema::EditableMeshDataT& data, std::span<const Id> 
         };
         for (auto id : group)
         {
-            const auto* face = EditableMesh::find_face(data, id);
+            const auto* face = mesh::find_face(data, id);
             const auto normal = math::face_normal(data, *face);
             if (!add_ring(face->vertices, normal, face->material_slot))
             {
@@ -438,7 +438,7 @@ bool MeshTopology::extrude(schema::EditableMeshDataT& data, std::span<const Id> 
         }
         for (auto id : group)
         {
-            map_face(*EditableMesh::find_face(result, id), replacement);
+            map_face(*mesh::find_face(result, id), replacement);
         }
         for (const auto& [key, edge] : boundaries)
         {
@@ -464,10 +464,10 @@ bool MeshTopology::extrude(schema::EditableMeshDataT& data, std::span<const Id> 
     return publish(data, result, error);
 }
 
-bool MeshTopology::extrude_edges(schema::EditableMeshDataT& data, std::span<const MeshEdge> edges,
-                                 const schema::Vec3& delta, std::string& error)
+bool mesh::extrude_edges(schema::EditableMeshDataT& data, std::span<const MeshEdge> edges,
+                         const schema::Vec3& delta, std::string& error)
 {
-    if (!EditableMesh::validate(data, error))
+    if (!mesh::validate(data, error))
     {
         return false;
     }
@@ -554,7 +554,7 @@ bool inset_region(schema::EditableMeshDataT& data, const std::set<Id>& selected,
         Id face = 0;
         std::size_t count = 0;
     };
-    const auto* reference = EditableMesh::find_face(data, *selected.begin());
+    const auto* reference = mesh::find_face(data, *selected.begin());
     const auto normal = math::normalized(math::face_normal(data, *reference));
     const auto origin = math::position(data, reference->vertices.front());
     const auto axis = math::projection_axis(normal);
@@ -563,7 +563,7 @@ bool inset_region(schema::EditableMeshDataT& data, const std::set<Id>& selected,
     double scale = 1.0;
     for (auto id : selected)
     {
-        const auto* face = EditableMesh::find_face(data, id);
+        const auto* face = mesh::find_face(data, id);
         if (math::dot(math::normalized(math::face_normal(data, *face)), normal) < 1.0 - 1.0e-7)
         {
             return fail(error, "整体内插选区必须同向共面");
@@ -575,7 +575,7 @@ bool inset_region(schema::EditableMeshDataT& data, const std::set<Id>& selected,
     }
     for (auto id : selected)
     {
-        const auto* face = EditableMesh::find_face(data, id);
+        const auto* face = mesh::find_face(data, id);
         auto& sample = samples[id];
         sample.face = face;
         const auto append_ring =
@@ -630,7 +630,7 @@ bool inset_region(schema::EditableMeshDataT& data, const std::set<Id>& selected,
                 return false;
             }
         }
-        if (!EditableMesh::triangulate_face(data, *face, sample.triangles, error))
+        if (!mesh::triangulate_face(data, *face, sample.triangles, error))
         {
             return false;
         }
@@ -762,7 +762,7 @@ bool inset_region(schema::EditableMeshDataT& data, const std::set<Id>& selected,
     }
     for (auto id : selected)
     {
-        auto* face = EditableMesh::find_face(result, id);
+        auto* face = mesh::find_face(result, id);
         const auto& sample = samples[id];
         const auto update_ring = [&](auto& ring, auto& uv, auto& colors)
         {
@@ -841,8 +841,8 @@ bool inset_region(schema::EditableMeshDataT& data, const std::set<Id>& selected,
 
 } // namespace
 
-bool MeshTopology::inset(schema::EditableMeshDataT& data, std::span<const Id> faces,
-                         double distance, std::string& error, bool group)
+bool mesh::inset(schema::EditableMeshDataT& data, std::span<const Id> faces, double distance,
+                 std::string& error, bool group)
 {
     std::set<Id> selected;
     if (!face_selection(data, faces, selected, error))
@@ -860,14 +860,14 @@ bool MeshTopology::inset(schema::EditableMeshDataT& data, std::span<const Id> fa
     schema::EditableMeshDataT result(data);
     for (auto id : selected)
     {
-        const auto* original = EditableMesh::find_face(data, id);
+        const auto* original = mesh::find_face(data, id);
         if (!original->holes.empty())
         {
             return fail(error, "带洞面的内插需要先拆分为无洞面");
         }
         const auto normal = math::normalized(math::face_normal(data, *original));
         std::vector<std::uint32_t> triangles;
-        if (!EditableMesh::triangulate_face(data, *original, triangles, error))
+        if (!mesh::triangulate_face(data, *original, triangles, error))
         {
             return false;
         }
@@ -956,7 +956,7 @@ bool MeshTopology::inset(schema::EditableMeshDataT& data, std::span<const Id> fa
             }
             inner.push_back(math::add_vertex(result, point));
         }
-        auto* inner_face = EditableMesh::find_face(result, id);
+        auto* inner_face = mesh::find_face(result, id);
         inner_face->vertices = inner;
         inner_face->texcoords = inner_uv;
         inner_face->colors = inner_colors;
@@ -992,8 +992,8 @@ bool MeshTopology::inset(schema::EditableMeshDataT& data, std::span<const Id> fa
     return publish(data, result, error);
 }
 
-bool MeshTopology::erase_faces(schema::EditableMeshDataT& data, std::span<const Id> faces,
-                               std::string& error)
+bool mesh::erase_faces(schema::EditableMeshDataT& data, std::span<const Id> faces,
+                       std::string& error)
 {
     std::set<Id> selected;
     if (!face_selection(data, faces, selected, error))
@@ -1006,8 +1006,8 @@ bool MeshTopology::erase_faces(schema::EditableMeshDataT& data, std::span<const 
     return publish(data, result, error);
 }
 
-bool MeshTopology::reverse_faces(schema::EditableMeshDataT& data, std::span<const Id> faces,
-                                 std::string& error)
+bool mesh::reverse_faces(schema::EditableMeshDataT& data, std::span<const Id> faces,
+                         std::string& error)
 {
     std::set<Id> selected;
     if (!face_selection(data, faces, selected, error))
@@ -1017,13 +1017,13 @@ bool MeshTopology::reverse_faces(schema::EditableMeshDataT& data, std::span<cons
     schema::EditableMeshDataT result(data);
     for (auto id : selected)
     {
-        math::reverse_face(*EditableMesh::find_face(result, id));
+        math::reverse_face(*mesh::find_face(result, id));
     }
     return publish(data, result, error);
 }
 
-bool MeshTopology::triangulate(schema::EditableMeshDataT& data, std::span<const Id> faces,
-                               std::string& error)
+bool mesh::triangulate(schema::EditableMeshDataT& data, std::span<const Id> faces,
+                       std::string& error)
 {
     std::set<Id> selected;
     if (!face_selection(data, faces, selected, error))
@@ -1034,9 +1034,9 @@ bool MeshTopology::triangulate(schema::EditableMeshDataT& data, std::span<const 
     std::erase_if(result.faces, [&](const auto& face) { return selected.contains(face->id); });
     for (auto id : selected)
     {
-        const auto* source = EditableMesh::find_face(data, id);
+        const auto* source = mesh::find_face(data, id);
         std::vector<std::uint32_t> triangles;
-        if (!EditableMesh::triangulate_face(data, *source, triangles, error))
+        if (!mesh::triangulate_face(data, *source, triangles, error))
         {
             return false;
         }
@@ -1077,8 +1077,8 @@ bool MeshTopology::triangulate(schema::EditableMeshDataT& data, std::span<const 
     return publish(data, result, error);
 }
 
-bool MeshTopology::subdivide(schema::EditableMeshDataT& data, std::span<const Id> faces,
-                             std::uint32_t iterations, std::string& error)
+bool mesh::subdivide(schema::EditableMeshDataT& data, std::span<const Id> faces,
+                     std::uint32_t iterations, std::string& error)
 {
     std::set<Id> selected;
     if (!face_selection(data, faces, selected, error))
@@ -1098,7 +1098,7 @@ bool MeshTopology::subdivide(schema::EditableMeshDataT& data, std::span<const Id
         std::erase_if(result.faces, [&](const auto& face) { return selected.contains(face->id); });
         for (auto id : selected)
         {
-            const auto* face = EditableMesh::find_face(before, id);
+            const auto* face = mesh::find_face(before, id);
             if (!face->holes.empty())
             {
                 return fail(error, "带洞面请先三角化再细分");
@@ -1231,10 +1231,10 @@ bool MeshTopology::subdivide(schema::EditableMeshDataT& data, std::span<const Id
     return publish(data, result, error);
 }
 
-bool MeshTopology::weld(schema::EditableMeshDataT& data, std::span<const Id> vertices,
-                        double tolerance, std::string& error)
+bool mesh::weld(schema::EditableMeshDataT& data, std::span<const Id> vertices, double tolerance,
+                std::string& error)
 {
-    if (!EditableMesh::validate(data, error))
+    if (!mesh::validate(data, error))
     {
         return false;
     }
@@ -1249,7 +1249,7 @@ bool MeshTopology::weld(schema::EditableMeshDataT& data, std::span<const Id> ver
     }
     for (auto id : selected)
     {
-        if (!EditableMesh::find_vertex(data, id))
+        if (!mesh::find_vertex(data, id))
         {
             return fail(error, "顶点选区包含缺失身份");
         }
@@ -1278,10 +1278,10 @@ bool MeshTopology::weld(schema::EditableMeshDataT& data, std::span<const Id> ver
     return publish(data, result, error);
 }
 
-bool MeshTopology::merge_vertices(schema::EditableMeshDataT& data, std::span<const Id> vertices,
-                                  const schema::Vec3& point, std::string& error)
+bool mesh::merge_vertices(schema::EditableMeshDataT& data, std::span<const Id> vertices,
+                          const schema::Vec3& point, std::string& error)
 {
-    if (!EditableMesh::validate(data, error))
+    if (!mesh::validate(data, error))
     {
         return false;
     }
@@ -1294,7 +1294,7 @@ bool MeshTopology::merge_vertices(schema::EditableMeshDataT& data, std::span<con
     std::map<Id, Id> mapping;
     for (auto id : selected)
     {
-        if (!EditableMesh::find_vertex(data, id))
+        if (!mesh::find_vertex(data, id))
         {
             return fail(error, "顶点选区包含缺失身份");
         }
@@ -1306,10 +1306,10 @@ bool MeshTopology::merge_vertices(schema::EditableMeshDataT& data, std::span<con
     return publish(data, result, error);
 }
 
-bool MeshTopology::split_vertices(schema::EditableMeshDataT& data, std::span<const Id> vertices,
-                                  std::string& error)
+bool mesh::split_vertices(schema::EditableMeshDataT& data, std::span<const Id> vertices,
+                          std::string& error)
 {
-    if (!EditableMesh::validate(data, error))
+    if (!mesh::validate(data, error))
     {
         return false;
     }
@@ -1320,7 +1320,7 @@ bool MeshTopology::split_vertices(schema::EditableMeshDataT& data, std::span<con
     }
     for (auto id : selected)
     {
-        if (!EditableMesh::find_vertex(data, id))
+        if (!mesh::find_vertex(data, id))
         {
             return fail(error, "拆点选区包含不存在的顶点");
         }
@@ -1348,8 +1348,8 @@ bool MeshTopology::split_vertices(schema::EditableMeshDataT& data, std::span<con
     return publish(data, result, error);
 }
 
-bool MeshTopology::detach_faces(schema::EditableMeshDataT& data, std::span<const Id> faces,
-                                std::string& error)
+bool mesh::detach_faces(schema::EditableMeshDataT& data, std::span<const Id> faces,
+                        std::string& error)
 {
     std::set<Id> selected;
     if (!face_selection(data, faces, selected, error))
@@ -1360,7 +1360,7 @@ bool MeshTopology::detach_faces(schema::EditableMeshDataT& data, std::span<const
     std::map<Id, Id> mapping;
     for (auto id : selected)
     {
-        for (auto vertex : face_vertices(*EditableMesh::find_face(data, id)))
+        for (auto vertex : face_vertices(*mesh::find_face(data, id)))
         {
             if (!mapping.contains(vertex))
             {
@@ -1370,14 +1370,14 @@ bool MeshTopology::detach_faces(schema::EditableMeshDataT& data, std::span<const
     }
     for (auto id : selected)
     {
-        map_face(*EditableMesh::find_face(result, id), mapping);
+        map_face(*mesh::find_face(result, id), mapping);
     }
     remove_orphans(result);
     return publish(data, result, error);
 }
 
-bool MeshTopology::duplicate_faces(schema::EditableMeshDataT& data, std::span<const Id> faces,
-                                   std::string& error)
+bool mesh::duplicate_faces(schema::EditableMeshDataT& data, std::span<const Id> faces,
+                           std::string& error)
 {
     std::set<Id> selected;
     if (!face_selection(data, faces, selected, error))
@@ -1388,7 +1388,7 @@ bool MeshTopology::duplicate_faces(schema::EditableMeshDataT& data, std::span<co
     std::map<Id, Id> mapping;
     for (auto id : selected)
     {
-        auto copy = std::make_unique<schema::ModelingFaceT>(*EditableMesh::find_face(data, id));
+        auto copy = std::make_unique<schema::ModelingFaceT>(*mesh::find_face(data, id));
         for (auto vertex : face_vertices(*copy))
         {
             if (!mapping.contains(vertex))
@@ -1403,10 +1403,10 @@ bool MeshTopology::duplicate_faces(schema::EditableMeshDataT& data, std::span<co
     return publish(data, result, error);
 }
 
-bool MeshTopology::bridge(schema::EditableMeshDataT& data, std::span<const Id> first_loop,
-                          std::span<const Id> second_loop, std::string& error)
+bool mesh::bridge(schema::EditableMeshDataT& data, std::span<const Id> first_loop,
+                  std::span<const Id> second_loop, std::string& error)
 {
-    if (!EditableMesh::validate(data, error) || !boundary_loop(data, first_loop, error) ||
+    if (!mesh::validate(data, error) || !boundary_loop(data, first_loop, error) ||
         !boundary_loop(data, second_loop, error))
     {
         return false;
@@ -1455,10 +1455,9 @@ bool MeshTopology::bridge(schema::EditableMeshDataT& data, std::span<const Id> f
     return publish(data, result, error);
 }
 
-bool MeshTopology::fill_hole(schema::EditableMeshDataT& data, std::span<const Id> loop,
-                             std::string& error)
+bool mesh::fill_hole(schema::EditableMeshDataT& data, std::span<const Id> loop, std::string& error)
 {
-    if (!EditableMesh::validate(data, error) || !boundary_loop(data, loop, error))
+    if (!mesh::validate(data, error) || !boundary_loop(data, loop, error))
     {
         return false;
     }
@@ -1472,9 +1471,9 @@ bool MeshTopology::fill_hole(schema::EditableMeshDataT& data, std::span<const Id
     return publish(data, result, error);
 }
 
-bool MeshTopology::dissolve_edge(schema::EditableMeshDataT& data, MeshEdge edge, std::string& error)
+bool mesh::dissolve_edge(schema::EditableMeshDataT& data, MeshEdge edge, std::string& error)
 {
-    if (!EditableMesh::validate(data, error))
+    if (!mesh::validate(data, error))
     {
         return false;
     }
@@ -1583,16 +1582,16 @@ bool MeshTopology::dissolve_edge(schema::EditableMeshDataT& data, MeshEdge edge,
     return publish(data, result, error);
 }
 
-bool MeshTopology::split_edge(schema::EditableMeshDataT& data, MeshEdge edge, double fraction,
-                              std::string& error)
+bool mesh::split_edge(schema::EditableMeshDataT& data, MeshEdge edge, double fraction,
+                      std::string& error)
 {
-    if (!EditableMesh::validate(data, error))
+    if (!mesh::validate(data, error))
     {
         return false;
     }
     if (!std::isfinite(fraction) || fraction <= math::epsilon || fraction >= 1.0 - math::epsilon ||
-        edge.first == edge.second || !EditableMesh::find_vertex(data, edge.first) ||
-        !EditableMesh::find_vertex(data, edge.second))
+        edge.first == edge.second || !mesh::find_vertex(data, edge.first) ||
+        !mesh::find_vertex(data, edge.second))
     {
         return fail(error, "分边比例必须在 0 和 1 之间，端点必须存在且不同");
     }
@@ -1640,14 +1639,14 @@ bool MeshTopology::split_edge(schema::EditableMeshDataT& data, MeshEdge edge, do
     return publish(data, result, error);
 }
 
-bool MeshTopology::connect_vertices(schema::EditableMeshDataT& data, Id face_id, Id first,
-                                    Id second, std::string& error)
+bool mesh::connect_vertices(schema::EditableMeshDataT& data, Id face_id, Id first, Id second,
+                            std::string& error)
 {
-    if (!EditableMesh::validate(data, error))
+    if (!mesh::validate(data, error))
     {
         return false;
     }
-    const auto* face = EditableMesh::find_face(data, face_id);
+    const auto* face = mesh::find_face(data, face_id);
     if (!face || !face->holes.empty() || first == second)
     {
         return fail(error, "连接操作需要无洞面上的两个不同顶点");
@@ -1705,10 +1704,10 @@ bool MeshTopology::connect_vertices(schema::EditableMeshDataT& data, Id face_id,
     return publish(data, result, error);
 }
 
-bool MeshTopology::append(schema::EditableMeshDataT& data, const schema::EditableMeshDataT& other,
-                          std::string& error, std::uint32_t material_slot_offset)
+bool mesh::append(schema::EditableMeshDataT& data, const schema::EditableMeshDataT& other,
+                  std::string& error, std::uint32_t material_slot_offset)
 {
-    if (!EditableMesh::validate(data, error) || !EditableMesh::validate(other, error))
+    if (!mesh::validate(data, error) || !mesh::validate(other, error))
     {
         return false;
     }
@@ -1733,8 +1732,8 @@ bool MeshTopology::append(schema::EditableMeshDataT& data, const schema::Editabl
     return publish(data, result, error);
 }
 
-bool MeshTopology::set_material(schema::EditableMeshDataT& data, std::span<const Id> faces,
-                                std::uint32_t slot, std::string& error)
+bool mesh::set_material(schema::EditableMeshDataT& data, std::span<const Id> faces,
+                        std::uint32_t slot, std::string& error)
 {
     std::set<Id> selected;
     if (!face_selection(data, faces, selected, error))
@@ -1748,13 +1747,13 @@ bool MeshTopology::set_material(schema::EditableMeshDataT& data, std::span<const
     schema::EditableMeshDataT result(data);
     for (auto id : selected)
     {
-        EditableMesh::find_face(result, id)->material_slot = slot;
+        mesh::find_face(result, id)->material_slot = slot;
     }
     return publish(data, result, error);
 }
 
-bool MeshTopology::set_color(schema::EditableMeshDataT& data, std::span<const Id> faces,
-                             const schema::Color& color, std::string& error)
+bool mesh::set_color(schema::EditableMeshDataT& data, std::span<const Id> faces,
+                     const schema::Color& color, std::string& error)
 {
     std::set<Id> selected;
     if (!face_selection(data, faces, selected, error))
@@ -1771,7 +1770,7 @@ bool MeshTopology::set_color(schema::EditableMeshDataT& data, std::span<const Id
     schema::EditableMeshDataT result(data);
     for (auto id : selected)
     {
-        auto* face = EditableMesh::find_face(result, id);
+        auto* face = mesh::find_face(result, id);
         face->colors.assign(face->vertices.size(), color);
         for (auto& hole : face->holes)
         {
@@ -1781,8 +1780,8 @@ bool MeshTopology::set_color(schema::EditableMeshDataT& data, std::span<const Id
     return publish(data, result, error);
 }
 
-bool MeshTopology::select_faces(const schema::EditableMeshDataT& data, std::span<const Id> faces,
-                                MeshFaceSelection mode, std::vector<Id>& output, std::string& error)
+bool mesh::select_faces(const schema::EditableMeshDataT& data, std::span<const Id> faces,
+                        MeshFaceSelection mode, std::vector<Id>& output, std::string& error)
 {
     output.clear();
     std::set<Id> selected;
@@ -1861,11 +1860,11 @@ bool MeshTopology::select_faces(const schema::EditableMeshDataT& data, std::span
     return true;
 }
 
-bool MeshTopology::edge_ring(const schema::EditableMeshDataT& data, MeshEdge edge,
-                             std::vector<MeshEdge>& output, std::string& error)
+bool mesh::edge_ring(const schema::EditableMeshDataT& data, MeshEdge edge,
+                     std::vector<MeshEdge>& output, std::string& error)
 {
     output.clear();
-    if (!EditableMesh::validate(data, error))
+    if (!mesh::validate(data, error))
     {
         return false;
     }
@@ -1920,11 +1919,11 @@ bool MeshTopology::edge_ring(const schema::EditableMeshDataT& data, MeshEdge edg
     return true;
 }
 
-bool MeshTopology::edge_loop(const schema::EditableMeshDataT& data, MeshEdge edge,
-                             std::vector<MeshEdge>& output, std::string& error)
+bool mesh::edge_loop(const schema::EditableMeshDataT& data, MeshEdge edge,
+                     std::vector<MeshEdge>& output, std::string& error)
 {
     output.clear();
-    if (!EditableMesh::validate(data, error))
+    if (!mesh::validate(data, error))
     {
         return false;
     }
@@ -1996,10 +1995,10 @@ bool MeshTopology::edge_loop(const schema::EditableMeshDataT& data, MeshEdge edg
     return true;
 }
 
-bool MeshTopology::loop_cut(schema::EditableMeshDataT& data, MeshEdge edge, std::uint32_t cuts,
-                            double pinch, double offset, std::string& error)
+bool mesh::loop_cut(schema::EditableMeshDataT& data, MeshEdge edge, std::uint32_t cuts,
+                    double pinch, double offset, std::string& error)
 {
-    if (!EditableMesh::validate(data, error))
+    if (!mesh::validate(data, error))
     {
         return false;
     }
@@ -2101,7 +2100,7 @@ bool MeshTopology::loop_cut(schema::EditableMeshDataT& data, MeshEdge edge, std:
     std::erase_if(result.faces, [&](const auto& face) { return affected.contains(face->id); });
     for (const auto& [id, side] : affected)
     {
-        const auto* original = EditableMesh::find_face(data, id);
+        const auto* original = mesh::find_face(data, id);
         const auto a = original->vertices[side];
         const auto b = original->vertices[(side + 1) % 4];
         const auto c = original->vertices[(side + 2) % 4];
@@ -2160,7 +2159,7 @@ bool MeshTopology::loop_cut(schema::EditableMeshDataT& data, MeshEdge edge, std:
     // 四边形带终点的非四边形邻面只插入共享边顶点，保持封闭。
     for (auto& face : result.faces)
     {
-        if (affected.contains(face->id) || !EditableMesh::find_face(data, face->id))
+        if (affected.contains(face->id) || !mesh::find_face(data, face->id))
         {
             continue;
         }

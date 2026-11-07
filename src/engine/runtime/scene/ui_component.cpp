@@ -9,6 +9,7 @@
 #include "runtime/scene/resource_binding.hpp"
 
 #include <limits>
+#include <utility>
 
 namespace engine
 {
@@ -36,8 +37,9 @@ bool UiComponent::valid_settings(const schema::UiDataT& settings) noexcept
 }
 schema::UiDataT UiComponent::settings() const noexcept
 {
-    const auto* value = read_data<Data>();
-    return value ? *value : Data{};
+    Data output{};
+    (void)get_settings(output);
+    return output;
 }
 
 bool UiComponent::get_settings(Data& output) const noexcept
@@ -47,6 +49,11 @@ bool UiComponent::get_settings(Data& output) const noexcept
     return value != nullptr;
 }
 bool UiComponent::set_settings(const schema::UiDataT& value)
+{
+    return apply_settings(value, {});
+}
+
+bool UiComponent::apply_settings(const Data& value, resource_detail::ResourceReference prepared)
 {
     if (!writable())
     {
@@ -67,11 +74,12 @@ bool UiComponent::set_settings(const schema::UiDataT& value)
         {
             return false;
         }
-        next.reset();
+        next = std::move(prepared);
         if (!value.document_guid.empty())
         {
             auto* resources = node().world()->resource_loader();
-            if (!resources || !ecs_detail::acquire_resource(node(), value.document_guid, next) ||
+            if (!resources ||
+                (!next && !ecs_detail::acquire_resource(node(), value.document_guid, next)) ||
                 !next || !next.data<UiResource>())
             {
                 return false;
@@ -90,12 +98,17 @@ bool UiComponent::set_document(std::string_view path)
     {
         return false;
     }
+    resource_detail::ResourceReference prepared;
     schema::UiDataT value;
-    if (!path.empty() && !ecs_detail::resource_guid(node(), path, value.document_guid))
+    if (!path.empty() && !ecs_detail::acquire_resource(node(), path, prepared))
     {
         return false;
     }
-    return set_settings(value);
+    if (prepared)
+    {
+        value.document_guid = prepared->info().guid;
+    }
+    return apply_settings(value, std::move(prepared));
 }
 ResourceHandle UiComponent::document() const noexcept
 {

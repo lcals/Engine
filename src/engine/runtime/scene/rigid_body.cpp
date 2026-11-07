@@ -56,8 +56,9 @@ bool RigidBody::valid_settings(const schema::RigidBodyDataT& value) noexcept
 
 schema::RigidBodyDataT RigidBody::settings() const noexcept
 {
-    const auto* value = read_data<Data>();
-    return value ? *value : Data{};
+    Data output{};
+    (void)get_settings(output);
+    return output;
 }
 
 bool RigidBody::get_settings(Data& output) const noexcept

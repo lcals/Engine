@@ -48,8 +48,9 @@ bool CharacterMotor::valid_settings(const schema::CharacterMotorDataT& value) no
 
 schema::CharacterMotorDataT CharacterMotor::settings() const noexcept
 {
-    const auto* value = read_data<Data>();
-    return value ? *value : Data{};
+    Data output{};
+    (void)get_settings(output);
+    return output;
 }
 
 bool CharacterMotor::get_settings(Data& output) const noexcept

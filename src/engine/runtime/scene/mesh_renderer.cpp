@@ -212,15 +212,13 @@ bool MeshRenderer::set_lightmap(std::string_view path)
     }
     const auto* mesh = mesh_data();
     auto transform = node().get_component<Transform>();
-    auto* resources = node().world()->resource_loader();
     resource_detail::ResourceReference replacement;
-    Guid guid;
     std::array<float, 16> matrix{};
-    if (!resources || !runtime()->mesh_resource_ || !mesh || runtime()->skin_joint_count_ != 0 ||
+    if (!runtime()->mesh_resource_ || !mesh || runtime()->skin_joint_count_ != 0 ||
         !runtime()->deformed_vertices_.empty() || !runtime()->skinning_palette_.empty() ||
         mesh->lightmap_texcoords.size() != mesh->vertices.size() || !transform ||
-        !transform.world_matrix(matrix.data()) || !ecs_detail::resource_guid(node(), path, guid) ||
-        !ecs_detail::acquire_resource(node(), guid, replacement))
+        !transform.world_matrix(matrix.data()) ||
+        !ecs_detail::acquire_resource(node(), path, replacement))
     {
         return false;
     }
@@ -229,7 +227,7 @@ bool MeshRenderer::set_lightmap(std::string_view path)
     {
         return false;
     }
-    settings.lightmap_guid = std::move(guid);
+    settings.lightmap_guid = replacement->info().guid;
     settings.lightmap_mesh_hash = runtime()->mesh_resource_->info().content_hash;
     settings.lightmap_transform.assign(matrix.begin(), matrix.end());
     runtime()->lightmap_resource_ = std::move(replacement);
@@ -269,13 +267,10 @@ bool MeshRenderer::set_mesh(std::string_view path)
     {
         return false;
     }
-    auto* resources = node().world()->resource_loader();
-    Guid guid;
     resource_detail::ResourceReference replacement;
     std::uint32_t joint_count = 0;
     if (runtime()->mesh_revision_ == std::numeric_limits<std::uint64_t>::max() ||
-        resources == nullptr || !ecs_detail::resource_guid(node(), path, guid) ||
-        !ecs_detail::acquire_resource(node(), guid, replacement) ||
+        !ecs_detail::acquire_resource(node(), path, replacement) ||
         replacement.data<MeshResource>() == nullptr ||
         !MeshUtils::validate(*replacement.data<MeshResource>()) ||
         !skin_joint_count(*replacement.data<MeshResource>(), joint_count) ||
@@ -284,7 +279,7 @@ bool MeshRenderer::set_mesh(std::string_view path)
     {
         return false;
     }
-    write_data<Data>()->mesh_guid = std::move(guid);
+    write_data<Data>()->mesh_guid = replacement->info().guid;
     runtime()->mesh_resource_ = std::move(replacement);
     runtime()->lightmap_resource_.reset();
     auto& settings = *write_data<Data>();

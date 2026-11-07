@@ -43,6 +43,8 @@ classDiagram
 
 ## 全类型承载与登记
 
+本节及以下表格保持现行公开契约；私有步骤的合并见[解码实现精简目标](#解码实现精简目标)。
+
 表中列出已登记的规范类型与处理器。T 表示 ResourceValue<DataT, Kind> 的载荷类型，所有资源均经同一 ResourceLoader 获取/释放。
 
 | AssetKind | 规范 DataT | 处理器 | 实现归属与主要校验 |
@@ -83,6 +85,32 @@ flowchart LR
 处理器缺失必须返回 unsupported_type；未知 Kind 同样失败，不能降级成 bytes 后宣称 ready。未选择某个插件时，其格式实现与第三方依赖不能被链接进核心。
 
 扩展新类型时只增加该类型的 schema/规范载荷声明（若是新持久模型）、独立处理器和显式登记；新增 AssetKind 按现有序列化兼容规则追加。Resource、ResourceLoader、ResourceGraphSystem 的接口及计数算法不随类型数量增长。
+
+## 解码实现精简目标
+
+**状态：15 个核心 FlatBuffers Codec 已复用本节解码流程；ResourceCodec 公开接口及各类型规则不变。** 核心 FlatBuffers Codec 复用固定步骤：输出前置条件、kind/大小检查、调用格式验证、UnPack 与独占资源构造。类型文件提供原大小上限及验证和解包适配；验证适配负责 Verifier、原错误说明以及必须在解包前执行的类型专属检查。
+
+```mermaid
+classDiagram
+    class resource_decode_detail {
+        <<private functions>>
+        +decode_flatbuffer~ResourceT~(const AssetEntryT& entry, ByteView payload, size_t max_bytes, ValidateEncoded validate, Unpack unpack, unique_ptr~Resource~& output, string& error) bool
+    }
+    class MeshResourceCodec
+    class ModelResourceCodec
+    class FontResourceCodec
+    class Resource
+    class AssetEntryT
+    MeshResourceCodec ..> resource_decode_detail : 复用固定步骤
+    ModelResourceCodec ..> resource_decode_detail : 保留模型专属校验
+    FontResourceCodec ..> resource_decode_detail : 保留字体专属校验
+    resource_decode_detail ..> AssetEntryT : 本次借用
+    resource_decode_detail ..> Resource : 转交唯一所有权
+```
+
+resource_decode_detail 是核心 Codec 的内部函数组，不是新增类或公开解码接口；ValidateEncoded/Unpack 为具体格式的无捕获适配，ResourceT 由具体 Codec 显式指定。成功输出规范资源；非空输出拒绝且保留原值，合法空输出失败仍为空，错误类别和文本保持。调用者继续按 decode → validate_data → 已加载依赖校验的原流程执行，辅助函数不加载依赖、不建立缓存、不操作业务计数。
+
+ValidateEncoded 的签名为 `bool(ByteView payload, std::string& error)`，须先完成对应 FlatBuffers 验证，再执行本类型的解包前限制；Font 的字形、曲线和 kerning 数量限制仍在 UnPack 前，失败保留其专用错误。Unpack 只接收已验证字节并返回本类型独占生成数据。不同大小上限、文件标识和附加格式检查不统一成一套宽松规则；若某类型的检查顺序不同，只复用行为一致的子步骤。非 FlatBuffers 字节资源保留自身规则。可选插件继续通过 ResourceCodec 契约实现类型，不依赖核心 src 私有头；本轮不为共享少量语句新增跨插件基础框架。
 
 ## 与运行模块的界限
 

@@ -315,31 +315,30 @@ bool triangulate_impl(const VertexLookup& lookup, const schema::ModelingFaceT& f
 
 } // namespace
 
-const schema::ModelingVertex* EditableMesh::find_vertex(const schema::EditableMeshDataT& data,
-                                                        std::uint64_t id) noexcept
+const schema::ModelingVertex* mesh::find_vertex(const schema::EditableMeshDataT& data,
+                                                std::uint64_t id) noexcept
 {
     const auto found = std::find_if(data.vertices.begin(), data.vertices.end(),
                                     [id](const auto& vertex) { return vertex.id() == id; });
     return found == data.vertices.end() ? nullptr : &*found;
 }
 
-schema::ModelingFaceT* EditableMesh::find_face(schema::EditableMeshDataT& data,
-                                               std::uint64_t id) noexcept
+schema::ModelingFaceT* mesh::find_face(schema::EditableMeshDataT& data, std::uint64_t id) noexcept
 {
     const auto found = std::find_if(data.faces.begin(), data.faces.end(),
                                     [id](const auto& face) { return face && face->id == id; });
     return found == data.faces.end() ? nullptr : found->get();
 }
 
-const schema::ModelingFaceT* EditableMesh::find_face(const schema::EditableMeshDataT& data,
-                                                     std::uint64_t id) noexcept
+const schema::ModelingFaceT* mesh::find_face(const schema::EditableMeshDataT& data,
+                                             std::uint64_t id) noexcept
 {
     const auto found = std::find_if(data.faces.begin(), data.faces.end(),
                                     [id](const auto& face) { return face && face->id == id; });
     return found == data.faces.end() ? nullptr : found->get();
 }
 
-bool EditableMesh::validate(const schema::EditableMeshDataT& data, std::string& error)
+bool mesh::validate(const schema::EditableMeshDataT& data, std::string& error)
 {
     error.clear();
     if (data.schema_version != 1 || data.next_id == 0 ||
@@ -376,15 +375,15 @@ bool EditableMesh::validate(const schema::EditableMeshDataT& data, std::string& 
     return true;
 }
 
-bool EditableMesh::triangulate_face(const schema::EditableMeshDataT& data,
-                                    const schema::ModelingFaceT& face,
-                                    std::vector<std::uint32_t>& output, std::string& error)
+bool mesh::triangulate_face(const schema::EditableMeshDataT& data,
+                            const schema::ModelingFaceT& face, std::vector<std::uint32_t>& output,
+                            std::string& error)
 {
     return triangulate_impl(make_lookup(data), face, output, error);
 }
 
-bool EditableMesh::compile(const schema::EditableMeshDataT& data, std::string_view path,
-                           schema::MeshDataT& output, std::string& error)
+bool mesh::compile(const schema::EditableMeshDataT& data, std::string_view path,
+                   schema::MeshDataT& output, std::string& error)
 {
     output = {};
     if (!validate(data, error) || data.faces.empty())
@@ -487,8 +486,8 @@ bool EditableMesh::compile(const schema::EditableMeshDataT& data, std::string_vi
     return true;
 }
 
-bool EditableMesh::from_mesh(const schema::MeshDataT& data, schema::EditableMeshDataT& output,
-                             std::string& error)
+bool mesh::from_mesh(const schema::MeshDataT& data, schema::EditableMeshDataT& output,
+                     std::string& error)
 {
     output = {};
     error.clear();
@@ -611,8 +610,8 @@ bool EditableMesh::from_mesh(const schema::MeshDataT& data, schema::EditableMesh
     return true;
 }
 
-bool EditableMesh::serialize(const schema::EditableMeshDataT& data,
-                             std::vector<std::uint8_t>& output, std::string& error)
+bool mesh::serialize(const schema::EditableMeshDataT& data, std::vector<std::uint8_t>& output,
+                     std::string& error)
 {
     output.clear();
     if (!validate(data, error))
@@ -625,8 +624,8 @@ bool EditableMesh::serialize(const schema::EditableMeshDataT& data,
     return true;
 }
 
-bool EditableMesh::deserialize(std::span<const std::uint8_t> bytes,
-                               schema::EditableMeshDataT& output, std::string& error)
+bool mesh::deserialize(std::span<const std::uint8_t> bytes, schema::EditableMeshDataT& output,
+                       std::string& error)
 {
     output = {};
     error.clear();
@@ -648,9 +647,8 @@ bool EditableMesh::deserialize(std::span<const std::uint8_t> bytes,
     return true;
 }
 
-bool EditableMesh::selected_vertices(const schema::EditableMeshDataT& data,
-                                     const MeshSelection& selection,
-                                     std::vector<std::uint64_t>& output, std::string& error)
+bool mesh::selected_vertices(const schema::EditableMeshDataT& data, const MeshSelection& selection,
+                             std::vector<std::uint64_t>& output, std::string& error)
 {
     output.clear();
     error.clear();

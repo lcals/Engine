@@ -1,6 +1,6 @@
 #include "runtime/resource/codecs/light_probe_resource_codec.hpp"
+#include "runtime/resource/codecs/resource_decode.hpp"
 
-#include <flatbuffers/verifier.h>
 #include <set>
 
 #include <algorithm>
@@ -67,27 +67,14 @@ schema::AssetKind LightProbeResourceCodec::kind() const noexcept
 bool LightProbeResourceCodec::decode(const schema::AssetEntryT& entry, ByteView payload,
                                      std::unique_ptr<Resource>& output, std::string& error) const
 {
-    if (output)
+    const auto validate = [](ByteView payload, std::string& error)
     {
-        error = "Resource output must be empty";
-        return false;
-    }
-    error.clear();
-    if (entry.kind != kind() || payload.empty() || payload.size() > 32U * 1024U * 1024U)
-    {
-        error = "Invalid resource kind or payload size";
-        return false;
-    }
-    const auto* bytes = reinterpret_cast<const std::uint8_t*>(payload.data());
-    flatbuffers::Verifier verifier(bytes, payload.size());
-    if (!schema::VerifyLightProbeDataBuffer(verifier))
-    {
-        error = "Invalid LightProbe FlatBuffer";
-        return false;
-    }
-    auto data = schema::UnPackLightProbeData(bytes);
-    output = std::make_unique<ResourceType>(entry, std::move(*data));
-    return true;
+        return resource_decode_detail::verify_flatbuffer(
+            payload, schema::VerifyLightProbeDataBuffer, "Invalid LightProbe FlatBuffer", error);
+    };
+    return resource_decode_detail::decode_flatbuffer<ResourceType>(
+        entry, payload, 32U * 1024U * 1024U, validate, [](const std::uint8_t* bytes)
+        { return schema::UnPackLightProbeData(bytes); }, output, error);
 }
 
 bool LightProbeResourceCodec::validate_data(const Resource& resource, std::string& error) const

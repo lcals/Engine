@@ -17,8 +17,9 @@ bool EnvironmentComponent::register_type(ComponentRegistry& registry)
 
 EnvironmentSettings EnvironmentComponent::settings() const noexcept
 {
-    const auto* value = read_data<Data>();
-    return value ? *value : Data{};
+    Data output{};
+    (void)get_settings(output);
+    return output;
 }
 
 bool EnvironmentComponent::get_settings(Data& output) const noexcept

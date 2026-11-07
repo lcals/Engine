@@ -1,4 +1,5 @@
 #include "plugins/runtime/script/bindings/audio_source_binding.hpp"
+#include "plugins/runtime/script/bindings/binding_helpers.hpp"
 
 #include "plugins/runtime/script/bindings/binding_context.hpp"
 #include "runtime/scene/audio_source.hpp"
@@ -65,24 +66,9 @@ Object.freeze(AudioSource.prototype);
 Object.freeze(AudioSource);
 )js";
 
-AudioSource audio_source(const Arguments& arguments, int count)
-{
-    arguments.set_return(false);
-    auto node = BindingContext::node(arguments);
-    return node.valid() && arguments.count() == count ? node.get_component<AudioSource>()
-                                                      : AudioSource{};
-}
-
-void add(const Arguments& arguments)
-{
-    auto node = BindingContext::node(arguments);
-    arguments.set_return(arguments.count() == 2 && node.valid() &&
-                         node.add_component<AudioSource>().valid());
-}
-
 void clip(const Arguments& arguments)
 {
-    auto value = audio_source(arguments, 3);
+    auto value = binding_detail::component<AudioSource>(arguments, 3);
     std::string path;
     if (value.valid() && BindingContext::text(arguments, 2, path))
     {
@@ -92,7 +78,7 @@ void clip(const Arguments& arguments)
 
 void set_scalar(const Arguments& arguments, float schema::AudioSourceDataT::* field)
 {
-    auto value = audio_source(arguments, 3);
+    auto value = binding_detail::component<AudioSource>(arguments, 3);
     float number = 0.0F;
     if (value.valid() && BindingContext::scalar(arguments, 2, number))
     {
@@ -114,7 +100,7 @@ void pitch(const Arguments& arguments)
 
 void set_boolean(const Arguments& arguments, bool schema::AudioSourceDataT::* field)
 {
-    auto value = audio_source(arguments, 3);
+    auto value = binding_detail::component<AudioSource>(arguments, 3);
     if (value.valid() && arguments.is_boolean(2))
     {
         auto settings = value.settings();
@@ -140,7 +126,7 @@ void awake(const Arguments& arguments)
 
 void distances(const Arguments& arguments)
 {
-    auto value = audio_source(arguments, 4);
+    auto value = binding_detail::component<AudioSource>(arguments, 4);
     float minimum = 0.0F;
     float maximum = 0.0F;
     if (value.valid() && BindingContext::scalar(arguments, 2, minimum) &&
@@ -155,31 +141,31 @@ void distances(const Arguments& arguments)
 
 void play(const Arguments& arguments)
 {
-    auto value = audio_source(arguments, 2);
+    auto value = binding_detail::component<AudioSource>(arguments, 2);
     arguments.set_return(value.valid() && value.play());
 }
 
 void pause(const Arguments& arguments)
 {
-    auto value = audio_source(arguments, 2);
+    auto value = binding_detail::component<AudioSource>(arguments, 2);
     arguments.set_return(value.valid() && value.pause());
 }
 
 void stop(const Arguments& arguments)
 {
-    auto value = audio_source(arguments, 2);
+    auto value = binding_detail::component<AudioSource>(arguments, 2);
     arguments.set_return(value.valid() && value.stop());
 }
 
 void playing(const Arguments& arguments)
 {
-    const auto value = audio_source(arguments, 2);
+    const auto value = binding_detail::component<AudioSource>(arguments, 2);
     arguments.set_return(value.valid() && value.playing());
 }
 
 void playback(const Arguments& arguments)
 {
-    const auto value = audio_source(arguments, 2);
+    const auto value = binding_detail::component<AudioSource>(arguments, 2);
     arguments.set_return({});
     if (!value)
     {
@@ -224,10 +210,10 @@ std::string_view AudioSourceBinding::source() const noexcept
 bool AudioSourceBinding::register_functions(vm::ScriptVm& vm) const
 {
     return vm.integer("AudioSourceKind", static_cast<int>(AudioSource::component_type)) &&
-           vm.function("AudioSourceAdd", add) && vm.function("AudioSourceClip", clip) &&
-           vm.function("AudioSourceVolume", volume) && vm.function("AudioSourcePitch", pitch) &&
-           vm.function("AudioSourceLoop", loop) && vm.function("AudioSourceSpatial", spatial) &&
-           vm.function("AudioSourceAwake", awake) &&
+           vm.function("AudioSourceAdd", binding_detail::add_component<AudioSource>) &&
+           vm.function("AudioSourceClip", clip) && vm.function("AudioSourceVolume", volume) &&
+           vm.function("AudioSourcePitch", pitch) && vm.function("AudioSourceLoop", loop) &&
+           vm.function("AudioSourceSpatial", spatial) && vm.function("AudioSourceAwake", awake) &&
            vm.function("AudioSourceDistances", distances) && vm.function("AudioSourcePlay", play) &&
            vm.function("AudioSourcePause", pause) && vm.function("AudioSourceStop", stop) &&
            vm.function("AudioSourcePlaying", playing) &&
