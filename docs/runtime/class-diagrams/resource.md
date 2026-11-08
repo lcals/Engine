@@ -2,7 +2,7 @@
 
 [类图索引](../../class-diagrams/index.md) · [统一生命周期](resource-lifecycle.md) · [核心读取](resource-system.md) · [类型处理器](resource-codecs.md)
 
-**状态：统一资源契约及业务接入补充已按确认类图实现；验证范围见测试文档。** Resource 使用统一类型承载，业务通过获取句柄管理生命周期；持久数据仍以现有 schema 为唯一来源。
+当前契约已实现；验证范围见[测试文档](../../testing.md)。 Resource 使用统一类型承载，业务通过获取句柄管理生命周期；持久数据仍以现有 schema 为唯一来源。
 
 ## 公共类型
 

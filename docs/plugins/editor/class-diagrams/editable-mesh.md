@@ -1,7 +1,5 @@
 # 可编辑多边形模型
 
-**状态：本轮精简已按确认类图实现。** 四个静态工具类统一为 mesh 命名空间函数；[评审入口](../../../class-diagrams/index.md#全仓精简评审)。
-
 图中的 mesh 表示 `engine::plugins::modeling::mesh` 命名空间，不是 C++ 类。选择、枚举和配置类型仍属于 `engine::plugins::modeling`；生成数据仍属于 `engine::schema`。
 
 持久数据只由 `include/schemas/runtime/modeling.fbs` 生成。模型区分共享几何顶点与每面角 UV、颜色，支持多边形与洞、稳定身份、多材质和平滑组。核心不依赖编辑器或 MCP。
@@ -43,15 +41,15 @@ classDiagram
 
 验证和编译每次建立一次顶点身份索引，多个面共享该索引；不向 Node 或运行时渲染网格加入编辑拓扑缓存。
 
-## 函数归属与一次迁移
+## 函数归属
 
-| 原静态类 | 目标命名空间 | 方法定义页 |
-| --- | --- | --- |
-| EditableMesh | `engine::plugins::modeling::mesh` | 本页的验证、编译、转换、序列化和选区函数 |
-| MeshPrimitives | 同上 | [基本体](mesh-primitives.md)的 create、polygon |
-| MeshTopology | 同上 | [拓扑](mesh-topology.md)的拓扑及选区运算 |
-| MeshGeometry | 同上 | [几何与 UV](mesh-geometry.md)的几何、UV 和平滑运算 |
+建模函数统一位于 `engine::plugins::modeling::mesh`，按职责分文件，每个函数只在所属图定义：
 
-四组函数名和重载没有冲突，目标保留原方法名。例如 `EditableMesh::validate` 改为 `mesh::validate`，`MeshPrimitives::create` 改为 `mesh::create`。声明与实现继续按原有功能文件组织，每个函数只在所属页定义；跨图只引用 mesh。旧四个类及其兼容转发一并移除，ModelingCommands、导入器和原生调用方一次更新。MCP 工具名称、编辑器命令、序列化格式、资源 GUID 和建模算法保持。
+| 职责 | 方法定义页 |
+| --- | --- |
+| 验证、编译、转换、序列化和选区 | 本页 |
+| 基本体与多边形创建 | [基本体](mesh-primitives.md) |
+| 拓扑与选区运算 | [拓扑](mesh-topology.md) |
+| 几何、UV 与平滑 | [几何与 UV](mesh-geometry.md) |
 
 返回状态或借用的函数标注 nodiscard；只读索引查询保留原 const 数据参数和 noexcept，可能分配的计算函数不新增 noexcept。第三方对象留在函数内部，不通过图中的函数组导出。

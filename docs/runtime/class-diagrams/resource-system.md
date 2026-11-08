@@ -2,7 +2,7 @@
 
 [类图索引](../../class-diagrams/index.md) · [统一生命周期](resource-lifecycle.md) · [文件读取](virtual-file-system.md) · [类型处理器](resource-codecs.md) · [目录](resource-catalog.md) · [资源插件](../../plugins/runtime/class-diagrams/resource-graph.md)
 
-**状态：统一资源契约及业务接入补充已按确认类图实现；验证范围见测试文档。** 核心的“资源读取类”沿用 ResourceSystem，负责目录与单项资源读取/解析。它不实现 ResourceLoader，不加载依赖树，不缓存共享资源，不维护业务引用计数。
+当前契约已实现；验证范围见[测试文档](../../testing.md)。 核心的“资源读取类”沿用 ResourceSystem，负责目录与单项资源读取/解析。它不实现 ResourceLoader，不加载依赖树，不缓存共享资源，不维护业务引用计数。
 
 ## 单项读取能力
 

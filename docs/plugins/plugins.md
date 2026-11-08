@@ -90,7 +90,7 @@ V8 的 WebAssembly、Intl/ICU、Temporal、系统 instrumentation 在全部平�
 
 建模纯算法虽然不依赖编辑器状态，仍属于编辑器建模插件：当前用途是生产模型源资源和运行 Mesh，正式运行包只读取编译结果。MCP 整体属于编辑器工具，通用协议与业务适配在插件内分目标保持依赖边界，不需要为了目录分层把协议装入游戏。
 
-当前 Android 同步由电脑上的 MCP 经 adb 完成；设备不运行 MCP 服务。未来如需设备端调试插件，必须明确区分正式运行与调试运行的构建用途，正式包排除调试目标、接口和依赖。本轮不预建不存在的设备调试插件。
+当前 Android 同步由电脑上的 MCP 经 adb 完成；设备不运行 MCP 服务。未来如需设备端调试插件，必须明确区分正式运行与调试运行的构建用途，正式包排除调试目标、接口和依赖。不预建尚无需求的设备调试插件。
 
 ## 评审入口
 
@@ -117,7 +117,7 @@ V8 的 WebAssembly、Intl/ICU、Temporal、系统 instrumentation 在全部平�
 
 `DestructionSystem` 作为世界子系统管理独立的 `DestructionComponent`，同步提交官方 Blast 拆分后的瞬态渲染/碰撞组；核心物理只提供通用凸包与 compound 形状。编辑器插件拥有离线 Authoring、导入器、组件 codec 和撤销命令。MCP 工具目标只在选择 MCP 时建立，不进入设备运行包；Boost、Authoring 和 PhysX 均不进入正式运行时。
 
-当前制作输入为最多 256 块的参数盒体；根节点须使用正等比缩放。showcase 第七入口验证墙、柱和塔的连接损伤，地形地基联动、重力应力、撞击再破坏和有界异步损伤已接入，详见[破坏模块](runtime/destruction.md)。Mac 定向测试、MCP 预览和菜单/UI 玩法已通过；具体事实与其他平台范围见[步骤 2 验证记录](runtime/terrain-destruction-feasibility.md#步骤-2-当前实现与验证范围)，不能由插件清单推断平台验收完成。
+当前制作输入为最多 256 块的参数盒体；根节点须使用正等比缩放。showcase 第七入口验证墙、柱和塔的连接损伤，地形地基联动、重力应力、撞击再破坏和有界异步损伤已接入，详见[破坏模块](runtime/destruction.md)。平台限制见[采用边界](runtime/terrain-destruction-feasibility.md#适配边界)，不能由插件清单推断平台验收完成。
 
 ## 插件选择
 

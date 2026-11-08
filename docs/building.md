@@ -65,21 +65,21 @@ cmake --preset asset-pipeline-deps
 cmake --preset editor-deps
 ```
 
-这些配置会建立对应系统目标。编辑器 Debug / Release workflow 编译编辑器及基础运行时系统；仅 Release workflow 运行生命周期、依赖链接、命令行及 TBB / USD 回归测试：
+这些配置会建立对应系统目标。编辑器 Debug / Release workflow 编译编辑器及基础运行时系统；仅 Release workflow 运行三项基础检查，模块功能按[测试文档](testing.md)选择：
 
 ```sh
 cmake --workflow --preset editor-deps
 cmake --workflow --preset editor-deps-release
 ```
 
-要把完整引擎的已选依赖及默认 QuickJS 脚本插件编译、链接并验证，使用：
+要构建完整引擎、已选依赖和默认 QuickJS 脚本插件，并执行基础检查，使用：
 
 ```sh
 cmake --workflow --preset ninja-engine-debug
 cmake --workflow --preset ninja-engine-release
 ```
 
-这两个 workflow 包括统一的 `engine_script_prepare` 步骤，并启用默认 QuickJS 桌面脚本运行；Debug 到构建成功为止，Release 另执行 CTest。先按[脚本运行准备](plugins/runtime/scripting.md)准备 Node.js、npm、Python 3 和示例项目的 TypeScript 依赖。已准备过且依赖未变时，可用对应预设的 configure/build 分步复跑，测试使用 `ctest --preset ninja-engine-release`。`engine-debug` / `engine-release` 提供相同系统组合，使用平台默认生成器。QuickJS 构建不准备、编译或链接 V8/ICU。显式 V8 构建也默认裁剪 Intl/ICU，因此默认产物均无 `icudtl.dat`。
+这两个 workflow 包括统一的 `engine_script_prepare` 步骤，并启用默认 QuickJS 桌面脚本运行；Debug 到构建成功为止，Release 另执行基础 CTest。先按[脚本运行准备](plugins/runtime/scripting.md)准备 Node.js、npm、Python 3 和示例项目的 TypeScript 依赖。已准备过且依赖未变时，可用对应预设的 configure/build 分步复跑，测试使用 `ctest --preset ninja-engine-release`。`engine-debug` / `engine-release` 提供相同系统组合，使用平台默认生成器。QuickJS 构建不准备、编译或链接 V8/ICU。显式 V8 构建也默认裁剪 Intl/ICU，因此默认产物均无 `icudtl.dat`。
 
 单配置生成器使用 `CMAKE_BUILD_TYPE`；多配置生成器由 build / test preset 的 `configuration` 选择同名配置。受影响的 C++ 修改完成 Debug / Release 构建，Debug 仅要求编译成功，CTest、功能测试及实际运行验收使用 Release。保留 Debug test preset 供用户明确要求的调试，不在默认 workflow 中运行；本机已验证范围见[验证记录](testing.md)，不能由预设存在推断平台已经通过。
 
@@ -130,8 +130,8 @@ ozz 的源码副本仅在固定提交、覆盖文件或准备脚本变化，以�
 - `basisu` 2.50 overlay 保留 Android ARM64 与 iOS 的纯库构建，以 `Threads::Threads` 表达线程依赖；普通编码状态尊重 `m_status_output`，额外诊断进入 stderr。官方 vcpkg port 仍排除 Android，提供等效支持后才能移除覆盖。
 - Android SDL3 静态合入 `libmain.so` 并安装同版本 Java 入口，bgfx overlay 传递所需 Android 系统库，避免 Java / JNI 或链接依赖不一致。
 - bgfx Metal overlay 在绑定 uniform 前按需分段预留空间，并检查每次写入边界；旧段等待 GPU 完成后释放，避免大型场景超过固定 8 MiB 缓冲时越界。macOS / iOS 使用该补丁；上游提供等效修复后再移除，详见[overlay 说明](../third_party/overlay-ports/README.md)。
-- macOS TBB 使用共享库，防止 USD 动态库重复嵌入独立调度器；任务内存释放补丁回补 oneTBB 提交 `132268ddd04d74e8b2e21e431a7e770761def49f`。升级包含该修复的版本后可移除补丁，共享链接策略须单独保留或验证替代方案。
-- USD 插件资源在 Windows 动态依赖中位于对应配置的 `bin/usd/*/resources/`，静态依赖及 macOS 位于 `lib/usd/*/resources/`。Windows 静态编辑器将注册信息和 schema 数据部署到 EXE 旁的 `usd/`，数据继续外置；现有 USD 测试按配置使用 SDK 或本地部署的数据。TBB / USD 回归同时检查数据保存、加载和正常退出。
+- macOS TBB 使用共享库，防止 USD 动态库重复嵌入独立调度器；当前版本已包含原任务内存释放修复，不再维护旧补丁及其独立冒烟测试。
+- USD 插件资源在 Windows 动态依赖中位于对应配置的 `bin/usd/*/resources/`，静态依赖及 macOS 位于 `lib/usd/*/resources/`。Windows 静态编辑器将注册信息和 schema 数据部署到 EXE 旁的 `usd/`，数据继续外置；实际导入使用 `editor.usd_pipeline` 验证。
 
 ## Windows 静态构建
 
@@ -158,9 +158,9 @@ V8 的默认功能裁剪、独立缓存身份及可选开关见[V8 依赖](plugi
 如需显式选择编译器或生成器，在一个新的构建目录配置，避免复用不同工具链的 CMake 缓存，并将 vcpkg 工具链一并传入：
 
 ```sh
-cmake -S . -B build/custom -G Ninja -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_BUILD_TYPE=Debug -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
+cmake -S . -B build/custom -G Ninja -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
 cmake --build build/custom
-ctest --test-dir build/custom --output-on-failure --no-tests=error
+ctest --test-dir build/custom -R '^engine\.(framework|guid_map|system)$' --output-on-failure --no-tests=error
 ```
 
 此示例需要本机已有 Ninja 和 Clang；使用 MSVC + Ninja 时，从 Visual Studio Developer PowerShell 执行并改用 `cl`。机器专属设置可以写入未纳入版本管理的 `CMakeUserPresets.json`。
@@ -194,7 +194,7 @@ macOS 编辑器的 `lib/` 同时包含 USD 导入所需的 `libusd_*` / TBB，�
 | 选项                                | 顶层默认值 | 用途                                                                                          |
 | ----------------------------------- | ---------- | --------------------------------------------------------------------------------------------- |
 | `ENGINE_BUILD_APP`                  | `ON`       | 构建引擎宿主；启用编辑器时另建 editor_app；Android 输出原生共享库                             |
-| `ENGINE_BUILD_TESTS`                | `ON`       | 构建本项目测试，同时受 `BUILD_TESTING` 控制                                                   |
+| `ENGINE_BUILD_TESTS`                | `ON`       | 登记测试并默认构建三项基础检查；模块测试显式指定目标，全量构建使用 `engine_tests`，同时受 `BUILD_TESTING` 控制 |
 | `ENGINE_USE_COMPILER_CACHE`         | `ON`       | 自动使用已安装的 ccache / sccache，支持 Makefiles / Ninja                                     |
 | `ENGINE_REQUIRE_COMPILER_CACHE`     | `OFF`      | 缓存不可用时配置失败；ninja-* Preset 开启                                                     |
 | `ENGINE_WARNINGS_AS_ERRORS`         | `OFF`      | 本项目目标将编译警告视为错误，CI 开启                                                         |

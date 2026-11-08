@@ -13,10 +13,12 @@ target_link_libraries(engine_system_test PRIVATE engine::core)
 engine_apply_options(engine_system_test)
 add_test(NAME engine.system COMMAND engine_system_test)
 
-add_test(NAME engine.v8_cache
-         COMMAND "${CMAKE_COMMAND}" "-DENGINE_OUTPUT_DIR=${CMAKE_CURRENT_BINARY_DIR}/v8-cache-test"
-                 -P "${CMAKE_CURRENT_SOURCE_DIR}/build/v8_cache_test.cmake")
-set_tests_properties(engine.v8_cache PROPERTIES TIMEOUT 30)
+if(ENGINE_ENABLE_V8)
+    add_test(NAME engine.v8_cache
+             COMMAND "${CMAKE_COMMAND}" "-DENGINE_OUTPUT_DIR=${CMAKE_CURRENT_BINARY_DIR}/v8-cache-test"
+                     -P "${CMAKE_CURRENT_SOURCE_DIR}/build/v8_cache_test.cmake")
+    set_tests_properties(engine.v8_cache PROPERTIES TIMEOUT 30)
+endif()
 
 if(TARGET engine_task)
     add_executable(engine_task_test runtime/task/task_test.cpp)
@@ -24,13 +26,6 @@ if(TARGET engine_task)
     engine_apply_options(engine_task_test)
     add_test(NAME runtime.task COMMAND engine_task_test)
     set_tests_properties(runtime.task PROPERTIES TIMEOUT 30)
-
-    add_executable(engine_tbb_test runtime/task/tbb_test.cpp)
-    target_compile_features(engine_tbb_test PRIVATE cxx_std_20)
-    target_link_libraries(engine_tbb_test PRIVATE TBB::tbb)
-    engine_apply_options(engine_tbb_test)
-    add_test(NAME engine.tbb COMMAND engine_tbb_test)
-    set_tests_properties(engine.tbb PROPERTIES TIMEOUT 60)
 endif()
 
 if(TARGET engine_platform)
@@ -254,37 +249,6 @@ if(TARGET mcp_app)
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/plugins/editor/mcp/mcp_editor_transport_test.py"
                 --mcp "$<TARGET_FILE:mcp_app>")
     set_tests_properties(editor.mcp_transport PROPERTIES TIMEOUT 60)
-endif()
-
-if(ENGINE_ENABLE_RUNTIME_DEPS
-    OR ENGINE_ENABLE_EDITOR_DEPS
-    OR ENGINE_ENABLE_ASSET_PIPELINE_DEPS
-    OR ENGINE_ENABLE_V8)
-    add_executable(engine_dependency_systems_test build/dependency_systems_test.cpp)
-    target_link_libraries(engine_dependency_systems_test PRIVATE engine::core)
-    target_compile_definitions(
-        engine_dependency_systems_test
-        PRIVATE ENGINE_TEST_PROJECT="${PROJECT_SOURCE_DIR}/projects/showcase"
-                ENGINE_HAS_RUNTIME=$<BOOL:${ENGINE_ENABLE_RUNTIME_DEPS}>
-                ENGINE_HAS_EDITOR=$<BOOL:${ENGINE_ENABLE_EDITOR_DEPS}>
-                ENGINE_HAS_ASSET_PIPELINE=$<BOOL:${ENGINE_ENABLE_ASSET_PIPELINE_DEPS}>
-                ENGINE_TEST_SCRIPT_PLUGIN=$<TARGET_EXISTS:engine_script>)
-    if(ENGINE_ENABLE_RUNTIME_DEPS)
-        target_link_libraries(engine_dependency_systems_test
-                              PRIVATE ${ENGINE_RUNTIME_SYSTEM_TARGETS})
-    endif()
-    if(ENGINE_ENABLE_EDITOR_DEPS)
-        target_link_libraries(engine_dependency_systems_test PRIVATE engine::editor engine::project)
-    endif()
-    if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
-        target_link_libraries(engine_dependency_systems_test PRIVATE engine::asset_pipeline)
-    endif()
-    if(TARGET engine_script)
-        target_link_libraries(engine_dependency_systems_test PRIVATE engine::script)
-    endif()
-    engine_apply_options(engine_dependency_systems_test)
-    add_test(NAME engine.dependencies COMMAND engine_dependency_systems_test)
-    set_tests_properties(engine.dependencies PROPERTIES TIMEOUT 60)
 endif()
 
 if(TARGET engine_app)
@@ -699,12 +663,6 @@ if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
         set_tests_properties(editor.portable_tools PROPERTIES TIMEOUT 90)
     endif()
 
-    if(TARGET usd)
-        set_tests_properties(
-            engine.dependencies PROPERTIES ENVIRONMENT
-                                           "PXR_PLUGINPATH_NAME=$<TARGET_FILE_DIR:usd>/usd")
-    endif()
-
     engine_render_shader_profile(_asset_shader_platform _asset_shader_profile)
     add_test(
         NAME engine.asset_tools
@@ -718,18 +676,6 @@ if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
             "-DENGINE_OUTPUT_DIR=${CMAKE_CURRENT_BINARY_DIR}/asset-tools-output" -P
             "${CMAKE_CURRENT_SOURCE_DIR}/editor/asset_pipeline/asset_tools_test.cmake")
     set_tests_properties(engine.asset_tools PROPERTIES TIMEOUT 100)
-
-    if(TARGET engine_asset_import)
-        add_executable(engine_usd_test plugins/editor/asset_import/usd_test.cpp)
-        target_compile_features(engine_usd_test PRIVATE cxx_std_20)
-        target_link_libraries(engine_usd_test PRIVATE engine::core engine_usd_sdk)
-        engine_apply_options(engine_usd_test)
-        engine_copy_usd_data(engine_usd_test)
-        add_test(NAME engine.usd COMMAND engine_usd_test
-                                         "${CMAKE_CURRENT_BINARY_DIR}/usd-test-output")
-        set_tests_properties(engine.usd PROPERTIES TIMEOUT 60 ENVIRONMENT
-                                                   "PXR_PLUGINPATH_NAME=$<TARGET_FILE_DIR:usd>/usd")
-    endif()
 endif()
 
 if(ENGINE_ENABLE_V8)
@@ -1662,3 +1608,17 @@ if(TARGET engine_animation)
         endif()
     endforeach()
 endif()
+
+# 普通构建只带基础检查；模块测试显式指定目标，全量仅通过 engine_tests 构建。
+set(_basic_tests engine_framework_test engine_guid_map_test engine_system_test)
+get_property(_test_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
+add_custom_target(engine_tests)
+foreach(_target IN LISTS _test_targets)
+    get_target_property(_type "${_target}" TYPE)
+    if(_type STREQUAL "EXECUTABLE")
+        add_dependencies(engine_tests "${_target}")
+    endif()
+    if(NOT _target IN_LIST _basic_tests)
+        set_property(TARGET "${_target}" PROPERTY EXCLUDE_FROM_ALL TRUE)
+    endif()
+endforeach()

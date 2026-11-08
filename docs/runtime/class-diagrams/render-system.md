@@ -2,7 +2,7 @@
 
 **2026-11-07：大场景准备接口、配置和私有索引已实现。** 其余已确认绘制能力保持；本批范围与调用方迁移见[大场景准备关系](large-scene-preparation.md)。
 
-**2026-11-08：已按确认设计实现提交管线，Windows / DirectX 12 定向验收完成。** 新的数据复用、材质绑定和阴影合批关系见[视图提交设计](render-submission.md#提交管线优化设计)，私有签名变化见[本页契约](#提交管线私有契约)，实际验证范围见[测试记录](../../testing.md#功能验收与结果)。不包含 Shader/PSO 预热。
+**2026-11-08：已按确认设计实现提交管线，Windows / DirectX 12 定向验收完成。** 新的数据复用、材质绑定和阴影合批关系见[视图提交设计](render-submission.md#提交管线优化设计)，私有签名变化见[本页契约](#提交管线私有契约)，实际验证范围见[测试记录](../../testing.md#渲染性能基线)。不包含 Shader/PSO 预热。
 
 插件的原生纹理接入由 `engine::render::upload_texture(ResourceLoader& loader, ResourceHandle resource, bgfx::TextureHandle& output) -> bool` 提供，声明于 `runtime/render/texture_upload.hpp`。该普通函数在 bgfx API 线程同步准备并上传已加载资源，不加载文件；输出须为空，失败保持为空，成功转交 GPU 纹理所有权，由调用方在 bgfx 关闭前销毁。CPU 资源仅在调用期间保活；插件按需独立持有获取。PreparedTexture/GpuTexture 的转码缓冲、采样标志和生命周期实现继续私有，不向插件公开。bgfx 句柄仅用于原生渲染扩展，不进入场景或脚本接口。
 
@@ -285,7 +285,7 @@ classDiagram
 - `RenderPreparation` 用 `pending_materials` 跟踪待重建槽；`target_description / target_stage` 对比分辨率、MSAA、效果、反射与捕获描述并按预算推进十个既有目标步骤。没有新增通用任务或渲染图框架。
 - `prepare_scene` 的 ready 继续要求必需目标和实例绑定可用；新增帧快照收集在 render 内发生，不变成资源加载阶段。窗口尺寸、MSAA、效果和捕获目标变化须重新推进准备，过期目标不得作为 ready 内容使用；RuntimeHost、EditorSystem、ScenePreview、捕获调用方需一起核对该顺序，保留唯一 bgfx::frame 提交入口。
 
-既有清理方法、不可复制的 GPU 所有权、设备能力处理和同步/分步资源准备契约保持。替换前已保存基线程序，现行图与调用方同步；完整基准见[测试方案](../../testing.md#渲染管线优化对比方案)。
+既有清理方法、不可复制的 GPU 所有权、设备能力处理和同步/分步资源准备契约保持。替换前已保存基线程序，现行图与调用方同步；完整基准见[测试方案](../../testing.md#渲染性能基线)。
 
 ### 平台表面
 
@@ -406,7 +406,7 @@ classDiagram
 - 捕获当前目标实际像素尺寸，返回自上而下、紧密排列的线性 RGBA 浮点数组，RGB 可大于 1；源目标精度为 RGBA16F，读取时转换为 float，不做归一化、曝光或显示色域转换。Alpha 保留源目标值，不宣称为最终透明度。
 - 一次只接受一个未取走的请求；无活动场景或设备、请求已占用时返回 false。相机可能由后续 `render(camera)` 指定，包括独立场景中的相机，因此接受请求时不依赖活动相机；实际提交帧若无有效相机或可绘制内容则取消请求。有效帧已提交后，后续帧临时失去相机或重建 MSAA 目标不会丢弃该帧的读回。设备不支持颜色目标解析/异步回读、目标分配或 GPU 提交失败时置 failed，禁止静默降级为 SDR；MSAA 必须读取正确 resolve 后结果。
 - `complete` 后 `take_hdr_capture` 将结果移动给调用方并回到 idle；其他状态取图返回 false 并清空输出。取消、场景释放、设备重置或关闭时安全退役 GPU 资源并报告 cancelled，失效异步结果不能覆盖后续请求；尚未完成时不得访问结果缓冲。捕获和既有漫反射捕获各自保持独立状态，不改变原接口。
-- 上述接口已获用户评审确认。它使用 bgfx 的 `TextureRegion`、`blit` 和异步 `read`，借用现有帧号确定回读完成；RGBA16F 转换使用 bx 半浮点转换，行方向按 bgfx `originBottomLeft` 归一化。
+- 该接口使用 bgfx 的 `TextureRegion`、`blit` 和异步 `read`，借用现有帧号确定回读完成；RGBA16F 转换使用 bx 半浮点转换，行方向按 bgfx `originBottomLeft` 归一化。
 
 ```mermaid
 classDiagram

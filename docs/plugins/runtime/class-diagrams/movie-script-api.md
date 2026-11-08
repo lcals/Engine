@@ -217,7 +217,7 @@ Stop / skipped 都是 cancelled，播放或资源错误是 failed，业务必须
 恢复时提交。它不通过对 preparing 调用 SetPaused 来模拟冻结，也不在恢复时擅自解除业务
 原先的 paused；恢复 delta 不包含后台墙钟，详见[启动预算与暂停](../../../runtime/class-diagrams/movie-startup.md#主线程与后台预算)。
 
-本轮不增加影片 Promise、完成回调或事件总线。今后确需完成通知时，须先复制终态并交给已有
+影片接口不提供 Promise、完成回调或事件总线。今后确需完成通知时，须先复制终态并交给已有
 Run 队列，在下次安全点且 Run 身份仍有效时执行；不能从视频任务、音频回调、Player::update
 或析构中直接进入 VM。不得为通知另建线程池或让异步闭包持有 ScriptVm / Run 裸指针。
 

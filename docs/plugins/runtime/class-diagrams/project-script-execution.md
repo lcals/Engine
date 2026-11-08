@@ -1,12 +1,12 @@
 # 在活动玩法中执行临时 TypeScript
 
-状态：已评审，按本页契约实现。本页定义新增契约；现有生命周期见
+本页定义活动 Run 中执行临时 TypeScript 的契约；生命周期见
 [ScriptRuntime](../../../runtime/class-diagrams/script-runtime.md)、
 [GameplaySession](../../../runtime/class-diagrams/gameplay-session.md)、
 [ScriptSystem](script-system.md)、[ScriptVm](script-vm.md)及
 [编辑器命令](../../../editor/class-diagrams/editor-commands.md)。
 
-目标是由 MCP 直接提交一段 TS，在**当前运行的同一 VM、同一项目模块实例和同一
+MCP 直接提交一段 TS，在**当前运行的同一 VM、同一项目模块实例和同一
 Gameplay 实例**上查询或执行操作。项目不用登记命令名称，不另建脚本上下文。
 TS 编译留在编辑器工具端，运行时只接收 JavaScript 和 JSON；
 普通运行包无需 MCP、Node 或 TypeScript 编译器。

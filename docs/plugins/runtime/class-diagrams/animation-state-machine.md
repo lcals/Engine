@@ -2,7 +2,7 @@
 
 [类图索引](../../../class-diagrams/index.md) · [现有动画脚本接口](animation-script-api.md) · [Animator](../../../runtime/class-diagrams/animator.md) · [分层方案](../../../runtime/scripted-animation-controller.md)
 
-**接口已确认并接入实现。** 本图定义脚本插件的 TS 外观与 Animator 脚本扩展，`include/engine.d.ts` 与实际绑定同步。Animator 当前完整脚本外观统一由[动画脚本接口](animation-script-api.md)维护；原生原子播放请求、重定向、IK 与骨骼挂点由各自运行时类图维护。
+本图定义脚本插件的 TS 外观与 Animator 脚本扩展，`include/engine.d.ts` 与实际绑定同步。Animator 当前完整脚本外观统一由[动画脚本接口](animation-script-api.md)维护；原生原子播放请求、重定向、IK 与骨骼挂点由各自运行时类图维护。
 
 ## 三层与所有权
 

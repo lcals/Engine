@@ -41,7 +41,7 @@ Frame/View uniform 使用 bgfx API 167 正式频率接口，不提供假效果�
 的 LUT 与散射积分，输出线性 HDR 后由引擎统一曝光和显示映射。它不会自动生成动态 IBL。
 Hex-Tiling 通过内置不透明 PBR 的 `hexTilingEnabled`、`hexTilingRotation`、`hexTilingContrast` 具名参数开启；
 共用颜色、法线、ORM 的坐标、梯度和混合权重，默认关闭。完整契约、来源和限制见
-[上游能力接入](upstream-rendering-features.md)、[静态 LOD](../editor/static-model-lod.md)及
+[固定来源与适配边界](rendering-sources.md)、[静态 LOD](../editor/static-model-lod.md)及
 [大气与 Hex](atmosphere-hex.md)。实际平台和图像验收见[测试文档](../testing.md)。
 
 CSM、AO、HDR、Bloom 和 IBL 在各平台使用同一套通道与 Shader 源码，经 `shaderc` 编译到对应后端。平台实现负责后端与表面适配，效果中的必要能力检查依据实际访问契约处理，例如 AO 在 Metal 上的纹理访问判据。能力不足时明确返回失败，不静默丢弃已开启的效果。共用实现不代表已经完成全平台实测；具体执行范围见[验证记录](../testing.md)。

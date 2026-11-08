@@ -1,8 +1,8 @@
-# 动画播放、IK 与骨骼挂点（接口已确认）
+# 动画播放、IK 与骨骼挂点
 
 [类图索引](../../class-diagrams/index.md) · [既有 Animator](animator.md) · [动画系统](animation-system.md) · [资源与重定向](animation-retargeting.md) · [分层方案](../scripted-animation-controller.md)
 
-**本页维护已确认并已实现的公开契约，实际验证范围见[测试文档](../../testing.md)。** 扩展现有 `Animator`、`AnimationSystem`、Skeleton 生成数据及一个 `BoneAttachment` 值句柄组件，不新增动画 System、Manager、播放器或 Ozz 包装框架。Animator 当前完整公开方法统一由[动画组件](animator.md)定义；本页维护请求、值快照与执行关系，跨图不重复定义方法。
+本页定义 `Animator`、`AnimationSystem`、Skeleton 生成数据及一个 `BoneAttachment` 值句柄组件，不新增动画 System、Manager、播放器或 Ozz 包装框架。Animator 当前完整公开方法统一由[动画组件](animator.md)定义；本页维护请求、值快照与执行关系，跨图不重复定义方法。
 
 `Animator`、请求和查询值属于 `engine`；`*DataT` 与 `JointLocalPose` 属于 `engine::schema`。`JointLocalPose` 的字段由[资源与重定向图](animation-retargeting.md)定义，本页直接复用。文中的 `array_float_16` 表示 `std::array<float, 16>`，不是另一种矩阵类。
 

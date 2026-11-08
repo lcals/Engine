@@ -99,7 +99,7 @@ classDiagram
 - 类型函数只比较选中字段与 expected，比较规则与原实现相同；在当前设置副本上只替换选中字段，再通过组件 set_settings 一次提交。其他字段被外部修改不构成本记录的冲突，也不会被撤销覆盖；非法新值或冲突保持当前对象不变。各命令现有错误文本及返回值保持。
 - Target 复用现有 NodeAliases / shared_ptr<uint64_t> 身份单元；创建命令重做可更新单元值。PropertyEdit 与 ComponentEdit 不各自维护节点映射；ComponentEdit 内部构造 Target。Target 不拥有世界、节点或组件，resolved_id/node 为 const，read 只在准备时修改描述。
 - apply/revert 标注 nodiscard 与 override，禁止复制编辑记录；独占记录继续交给 EditorCommands。字段编辑仍接受同一个 Prefab 包装器，显式字段、同值写入及 false 的覆盖意图不丢失。
-- MaterialEdit、TextureEdit、StateEdit、模型实例化和插件状态编辑有材质槽、资源版本、结构或运行状态语义，本轮保持各自记录，不用完整快照替代字段冲突检查。
+- MaterialEdit、TextureEdit、StateEdit、模型实例化和插件状态编辑有材质槽、资源版本、结构或运行状态语义，分别使用所属编辑记录，不用完整快照替代字段冲突检查。
 
 ## 完整组件快照
 

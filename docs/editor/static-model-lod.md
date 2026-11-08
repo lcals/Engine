@@ -22,7 +22,7 @@
 - [meshoptimizer v1.3](https://github.com/zeux/meshoptimizer/tree/v1.3)，MIT。
 - [bgfx 12-lod](https://github.com/bkaradzic/bgfx/blob/b2513038f/examples/12-lod/lod.cpp)，BSD-2-Clause。
 - [bgfx 42-bunnylod](https://github.com/bkaradzic/bgfx/blob/b2513038f/examples/42-bunnylod/bunnylod.cpp)，BSD-2-Clause；
-  其中渐进网格算法不作为本次生产减面实现。
+  其中渐进网格算法不作为引擎的减面实现。
 
 引入上游源码片段时保留对应来源和版权；直接调用已选库时继续由现有依赖管理许可。
 

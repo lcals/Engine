@@ -26,7 +26,7 @@
 
 公开契约见 [Animator](class-diagrams/animator.md)、[AnimationSystem](class-diagrams/animation-system.md) 和 [动画脚本接口](../plugins/runtime/class-diagrams/animation-script-api.md)。
 
-现有三层为“动画资源、自定义状态机 TS、业务 TS”：业务只提交参数，独立状态机内部判断和转换，C++ 执行 Ozz 姿态计算。组件接口、共享定义、重定向、IK／挂点和动画事件用法见[脚本动画状态机与资源重定向](scripted-animation-controller.md#当前实现入口与边界)。
+现有三层为“动画资源、自定义状态机 TS、业务 TS”：业务只提交参数，独立状态机内部判断和转换，C++ 执行 Ozz 姿态计算。组件接口、共享定义、重定向、IK／挂点和动画事件用法见[脚本动画状态机与资源重定向](scripted-animation-controller.md#状态机使用)。
 
 ## InPlace 与角色移动
 
@@ -52,8 +52,8 @@ rotation = [false, false, false]
 
 完整资产制作流程见[角色与动画制作](../editor/character-production.md)。模型检查、绑定创建、权重生成及服务调用在离线工具或编辑器侧执行；已有优质绑定优先保留，无绑定或不可用绑定可在派生副本中标准化重建。AI 负责调用与验证，不要求这些算法使用机器学习。
 
-引擎需要支持不同人形骨架共享源动作并在运行时重定向，不能只靠为每个角色离线烘焙一份片段。编辑器侧显式生成和校验骨骼语义/骨链对应、参考姿态、骨轴、比例及 root/hips 策略；运行时按配置执行，不猜测资产或项目含义。骨架层级、绑定姿态或导入坐标变化后，原适配配置必须失效重算。
+运行时重定向由可选 `runtime/animation_retarget` 插件执行，适配固定版本 Wicked Engine 的模型空间参考姿态转换。配置显式指定完整关节路径、源/目标参考姿态和 root/hips 策略；未映射的目标关节保持目标参考姿态。骨架层级、参考姿态或导入坐标变化时，相关不可变绑定随资源代际失效。
 
-目标处理顺序为源动作采样及所需坐标计算、转换到目标局部姿态、在同一目标骨架上混合，再经必要接触修正生成骨骼矩阵，交给已有 GPU 蒙皮。源动作与不可变数据可以共享，角色姿态和采样状态继续独立；新增缓存遵守资源代际及场景释放边界，不能污染原 Mesh 或 Skeleton。
+源动作和不可变绑定共享，角色采样状态和姿态输出独立；所有混合在同一目标骨架空间中执行。完整执行顺序、生命周期与使用方法见[动画接入指南](scripted-animation-controller.md)，数据和错误语义见[重定向类图](class-diagrams/animation-retargeting.md)。
 
-现有两动作过渡与共享缓存继续复用。可选 `runtime/animation_retarget` 适配固定版本 Wicked 的模型空间参考姿态转换，显式映射完整关节路径、源／目标参考姿态及 root/hips 策略；不是按骨名重排轨道。未映射的目标关节保持目标参考姿态。完整契约见[重定向](class-diagrams/animation-retargeting.md)。基础 Ozz Aim/TwoBone 与 socket 已接入；自动骨链分配、RootMotion 驱动、接触脚锁和全身 IK 仍未实现。显式重定向不保证任意体型的脚锁或握物效果。
+自动骨链分配、RootMotion 驱动、接触脚锁和全身 IK 尚未实现。显式重定向不保证任意体型的脚锁或握物效果。

@@ -32,7 +32,7 @@ TS 对应 `SetEnabled()`、`SetVisible()`、`enabled`、`visible`、`active` 和
 
 分帧加载由 `Scene.BeginLoad/StepLoad/CommitLoad/CancelLoad` 组织，当前场景与常驻 UI 保留到候选成功提交；资源加载、节点恢复与 GPU 就绪分别判断，见[资源加载流程](resource-loading.md#后台加载与分帧提交)。`Scene.SetPaused` 控制自动世界模拟，UI 与 Gameplay.Update 继续处理；暂停不等于跳过脚本更新，详见[模拟暂停](world-pause.md)。
 
-`Scene::instantiate_model` 将模型资源（Model）展开为 Node + Component 层级，失败回滚候选对象；模型只组织节点层级及其 Mesh/Material 引用；蒙皮 Mesh 自己引用骨架，Animator 另行选择独立动画，贴图由材质引用。同一美术源文件的其他子资源不因实例化而全部加载。FBX/USD 由编辑器插件按各自已支持的范围转成统一资源，运行时不读源格式。预制体来源、实例修改与覆盖传播通过现有[预制体链路](class-diagrams/prefab.md)维护；完整 USD 场景语义及大世界分区不在本次 ECS 迁移范围。资源身份及导入规则见[资源管线](../editor/asset-pipeline.md)。
+`Scene::instantiate_model` 将模型资源（Model）展开为 Node + Component 层级，失败回滚候选对象；模型只组织节点层级及其 Mesh/Material 引用；蒙皮 Mesh 自己引用骨架，Animator 另行选择独立动画，贴图由材质引用。同一美术源文件的其他子资源不因实例化而全部加载。FBX/USD 由编辑器插件按各自已支持的范围转成统一资源，运行时不读源格式。预制体来源、实例修改与覆盖传播通过现有[预制体链路](class-diagrams/prefab.md)维护；完整 USD 场景语义及大世界分区尚未支持。资源身份及导入规则见[资源管线](../editor/asset-pipeline.md)。
 
 ## 节点查询
 

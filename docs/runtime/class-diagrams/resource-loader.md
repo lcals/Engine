@@ -2,7 +2,7 @@
 
 [类图索引](../../class-diagrams/index.md) · [统一生命周期](resource-lifecycle.md) · [核心读取](resource-system.md) · [插件实现](../../plugins/runtime/class-diagrams/resource-graph.md)
 
-**状态：统一资源契约及业务接入补充已按确认类图实现；验证范围见测试文档。** 本文件只定义核心契约；依赖、共享、引用计数和卸载由资源插件实现。业务只依赖 ResourceLoader，不直接调用单项读取接口。
+当前契约已实现；验证范围见[测试文档](../../testing.md)。 本文件只定义核心契约；依赖、共享、引用计数和卸载由资源插件实现。业务只依赖 ResourceLoader，不直接调用单项读取接口。
 
 **2026-11-07 已实现增量：** 下图 retain_dependency / ResourceReference.dependency 的路径语义已实现，其余生命周期契约保持。具体边界见加载接口说明和[大场景准备](large-scene-preparation.md)。
 
@@ -190,7 +190,7 @@ load_memory/begin_load_memory 接纳带元数据的规范 ResourceValue 候选�
 
 ## 已加载资源获取
 
-**2026-11-06 用户已确认增加 acquire_loaded。** MeshRenderer、Material、AudioSource、字体/UI 及插件组件保留路径或持久 GUID 设置资源，使用 acquire_loaded 获取已经加载的资源，严格禁止隐式 I/O。签名统一维护于本页加载接口图。
+MeshRenderer、Material、AudioSource、字体/UI 及插件组件保留路径或持久 GUID 设置资源，使用 acquire_loaded 获取已经加载的资源，严格禁止隐式 I/O。签名统一维护于本页加载接口图。
 
 
 

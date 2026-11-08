@@ -1,7 +1,5 @@
 # 建模几何操作
 
-**状态：本轮精简已按确认类图实现。** 四个静态工具类统一为 mesh 命名空间函数；[评审入口](../../../class-diagrams/index.md#全仓精简评审)。
-
 图中的 mesh 表示 `engine::plugins::modeling::mesh` 命名空间，不是 C++ 类。选择、枚举和配置类型仍属于 `engine::plugins::modeling`；生成数据仍属于 `engine::schema`。
 
 `mesh` 位于插件的纯 C++ 核心。它只读取和修改 FlatBuffers 生成的可编辑模型，

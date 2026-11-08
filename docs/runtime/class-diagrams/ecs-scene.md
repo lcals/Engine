@@ -2,9 +2,7 @@
 
 [类图索引](../../class-diagrams/index.md) · [当前场景](scene.md) · [当前节点](node.md) · [当前组件](component.md)
 
-> 状态：2026-11-03 用户已批准实施。Node/Component 值句柄、Flecs 存储与系统查询已接入；验证结果统一记录在[测试与范例](../../testing.md)。
-
-已替换原来的 `Scene -> unique_ptr<Node> -> unique_ptr<Component>` 存储及各系统逐节点扫描。Node/Component 保留为可复制的值句柄；Flecs 保存唯一运行状态，既有 System 直接查询。复用已接入的 Flecs 4.2.0 与 oneTBB，不新增 ECS Manager、组件对象池、自制查询语言或第二套调度器。
+Node/Component 是可复制的值句柄；Flecs 保存唯一运行状态，既有 System 直接查询。复用已接入的 Flecs 4.2.0 与 oneTBB，不新增 ECS Manager、组件对象池、自制查询语言或第二套调度器。
 
 ## 1. 世界、场景与所有权
 

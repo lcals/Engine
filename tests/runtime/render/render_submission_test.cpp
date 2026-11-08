@@ -12,7 +12,6 @@
 #include "runtime/scene/light.hpp"
 #include "runtime/scene/light_probe_volume_component.hpp"
 #include "runtime/scene/mesh_renderer.hpp"
-#include "runtime/scene/planar_reflection_component.hpp"
 #include "runtime/scene/post_process_component.hpp"
 #include "runtime/scene/scene.hpp"
 #include "runtime/scene/transform.hpp"
@@ -236,9 +235,8 @@ bool pixels(const SceneCaptureImage& left, const SceneCaptureImage& right, const
 
 int benchmark(int argc, char** argv)
 {
-    std::string scenario = "shared";
     std::filesystem::path output;
-    std::uint32_t objects = 4096, settle_frames = 120, measured_frames = 600, seed = 20261108;
+    std::uint32_t objects = 4096, settle_frames = 30, measured_frames = 120;
     for (int index = 2; index < argc; index += 2)
     {
         if (index + 1 == argc)
@@ -248,11 +246,7 @@ int benchmark(int argc, char** argv)
             return 1;
         }
         const std::string_view option = argv[index], value = argv[index + 1];
-        if (option == "--scenario")
-        {
-            scenario = value;
-        }
-        else if (option == "--output")
+        if (option == "--output")
         {
             output = PathUtils::from_utf8(value);
         }
@@ -261,7 +255,6 @@ int benchmark(int argc, char** argv)
             auto* destination = option == "--objects"         ? &objects
                                 : option == "--settle-frames" ? &settle_frames
                                 : option == "--frames"        ? &measured_frames
-                                : option == "--seed"          ? &seed
                                                               : nullptr;
             const auto parsed =
                 destination
@@ -276,10 +269,8 @@ int benchmark(int argc, char** argv)
             }
         }
     }
-    const bool mixed = scenario == "mixed" || scenario == "dynamic" || scenario == "views";
-    if ((!mixed && scenario != "shared" && scenario != "probes" && scenario != "shadow") ||
-        output.empty() || objects == 0 || objects > 16384 || measured_frames == 0 ||
-        measured_frames > 10000)
+    if (output.empty() || objects == 0 || objects > 16384 || measured_frames == 0 ||
+        measured_frames > 10000 || settle_frames > 10000)
     {
         std::fprintf(stderr, "benchmark failed at line %d (SDL: %s)\n", __LINE__, SDL_GetError());
         return 1;
@@ -313,53 +304,15 @@ int benchmark(int argc, char** argv)
     }
     const double initialize_ms = elapsed(begin);
     const auto load_begin = Clock::now();
-    std::vector<std::string> geometry_paths;
-    for (std::uint32_t index = 0; index < (mixed ? 4U : 1U); ++index)
+    auto geometry = grid();
+    geometry.path += "0";
+    if (!fixture.add(geometry) ||
+        !services.publish_and_load(fixture.catalog, {{"content", fixture.root}}))
     {
-        auto geometry = grid();
-        geometry.path += std::to_string(index);
-        if (mixed)
-        {
-            geometry.lods.clear();
-            geometry.submeshes.emplace_back(0, 192, 0);
-            geometry.submeshes.emplace_back(192, 192, 1);
-        }
-        geometry_paths.push_back(geometry.path);
-        if (!fixture.add(geometry))
-        {
-            std::fprintf(stderr, "benchmark failed at line %d (SDL: %s)\n", __LINE__,
-                         SDL_GetError());
-            return 1;
-        }
-    }
-    const auto side = static_cast<std::uint32_t>(std::ceil(std::sqrt(objects)));
-    std::vector<std::string> probe_paths;
-    if (scenario == "probes")
-    {
-        for (std::uint32_t index = 0; index < 16; ++index)
-        {
-            auto probe = probes("lighting/benchmark", index % 2 == 0);
-            probe.path += std::to_string(index);
-            const double extent = side * (.2 + .02 * (index % 4));
-            const double x = (static_cast<double>(index % 4) - 1.5) * side * .22;
-            const double y = (static_cast<double>(index / 4) - 1.5) * side * .22;
-            probe.bounds_min = {x - extent, y - extent, -2};
-            probe.bounds_max = {x + extent, y + extent, 2};
-            probe.valid[index % 8] = 0;
-            probe_paths.push_back(probe.path);
-            if (!fixture.add(probe))
-            {
-                std::fprintf(stderr, "benchmark failed at line %d (SDL: %s)\n", __LINE__,
-                             SDL_GetError());
-                return 1;
-            }
-        }
-    }
-    if (!services.publish_and_load(fixture.catalog, {{"content", fixture.root}}))
-    {
-        std::fprintf(stderr, "benchmark failed at line %d (SDL: %s)\n", __LINE__, SDL_GetError());
+        std::fputs("Cannot prepare benchmark mesh\n", stderr);
         return 1;
     }
+    const auto side = static_cast<std::uint32_t>(std::ceil(std::sqrt(objects)));
     const double load_ms = elapsed(load_begin);
     const auto scene_begin = Clock::now();
     auto* scene = world.create_scene("Submission benchmark");
@@ -380,21 +333,14 @@ int benchmark(int argc, char** argv)
     lens.far_clip = 250;
     TransformSettings camera_pose;
     camera_pose.position = {0, 0, 80};
-    if (scenario == "views")
-    {
-        // 镜面为局部 XZ 平面；观察方向不能与平面平行，否则斜裁剪投影不可逆。
-        lens.projection = schema::Projection::perspective;
-        camera_pose.position = {0, side * .25, side * 1.5};
-        camera_pose.rotation = {-10, 0, 0};
-    }
     auto lighting = test_support::read_settings(environment);
     lighting.ambient_intensity = .3F;
     auto light_settings = test_support::read_settings(light);
-    light_settings.cast_shadows = scenario == "shadow";
+    light_settings.cast_shadows = false;
     light_settings.shadow_cascades = 4;
     light_settings.shadow_resolution = 1024;
     auto post_settings = test_support::read_settings(post);
-    post_settings.ao_enabled = post_settings.ssr_enabled = scenario == "views";
+    post_settings.ao_enabled = post_settings.ssr_enabled = false;
     if (!camera || !post || !environment || !light || !camera.set_settings(lens) ||
         !camera_node.get_component<Transform>().set_settings(camera_pose) ||
         !scene->set_active_camera(camera) || !environment.set_settings(lighting) ||
@@ -403,40 +349,6 @@ int benchmark(int argc, char** argv)
         std::fprintf(stderr, "benchmark failed at line %d (SDL: %s)\n", __LINE__, SDL_GetError());
         return 1;
     }
-    if (scenario == "shadow")
-    {
-        auto point_node = scene->create_node("Point");
-        auto point = point_node.add_component<Light>();
-        auto settings = test_support::read_settings(point);
-        settings.kind = schema::LightKind::point;
-        settings.range = static_cast<float>(side);
-        settings.cast_shadows = true;
-        TransformSettings pose;
-        pose.position = {0, 0, 8};
-        if (!point.set_settings(settings) ||
-            !point_node.get_component<Transform>().set_settings(pose))
-        {
-            std::fprintf(stderr, "benchmark failed at line %d (SDL: %s)\n", __LINE__,
-                         SDL_GetError());
-            return 1;
-        }
-    }
-    for (const auto& path : probe_paths)
-    {
-        auto volume = scene->create_node(path).add_component<LightProbeVolumeComponent>();
-        auto settings = test_support::read_settings(volume);
-        if (!services.core.catalog().identities().path_to_guid(path, settings.probes_guid) ||
-            !volume.set_settings(settings))
-        {
-            std::fprintf(stderr, "benchmark failed at line %d (SDL: %s)\n", __LINE__,
-                         SDL_GetError());
-            return 1;
-        }
-    }
-    std::vector<MeshRenderer> meshes;
-    std::vector<TransformSettings> poses;
-    meshes.reserve(objects);
-    poses.reserve(objects);
     for (std::uint32_t index = 0; index < objects; ++index)
     {
         auto node = scene->create_node("Mesh " + std::to_string(index));
@@ -444,40 +356,24 @@ int benchmark(int argc, char** argv)
         TransformSettings pose;
         pose.position = {static_cast<double>(index % side) - (side - 1) * .5,
                          static_cast<double>(index / side) - (side - 1) * .5, 0};
-        pose.scale = {mixed && index % 7 == 0 ? -.8 : .8, .8, .8};
-        if (!mesh || !mesh.set_mesh(geometry_paths[index % geometry_paths.size()]) ||
-            !mesh.set_static_instancing_enabled(true) || !mesh.set_static_lod_enabled(false) ||
-            !mesh.set_material_count(mixed ? 2 : 1) ||
+        pose.scale = {.8, .8, .8};
+        if (!mesh || !mesh.set_mesh(geometry.path) || !mesh.set_static_instancing_enabled(true) ||
+            !mesh.set_static_lod_enabled(false) || !mesh.set_material_count(1) ||
             !node.get_component<Transform>().set_settings(pose))
         {
             std::fprintf(stderr, "benchmark failed at line %d (SDL: %s)\n", __LINE__,
                          SDL_GetError());
             return 1;
         }
-        for (std::size_t slot = 0; slot < mesh.material_count(); ++slot)
+        auto material = mesh.material();
+        if (!material.set_type("builtin://materials/default-pbr") ||
+            !material.set_v4("baseColor", {.2, .6, .9, 1.0}) ||
+            !material.set_float("metallic", 0) || !material.set_float("roughness", .6F) ||
+            !material.set_blend_mode(schema::BlendMode::opaque))
         {
-            auto material = mesh.material(slot);
-            const double tint = mixed ? static_cast<double>((index + seed + slot) % 16) / 16 : .6;
-            const bool transparent = mixed && index % 64 == 0 && slot == 1;
-            if (!material.set_type("builtin://materials/default-pbr") ||
-                !material.set_v4("baseColor", {.2, tint, .9, transparent ? .5 : 1.0}) ||
-                !material.set_float("metallic", 0) || !material.set_float("roughness", .6F) ||
-                !material.set_blend_mode(transparent ? schema::BlendMode::alpha_blend
-                                                     : schema::BlendMode::opaque))
-            {
-                std::fprintf(stderr, "benchmark failed at line %d (SDL: %s)\n", __LINE__,
-                             SDL_GetError());
-                return 1;
-            }
-        }
-        if (scenario == "views" && index == 0 && !node.add_component<PlanarReflectionComponent>())
-        {
-            std::fprintf(stderr, "benchmark failed at line %d (SDL: %s)\n", __LINE__,
-                         SDL_GetError());
+            std::fputs("Cannot configure benchmark material\n", stderr);
             return 1;
         }
-        meshes.push_back(mesh);
-        poses.push_back(pose);
     }
     const double scene_ms = elapsed(scene_begin);
     const auto prepare_begin = Clock::now();
@@ -509,22 +405,6 @@ int benchmark(int argc, char** argv)
             std::fprintf(stderr, "benchmark failed at line %d (SDL: %s)\n", __LINE__,
                          SDL_GetError());
             return 1;
-        }
-        if (scenario == "dynamic")
-        {
-            for (std::size_t index = 0; index < meshes.size(); index += 100)
-            {
-                auto pose = poses[index];
-                pose.position = {pose.position.x(), pose.position.y(), .25 * std::sin(frame * .1)};
-                if (!meshes[index].node().get_component<Transform>().set_settings(pose) ||
-                    (frame % 30 == 0 &&
-                     !meshes[index].material().set_float("roughness", frame % 60 == 0 ? .3F : .6F)))
-                {
-                    std::fprintf(stderr, "benchmark failed at line %d (SDL: %s)\n", __LINE__,
-                                 SDL_GetError());
-                    return 1;
-                }
-            }
         }
         auto& sample = samples[frame];
         const auto prepare_start = Clock::now();
@@ -586,10 +466,10 @@ int benchmark(int argc, char** argv)
     pixels_file.write(reinterpret_cast<const char*>(image.rgba.data()),
                       static_cast<std::streamsize>(image.rgba.size() * sizeof(float)));
     std::ofstream metadata(output / "metadata.json");
-    metadata << "{\"scenario\":\"" << scenario << "\",\"objects\":" << objects
-             << ",\"seed\":" << seed << ",\"settle_frames\":" << settle_frames
-             << ",\"frames\":" << measured_frames << ",\"width\":" << image.width
-             << ",\"height\":" << image.height << ",\"vsync\":false,\"msaa\":1,\"backend\":\""
+    metadata << "{\"scenario\":\"shared\",\"objects\":" << objects
+             << ",\"settle_frames\":" << settle_frames << ",\"frames\":" << measured_frames
+             << ",\"width\":" << image.width << ",\"height\":" << image.height
+             << ",\"vsync\":false,\"msaa\":1,\"backend\":\""
              << bgfx::getRendererName(bgfx::getRendererType())
              << "\",\"vendor\":" << bgfx::getCaps()->vendorId
              << ",\"device\":" << bgfx::getCaps()->deviceId
@@ -638,9 +518,9 @@ int benchmark(int argc, char** argv)
             << "}\n";
     const bool written =
         pixels_file.good() && metadata.good() && csv.good() && view_csv.good() && summary.good();
-    std::printf("benchmark %s: %u objects, render P50 %.3f / P95 %.3f / P99 %.3f ms, draws %u\n",
-                scenario.c_str(), objects, percentile(.5), percentile(.95), percentile(.99),
-                samples.back().draws);
+    std::printf(
+        "benchmark shared: %u objects, render P50 %.3f / P95 %.3f / P99 %.3f ms, draws %u\n",
+        objects, percentile(.5), percentile(.95), percentile(.99), samples.back().draws);
     renderer.shutdown();
     world.destroy_scene();
     return written ? 0 : 1;

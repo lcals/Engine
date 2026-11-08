@@ -8,7 +8,7 @@
 
 项目只维护当前一个版本，不考虑历史版本兼容，不编写或保留兼容代码。该约定覆盖 C++ 与脚本接口、编辑器命令与 MCP、配置与资源格式、命名空间、目录及构建目标；插件替代实现同样遵守当前契约。
 
-契约变化先更新所属类图供评审，确认后一次更新实现、全部调用方、绑定、工具、测试与文档。仅为旧版本保留的接口、别名、转发壳、重载、字段、格式转换及双轨分支一并删除；不设置弃用过渡期，也不让业务选择新旧两套入口。历史类图中的兼容保留说明属于待清理项，不作为继续增加或保留兼容代码的依据。
+契约变化先更新所属类图供评审，确认后一次更新实现、全部调用方、绑定、工具、测试与文档。仅为旧版本保留的接口、别名、转发壳、重载、字段、格式转换及双轨分支一并删除；不设置弃用过渡期，也不让业务选择新旧两套入口。
 
 项目源数据随当前格式同步升级，缓存、生成代码和运行资源包按当前契约重新生成；运行时遇到不匹配的格式明确报错，不猜测格式、不兼容读取，也不执行历史格式转换。格式标识可用于检测并拒绝过期数据。资源内容更新产生的代际、仍被引用的资源快照、失效句柄校验及原子发布属于当前版本的生命周期保护，仍按所属模块契约维护。
 
@@ -77,13 +77,13 @@ Engine/System 框架只依赖标准库。SDL、bgfx 等必要的系统实现依�
 
 实现方式按职责选择，不要求所有插件都继承统一虚基类。**组合包装**用于在底层能力上组织高层行为：资源插件包装核心文件/单项资源读取，增加依赖加载、共享、计数和卸载；业务只使用高层加载接口。**底层接入与注入**用于接入不同后端，例如通过 ScriptRuntime 接入脚本运行实现；逐类型扩展也可采用已有登记契约。**独立功能**自成模块，由业务通过公开契约调用，不要求包装既有底层能力或实现统一基类。这三种是主要职责形态，可以按需要组合；包装对象也可以实现用于替换注入的接口，不额外建立通用 Manager。
 
-该原则自本轮确认起约束后续设计，不表示已有全部插件已经完成替换验证。资源的目标类图见[统一生命周期](runtime/class-diagrams/resource-lifecycle.md)。这里的替换是符合契约的实现选择与装配，不承诺运行时热插拔、跨版本 C++ ABI 或自动迁移运行状态。
+插件替换须符合所属能力的完整契约；资源的所有权与加载语义见[统一生命周期](runtime/class-diagrams/resource-lifecycle.md)。这里的替换是符合契约的实现选择与装配，不承诺运行时热插拔、跨版本 C++ ABI 或自动迁移运行状态。
 
 ### 目标与装配
 
 CMake 分为安装、依赖、插件、核心、编辑器与平台六类目录。每个插件在 `cmake/plugins/<scope>/<name>.cmake` 自声明，登记器按 `ENGINE_RUNTIME_PLUGINS` / `ENGINE_EDITOR_PLUGINS` 选择并解析依赖闭包；未选插件不创建目标，宿主只装配启用实现。目录归属、依赖方向和目标选择共同约束边界，不把移动文件名当作完成插件化。
 
-资源加载契约由核心 ResourceLoader 定义，默认 ResourceGraphSystem 插件组合底层能力。当前源码仍有 ResourceSystem 单项加载器回退及公开共享指针；[统一资源目标](runtime/class-diagrams/resource-lifecycle.md)将单项读取与高层契约分离，由插件实现依赖加载、共享计数与卸载，业务只使用已注入契约。该目标尚未实现。宿主先初始化核心，再启用插件，关闭时先停止使用者、解除借用，再释放插件和核心。
+资源加载契约由核心 ResourceLoader 定义，默认 ResourceGraphSystem 插件组合底层读取能力，实现依赖加载、共享计数与卸载。业务通过宿主注入的加载器取得 ResourceHandle；使用已有资源时调用 acquire_loaded，不触发文件读取，未加载返回失败。底层 ResourceSystem 不承担高层加载器的回退职责。宿主先初始化核心，再启用插件，关闭时先停止使用者、解除借用，再释放插件和核心。
 
 脚本执行契约由核心 [ScriptRuntime](runtime/class-diagrams/script-runtime.md) 定义，状态使用普通 ScriptStatus。可执行宿主按插件清单向 RuntimeHost 提供创建函数，取得实现该契约的 ScriptSystem 并交给 WorldSystem 独占调度。RuntimeHost 和 GameplaySession 不包含或链接具体脚本插件；未选择插件仍可提交资源目录和运行原生场景，脚本玩法启动明确返回不可用。脚本插件内部以 ScriptVm 隔离 VM，`ENGINE_SCRIPT_BACKEND` 默认 `quickjs`，也可在构建时选择 `v8`；互斥宏仅编译和链接所选后端，没有运行时切换。每个 Run 独占 VM 环境、模块、Gameplay 与任务队列，共用逐类绑定、UI MVC 和热重载流程。独立 V8 依赖验证不向核心装配脚本伪系统。
 
@@ -100,41 +100,6 @@ CMake 分为安装、依赖、插件、核心、编辑器与平台六类目录�
 MCP 协议层只登记、校验并调用工具。项目工具和场景工具各自注册；场景操作通过命令通道交给编辑器主线程，编辑器命令模块组织批量执行、回滚与撤销，场景模块调用普通组件接口。组件和 Engine 不知道 MCP、命令历史或编辑器项目。新业务模块分别登记需要暴露的工具和执行函数，所有权与线程边界保持显式。
 
 实现采用 C++20 与返回值错误处理，资源所有权和失败清理保持明确。依赖使用固定版本的 vcpkg port 或 Git 子模块，实际参与系统编译和链接。代码规则见 [AGENTS.md](../AGENTS.md)，构建和补丁维护见[开发说明](development.md)。
-
-## 全模块架构审查（2026-11-04）
-
-本轮覆盖全部运行时核心、编辑器基础、运行时/编辑器插件、平台实现、CMake 及测试/工具目录；原有 128 份类图文档全部参与核对，并补充审查统一导入插件关系图，当前共 129 份。检查包括类和公开方法对应、所有权、数据唯一性、直接包含、实际目标链接、模块必要性与内部实现归属。算法正确性、完整平台功能和每个函数的行为不由静态结构审查代替，实际验证单独记录在[测试文档](testing.md)。
-
-### 职责与收敛判断
-
-| 范围 | 当前边界与审查判断 |
-| --- | --- |
-| Engine / System / RuntimeHost / GameplaySession | 框架管理系统，宿主装配与逐帧调度，会话处理部署/启停；职责不同，保留，不再加便利转发或 Driver |
-| App / Window / Input / Storage / Log | 独立平台和进程服务；平台实现与业务分离，保留直接接口，不组件化窗口 |
-| ThreadSystem / TaskSystem | 共享并行预算与独立任务域不同，保留两层；领域系统借用任务域，不另建线程池 |
-| World / Scene / Node / Component / Prefab | 世界拥有唯一 ECS；Scene 管场景发布和局部身份索引；值句柄访问数据，预制体记录模板关系与覆盖，保留现有结构 |
-| Resource / Catalog / VFS / Codec / ResourceGraph | 目录、读取、单项解析与依赖树/共享引用分别有职责；依赖图继续留可选插件，不并回资源核心 |
-| Render / GPU Resources / Passes | 系统组织视图，资源类负责 GPU 所有权，各 pass 实现对应算法；帧快照是派生输入，不是第二份场景配置 |
-| Physics / Collider / RigidBody / CharacterMotor | 系统拥有 Jolt 运行对象，组件表达设置和控制意图；碰撞查询作为领域服务，不能因代码量大就搬进项目或拆出平行模拟框架 |
-| Navigation / NavigationCrowd / NavigationAgent | 核心提供 Recast/Detour 能力，插件把代理与 ECS 联动；路径查询无需包装成组件，代理对象需要组件 |
-| Animation / Animator / CharacterController | 骨架采样、实例状态与玩家控制策略各有归属；控制器/相机/可见性策略留角色插件，保留组合 |
-| UiSystem / FontSystem / TextComponent | 文档布局/输入与通用字体排布/GPU 绘制分开，3D 文字复用字体核心；不合并，RmlUi 适配私有，离线字体解析留导入插件 |
-| ScriptSystem / ScriptVm / Bindings / UI MVC | 运行生命周期、VM 后端隔离、逐类外观、项目业务四层各有必要；后端构建互斥，不新加通用 Manager |
-| Terrain / Destruction / Effects | 运行时体积修改、Blast/Jolt 碎块与实时特效属于插件；离线破碎准备、导入和编辑事务继续留编辑器插件 |
-| Project / EditorEnvironment / EditorSystem | 项目目录检查、路径/目录应用与编辑器生命周期分工成立；编辑器借用运行时能力，不能反向让核心读取项目 TOML |
-| AssetPipeline / Importers / SceneComponentCodec | 管线组织批次/依赖/原子发布，各类型拥有识别和转换；TOML 编解码留编辑器，不搬进运行时组件 |
-| AssetImport / Modeling / Editor Mesh | FBX/USD/字体/UI/JSON 的格式导入收敛到统一 `asset_import` 插件，各类型保留独立实现及宿主登记；建模制作留原插件，MikkTSpace 与 LOD 共用 `editor/mesh` 内部目标 |
-| SceneBake / AssetBuild / AssetSync / MCP / UI Editor | 烘焙、出包、同步、协议与 UI 编辑分别有生命周期；MCP 只调用真实领域命令，平台传输实现从通用目录分离 |
-| Tests / Showcase Tools / Build Scripts | 测试按模块归档；公开项目资产生成器归项目 tools，根 scripts 保留可复用工程工具；图与说明不重复维护实际测试结果 |
-
-保留核心/编辑器/插件分层；五个仅承担格式导入的插件已收敛为一个 `asset_import`，不新增类或注册框架，详见[统一导入边界](plugins/editor/class-diagrams/asset-import.md)。制作、模拟和编辑命令各有职责，继续独立。其余重复主要是文档重复定义、项目工具混在通用目录，以及个别内部辅助暴露为公共头，已按职责修正。
-
-### 本次职责收敛
-
-- `scene_commands.cpp` 保留节点生命周期、活动相机选择、身份单元与显式登记。Transform、Camera、Light 和材质编辑归 `commands/components/` 的类型文件；诊断快照归 `commands/scene_query.cpp`。原有 EditorCommands、EditorEdit、NodeAliases 继续负责事务、回滚与创建后重做身份，命令和 JSON 契约不变。
-- 经类图评审后，核心提供 `Scene::find_local_node(local_id)`、名称重载 `find_node(name)` 和 `Node::find_child(relative_path)`。局部身份复用索引，名称直接读取 ECS，子路径逐级查询 ChildOf；角色、脚本和相关编辑器代码复用这些接口。显式 Scene 查询允许恢复候选内部解析，WorldSystem 仍过滤 Published，脚本继续检查 Run/场景；隐藏或禁用不改变身份可查询性。完整语义见[Scene](runtime/class-diagrams/scene.md)与[Node](runtime/class-diagrams/node.md)。
-- `scene_bake` 仅依赖核心资源加载契约，不再强制装配 `runtime/resource_graph`。调用方组件与作业各自持有实际加载的资源，独立测试通过不链接、不装配依赖图插件的捕获、IBL、光图烘焙和正式资源回载链路，验证结果见[测试文档](testing.md)。
-- ModelingCommands 的路径校验与源文件 I/O 归私有 `modeling_source_io`，场景选择和命令事务仍由原模块负责。UiSystem 的输入与文档/焦点/捕获状态紧密相关，PhysicsSystem 的模拟和形状算法也仍在正确领域；后续有实际维护需求时按内部职责拆文件，保持既有系统与所有权边界。
 
 ## 模块入口
 

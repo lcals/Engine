@@ -2,7 +2,7 @@
 
 [类图索引](../../class-diagrams/index.md) · [统一生命周期](resource-lifecycle.md) · [高层加载契约](resource-loader.md) · [默认资源插件](../../plugins/runtime/class-diagrams/resource-graph.md) · [影片播放器](movie-player.md)
 
-**状态：统一资源契约及业务接入补充已按确认类图实现；验证范围见测试文档。** 所有资源消费路径迁移到“显式加载 → 使用 → 结束实例 → 释放”。本页定义跨模块关系和迁移约束；各模块完整方法继续在所属类图维护。
+当前契约已实现；验证范围见[测试文档](../../testing.md)。 所有资源消费路径遵守“显式加载 → 使用 → 结束实例 → 释放”。本页定义跨模块关系和使用约束；各模块完整方法继续在所属类图维护。
 
 ## 依赖与注入
 
@@ -99,7 +99,7 @@ Scene/Prefab 的持久字段仍保存路径/GUID，不把进程句柄序列化�
 
 ## 各模块自己的任务
 
-**2026-11-07 实现补充：** [大场景准备](large-scene-preparation.md)细化以下模块内部工作，已实现。恢复作用域的 `acquire_dependency` 直接委托 `retain_dependency(owner, path_or_guid)`；保留根自身的 retain，不再遍历依赖并反复取得临时获取。插件可替换，消费者不能访问默认插件的 DependencyIndex。
+ [大场景准备](large-scene-preparation.md)细化以下模块内部工作，已实现。恢复作用域的 `acquire_dependency` 直接委托 `retain_dependency(owner, path_or_guid)`；保留根自身的 retain，不再遍历依赖并反复取得临时获取。插件可替换，消费者不能访问默认插件的 DependencyIndex。
 
 不可变 Mesh / Texture 等数据的完整结构校验由 ResourceCodec 在首次接纳时完成；组件恢复只检查自身配置、资源类型、绑定匹配和身份，不重新扫描全部顶点 / 索引。内存资源仍经过同一接纳校验，不能跳过。改变内容必须创建新候选 / 身份，不能以“已校验”为由允许原位修改。资源跨对象共享与组件实例状态继续分开。
 
@@ -141,7 +141,7 @@ classDiagram
 
 宿主统一派发 TaskSystem 完成委托，各模块只消费自己的结果；公开 status/get 纯查询。后台任务捕获独立输入和保活身份，不捕获活动组件列/系统裸借用。取消先使发布目标失效，收尾后再释放输入；正常帧不等待，关闭边界才等待。模块构造/注入细节在各自类图中随实现前评审同步。
 
-## 业务接入契约（2026-11-06 确认，2026-11-07 收敛引用）
+## 业务接入契约
 
 本页只维护跨模块注入和所有权关系。公开签名分别见 [WorldSystem](world-system.md)、[AudioSystem](audio-system.md)、[FontSystem](font-system.md)、[GameplaySession](gameplay-session.md) 和 [ScriptRuntime](script-runtime.md)，不在跨模块图重复定义。
 
@@ -179,10 +179,3 @@ classDiagram
 - `RuntimeParallelConfig` 的通用 `loading` 任务配置拆成 `file`、`resource_read`、`resource_graph`、`movie`、`render`；资源预算类型更新为 `ResourceReadConfig`。这些只是已有 TaskSystem 的独立配置，不另建线程池。
 
 脚本服务同步升级：`Resources.Load(path)` 返回可释放的 `ResourceHandle`；`Resources.BeginLoad(path)` 返回独占的请求外观，提供 `Status/Progress/Take/Cancel/Error`；`Resources.Retain/Release` 对获取操作。句柄为不透明值，归属和有效性由原生加载器校验，请求与未释放获取随脚本上下文清理。`Movie.Play` 改接收资源句柄；`Json.Load(path)` 删除，改为 `Json.ParseResource(handle)` 解析已加载 JSON。组件路径 setter 保留，只使用已加载资源。
-
-1. 核心 ResourceSystem 从 ResourceLoader 分离；单项读取交付 unique_ptr。
-2. resource_graph 实现完整高层契约、内部计数及合并在途请求。
-3. 宿主显式注入同一加载器；资源插件可替换，核心不保留具体实现回退。
-4. 先迁移业务预加载，再迁移每个消费入口及其 Runtime 引用，禁止留下隐式加载旁路。
-5. 场景恢复、脚本绑定、启动片头、编辑器预览、内置与生成资源使用相同流程。
-6. 按总图验收同步/异步、全类型、取消、换代、关闭与插件替代；公开契约已由用户确认，实际结果与限制集中记录在测试文档。

@@ -1,6 +1,6 @@
-# 影片原始资源导入（分阶段实现）
+# 影片导入契约与实现范围
 
-本页保留已评审的完整设计及当前实现范围。运行数据以[影片资源](../../../runtime/class-diagrams/movie-data.md)为准；首版选择 FFmpeg 离线探测、拆轨并转码为 VP9 Profile 0 IVF，运行时使用 libvpx 解码；不在逐资源 meta 中选择后端，也不提前建立多后端框架。
+本页区分现有影片导入能力与尚未实现的异步作业契约。运行数据以[影片资源](../../../runtime/class-diagrams/movie-data.md)为准；离线使用 FFmpeg 离线探测、拆轨并转码为 VP9 Profile 0 IVF，运行时使用 libvpx 解码；不在逐资源 meta 中选择后端，也不提前建立多后端框架。
 
 [统一导入插件](asset-import.md) · [导入基础契约](../../../editor/class-diagrams/asset-importers.md) · [异步导入增量](../../../editor/class-diagrams/asset-import-jobs.md) · [影片编辑命令](movie-mcp-tools.md)
 

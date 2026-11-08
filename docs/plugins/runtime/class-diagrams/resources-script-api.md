@@ -1,6 +1,6 @@
 # 资源脚本接口
 
-[类图索引](../../../class-diagrams/index.md) · [资源加载契约](../../../runtime/class-diagrams/resource-loader.md) · [已确认的业务接入](../../../runtime/class-diagrams/resource-consumers.md)
+[类图索引](../../../class-diagrams/index.md) · [资源加载契约](../../../runtime/class-diagrams/resource-loader.md) · [业务接入](../../../runtime/class-diagrams/resource-consumers.md)
 
 脚本接口直接使用宿主注入的 ResourceLoader。Run 持有每次获取和异步操作，不依赖默认资源插件；实现替换不改变业务流程。
 

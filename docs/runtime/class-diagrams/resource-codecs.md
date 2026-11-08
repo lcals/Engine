@@ -2,7 +2,7 @@
 
 [类图索引](../../class-diagrams/index.md) · [统一生命周期](resource-lifecycle.md) · [资源对象](resource.md) · [核心读取](resource-system.md) · [资源插件](../../plugins/runtime/class-diagrams/resource-graph.md)
 
-**状态：统一资源契约及业务接入补充已按确认类图实现；验证范围见测试文档。** 覆盖当前 asset_catalog.fbs 的全部 21 种 AssetKind。生命周期一致；数据表示和合法性规则由各自类型处理器负责。
+当前契约已实现；验证范围见[测试文档](../../testing.md)。 覆盖当前 asset_catalog.fbs 的全部 21 种 AssetKind。生命周期一致；数据表示和合法性规则由各自类型处理器负责。
 
 ## 最小扩展接口
 

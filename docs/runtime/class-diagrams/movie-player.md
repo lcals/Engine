@@ -2,7 +2,7 @@
 
 [类图索引](../../class-diagrams/index.md) · [影片资源](movie-data.md) · [音频复用](movie-audio.md) · [启动与业务装配](movie-startup.md) · [脚本接口](../../plugins/runtime/class-diagrams/movie-script-api.md) · [影片导入](../../plugins/editor/class-diagrams/movie-importer.md) · [编辑器命令](../../plugins/editor/class-diagrams/movie-mcp-tools.md)
 
-**资源接入状态：已按用户确认的统一资源契约迁移；验证结果见[测试文档](../../testing.md)。** 本页将输入改为已加载句柄，其余播放、时钟和呈现行为沿用既有契约。播放器只保活传入的已加载句柄；调用规则见[统一资源生命周期](resource-lifecycle.md)。`MoviePlayer` 属于 `engine`，是具有独立播放状态的普通工具；不继承 `System`，不需要 Scene、Node、UiComponent 或脚本环境。启动宿主、原生业务、脚本 Controller 和编辑器预览使用同一契约。
+播放器只保活传入的已加载句柄；调用规则见[统一资源生命周期](resource-lifecycle.md)。`MoviePlayer` 属于 `engine`，是具有独立播放状态的普通工具；不继承 `System`，不需要 Scene、Node、UiComponent 或脚本环境。启动宿主、原生业务、脚本 Controller 和编辑器预览使用同一契约。
 
 首版按全屏、非循环、SDR 8 位影片设计。源素材差异在编辑器归一化；运行时使用 libvpx 解码 VP9 Profile 0 的 IVF 载荷，离线由 FFmpeg 转码。不会引入多后端工厂或专有实现。
 

@@ -713,35 +713,14 @@
   ],
   "testPresets": [
     {
-      "name": "windows-static-debug",
-      "inherits": "debug",
-      "configurePreset": "windows-static-debug"
-    },
-    {
       "name": "windows-static-release",
       "inherits": "release",
       "configurePreset": "windows-static-release"
     },
     {
-      "name": "editor-deps",
-      "inherits": "debug",
-      "configurePreset": "editor-deps"
-    },
-    {
       "name": "editor-deps-release",
       "inherits": "release",
       "configurePreset": "editor-deps-release"
-    },
-    {
-      "name": "debug",
-      "configurePreset": "debug",
-      "configuration": "Debug",
-      "output": {
-        "outputOnFailure": true
-      },
-      "execution": {
-        "noTestsAction": "error"
-      }
     },
     {
       "name": "release",
@@ -752,12 +731,12 @@
       },
       "execution": {
         "noTestsAction": "error"
+      },
+      "filter": {
+        "include": {
+          "name": "^engine\\.(framework|guid_map|system)$"
+        }
       }
-    },
-    {
-      "name": "v8-debug",
-      "inherits": "debug",
-      "configurePreset": "v8-debug"
     },
     {
       "name": "v8-release",
@@ -765,29 +744,9 @@
       "configurePreset": "v8-release"
     },
     {
-      "name": "engine-debug",
-      "inherits": "debug",
-      "configurePreset": "engine-debug"
-    },
-    {
       "name": "engine-release",
       "inherits": "release",
       "configurePreset": "engine-release"
-    },
-    {
-      "name": "runtime-deps",
-      "inherits": "debug",
-      "configurePreset": "runtime-deps"
-    },
-    {
-      "name": "asset-pipeline-deps",
-      "inherits": "debug",
-      "configurePreset": "asset-pipeline-deps"
-    },
-    {
-      "name": "ninja-debug",
-      "inherits": "debug",
-      "configurePreset": "ninja-debug"
     },
     {
       "name": "ninja-release",
@@ -795,33 +754,21 @@
       "configurePreset": "ninja-release"
     },
     {
-      "name": "ninja-engine-debug",
-      "inherits": "engine-debug",
-      "configurePreset": "ninja-engine-debug"
-    },
-    {
       "name": "ninja-engine-release",
       "inherits": "engine-release",
       "configurePreset": "ninja-engine-release"
-    },
-    {
-      "name": "macos-native-debug",
-      "configurePreset": "macos-native-debug",
-      "output": {
-        "outputOnFailure": true
-      }
     },
     {
       "name": "macos-native-release",
       "configurePreset": "macos-native-release",
       "output": {
         "outputOnFailure": true
+      },
+      "filter": {
+        "include": {
+          "name": "^engine\\.(framework|guid_map|system)$"
+        }
       }
-    },
-    {
-      "name": "ninja-engine-v8-debug",
-      "inherits": "debug",
-      "configurePreset": "ninja-engine-v8-debug"
     },
     {
       "name": "ninja-engine-v8-release",
@@ -829,19 +776,9 @@
       "configurePreset": "ninja-engine-v8-release"
     },
     {
-      "name": "macos-native-v8-debug",
-      "inherits": "debug",
-      "configurePreset": "macos-native-v8-debug"
-    },
-    {
       "name": "macos-native-v8-release",
       "inherits": "release",
       "configurePreset": "macos-native-v8-release"
-    },
-    {
-      "name": "windows-static-v8-debug",
-      "inherits": "debug",
-      "configurePreset": "windows-static-v8-debug"
     },
     {
       "name": "windows-static-v8-release",

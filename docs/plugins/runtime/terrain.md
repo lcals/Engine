@@ -14,7 +14,7 @@ MCP 工具包括 `create_terrain_asset`、`set_terrain`、`get_terrain`、`terra
 
 状态文件保存完整体积与基础资源 GUID/hash，恢复时校验基础版本，不覆盖 `.terrain` 或导入缓存。编辑器保存路径限制在 `cache/terrain-states/*.terrainstate`；脚本使用 App 持久目录的 `terrain/<slot>.bin`。两种入口共用相同运行时格式，路径职责分离。
 
-当前脚本笔刷与土石抽离复用块缓存，CPU 只重建实际变化样本影响的块及相邻梯度法线范围。渲染仍合并为单个 Mesh 并完整上传 GPU；碰撞则按稳定的 4 单元叶子分段提交，复用未变 Jolt 形状和上层分组，一个地形保持一个 Collider/BodyID。MCP 笔刷经 `TerrainStateEdit` 提交 ETRS 快照，`restore` 会重新初始化体积，因此 MCP 笔刷、撤销/重做、加载和重置仍重建全部块；脚本 `Load`/`Reset` 同样如此。同步接口保留；异步球形笔刷在共享任务域准备独占体积/网格，按请求版本在主线程有界发布。Reset、首次生成、连通塌方及 MCP 事务仍有同步路径；分块 GPU 上传和差量存档尚未实现。接口与形状复用细节见[当前实现](../../runtime/performance.md#当前实现)。
+当前脚本笔刷与土石抽离复用块缓存，CPU 只重建实际变化样本影响的块及相邻梯度法线范围。渲染仍合并为单个 Mesh 并完整上传 GPU；碰撞则按稳定的 4 单元叶子分段提交，复用未变 Jolt 形状和上层分组，一个地形保持一个 Collider/BodyID。MCP 笔刷经 `TerrainStateEdit` 提交 ETRS 快照，`restore` 会重新初始化体积，因此 MCP 笔刷、撤销/重做、加载和重置仍重建全部块；脚本 `Load`/`Reset` 同样如此。同步接口保留；异步球形笔刷在共享任务域准备独占体积/网格，按请求版本在主线程有界发布。Reset、首次生成、连通塌方及 MCP 事务仍有同步路径；分块 GPU 上传和差量存档尚未实现。接口与形状复用细节见[碰撞契约](terrain-collision.md)。
 
 架构见[运行时类图](class-diagrams/terrain.md)、[编辑器类图](../editor/class-diagrams/terrain-editor.md)和[脚本接口](class-diagrams/terrain-script-api.md)；跨插件职责见[联动契约](terrain-destruction.md)；固定来源与历史平台研究见[技术研究](terrain-destruction-feasibility.md)。
 

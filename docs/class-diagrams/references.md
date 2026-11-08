@@ -1,1221 +1,153 @@
-# 完整引用关系
+# 跨模块引用关系
 
-[类图索引](index.md)
-
-[2026-11-07 大场景准备关系](../runtime/class-diagrams/large-scene-preparation.md)为已实现增量：目录快照、资源闭包索引、渲染准备和离线产物分别留在所属模块；本页不重复其方法或字段。
-
-下图只维护拥有、借用、调用及参数类型关系；方法和字段在各自独立类图维护。全仓精简的目标与保留边界见[评审清单](index.md#全仓精简评审)；建模函数和私有编辑记录已按确认契约收敛。同名节点指向同一个类型，宿主节点表示入口程序，不是新增 C++ 架构类。
-
-插件共用的编辑器函数见[扩展工具](../editor/class-diagrams/extension-tools.md)，组件事务通过[组件命令](../editor/class-diagrams/component-commands.md)接入；字节计算共用[哈希函数](../runtime/class-diagrams/hash-utils.md)。具体编辑记录和节点身份映射仍属于编辑器私有实现。
-
-资源核心与调用方的方向汇总见[资源调用关系](#资源调用关系)。
+本页只说明跨模块关系并链接唯一的契约定义；类、字段、方法、拥有与借用的完整关系在所属类图维护，避免两份 Mermaid 同步漂移。整体分层见[架构](../architecture.md)，全部类图见[索引](index.md)。
 
 ## 构建边界
 
-代码和独立类图按职责使用相同分层：
+运行时核心、编辑器基础、运行时插件、编辑器插件保持单向依赖。宿主选择并装配具体插件，核心与业务使用可替换契约；同一构建只包含一个脚本后端。
 
-| 范围   | 头文件与实现位置                                 | 文档位置        |
-| ------ | ------------------------------------------------ | --------------- |
-| 运行时 | `include/engine/runtime/`、`src/engine/runtime/` | `docs/runtime/` |
-| 编辑器 | `include/engine/editor/`、`src/engine/editor/`   | `docs/editor/`  |
-| 运行时插件 | `include/engine/plugins/runtime/`、`src/engine/plugins/runtime/` | `docs/plugins/runtime/` |
-| 编辑器插件 | `include/engine/plugins/editor/`、`src/engine/plugins/editor/` | `docs/plugins/editor/` |
-
-各范围独立类图位于其 `class-diagrams/` 子目录。平台入口与平台专用实现仍放在 `platforms/<platform>/`；TS 声明集中在 [include/engine.d.ts](../../include/engine.d.ts)。自有头文件从 `runtime/`、`editor/`、`plugins/runtime/` 或 `plugins/editor/` 开始引用。建模、MCP、资源构建与同步属于编辑器插件，资源依赖图、脚本虚拟机与逐类绑定属于运行时插件。插件使用核心接口，核心不 include 或链接具体插件。
-
-每个插件在 `cmake/plugins/<scope>/<name>.cmake` 声明目标、源码及依赖；注册器按清单解析闭包，宿主只装配实际创建的目标。CMake 按 install、dependencies、plugins、core、editor、platforms 六目录分工，详见[插件登记](../plugins/plugins.md)。
-
-| 配置 | 脚本插件 | 宿主与验证边界 |
-| --- | --- | --- |
-| 不选择 `runtime/script` | 不编译或装配 ScriptSystem | 窗口、场景、资源和渲染仍可运行，脚本启动明确不可用 |
-| V8 依赖开启，脚本插件关闭 | 不创建脚本伪系统 | `engine_v8_smoke` 独立验证 V8 编译、链接及运行 |
-| 选择 `runtime/script` | QuickJS（默认）或 V8 运行实现，共享逐类绑定 | `ENGINE_SCRIPT_BACKEND` 在构建期二选一；宿主提供创建工厂，核心只使用 ScriptRuntime |
-| 选择 `editor/mcp` | 独立编辑器工具插件 | 工具通过本机目录或指定 adb 设备和包交换文件，不拥有脚本实例 |
-
-Android 普通启动使用所选后端的 ScriptSystem 运行项目玩法；只有 V8 构建包含其 JNI 冒烟测试，作为显式触发的独立验证路径，切换测试前须停止旧进程。具体 Activity、Surface 与测试边界见[Android 宿主](../runtime/class-diagrams/android-host.md)。
+契约：[include/engine.d.ts](../../include/engine.d.ts) · [插件登记](../plugins/plugins.md) · [Android 宿主](../runtime/class-diagrams/android-host.md)。
 
 ## 引擎与系统所有权
 
-```mermaid
-classDiagram
-    direction TB
-    class Engine {
-        <<singleton>>
-    }
-    class System {
-        <<abstract>>
-    }
-    class EngineConfig {
-        <<struct>>
-    }
-    class FrameLimiter
-    class FrameStatus {
-        <<enumeration>>
-    }
-    Engine "0..1" *-- "0..*" System : 独占引擎根系统
-    Engine "1" *-- "1" FrameLimiter : 值持有帧调度状态
-    System "0..1" *-- "0..*" System : 独占子系统
-    Engine ..> EngineConfig : 初始化参数
-    System ..> EngineConfig : 生命周期参数
-    class RuntimeHost
-    RuntimeHost ..> FrameStatus : 帧状态返回值
-    RuntimeHost ..> EngineConfig : 初始化参数
-```
+Engine 管理根系统生命周期与帧调度，System 独占子系统；RuntimeHost 装配窗口、世界、渲染及可选服务。对象只由一个拥有者负责生命周期，其他关系为明确借用。
 
-一个 System 对象只由引擎、父系统或独立宿主管理。`add_subsystem()` 成功后转移独占所有权；`parent()` 和 `subsystem()` 只返回借用。公开生命周期只接受根系统调度，子系统由父系统递归管理。
-
-[FrameLimiter](../runtime/class-diagrams/frame-limiter.md) 是纯标准库轻量类，不属于系统树。运行和编辑器宿主通过 Engine 的帧边界方法执行限速，脚本绑定调用 Engine 调整当前上限；编辑器配置与玩法切换策略不进入核心。完整帧末尾的休眠自然计入下一帧的 `delta_time`。
-
-```mermaid
-classDiagram
-    direction TB
-    class System
-    System --> System : parent 与 subsystem 返回借用
-```
-
-App 是静态平台门面，不继承 System。LogSystem 是进程单例及独立根系统，由宿主借用和调度，不进入 Engine 的独占系统数组。Gameplay、Game、Debug 属于脚本接口，不继承 C++ System。
-
-```mermaid
-classDiagram
-    direction TB
-    class Engine
-    class WindowSystem
-    class ResourceSystem
-    class WorldSystem
-    class RenderSystem
-    class ScriptRuntime
-    class RuntimeHost
-    class GameplaySession
-    class ScriptRuntimeFactory
-    class InputSystem
-    class RuntimeSetup
-    class PhysicsSystem
-    class AudioSystem
-    RuntimeHost --> Engine : 借用框架并注册根系统
-    RuntimeHost "1" *-- "0..1" WindowSystem : 独占窗口根系统
-    RuntimeHost "1" *-- "0..1" InputSystem : 独占输入，暂停前更新
-    InputSystem --> WindowSystem : 借用，窗口最后关闭
-    RuntimeHost "1" *-- "0..1" GameplaySession : 独占玩法会话
-    RuntimeHost "1" *-- "0..1" ResourceSystem : 未外供时早期独占
-    RuntimeHost --> ResourceSystem : 可借用宿主已初始化底层
-    Engine "1" *-- "0..1" WorldSystem : 独占世界根系统
-    RuntimeHost "1" *-- "0..1" RenderSystem : 独占并提交帧
-    RuntimeHost --> WorldSystem : 借用场景状态
-    RuntimeHost ..> ScriptRuntimeFactory : 调用宿主创建函数
-    ScriptRuntimeFactory ..> WorldSystem : 参数借用
-    ScriptRuntimeFactory ..> RenderSystem : 玩法回调期间的参数借用
-    ScriptRuntimeFactory ..> UiSystem : UI绑定及事件派发的参数借用
-    ScriptRuntimeFactory ..> InputSystem : 设备及通道绑定的参数借用
-    ScriptRuntimeFactory ..> WindowSystem : 窗口与鼠标薄绑定借用
-    RuntimeHost ..> RuntimeSetup : 世界初始化前调用宿主扩展装配
-    RuntimeHost ..> ScriptRuntime : 移交世界独占
-    GameplaySession --> ScriptRuntime : 可空借用核心执行契约
-    GameplaySession --> WorldSystem : 借用并结束场景
-    GameplaySession --> RenderSystem : 借用并管理项目 GPU 资源
-    GameplaySession --> PhysicsSystem : 可空借用及显式清理
-    GameplaySession --> AudioSystem : 可空借用及显式清理场景声部
-    RuntimeHost *-- AudioSystem : 独占并随窗口暂停恢复
-    RenderSystem --> WindowSystem : 构造参数及持续借用
-    RenderSystem --> WorldSystem : 可空构造借用与场景读取
-    RenderSystem --> RenderExtension : 借用独立场景绘制扩展
-    RenderExtension --> RenderSystem : 析构前自动撤销登记
-    RenderExtension ..> RenderContext : 本次绘制参数
-    RenderContext --> Scene : 调用期间只读借用
-```
-
-宿主先准备 Window、资源单项读取、Render、Audio 与 MoviePlayer，随后按调用方请求初始化 World。外供 ResourceSystem 及加载器必须先就绪，并覆盖所有消费者。RuntimeHost 独占呈现服务和会话，Engine 独占世界；GameplaySession 借用脚本、世界、渲染和音频。ScriptRuntime 由世界独占，具体实现由宿主工厂提供。关闭先结束玩法和世界，再关闭播放器、音频、渲染及窗口；完整顺序见[运行宿主](../runtime/class-diagrams/runtime-host.md)。
-
-```mermaid
-classDiagram
-    direction TB
-    class WorldSystem
-    class PhysicsSystem
-    class NavigationSystem
-    class AnimationSystem
-    class FontSystem
-    class UiSystem
-    class AudioSystem
-    class ScriptRuntime
-    WorldSystem "1" *-- "0..1" FontSystem : 首先初始化字体
-    WorldSystem "1" *-- "0..1" UiSystem : 字体之后
-    WorldSystem "1" *-- "0..1" NavigationSystem : UI 之后
-    WorldSystem "1" *-- "0..1" ScriptRuntime : 物理前提交业务意图
-    WorldSystem "1" *-- "0..1" PhysicsSystem : 脚本及玩家意图之后
-    WorldSystem "1" *-- "0..1" AnimationSystem : 物理之后
-```
-
-RuntimeHost 创建并装配各子系统，所有权经 System 转入 WorldSystem。父系统先推进世界，子系统按登记顺序执行：字体、UI、导航、脚本、宿主玩家意图、物理、动画、宿主相机。宿主随后单独更新 AudioSystem。`RuntimeSetup(RuntimeStage, ...)` 仅在初始化装配时调用两次，将可选系统分别登记到物理之前及动画之后；不增加逐帧阶段框架。脚本实例由宿主提供的 ScriptRuntimeFactory 创建，工厂返回未初始化的抽象子系统；核心不判断虚拟机或插件是否编译。
-
-每帧先处理窗口事件，再更新其余根系统，最后提交渲染。窗口暂停时，宿主先暂停音频输出，然后停止资源、世界和脚本更新；恢复时先恢复输出再推进帧。编辑器在 RuntimeHost::tick 前处理项目启停，因此暂停不阻断停止请求。外部工具仍可发布文件，脚本版本切换等待恢复后的运行线程安全点。
+契约：[FrameLimiter](../runtime/class-diagrams/frame-limiter.md) · [运行宿主](../runtime/class-diagrams/runtime-host.md) · [引擎与系统](../runtime/class-diagrams/engine-system.md)。
 
 ## 字体与场景 UI
 
-```mermaid
-classDiagram
-    System <|-- FontSystem
-    System <|-- UiSystem
-    Component <|-- TextComponent
-    Component <|-- UiComponent
-    Node ..> Component : 按类型返回值句柄
-    class UiComponentRuntime
-    UiComponentRuntime o-- Resource : ECS运行列共享UI资源
-    class TextComponentRuntime
-    TextComponentRuntime o-- Resource : ECS运行列共享字体与Shader
-    UiSystem --> FontSystem : 借用字形与绘制能力
-    UiSystem --> WorldSystem : 借用已发布节点，保留常驻文档
-    UiSystem --> WindowSystem : 借用事件与窗口
-    UiSystem ..> UiEvent : 输出节点和控件事件
-    UiSystem *-- RmlContext : 独占控件文档
-    FontSystem ..> FontGeometry : 生成临时绘制数据
-    FontSystem ..> FontLayout : 字号颜色与排布参数
-    FontSystem ..> FontDraw : 视图变换裁剪与深度参数
-    FontDraw o-- Resource : 已加载的 Shader 实体
-    FontSystem ..> ResourceLoader : 字体加载
-    TextComponent ..> ResourceLoader : 字体与 Shader 加载
-    FontSystem ..> FontDataT : 生成的只读字体模型
-    RenderSystem --> FontSystem : 借用以绘制场景文字
-    RenderSystem --> UiSystem : 借用以提交 UI 通道
-    RuntimeHost --> FontSystem : 装配后借用
-    RuntimeHost --> UiSystem : 装配后借用
-    GameplaySession --> UiSystem : 场景停止时清理文档
-    GameplaySession --> FontSystem : GPU 关闭前清理字体资源
-```
+FontSystem 提供统一字形度量和绘制；UiSystem 借用世界、窗口及字体服务，UiComponent 绑定独立文档资源。控件不展开为 Node，业务 MVC 与场景跳转归项目。
 
-字体与 UI 的公开方法分别维护在[字体系统](../runtime/class-diagrams/font-system.md)与[场景界面](../runtime/class-diagrams/ui-system.md)。RmlContext 表示内部持有的第三方上下文，不是额外的引擎包装类。UI 控件不进入 Node 的子节点列表。UI 只提供事件，不执行项目场景跳转。
-
-```mermaid
-classDiagram
-    AssetImporter <|-- FontImporter
-    AssetImporter <|-- UiImporter
-    FontImporter ..> FreeType : 离线提取 TTF 轮廓与度量
-    FontImporter ..> FontDataT : 生成独立字体实体
-    UiImporter ..> UiDocumentDataT : 生成独立文档实体
-    UiImporter ..> ImportContext : 查询字体图片与 Shader 引用
-    ToolHost ..> FontImporter : 按插件清单登记
-    ToolHost ..> UiImporter : 按插件清单登记
-    ToolHost ..> AssetPipelineSystem : 调度扫描导入和发布
-    AssetPipelineSystem ..> AssetImporter : 调用通用导入契约
-```
-
-ToolHost 表示编辑器、构建和 MCP 入口；字体和 UI 导入器与 FBX、USD、JSON 一同归统一 editor/asset_import 插件。依赖单向流向通用导入契约与核心资源，运行时不引用插件或离线 FreeType。源字体、meta 与文档属于项目 assets，运行时只使用转换后的独立 GUID 实体及标准目录依赖。
+契约：[字体系统](../runtime/class-diagrams/font-system.md) · [场景界面](../runtime/class-diagrams/ui-system.md)。
 
 ## 场景对象、组件及渲染引用
 
-```mermaid
-classDiagram
-    class WorldSystem
-    class Scene
-    class Node
-    class Component
-    class Transform
-    class Camera
-    class Light
-    class EnvironmentComponent
-    class PostProcessComponent
-    class MeshRenderer
-    class ScriptSystem
-    class RenderSystem
-    WorldSystem "1" *-- "0..*" Scene : 独占已发布场景容器
-    WorldSystem --> Scene : 可空当前玩法场景
-    Scene ..> Node : 管理实体生命周期并返回值句柄
-    Node ..> Component : 按类型返回值句柄
-    Node --> Scene : 所属场景借用
-    Node ..> Node : 可空父节点值句柄
-    Component *-- Node : 只复制身份
-    Component <|-- Transform
-    Component <|-- Camera
-    Component <|-- Light
-    Component <|-- EnvironmentComponent
-    Component <|-- PostProcessComponent
-    Component <|-- MeshRenderer
-    Scene ..> Camera : 按值返回活动相机身份句柄
-    ScriptSystem --> WorldSystem : 可空构造借用
-    ScriptSystem ..> Scene : 按运行代次创建与销毁
-    ScriptSystem ..> Node : 按场景及实体标识查找
-    ScriptSystem ..> Component : 属性与业务绑定
-    RenderSystem --> WorldSystem : 可空构造借用
-    RenderSystem ..> Scene : 本帧读取
-    RenderSystem ..> Camera : 视角与投影
-    RenderSystem ..> Light : 节点方向及光照参数
-    RenderSystem ..> EnvironmentComponent : 每帧读取环境雾及 IBL 引用
-    RenderSystem ..> PostProcessComponent : 读取活动相机的曝光及色调映射
-    RenderSystem ..> MeshRenderer : 网格与材质参数
-```
+WorldSystem 拥有唯一 Flecs world；Node / Component 为带身份校验的值句柄。RenderSystem 在结构稳定阶段借用领域数据，GPU 对象由渲染私有资源拥有者管理。
 
-场景中的全部对象必须使用节点和组件表达。Scene 是容器，Gameplay 是场景外项目入口；Material 与 Shader 是组件数据/渲染资源，不另形成场景对象。Node/Component 为身份值句柄，节点属性和具体生成组件 Data 唯一存于 WorldSystem 的 Flecs world。Flecs ChildOf 是唯一父子关系；局部 enabled/visible 随场景保存，有效状态和世界矩阵是安全点更新缓存。组件附加实例身份不复用，删除重加不复活旧句柄。完整 NodeInfo/ComponentData union 仅在保存、加载和撤销边界组装；原生系统查询有类型列与 Published 标记，候选不参与。材质通过类型定义和命名参数设置。ScriptSystem 的 JS 句柄保存运行/场景代次与实体标识，每次调用重新验证，停止或重载后不能访问已销毁对象。
-
-EnvironmentComponent 持有环境光、雾、清屏色及 IBL 参数与纹理 GUID；PostProcessComponent 持有活动相机的曝光和色调映射；Light 持有自身阴影参数。RenderSettings 只是本帧组件只读快照，场景参数只经组件修改和校验；渲染器仅保存无场景清屏色。组件缺少或停用时使用固定默认值，切场景不继承旧参数；预览隐藏镜头只提供观察视角，后处理仍取项目活动相机。IBL 的实际纹理共享引用与 GPU 句柄由渲染器按资源代际管理，组件只保存生成数据中的 GUID。
-
-领域模块借用宿主直接注入的 ResourceLoader，获取已由调用方加载的 Shader、Material、Mesh 等 Resource，项目路径直接相对资源根，引擎资源以 builtin:// 标识来源。Scene 从资源加载时持有根资源；MeshRendererRuntime 与其 MaterialState 槽持有实际资源共享引用，MeshRenderer/Material 句柄按身份重新访问这些 ECS 运行列，材质参数按 Shader 定义校验。RenderSystem 拥有本次场景使用的顶点/索引缓冲、Shader、Program、Uniform；来自资源的 GpuGeometry 及 GpuTexture 共享持有对应 CPU Resource，以区分资源版本并保证存活；临时网格没有 Resource 引用。切换场景按存活节点增量释放 GPU 资源，常驻节点保留实际所需资源；停止运行或图形设备重建时完整释放 GPU 资源；CPU 资源随最后一个共享引用释放。ResourceSystem 不设通用资源共享缓存，必要依赖保活由 ResourceGraphSystem 插件负责；动画编译物及 GPU 派生缓存遵守各自的场景生命周期。Material::shader_data 直接借用自己持有的 Shader 资源，渲染器不再通过全局缓存查找定义。图形设备可在编辑器待机期间保留。参数、返回值和配置数据关系分别在[场景](../runtime/class-diagrams/scene.md)、[节点](../runtime/class-diagrams/node.md)、[组件](../runtime/class-diagrams/component.md)与[渲染](../runtime/class-diagrams/render-system.md)中维护。
+契约：[场景](../runtime/class-diagrams/scene.md) · [节点](../runtime/class-diagrams/node.md) · [组件](../runtime/class-diagrams/component.md) · [渲染](../runtime/class-diagrams/render-system.md)。
 
 ## 物理与音频引用
 
-```mermaid
-classDiagram
-    class Component
-    class Collider
-    class RigidBody
-    class AudioSource
-    class AudioListener
-    class Transform
-    class WorldSystem
-    class PhysicsSystem
-    class AudioSystem
-    class Resource
-    Component <|-- Collider
-    Component <|-- RigidBody
-    Component <|-- AudioSource
-    Component <|-- AudioListener
-    PhysicsSystem --> WorldSystem : 生命周期内借用
-    PhysicsSystem ..> Collider : 每帧读取形状配置
-    PhysicsSystem ..> RigidBody : 消费冲量及回写速度
-    PhysicsSystem ..> Transform : 同步变换及模拟结果
-    AudioSystem --> WorldSystem : 生命周期内借用
-    AudioSystem ..> AudioSource : 消费请求及回写状态
-    AudioSystem ..> AudioListener : 读取首个有效监听器
-    AudioSystem ..> Transform : 读取位置及朝向
-    AudioSource o-- Resource : 共享音频实体
-```
+世界拥有物理和音频系统。组件保存领域配置，系统管理第三方运行对象；编辑器编解码与 MCP 命令通过正式组件接口工作，不进入运行时。
 
-四种组件数据唯一存于 ECS；Node 按类型返回值句柄，系统按具体列与 Published 标记查询，不跨帧保存列地址。持久设置使用生成数据，冲量请求、音频游标与播放状态属于运行时瞬态。音源通过 ResourceLoader 加载 clip；Resource 持有 AudioClipDataT，不持有输出设备。
-
-| 所有者或调用方 | 对象 | 关系与边界 |
-| --- | --- | --- |
-| PhysicsSystem | Jolt、WorldSystem、Collider、RigidBody、Transform | 基础形状碰撞、固定步模拟、冲量及组件同步 |
-| AudioSystem | SDL3 Audio、WorldSystem、AudioSource、AudioListener、Transform | PCM 流、播放状态、空间衰减、后台暂停和资源清理 |
-| AudioSystem | SDL 逻辑设备和每源音频流 | 独占；按需打开，主线程提交短队列；SDL 线程不访问场景 |
-| GameplaySession | PhysicsSystem / AudioSystem | 可空借用；停止脚本后先清音频/物理，再销毁场景与 GPU |
-| AudioImporter | AudioClipDataT | 编辑器将 WAV/meta 转交错 PCM，无设备或运行播放策略 |
-| SceneComponentCodec | Collider/RigidBody/AudioSource/AudioListener 生成载荷 | 逐类型 TOML 读写，音源 clip GUID 进入场景依赖 |
-| ComponentEdit | ComponentDataT | 编辑器独立前后快照，不持有组件或资源获取 |
-| 物理/音频 MCP 注册函数 | EditorMcpTools | 回调借用固定目标通道，只提交命令；不链接模拟或播放实现 |
-| 逐类脚本绑定 | 对应运行时组件 | 插件核验句柄后调用普通接口，不复制运行逻辑 |
-
-方法分别见[物理系统](../runtime/class-diagrams/physics-system.md)、[物理组件](../runtime/class-diagrams/physics-components.md)、[音频系统](../runtime/class-diagrams/audio-system.md)、[音频组件](../runtime/class-diagrams/audio-components.md)、[音频导入](../editor/class-diagrams/audio-importer.md)、[组件命令](../editor/class-diagrams/component-commands.md)和[MCP 适配](../plugins/editor/class-diagrams/physics-audio-mcp-tools.md)。
+契约：[物理系统](../runtime/class-diagrams/physics-system.md) · [物理组件](../runtime/class-diagrams/physics-components.md) · [音频系统](../runtime/class-diagrams/audio-system.md) · [音频组件](../runtime/class-diagrams/audio-components.md) · [音频导入](../editor/class-diagrams/audio-importer.md) · [组件命令](../editor/class-diagrams/component-commands.md) · [MCP 适配](../plugins/editor/class-diagrams/physics-audio-mcp-tools.md)。
 
 ## App 与日志
 
-```mermaid
-classDiagram
-    direction TB
-    class EditorHost["editor_app 宿主"] {
-        <<host>>
-    }
-    class Engine
-    class App
-    class AppConfig
-    class LogSystem {
-        <<singleton>>
-    }
-    class LogLevel
-    class System
-    class EditorEnvironment
-    EditorHost *-- EditorEnvironment : 编辑器宿主环境
-    EditorEnvironment ..> App : 路径初始化并最后关闭
-    EditorHost --> LogSystem : 借用单例并调度生命周期
-    class RuntimeHost
-    EditorHost *-- RuntimeHost : 独占运行宿主
-    RuntimeHost --> Engine : 借用单例并调度生命周期
-    App ..> AppConfig : 平台目录初始化参数
-    System <|-- LogSystem
-    LogSystem ..> App : 持久目录与日志位置
-    LogSystem ..> LogLevel : 写入级别参数
-```
+App 提供统一平台路径与宿主能力；LogSystem 管理日志生命周期。两者不包含项目策略，平台细节与第三方类型留在实现中。
 
-App 和 LogSystem 的生命周期由宿主负责，Engine 不反向拥有它们，也不因此获得项目依赖。AppConfig 只提供应用名及平台目录覆盖值，EngineConfig 继续只表示引擎运行配置。
-
-App 的三个路径访问器返回内部 `std::filesystem::path` 的只读借用；LogSystem 同样借用 App 的持久目录，并拥有日志文件。日志默认写入持久目录的 `logs/engine.log`，同时输出标准错误。宿主必须先停止所有日志使用者，再刷新、关闭 LogSystem，最后关闭 App。
-
-目录语义、失败状态和日志轮换分别见 [App](../runtime/class-diagrams/app.md) 与[日志系统](../runtime/class-diagrams/log-system.md)。内置资源根由资源系统解释；Android APK 使用逻辑路径，普通磁盘 canonical 只用于可写版本和桌面文件。
+契约：[App](../runtime/class-diagrams/app.md) · [日志系统](../runtime/class-diagrams/log-system.md)。
 
 ## 编辑器宿主拥有的独立系统
 
-```mermaid
-classDiagram
-    direction TB
-    class EditorHost["editor_app 宿主"] {
-        <<host>>
-    }
-    class ProjectSystem
-    class EditorSystem
-    class AssetPipelineSystem
-    class Engine
-    class LogSystem
-    EditorHost *-- ProjectSystem : 独立根系统
-    EditorHost *-- EditorSystem : 独立根系统
-    EditorHost *-- AssetPipelineSystem : 资源管线目标开启时拥有
-    class EditorEnvironment
-    EditorHost *-- EditorEnvironment : 配置平台路径与提交目录
-    EditorEnvironment --> ProjectSystem : 已就绪项目借用
-    EditorSystem --> EditorEnvironment : 构造参数及持续借用
-    EditorSystem --> GameplaySession : 可空构造借用与主线程启停
-    ProjectSystem ..> LogSystem : 项目检查日志
-    EditorHost *-- RuntimeHost : 独占运行宿主
-```
+宿主先初始化 ProjectSystem；EditorEnvironment 借用项目，EditorSystem 借用环境。资源管线及构建/同步插件分别拥有制作和发布流程，Engine 不拥有项目系统。
 
-ProjectSystem、EditorSystem、AssetPipelineSystem 均为编辑器宿主拥有的独立根系统。EditorSystem 借用已初始化的 EditorEnvironment，环境借用 ProjectSystem；项目和环境必须保持就绪直到编辑器退出。ProjectSystem 没有路径 getter；运行时读取 App 路径，环境的私有项目身份仅用于会话回执。
-
-AssetSyncSystem 由独立工具宿主装配，未挂入 ResourceSystem 子系统树。它使用 ResourceSystem 的静态读取入口，不拥有 ResourceSystem 实例，也不调用 ScriptSystem。独立类图见[项目](../editor/class-diagrams/project-system.md)、[编辑器](../editor/class-diagrams/editor-system.md)、[资源管线](../editor/class-diagrams/asset-pipeline-system.md)、[资源同步](../plugins/editor/class-diagrams/asset-sync-system.md)。
-
-启用完整脚本运行时，`editor_app` 启动顺序为：
-
-1. 解析项目与运行目录，初始化 ProjectSystem，检查项目根目录及 `settings/`、`cache/`、`assets/`。失败时尚未打开引擎窗口。
-2. 初始化 EditorEnvironment，由环境配置 App 路径，然后初始化 LogSystem。
-3. 初始化进程 ThreadSystem、编辑器 TaskSystem 任务域和借用它的 AssetPipelineSystem，按项目并发设置转换资源，生成 `cache/gen/<完整 GUID>` 与资源目录；SQLite 索引留在 cache。
-4. 宿主初始化 ResourceSystem 和选中的 ResourceGraphSystem，并注入加载接口；再初始化 RuntimeHost，借用资源底层并创建窗口、世界和渲染。EditorEnvironment 直接提交管线内存目录和 cache 挂载，再以其玩法会话初始化 EditorSystem。
-5. 编辑器发布新会话状态，保持空白等待 MCP；收到本会话 start_project 后，调用 GameplaySession 入口，经 ScriptSystem 创建 Game 与场景，再准备 GPU 资源。
-
-关闭顺序为：先结束 Game 回调，再关闭 EditorSystem、RuntimeHost；解除资源加载接口借用后关闭加载插件、ResourceSystem 和 AssetPipelineSystem；刷新并关闭 LogSystem，由 EditorEnvironment 清理宿主登记并关闭 App，最后关闭 ProjectSystem。中途失败按已成功初始化部分清理。
-
-RuntimeHost 在关闭 Engine 根系统之前销毁玩法会话，因此 Game 的退出回调仍能使用存活的引擎系统。完整脚本运行关闭时，编辑器跳过编译、同步和玩法启动，保留项目检查、引擎及编辑器窗口流程。
-
-桌面 `engine_app` 初始化 App、LogSystem，并在宿主处装配资源底层及已选插件，再初始化 RuntimeHost，结束时反序关闭；不要求项目、不创建 ProjectSystem，也不自动启动 Game。Android 同名宿主在引擎就绪后显式启动打包项目 Gameplay，退出顺序相同；项目选择发生在打包阶段。
+契约：[项目](../editor/class-diagrams/project-system.md) · [编辑器](../editor/class-diagrams/editor-system.md) · [资源管线](../editor/class-diagrams/asset-pipeline-system.md) · [资源同步](../plugins/editor/class-diagrams/asset-sync-system.md)。
 
 ## 脚本运行、资源读取与项目入口
 
-```mermaid
-classDiagram
-    direction TB
-    class ScriptSystem
-    class ScriptStatus
-    class App
-    class LogSystem
-    class ResourceSystem
-    class Engine
-    ScriptSystem *-- ScriptStatus : 状态值
-    ScriptSystem ..> App : 只读应用路径
-    ScriptSystem ..> LogSystem : 原生日志绑定
-    class ResourceLoader
-    ScriptSystem ..> ResourceSystem : 静态候选预检与目录查询
-    ScriptSystem ..> ResourceLoader : 加载共享脚本资源
-    class GameplaySession
-    GameplaySession ..> ScriptStatus : 返回可空只读借用
-```
+GameplaySession 组织项目启停；核心只声明 ScriptRuntime，宿主注入脚本工厂。插件内每个 Run 独占 VM 和绑定上下文；资源与存储仍经各自服务契约使用。
 
-ScriptSystem 由 WorldSystem 独占；GameplaySession 通过核心 ScriptRuntime 契约协调玩法启停、部署候选选择与资源清理，具体 ScriptSystem 插件提供候选预检、运行和重建能力。ScriptStatus 是 ScriptSystem 的值成员，返回借用仅在所属系统存活期间有效，不能跨线程保留使用。
-
-ResourceSystem 的静态读取方法不要求 System、App 或 Engine 已初始化，供脚本、资源同步和 MCP 共用。它通过 SDL3 同步读取普通文件，成功输出由调用者拥有，失败清空；不为调用者创建隐藏的 ResourceSystem 实例。路径、文本和二进制缓冲区的参数依赖见[资源系统](../runtime/class-diagrams/resource-system.md)。
-
-```mermaid
-classDiagram
-    direction TB
-    class ScriptSystem
-    class Gameplay {
-        <<script base>>
-    }
-    class Game {
-        <<project script>>
-    }
-    class Debug {
-        <<script binding>>
-    }
-    class ScriptApp["App 脚本绑定"]
-    class WindowBinding
-    class WindowSystem
-    class Storage
-    class StorageBinding
-    class BindingContext
-    class KeyValueStore
-    class App
-    class LogSystem
-    Gameplay <|-- Game
-    ScriptSystem "1" *-- "0..1" Game : 当前玩法运行实例
-    ScriptSystem ..> Gameplay : 引擎模块基类及实例检查
-    Game ..> Debug : 项目日志调用
-    Game ..> ScriptApp : 应用目录查询
-    Debug ..> LogSystem : 静态日志转发
-    ScriptApp ..> App : 只读平台路径绑定
-    ScriptApp ..> WindowSystem : 提交退出请求
-    WindowBinding ..> WindowSystem : 扩展现有窗口接口
-    BindingContext --> WindowSystem : 活动回调借用及鼠标恢复
-    Game ..> Storage : 低频字符串 KV 与显式保存
-    StorageBinding ..> Storage : 定义脚本外观
-    StorageBinding ..> BindingContext : 有效回调期间借用
-    BindingContext *-- KeyValueStore : 每个 Run 独占缓存
-    BindingContext ..> App : 首次访问读取持久路径
-```
-
-Game 是项目默认导出的 Gameplay 派生类型，是引擎与项目业务之间的胶水。ScriptSystem 持有当前运行的一个 Game 实例；项目可承载业务、组织业务对象，并选择、加载和切换场景。
-
-运行控制见[脚本入口](../plugins/runtime/class-diagrams/runtime-controls-script-api.md)：
-现有 WorldSystem 保存临时暂停状态，各实际模拟入口遵守该状态，UI/输入/Gameplay 菜单继续更新；
-Engine/System 不增加调度框架。每 Run 的 BindingContext 独占最多一个 ResourceLoad 操作，
-实际依赖遍历和缓存仍由 ResourceGraphSystem 实现；操作借用的加载器必须晚于 Run 释放。
-暂停和加载的方法分别只在世界/资源/玩法的独立类图定义，此处不重复接口。
-
-Node、Component、Scene 支持动态创建和脚本绑定，场景通过 TOML 源资源导入为 FlatBuffers 二进制并加载。图中的 App 脚本绑定是 C++ App 的只读暴露，不是第二个平台所有者；Debug 直接转发原生日志，不新增 C++ Debug 或 Logger 所有者。
-
-`KeyValueStore` 属于运行时核心，显式接收目录，负责字符串缓存和落盘；脚本插件的 `StorageBinding` 借用当前 Run 的 BindingContext 调用它。App 保持路径查询职责，游戏字段、JSON 与数据版本留在项目。具体方法分别见[原生 KV](../runtime/class-diagrams/key-value-store.md)和[脚本接口](../plugins/runtime/class-diagrams/storage-script-api.md)。
-
-ScriptSystem 的每个候选或活动 Run 独占一个 [ScriptVm](../plugins/runtime/class-diagrams/script-vm.md)、模块缓存、任务队列和 Game。QuickJS 的 runtime/context 随 Run 创建和销毁；V8 的 isolate/context 同样由 Run 独占，V8 platform 按进程共享，完整退出前销毁全部 isolate。热重载重建 Run，不切换后端，也不重新初始化整个 V8 平台。具体方法及 SDK 声明见[脚本系统](../plugins/runtime/class-diagrams/script-system.md)和[玩法入口](../runtime/class-diagrams/gameplay.md)。
+契约：[资源系统](../runtime/class-diagrams/resource-system.md) · [脚本入口](../plugins/runtime/class-diagrams/runtime-controls-script-api.md) · [原生 KV](../runtime/class-diagrams/key-value-store.md) · [脚本接口](../plugins/runtime/class-diagrams/storage-script-api.md) · [ScriptVm](../plugins/runtime/class-diagrams/script-vm.md) · [脚本系统](../plugins/runtime/class-diagrams/script-system.md) · [玩法入口](../runtime/class-diagrams/gameplay.md)。
 
 ## MCP 宿主与跨进程文件关系
 
-```mermaid
-classDiagram
-    direction TB
-    class McpHost["mcp_app 宿主"] {
-        <<host>>
-    }
-    class McpSystem
-    class McpTool
-    class ProjectMcpTools
-    class EditorMcpTools
-    McpHost *-- McpSystem : 独占通用协议根系统
-    McpHost *-- ProjectMcpTools : 独占项目工具模块
-    McpHost *-- EditorMcpTools : 独占编辑器工具模块
-    McpSystem *-- "0..*" McpTool : 工具描述与执行函数
-    ProjectMcpTools ..> McpSystem : 初始化前显式注册
-    EditorMcpTools ..> McpSystem : 初始化前显式注册
-    McpTool --> ProjectMcpTools : 项目工具回调借用
-    McpTool --> EditorMcpTools : 编辑器工具回调借用
-```
+MCP 属于编辑器插件，通过明确运行目录与会话交换命令和回执。EditorCommands 在所属线程执行操作，资源同步只发布完整版本，不替代宿主热重载流程。
 
-```mermaid
-classDiagram
-    direction TB
-    class McpHost["mcp_app 宿主"]
-    class ProjectMcpTools
-    class EditorMcpTools
-    class McpTarget
-    class AssetPipelineSystem
-    class AssetBuildSystem
-    class AssetSyncSystem
-    class ResourceSystem
-    McpHost *-- AssetPipelineSystem : 独立根系统
-    McpHost *-- AssetBuildSystem : 独立根系统
-    McpHost *-- AssetSyncSystem : 独立根系统
-    ProjectMcpTools *-- McpTarget : 固定目标值
-    EditorMcpTools *-- McpTarget : 固定目标值
-    ProjectMcpTools --> AssetPipelineSystem : 构造及持续借用
-    ProjectMcpTools --> AssetBuildSystem : 构造及持续借用
-    ProjectMcpTools --> AssetSyncSystem : 构造及持续借用
-    ProjectMcpTools ..> ResourceSystem : 状态及清单读取
-    AssetSyncSystem ..> ResourceSystem : 文件及清单读取
-```
-
-`mcp_app` 接收明确的项目根目录与 McpTarget（本机运行目录，或 adb 序列号和 Android 包名）。资产系统就绪后初始化 ProjectMcpTools，再由各工具模块向 McpSystem 注册，最后初始化并运行协议系统；关闭 MCP 后才销毁业务模块和依赖。ProjectMcpTools 的三个系统引用必须持续有效；McpSystem 自身不要求项目、资产或设备。
-
-McpSystem 只拥有描述、输入参数模型与回调，工具列表和调用共用同一注册表；初始化后冻结列表。业务模块自行处理资源、设备或编辑器通道，不在协议系统累积工具名称分支。独立契约见[协议与注册](../plugins/editor/class-diagrams/mcp-system.md)、[项目工具](../plugins/editor/class-diagrams/project-mcp-tools.md)与[编辑器工具](../plugins/editor/class-diagrams/editor-mcp-tools.md)。
-
-MCP 宿主不创建 Engine、WorldSystem 或 ScriptSystem，也不通过编辑器对象直接执行玩法。它使用项目路径编译资源，使用指定运行目录同步和控制；标准输出只写 JSON-RPC，构建诊断输出到标准错误。MCP 入口不初始化 App 或 LogSystem。
-
-```mermaid
-classDiagram
-    direction TB
-    class AssetSyncSystem
-    class ProjectMcpTools
-    class ScriptSystem
-    class GameplaySession
-    class Available["assets/available.json"] {
-        <<file>>
-    }
-    class Versions["assets/versions/revision"] {
-        <<directory>>
-    }
-    class Control["script-control.json"] {
-        <<file>>
-    }
-    class Status["script-status.json"] {
-        <<file>>
-    }
-    AssetSyncSystem ..> Versions : 准备并校验完整快照
-    AssetSyncSystem ..> Available : 原子发布可用版本
-    GameplaySession ..> Available : 宿主发现候选版本
-    GameplaySession ..> Versions : 校验候选部署内容
-    ProjectMcpTools ..> Available : 查询实际已发布版本
-    ProjectMcpTools ..> Control : 原子写热重载开关
-    GameplaySession ..> Control : 主线程读取开关并调用脚本能力
-    GameplaySession ..> Status : 发布会话与脚本状态
-    ProjectMcpTools ..> Status : 查询最后上报的运行状态
-```
-
-上述文件均位于目标应用的持久数据目录之下，不属于可被系统清理的 App 缓存目录。两个进程无需共享 C++ 对象：
-
-- AssetSyncSystem 准备并校验不可变完整版本，再原子替换 `available.json`。发布成功只表示文件可用，不表示脚本已经激活。
-- GameplaySession 检查候选部署清单，ScriptSystem 按入口模块预检；关闭热重载仍可接收独立版本文件及报告可用版本。
-- GUID 资源版本固定一份完整 catalog，模块通过 module_path 解析到 GUID；目录中缺失模块即失败，不回退旧包内内容。编辑器直接映射 cache/gen；会覆盖该缓存的构建要求先停止项目。同步已构建的独立运行包不覆盖活动版本。
-- 热重载开启后，在运行线程安全点预检候选模块。语法或静态链接失败保留旧 Game；预检通过后停止旧 Game 并执行新入口，执行失败停止此次玩法，不承诺撤销已产生的业务副作用。
-- MCP 通过控制文件请求开关，由引擎读取后生效。状态查询独立读取实际发布版本；运行状态来自引擎最后上报，不作为进程实时在线证明。
-- 同步使用完整版本快照；相同版本复用已有目录，变化时准备完整批次。Android 通过 adb 与 run-as 发布到 Debug 包，Release 不开放该通路；不提供独立网络服务或差量传输。
-
-资源同步与 MCP 具体契约见[资源同步系统](../plugins/editor/class-diagrams/asset-sync-system.md)及[项目 MCP 工具](../plugins/editor/class-diagrams/project-mcp-tools.md)。
+契约：[协议与注册](../plugins/editor/class-diagrams/mcp-system.md) · [项目工具](../plugins/editor/class-diagrams/project-mcp-tools.md) · [编辑器工具](../plugins/editor/class-diagrams/editor-mcp-tools.md) · [资源同步系统](../plugins/editor/class-diagrams/asset-sync-system.md)。
 
 ## 项目启停与编辑器命令
 
-项目启动、停止与编辑操作共用 `EditorMcpTools → EditorCommandChannel → EditorCommands` 的会话命令通道。`project-status.json` 继续发布项目身份、心跳和运行状态；逐请求结果统一保存在 editor-receipts。启动仍先取得资源锁、关闭预览并调用 GameplaySession，停用项目不会因资源同步自行重新启动。命令只在编辑器主线程执行，保留项目/会话校验、去重和 pending 查询；关闭编辑器在回执成功后延时执行。Android 资源同步与运行时热重载协议不变。
+EditorSystem 调用 GameplaySession 组织资源、脚本与场景生命周期；命令负责其领域事务，停止、重开与恢复策略不下沉到核心资源接口。
+
+契约：[运行会话](../runtime/class-diagrams/gameplay-session.md) · [编辑器](../editor/class-diagrams/editor-system.md)。
 
 ## 编辑器命令与场景业务
 
-```mermaid
-classDiagram
-    direction TB
-    class EditorMcpTools
-    class EditorCommand["editor-command.json"] {
-        <<file>>
-    }
-    class EditorReceipt["editor-receipts/session/requestId.json"] {
-        <<file>>
-    }
-    class EditorSystem
-    class EditorCommandChannel
-    class EditorCommands
-    EditorMcpTools ..> EditorCommand : 校验目标并发布请求
-    EditorMcpTools ..> EditorReceipt : 等待或补查原请求回执
-    EditorSystem *-- EditorCommandChannel : 独占文件通道
-    EditorCommandChannel ..> EditorCommand : 主线程读取
-    EditorCommandChannel ..> EditorReceipt : 持久化完成结果
-    EditorCommandChannel --> EditorCommands : 持续借用并调度
-    EditorSystem *-- EditorCommands : 独占命令与撤销历史
-```
+组件编辑使用所属编解码和 EditorCommands；字段编辑与整组件恢复保留各自冲突检查，不能因合并组织代码而扩大覆盖范围。
 
-```mermaid
-classDiagram
-    direction TB
-    class EditorSystem
-    class EditorCommands
-    class EditorEdit
-    class SceneCommands
-    class WorldSystem
-    class Node
-    class Component
-    EditorSystem *-- SceneCommands : 独占场景业务模块
-    SceneCommands --> WorldSystem : 持续借用
-    SceneCommands ..> EditorCommands : 注册业务命令
-    EditorCommands --> SceneCommands : 已注册回调借用
-    EditorCommands *-- "0..*" EditorEdit : 独占记录并按批撤销
-    SceneCommands ..> EditorEdit : 创建尚未应用的修改
-    SceneCommands ..> Node : 按场景及节点身份查询
-    SceneCommands ..> Component : 调用原生属性接口
-```
-
-EditorMcpTools 位于工具进程，EditorCommands、SceneCommands 与 EditorCommandChannel 位于编辑器进程。文件请求带项目、会话、请求编号及业务参数；编辑器主线程执行，并保存可补查的原回执。等待超时返回 pending，不表示取消；同会话同请求不重复执行。项目启停复用同一通道，不改变 Android 同步协议。
-
-SceneCommands 负责活动场景查询、创建带 Transform 的空节点或相机/灯光节点、活动相机选择，以及 Transform、Camera、Light、材质类型/参数/贴图修改；物理和音频的逐类型命令由它显式登记，快照与新增组件撤销见[组件命令图](../editor/class-diagrams/component-commands.md)。EditorCommands 管理批量执行、失败回滚和撤销/重做，持有有界批次历史；场景代次变化清空历史。修改记录重查完整节点身份与期望值，避免使用跨场景悬空指针或覆盖脚本的新修改。Node、Component、WorldSystem 不反向依赖 MCP、编辑器命令或 JSON。通用方法和数据契约只在[编辑器命令图](../editor/class-diagrams/editor-commands.md)维护。
+契约：[组件命令图](../editor/class-diagrams/component-commands.md) · [编辑器命令图](../editor/class-diagrams/editor-commands.md)。
 
 ## 公共路径工具
 
-公共 [PathUtils](../runtime/class-diagrams/path-utils.md) 位于 `runtime/utils/`，提供 UTF-8 字符串与文件系统路径之间的静态转换，不继承 System、不持有实例，也不参与生命周期调度。其方法只在独立类图定义。
+PathUtils 只提供 UTF-8 与原生路径转换；权限、目录创建、规范化和越界检查归实际调用者。
 
-```mermaid
-classDiagram
-    direction TB
-    class PathUtils
-    class App
-    class ScriptSystem
-    class VirtualFileSystem
-    App ..> PathUtils : UTF-8 路径转换
-    ScriptSystem ..> PathUtils : UTF-8 路径转换
-    VirtualFileSystem ..> PathUtils : 挂载相对路径转换
-```
-
-```mermaid
-classDiagram
-    direction TB
-    class PathUtils
-    class ProjectSystem
-    class AssetPipelineSystem
-    class AssetSyncSystem
-    class ProjectMcpTools
-    class EditorMcpTools
-    ProjectSystem ..> PathUtils : UTF-8 路径转换
-    AssetPipelineSystem ..> PathUtils : UTF-8 路径转换
-    AssetSyncSystem ..> PathUtils : UTF-8 路径转换
-    ProjectMcpTools ..> PathUtils : UTF-8 路径转换
-    EditorMcpTools ..> PathUtils : UTF-8 路径转换
-```
-
-桌面 App 实现、脚本系统、项目系统、资源管线、资源同步、MCP 及编辑器/MCP 宿主使用上述公共转换。转换保留路径内容，不负责路径存在性、规范化或目录越界检查；这些判断继续由使用者完成。
-
-VirtualFileSystem 的 SDL 打开文件操作保留原生 `path.u8string()` 编码，避免改变 Windows 扩展长度路径语义；逻辑相对路径转换仍使用 PathUtils。ResourceSystem 委托 VFS 读取实体范围，宿主与同步工具复用其流式摘要接口。
+契约：[PathUtils](../runtime/class-diagrams/path-utils.md)。
 
 ## System 继承与参数依赖
 
-下列继承与配置关系均已实现，各类公开方法在其独立图中维护：
+具体系统继承 System；拥有者依赖先初始化、反序释放。可选服务使用可空借用或工厂，必需服务使用明确引用，不建立平行生命周期框架。
 
-| 类别               | 直接继承 System 的类型                                                   | 配置与其他参数依赖                                                                             |
-| ------------------ | ------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------- |
-| 运行宿主独占根系统 | WindowSystem、InputSystem | EngineConfig 生命周期参数；RuntimeHost 独立管理窗口与输入，暂停前发布设备及动作快照 |
-| 引擎根系统         | WorldSystem；ResourceSystem、RenderSystem 由宿主管理                                | EngineConfig 生命周期参数；RenderSystem 构造借用 WindowSystem 和可空 WorldSystem               |
-| 世界子系统         | PhysicsSystem、NavigationSystem、AnimationSystem、FontSystem、UiSystem、AudioSystem、ScriptRuntime | EngineConfig 生命周期参数；UI 借用窗口、世界与字体，脚本接口还使用入口字符串及 ScriptStatus |
-| 独立单例根系统     | LogSystem                                                                | EngineConfig、LogLevel、日志文本；返回日志路径借用                                             |
-| 编辑器根系统       | ProjectSystem、EditorSystem                                              | EngineConfig；项目根目录字符串；EditorSystem 构造借用 EditorEnvironment 和可空 GameplaySession |
-| 资产工具根系统     | AssetPipelineSystem、AssetBuildSystem、AssetSyncSystem                   | EngineConfig；项目、清单及运行目录 Path；AssetBuildSystem 借用管线                             |
-| 运行时插件根系统 | ResourceGraphSystem | EngineConfig；借用 ResourceSystem，实现 ResourceLoader，返回 ResourceHandle |
-| 编辑器协议根系统 | McpSystem                                                                | EngineConfig；McpTool 登记值、JSON 参数及 McpCallStatus 返回状态，不依赖项目                   |
-
-App 不参与 System 继承，初始化参数为 AppConfig。McpTarget 是普通配置结构，按值保存运行目录、adb 路径、设备序列号与包名，ProjectMcpTools 与 EditorMcpTools 各自按值保存目标，字段关系见[项目工具图](../plugins/editor/class-diagrams/project-mcp-tools.md)。这两个业务模块以及 EditorCommands、SceneCommands 均不继承 System。ResourceSystem 的同步读取参数使用 Path 与调用者的文本或二进制输出缓冲区；AssetSyncSystem 返回的版本、错误字符串也是所属对象的只读借用。
+契约：[项目工具图](../plugins/editor/class-diagrams/project-mcp-tools.md) · [系统契约](../runtime/class-diagrams/engine-system.md)。
 
 ## 类型登记与框架分派
 
-JSON 资源使用统一导入插件内的 [JsonImporter](../plugins/editor/class-diagrams/json-importer.md) 与脚本 [JsonBinding / Json](../plugins/runtime/class-diagrams/json-script-api.md)。JsonImporter 继承 AssetImporter，由宿主创建后转交 AssetImporterRegistry 独占；借用 ImportAsset、ImportContext，私有调用 nlohmann/json 严格校验。JsonBinding 继承 ScriptBinding，由 ScriptBindingRegistry 独占，借用 BindingContext 验证活动回调，通过注入的 ResourceLoader 检查业务已加载的 ResourceHandle 类型并读取不可变 JSON 载荷；JS 门面解析为当前 VM 的普通值。核心使用独立 JsonResourceCodec 进行字节校验，不拥有 JSON 解析器或配置业务。完整参数、返回类型及所有权关系仅在两份新独立图定义；已按评审契约实现。
+资源 Codec、AssetImporter、Component 操作及脚本绑定均由所属模块显式登记。框架只选择和调度，具体类型分别拥有转换、校验和状态，不集中到跨模块大 switch。
 
-脚本、组件、资源实体和资源导入分别使用本模块的最小契约。框架组织生命周期或批次，具体类型在自己的文件实现；登记表显式列出实现，不使用 RTTI、宏反射或跨模块 Manager。
-
-```mermaid
-classDiagram
-    class System
-    class ScriptRuntime
-    class ScriptStatus
-    class ScriptSystem
-    class ScriptBinding
-    class ScriptBindingRegistry
-    class GameplaySession
-    System <|-- ScriptRuntime
-    ScriptRuntime <|-- ScriptSystem
-    GameplaySession --> ScriptRuntime : 借用核心执行契约
-    ScriptRuntime ..> ScriptStatus : 只读状态返回
-    ScriptSystem *-- ScriptStatus : 值拥有实现状态
-    ScriptSystem *-- ScriptBindingRegistry : 独占逐类注册表
-    ScriptBindingRegistry *-- ScriptBinding : 独占具体绑定
-    class BindingContext
-    class RenderBinding
-    class RenderSystem
-    ScriptSystem *-- BindingContext : 每个玩法上下文
-    ScriptBinding <|-- RenderBinding
-    BindingContext --> RenderSystem : 有效回调期间可空借用
-    RenderBinding ..> RenderSystem : 视口与VSync查询设置
-```
-
-核心边界见 [ScriptRuntime](../runtime/class-diagrams/script-runtime.md)，插件实现与模板登记见 [ScriptSystem](../plugins/runtime/class-diagrams/script-system.md)、[ScriptBindingRegistry](../plugins/runtime/class-diagrams/script-bindings.md)。ScriptRuntimeFactory 是宿主创建函数的别名，不是新增管理器；未提供工厂时核心不创建脚本子系统。
-
-```mermaid
-classDiagram
-    class Scene
-    class Node
-    class Component
-    class ComponentRegistry
-    class SceneImporter
-    class SceneComponentCodec
-    class ComponentDataT
-    class WorldSystem
-    WorldSystem *-- ComponentRegistry : 独占类型操作登记
-    WorldSystem --> ComponentRegistry : 宿主登记时借用
-    Scene ..> ComponentRegistry : 分派创建保存恢复操作
-    ComponentRegistry ..> Node : 调用泛型组件创建
-    Node ..> Component : 按类型返回值句柄
-    Scene ..> Component : 调用统一保存恢复契约
-    Component ..> ComponentDataT : 保存恢复独立快照
-    SceneImporter ..> SceneComponentCodec : 描述类型读写分派
-    SceneComponentCodec ..> ComponentDataT : 编辑器描述与生成模型转换
-```
-
-运行时创建与恢复见 [ComponentRegistry](../runtime/class-diagrams/component-registry.md)，编辑器 TOML 转换见 [SceneComponentCodec](../editor/class-diagrams/scene-component-codecs.md)。二者共享 FlatBuffers 生成模型，组件行为不依赖编辑器描述格式。
-
-```mermaid
-classDiagram
-    class ResourceSystem
-    class ResourceCodec
-    class Resource
-    class ResourceCatalog
-    class AssetPipelineSystem
-    class AssetImporterRegistry
-    class AssetImporter
-    class ImportContext
-    ResourceSystem ..> ResourceCodec : 按资源类型解码和验证
-    ResourceCodec ..> Resource : 写入候选实体
-    ResourceCodec ..> ResourceCatalog : 借用引用元数据
-    AssetPipelineSystem *-- AssetImporterRegistry : 独占登记并在批次中选择
-    AssetImporterRegistry *-- AssetImporter : 独占已登记实现
-    AssetImporter ..> ImportContext : 借用转换输入及目标信息
-```
-
-单项资源的类型校验见 [ResourceCodec](../runtime/class-diagrams/resource-codecs.md)，离线依赖、类型指纹和转换见 [AssetImporter](../editor/class-diagrams/asset-importers.md)。资源解码器不加载依赖；导入器不拥有 oneTBB 执行器或 SQLite 发布事务。
-
-建模导入扩展的完整关系见 [ModelingMeshImporter](../plugins/editor/class-diagrams/modeling-mesh-importer.md)：插件继承编辑器 MeshImporter，宿主创建并通过 set_importer 转交管线持有。管线只拥有 AssetImporter 接口，不依赖建模插件目标；销毁管线时释放登记实现。
+契约：[JsonImporter](../plugins/editor/class-diagrams/json-importer.md) · [JsonBinding / Json](../plugins/runtime/class-diagrams/json-script-api.md) · [ScriptRuntime](../runtime/class-diagrams/script-runtime.md) · [ScriptSystem](../plugins/runtime/class-diagrams/script-system.md) · [ScriptBindingRegistry](../plugins/runtime/class-diagrams/script-bindings.md) · [ComponentRegistry](../runtime/class-diagrams/component-registry.md) · [SceneComponentCodec](../editor/class-diagrams/scene-component-codecs.md) · [ResourceCodec](../runtime/class-diagrams/resource-codecs.md) · [AssetImporter](../editor/class-diagrams/asset-importers.md) · [ModelingMeshImporter](../plugins/editor/class-diagrams/modeling-mesh-importer.md)。
 
 ## 第三方资源拥有关系
 
-```mermaid
-classDiagram
-    direction TB
-    class WindowSystem
-    class RenderSystem
-    class SDL_Window {
-        <<external>>
-    }
-    class SDL_MetalView {
-        <<external>>
-    }
-    class ANativeWindow {
-        <<external>>
-    }
-    WindowSystem "1" *-- "0..1" SDL_Window : 配对创建和销毁
-    WindowSystem --> SDL_Window : 返回借用
-    class RenderSurface
-    RenderSystem "1" *-- "0..1" RenderSurface : 独占私有平台表面
-    RenderSurface "1" *-- "0..1" SDL_MetalView : Apple 创建并销毁视图
-    RenderSurface "1" o-- "0..1" ANativeWindow : Android 持有原生引用
-    RenderSystem --> WindowSystem : 借用窗口系统
-    SDL_Window --> ANativeWindow : 平台属性提供借用
-```
+第三方句柄由实际创建它的模块配对释放；GPU、音频、物理、VM 等对象不转移到通用 Manager。公开契约中的借用不代表共享所有权。
 
-```mermaid
-classDiagram
-    direction TB
-    class WorldSystem
-    class ecs_world_t {
-        <<external>>
-    }
-    WorldSystem "1" *-- "0..1" ecs_world_t : 配对创建和销毁
-```
-
-```mermaid
-classDiagram
-    direction TB
-    class NavigationSystem
-    class rcHeightfield {
-        <<external>>
-    }
-    class dtNavMesh {
-        <<external>>
-    }
-    NavigationSystem "1" *-- "0..1" rcHeightfield : 配对分配和释放
-    NavigationSystem "1" *-- "0..1" dtNavMesh : 配对分配和释放
-```
-
-```mermaid
-classDiagram
-    direction TB
-    class EditorSystem
-    class ImGuiContext {
-        <<external>>
-    }
-    EditorSystem "1" *-- "0..1" ImGuiContext : 配对创建和销毁
-```
-
-RenderSystem 借用 SDL 窗口和原生句柄，拥有 bgfx 初始化状态及 Apple Metal view；Android 通过 acquire/release 持有原生窗口引用，在 bgfx 完全关闭后释放，不独占 Android 窗口对象。
-
-WorldSystem、NavigationSystem、EditorSystem 分别拥有图中的第三方实例并调用配对销毁接口。VirtualFileSystem 每次读取或计算摘要时拥有一个局部 SDL_IOStream，读取结束必须关闭；App 保存平台路径值；LogSystem 管理 Quill 后端和 Logger，日志文件由其私有 Output Sink 持有。初始化期间的局部依赖检查对象不构成持久拥有关系。
+契约：[渲染](../runtime/class-diagrams/render-system.md) · [音频](../runtime/class-diagrams/audio-system.md) · [物理](../runtime/class-diagrams/physics-system.md) · [VM](../plugins/runtime/class-diagrams/script-vm.md)。
 
 ## 实际编译与链接依赖
 
-| 引擎类或宿主工具      | 使用依赖                                                                                                                                      | 当前用途                                               |
-| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
-| PathUtils             | 标准库文件系统与字符串                                                                                                                        | UTF-8 路径编码转换                                     |
-| App                   | SDL3、PathUtils、标准库文件系统                                                                                                               | 桌面与 Android 平台目录及逻辑 APK 根                   |
-| LogSystem             | System、App、标准库线程与文件接口                                                                                                             | 进程日志、写盘、刷新和轮换                             |
-| WindowSystem          | SDL3                                                                                                                                          | 窗口、事件及平台生命周期                               |
-| InputSystem | SDL3、WindowSystem、FlatBuffers 输入数据 | 设备、热插拔、快照、通道映射、捕获与原生虚拟触摸；不依赖 UI / 项目 / 脚本 |
-| VirtualFileSystem     | SDL3、PathUtils                                                                                                                               | 挂载、文件范围读取与流式摘要，统一处理 APK 内置路径    |
-| ResourceCatalog       | FlatBuffers、GuidMap                                                                                                                          | 纯元数据目录、身份索引与依赖校验                       |
-| Resource              | FlatBuffers、标准库共享指针                                                                                                                   | 单项实体、目录代际与生成数据                             |
-| ResourceSystem        | VirtualFileSystem、ResourceCatalog、Resource、FlatBuffers、Basis Universal                                                                    | 目录原子换代、单项加载、接口借用及转码表初始化       |
-| ResourceGraphSystem | ResourceLoader、ResourceSystem、标准库共享与弱指针 | 同代际依赖加载、共享缓存及反向释放 |
-| WorldSystem           | flecs、FlatBuffers、Scene                                                                                                                     | ECS 世界、场景与节点身份生命周期                       |
-| RenderSystem          | bgfx、bx、SDL3、WorldSystem                                                                                                                   | 图形设备、场景组件读取、PBR 方块与帧提交               |
-| PhysicsSystem | Jolt、WorldSystem、Collider、RigidBody、Transform | 基础形状碰撞、固定步模拟、冲量及组件同步 |
-| AudioSystem | SDL3 Audio、WorldSystem、AudioSource、AudioListener、Transform | PCM 流、播放状态、空间衰减、后台暂停和资源清理 |
-| NavigationSystem | Recast、Detour、MeshDataT | 显式几何的分块构建、局部替换、失效清理与完整路径查询 |
-| AnimationSystem | ozz-animation、WorldSystem、Animator、MeshRenderer、ResourceSystem | 骨架映射、动作采样与混合、共享编译物及实例 palette 生命周期 |
-| FontSystem | bgfx、ResourceLoader、FontDataT、TextComponent | 共享曲线资源、字形测量和排布、UI 与 3D 字体 GPU 绘制 |
-| UiSystem | RmlUi、FontSystem、WorldSystem、WindowSystem、UiComponent | 文档生命周期、正常绘制顺序、输入与控件事件 |
-| ScriptRuntime | System、ResourceCatalog、ResourceMount、ScriptStatus | 核心声明的五方法执行契约，无语言实现或虚拟机链接 |
-| ScriptSystem 插件 | ScriptVm、ScriptBindingRegistry、LogSystem、ResourceSystem、PathUtils、WorldSystem                                                               | JS 模块预检与执行、共用原生绑定、玩法生命周期及状态；VM 依赖只在所选适配实现中 |
-| GameplaySession       | ScriptRuntime、ResourceSystem、VirtualFileSystem、WorldSystem、RenderSystem、PhysicsSystem、AudioSystem、App、nlohmann/json                                                | 宿主会话、候选版本预检、资源释放和目录提交、热重载调度 |
-| ProjectSystem         | LogSystem、PathUtils                                                                                                                  | 项目目录检查及日志                                     |
-| EditorEnvironment     | ProjectSystem、App、GameplaySession、ResourceSystem、LogSystem、PathUtils                                                                     | 编辑器路径映射、活动缓存租约与目录提交                 |
-| EditorSystem          | Dear ImGui、EditorEnvironment、GameplaySession、EditorCommands、SceneCommands、App、ResourceSystem、LogSystem、PathUtils、SDL3、nlohmann/json | 编辑器上下文、主线程命令、项目启停与状态回执           |
-| EditorCommands        | 标准函数及独占指针、nlohmann/json                                                                                                             | 命令登记、批量执行及撤销/重做历史                      |
-| SceneCommands         | WorldSystem、Scene、Node、Transform、Light、Material、Collider、RigidBody、AudioSource、AudioListener、EditorEdit                                                                              | 场景业务校验与字段修改记录                             |
-| EditorCommandChannel  | EditorCommands、ResourceSystem、PathUtils、SDL3、nlohmann/json                                                                                | 编辑器会话请求、持久回执和重复请求防护                 |
-| ThreadSystem / TaskSystem | oneTBB（私有）、平台调度 API、可选 Tracy | 进程 worker 预算、独立任务域、优先级与依赖图 |
-| AssetPipelineSystem   | TaskSystem、SQLite、efsw、meshoptimizer、SDL3、PathUtils                                                                                   | oneTBB 并行导入、SQLite 增量索引、资源转换及 TS 编译 |
-| AssetBuildSystem      | AssetPipelineSystem、ResourceCatalog、ResourceSystem、toml++                                                                                  | 项目清单、运行依赖闭包、增量散文件或合并包及运行目录   |
-| AssetSyncSystem       | nlohmann/json、SDL3、ResourceSystem、VirtualFileSystem、PathUtils                                                                             | 完整版本校验与原子发布                                 |
-| McpSystem             | System、nlohmann/json、标准函数对象                                                                                                           | stdio 协议、工具注册、参数检查与调用                   |
-| ProjectMcpTools       | McpSystem、nlohmann/json、SDL3、ResourceSystem、AssetPipelineSystem、AssetBuildSystem、AssetSyncSystem、PathUtils                             | 项目工具注册、清单构建、资源同步、运行控制及状态       |
-| EditorMcpTools        | McpSystem、ProjectLock、ResourceSystem、PathUtils、SDL3、nlohmann/json                                                                        | 编辑器工具注册、跨进程命令提交与回执查询               |
-| TS 构建工具           | Node.js、项目固定版本 TypeScript                                                                                                              | settings 中配置，assets 中源码，cache 中生成物         |
-| 资源构建工具          | shaderc、texturec、geometryc                                                                                                                  | 宿主工具，不进入运行时生命周期                         |
-| FbxImporter | ufbx、AssetImporter、生成 Model/Mesh/Skeleton/Animation | 统一 editor/asset_import 的逐类型实现；不进入运行时 |
-| UsdImporter | OpenUSD、AssetImporter、生成 Model/Mesh | 同一 editor/asset_import 目标；OpenUSD 保持离线私有依赖 |
-| CharacterControllerSystem | WorldSystem、CharacterController、CharacterMotor | 运行时插件；消费明确意图并计算移动与观察 |
+依赖查找归 cmake/dependencies，插件目标归各自清单；宿主只装配启用的依赖闭包。实际边界由源码包含和解析后的目标依赖检查，不在本文再维护一份库清单。
 
-Engine 与运行时系统不拥有 ProjectSystem、EditorSystem、AssetPipelineSystem、AssetBuildSystem、AssetSyncSystem 或 McpSystem，也不反向依赖离线编译器或具体项目。工具可以复用运行时的静态资源读取能力，运行时仍只消费部署内容。
-
-脚本模块内部的绑定接口、独占注册表、逐类实现及每个 Run 的上下文关系见[绑定类图](../plugins/runtime/class-diagrams/script-bindings.md)。ScriptSystem 通过注册表装配，不直接维护所有类的绑定实现。
-
-[导航绑定](../plugins/runtime/class-diagrams/navigation-script-api.md)通过 BindingContext 借用宿主注入的 NavigationSystem，验证当前 Run 的节点身份后收集明确指定的 MeshRenderer/Transform。导航核心仅借用同步调用期间的 MeshDataT，不包含具体插件或自动扫描场景；世界独占导航系统，脚本在所属场景切换或停止时显式清理。方法与数据关系见[导航系统类图](../runtime/class-diagrams/navigation-system.md)。
+契约：[绑定类图](../plugins/runtime/class-diagrams/script-bindings.md) · [导航绑定](../plugins/runtime/class-diagrams/navigation-script-api.md) · [导航系统类图](../runtime/class-diagrams/navigation-system.md) · [维护规范](../development.md) · [插件清单](../plugins/plugins.md)。
 
 ## 资源身份与导入依赖
 
-```mermaid
-classDiagram
-    direction TB
-    class GuidMap
-    class ResourceCatalog
-    class ResourceSystem
-    class AssetPipelineSystem
-    class TaskSystem
-    class AssetImporter
-    class SceneAssetImporter
-    class SceneImporter
-    class ScriptSystem
-    class System
-    System <|-- TaskSystem
-    AssetPipelineSystem --> TaskSystem : 借用已初始化编辑器任务域
-    AssetPipelineSystem ..> GuidMap : 源文件逻辑路径与身份校验
-    AssetPipelineSystem ..> AssetImporter : 调度已登记类型
-    AssetImporter <|-- SceneAssetImporter
-    SceneAssetImporter ..> SceneImporter : TOML 转场景数据
-    AssetPipelineSystem ..> ResourceSystem : 同步读取及产物校验
-    ResourceCatalog *-- GuidMap : 值拥有双向索引
-    ResourceSystem *-- ResourceCatalog : 元数据目录
-    ScriptSystem ..> ResourceCatalog : 候选预检输入
-```
+核心目录维护 GUID / 逻辑路径与真实依赖；编辑器导入器维护源 meta、子资源身份和类型转换。源文件同属一个包不自动形成运行资源互相依赖。
 
-GuidMap 属于纯标准库核心模块；SQLite 与 toml++ 仅用于编辑器导入；oneTBB 属于 runtime/task 私有依赖，编辑器借用其独立任务域。完整数据结构与公开方法见对应独立图。源资源 meta、SQL 中的身份和运行期目录使用同一完整 GUID，生成路径固定为 `cache/gen/<GUID>`。
+契约：[资源目录](../runtime/class-diagrams/resource-catalog.md) · [GUID](../runtime/class-diagrams/guid-map.md) · [导入器](../editor/class-diagrams/asset-importers.md)。
 
 ## 资源调用关系
 
-**2026-11-06 目标设计，待评审，尚未实现。** 方法分别在[资源类图](index.md#资源系统)维护；本节只定义关系。插件属于高级封装，业务依赖可替换的高层契约，不能直接拼装底层读取流程。
+现行调用链为业务 → ResourceLoader → 资源图插件 → 核心文件读取与单项解析。插件拥有依赖加载、共享、计数和卸载；业务先加载再使用，未加载直接返回错误。
 
-```mermaid
-classDiagram
-    class ExecutableHost
-    class Business
-    class ResourceLoader
-    class ResourceGraphSystem
-    class ResourceSystem
-    class ResourceCatalog
-    class GuidMap
-    class VirtualFileSystem
-    class ResourceCodec
-    class Resource
-    class AssetPipelineSystem
-    class AssetBuildSystem
-    class AssetSyncSystem
-    ExecutableHost ..> ResourceGraphSystem : 选择默认实现或同契约替代实现
-    ExecutableHost ..> Business : 注入 ResourceLoader
-    Business --> ResourceLoader : 加载 使用 释放
-    ResourceLoader <|-- ResourceGraphSystem
-    ResourceGraphSystem --> ResourceSystem : 组合包装单项读取
-    ResourceGraphSystem *-- Resource : 私有记录拥有并计数
-    ResourceSystem *-- ResourceCatalog : 独占目录
-    ResourceCatalog *-- GuidMap : 身份映射
-    ResourceSystem *-- VirtualFileSystem : 独占文件访问
-    ResourceSystem *-- ResourceCodec : 显式登记的类型处理器
-    ResourceSystem ..> Resource : 转交单项候选所有权
-    ExecutableHost ..> ResourceSystem : 提交选定完整目录与挂载
-    AssetBuildSystem --> AssetPipelineSystem : 借用增量导入
-    AssetBuildSystem ..> ResourceCatalog : 生成运行目录
-    AssetSyncSystem ..> ResourceCatalog : 部署完整资源版本
-```
-
-可执行宿主表示装配入口；现有 RuntimeHost/GameplaySession 借用抽象加载契约，不直接 include 默认插件。编辑器可提交完整可用集合，真机提交精简已发布集合；核心不反向依赖编辑器，不自动发现/回退版本。MCP 构建、同步与应用仍是不同操作。
-
-核心读取对象只交付独占单项数据；插件持有数据、闭包、在途请求与计数。业务获得 ResourceHandle，每次获取独立释放，模块实例另行 retain。旧代际 ready 闭包继续存活，新请求只读当前代际。文件、资源解析、插件组织与使用模块分属自己的任务域，底层共享 ThreadSystem；完整关系见[业务与任务](../runtime/class-diagrams/resource-consumers.md)。
+契约：[资源类图](index.md#资源系统) · [业务与任务](../runtime/class-diagrams/resource-consumers.md) · [统一生命周期](../runtime/class-diagrams/resource-lifecycle.md) · [加载契约](../runtime/class-diagrams/resource-loader.md)。
 
 ## 贴图与渲染基础
 
-```mermaid
-classDiagram
-    class AssetPipelineSystem
-    class AssetImporter
-    class TextureImporter
-    class ResourceSystem
-    class Resource
-    class TextureDataT
-    class Material
-    class MeshRenderer
-    class MeshUtils
-    class RenderSystem
-    AssetPipelineSystem ..> AssetImporter : oneTBB任务通过统一接口调用
-    AssetImporter <|-- TextureImporter
-    TextureImporter ..> TextureDataT : BasisU缓存
-    Resource *-- TextureDataT : 贴图载荷独占
-    ResourceSystem ..> MeshUtils : 几何验证
-    MeshRenderer ..> MeshUtils : 动态几何验证
-    MeshRenderer ..> Material : 按槽返回身份句柄
-    class MeshRendererRuntime
-    class MaterialState
-    MeshRendererRuntime *-- MaterialState : ECS运行列中的材质槽
-    MaterialState o-- Resource : 当前具名纹理共享引用
-    RenderSystem o-- Resource : GPU纹理生命周期保活
-    RenderSystem ..> MeshUtils : 切线生成
-```
+导入管线生成当前资源格式；运行时按准备预算创建 GPU 资源。材质绑定缓存、公共帧数据、逐观察者列表与阴影合批都收敛在渲染模块，业务不操作底层句柄。
 
-同一 Resource 身份只创建一份 GPU 纹理，释放最后一个场景使用者后销毁；网格提交通过节点身份和修订号发现变化。无资源读取、GPU句柄或导入策略进入 Engine 类。编辑器 TextureEdit 的撤销历史保存资源元数据值，不持有资源强引用。
+契约：[贴图导入](../editor/class-diagrams/texture-importer.md) · [渲染](../runtime/class-diagrams/render-system.md) · [提交管线](../runtime/class-diagrams/render-submission.md)。
 
 ## 建模三层引用关系
 
-| 调用方/所有者 | 被调用/被拥有对象 | 关系与有效期 |
-| --- | --- | --- |
-| editor_app 宿主 | ModelingCommands | 独占；先于命令注册创建，晚于命令与撤销历史释放销毁 |
-| ModelingCommands | WorldSystem | 借用；仅编辑器主线程访问，场景切换使旧模型身份失效 |
-| ModelingCommands | EditableMeshDataT | 独占模型及操作前后快照；不借用临时序列化内存 |
-| ModelingCommands | EditorCommands / EditorEdit | 注册模块命令；编辑记录交命令历史独占 |
-| ModelingCommands | modeling::mesh 命名空间函数 | 精简目标：统一调用纯数据计算，无反向依赖；代码待迁移 |
-| modeling::mesh 函数 | EditableMeshDataT / MeshDataT | 输入生成模型，输出独立渲染网格；没有场景/编辑器状态 |
-| modeling::mesh 函数 | Manifold | 实体运算，检查返回状态；不对外暴露第三方类型 |
-| modeling::mesh 函数 | Earcut | 多边形三角化；输入验证及编译由建模核心负责 |
-| ModelingCommands | MeshRenderer | 通过节点查询借用；只提交完整有效的新网格 |
-| 建模MCP注册函数 | EditorMcpTools | 借用固定项目及会话通道，转发请求与完成回执 |
-| 建模MCP注册函数 | McpSystem | 登记工具描述、参数模型和借用回调，回调借用的通道存活到服务关闭 |
-| editor_app / asset_build_app / mcp_app 宿主 | ModelingMeshImporter | 按已启用目标创建插件导入器，通过 set_importer 转交资源管线 |
-| AssetPipelineSystem | AssetImporterRegistry / AssetImporter | 独占登记与导入器接口；不引用具体建模插件，GUID/meta 与缓存发布仍归管线 |
-| ModelingMeshImporter | MeshImporter / modeling::mesh 函数 | 继承编辑器普通网格导入器；权威建模源由插件几何层编译为运行时 MeshData |
+建模插件内由网格算法、可编辑模型、命令与 MCP 适配组合制作流程；运行包只消费编译后的 Mesh，不链接完整建模插件。
 
-建模计算核心、场景业务和 MCP 适配均位于 `plugins/editor/modeling/`，插件内部按计算与调用边界分别编译。MCP 适配只调用工具通道，不直接引用几何接口；工具宿主提供资源构建时仍会通过导入管线链接几何编译能力。几何目标不依赖编辑器状态或 MCP，运行时场景、组件和渲染器不引用任何建模编辑器类型。
-
+契约：[建模](../plugins/editor/modeling.md) · [可编辑网格](../plugins/editor/class-diagrams/editable-mesh.md) · [建模命令](../plugins/editor/class-diagrams/modeling-commands.md)。
 
 ## 场景持久化与渲染编辑
 
-| 调用方/所有者 | 被调用/被拥有对象 | 关系与有效期 |
-| --- | --- | --- |
-| editor_app 宿主 | ScenePersistence / RenderCommands | 独占装配；先注册命令，先释放命令及历史再销毁业务对象 |
-| ScenePersistence | WorldSystem | 借用活动场景；读取 NodeInfo、组件生成数据及活动相机，构造独立 SceneDataT 快照 |
-| ScenePersistence | MeshSourceWriter | 按值持有可空的宿主函数；仅动态网格导出需要它，借用的 ModelingCommands 须存活到回调释放 |
-| ScenePersistence | SceneImporter / asset_pipeline 身份 helper | 差异发布场景 TOML 与导出资源，校验相邻 meta；外部冲突拒绝覆盖，失败恢复源文件及时间戳 |
-| ScenePersistence | Material / ResourceSystem | 通过 has_overrides 查询实例覆盖；已加载网格与无覆盖材质保留 GUID，仅导出动态网格及独立覆盖材质 |
-| ScenePersistence / ScenePreview | SceneSavedResource | 成功回调借用本次实际变更源的 GUID 与 source/meta 摘要；预览核对自保存导入后只提交目录，保留活动场景与撤销历史 |
-| ModelingCommands | Node / MeshRenderer | export_mesh 保存已管理的多边形源；普通渲染网格可转换为编辑源，场景重载按项目路径恢复源数据 |
-| RenderCommands | RenderSystem / WorldSystem | 借用只读快照、截图及活动场景；直接修改环境/后处理/灯光组件，编辑器负责创建、回滚与撤销，待机只编辑清屏色 |
-| 渲染MCP注册函数 | EditorMcpTools | 借用固定目标通道，只提交渲染命令并返回原回执，不直接操作 GPU 或 PNG |
-| 渲染MCP注册函数 | McpSystem | 注册 get_render_settings、set_render_settings、capture_frame、get_frame_capture |
-| 预览MCP注册函数 | EditorMcpTools | 借用桌面编辑器命令通道；不持有预览场景或镜头 |
-| 预览MCP注册函数 | McpSystem | 登记预览启停、查询、镜头设置与刷新；回调借用的通道存活到 MCP 关闭 |
-| RenderSystem | Material / ShaderDataT | 通过 Material::shader_data 借用材质持有的定义，不依赖插件缓存查询 |
-| RenderSystem | RenderSettings / RendererCallbacks | 场景设置每帧从组件组成只读快照，仅值持有待机清屏色；独占 bgfx 回调及 GPU 资源，负责阴影、IBL 采样和实际帧 PNG 输出 |
-| editor_app 宿主 | SceneBakeSystem | 仅启用 editor/scene_bake 时装配；注入预览校验与资源发布回调，关闭次序覆盖在途 GPU 读回 |
-| SceneBakeSystem | RenderSystem / ResourceSystem | 借用 GPU 就绪状态、帧号和源纹理；烘焙、文件发布及任务状态归编辑器插件 |
-| 烘焙MCP注册函数 | EditorMcpTools / McpSystem | 注册并转发烘焙启动、查询与取消，不持有 GPU 任务或向运行时引入 MCP |
+场景持久模型来自 schema，保存/恢复在边界组装快照。环境、相机后处理和阴影各由所属组件保存；编辑器事务和 GPU 烘焙由编辑器模块组织。
 
-```mermaid
-classDiagram
-    class ScenePersistence
-    class ModelingCommands
-    class EditorHost
-    class MeshSourceWriter
-    class WorldSystem
-    class SceneImporter
-    class EditorCommands
-    class EditorMcpTools
-    class RenderCommands
-    class RenderSystem
-    ScenePersistence --> WorldSystem : 借用场景
-    EditorHost ..> ModelingCommands : 创建建模业务并绑定方法
-    EditorHost ..> ScenePersistence : 管线启用时创建并注入可空回调
-    ScenePersistence *-- MeshSourceWriter : 持有函数契约
-    ScenePersistence ..> SceneImporter : 发布场景快照
-    ScenePersistence ..> EditorCommands : 注册保存命令
-    EditorMcpTools ..> EditorCommands : 文件命令通道
-    RenderCommands ..> EditorCommands : 注册设置与截图命令
-    RenderCommands --> RenderSystem : 借用运行时渲染能力
-```
-
-方法契约分别维护在[场景持久化](../editor/class-diagrams/scene-persistence.md)、[渲染编辑命令](../editor/class-diagrams/render-commands.md)和[渲染 MCP](../plugins/editor/class-diagrams/render-mcp-tools.md)。场景保存是编辑器文件业务，RendererCallbacks 属于运行时渲染，MCP 只提供可发现的调用入口；三者不进入 Engine 框架类。
-
-`EditorHost` 表示编辑器入口程序，`MeshSourceWriter` 是可空的 `std::function` 类型别名。启用资源管线即可装配保存命令；仅动态网格导出需要宿主提供写入器。建模闭包借用 ModelingCommands，宿主先释放编辑器命令和持久化回调，再销毁建模对象；ScenePersistence 本身不依赖任何插件类型。
-
-增量保存只发布字节发生变化的源文件；原样保存不触碰源文件/meta 时间戳，回执 `resourceCount=0`、`importRequired=false`。`resourceCount` 含场景实际变化，`meshCount`、`materialCount` 分别计入变化的导出资源，`sceneChanged` 标记场景变化，复用计数另行返回。私有成功记录按场景代次管理；当前代次内源或 meta 被外部修改时拒绝覆盖，刷新接受新版本后重新建立基线。保存不加入或清除撤销历史；ScenePreview 区分自身保存与外部变化，前者增量提交目录后保留场景和历史，撤销/重做后可再次差异保存。
-
-截图命令被接受与文件完成分开：编辑器命令回执完成后仍须查询渲染截图状态，只有 complete 表示 PNG 已写入。方向光支持级联阴影，点光和聚光使用局部阴影图；具体布局由渲染独立类图维护。
-
-IBL 由运行时加载漫反射立方图、预滤波反射立方图及 BRDF LUT 三份独立资源；GPU 烘焙采用 Ant 的 GGX / split-sum 实现并由 bgfx 调度。bgfx `18-ibl` 使用两张预生成 DDS 立方图，不能将本项目三图及 GPU 烘焙归为该范例的原样实现。烘焙完成才发布贴图/meta、场景 GUID 引用并刷新预览，保持原效果开关；环境 IBL 烘焙与场景几何间接光烘焙分开；Lightmap 和 SH9 探针由照明烘焙作业发布，运行时按组件引用消费。细节及后续全局共享 LUT 计划见[场景烘焙](../plugins/editor/class-diagrams/scene-bake.md)。建模的部分几何输入仍有限制，不能根据可经 MCP 全程操作便声称 ProBuilder/UModeler 已完整等价。
+契约：[场景持久化](../editor/class-diagrams/scene-persistence.md) · [渲染编辑命令](../editor/class-diagrams/render-commands.md) · [渲染 MCP](../plugins/editor/class-diagrams/render-mcp-tools.md) · [场景烘焙](../plugins/editor/class-diagrams/scene-bake.md)。
 
 ## 模型格式、统一运行数据与实例化
 
-```mermaid
-classDiagram
-    class AssetPipelineSystem
-    class AssetImporterRegistry
-    class AssetImporter
-    class FbxImporter
-    class UsdImporter
-    class ImportAsset
-    class ImportSubresource
-    class ModelDataT
-    class MeshDataT
-    class SkeletonDataT
-    class AnimationDataT
-    class ufbx
-    class OpenUSD
-    AssetPipelineSystem *-- AssetImporterRegistry : 宿主转交登记实现
-    AssetImporterRegistry *-- AssetImporter : 以源格式 id 独占
-    AssetImporter <|-- FbxImporter
-    AssetImporter <|-- UsdImporter
-    AssetImporter ..> ImportSubresource : 描述稳定 key 与产物 kind
-    AssetPipelineSystem ..> ImportAsset : 填充主子 GUID 及依赖
-    FbxImporter ..> ufbx : 私有编辑器依赖
-    UsdImporter ..> OpenUSD : 私有编辑器依赖
-    FbxImporter ..> ModelDataT : 生成模型资源
-    FbxImporter ..> MeshDataT : 生成几何与蒙皮
-    FbxImporter ..> SkeletonDataT : 生成绑定骨架
-    FbxImporter ..> AnimationDataT : 生成采样轨道
-    UsdImporter ..> ModelDataT : 生成静态层级
-    UsdImporter ..> MeshDataT : 生成静态几何
-```
+FBX / USD 由统一导入插件转换为独立 Model、Mesh、Skeleton、Animation、材质和纹理资源；运行时按真实引用实例化，不把离线解析器带入运行核心。
 
-源格式与产物种类独立，FBX/USD 同时输出 `model` 不构成注册冲突。管线负责相邻 meta 的主子身份、缓存与发布；插件只负责源格式语义。路径、类型与 GUID 共用核心目录，运行时和 MCP 不扫描 FBX/USD 内部结构。独立契约见[导入接口](../editor/class-diagrams/asset-importers.md)、[FBX](../plugins/editor/class-diagrams/fbx-importer.md)、[USD](../plugins/editor/class-diagrams/usd-import.md)。
-
-```mermaid
-classDiagram
-    class ResourceCodec
-    class ModelResourceCodec
-    class SkeletonResourceCodec
-    class AnimationResourceCodec
-    class Resource
-    class ResourceLoader
-    class Scene
-    class Node
-    class MeshRenderer
-    class Animator
-    class AnimationSystem
-    class RenderSystem
-    ResourceCodec <|-- ModelResourceCodec
-    ResourceCodec <|-- SkeletonResourceCodec
-    ResourceCodec <|-- AnimationResourceCodec
-    ResourceCodec ..> Resource : 保存并校验统一生成载荷
-    Scene ..> ResourceLoader : 请求模型根与依赖
-    Scene ..> Node : 管理实体生命周期并返回值句柄
-    Node ..> MeshRenderer : 按类型返回值句柄
-    Node ..> Animator : 可选组件值句柄
-    MeshRenderer o-- Resource : 直接共享持有 Mesh 资源
-    Animator o-- Resource : 持有当前及过渡动画、目标骨架引用
-    AnimationSystem ..> Animator : 读取请求与推进状态
-    AnimationSystem ..> MeshRenderer : 提交当前骨骼与法线 palette
-    RenderSystem ..> MeshRenderer : 读取源网格、材质与实例 palette 或顶点覆写
-```
-
-Schema 与单项解码器属于运行时核心，源文件导入属于编辑器插件；这使其他格式能生成同一模型，而不把更多格式 SDK 带进游戏。模型实例化仍是 Node + Component，模型资源不是新增场景对象层。解码器只验证调用方提供的直接依赖；依赖闭包、共享缓存和释放由运行时资源图插件组织。数据及方法见[模型资源](../runtime/class-diagrams/model-resources.md)、[解码器](../runtime/class-diagrams/resource-codecs.md)、[Animator](../runtime/class-diagrams/animator.md)和[动画系统](../runtime/class-diagrams/animation-system.md)。
+契约：[导入接口](../editor/class-diagrams/asset-importers.md) · [FBX](../plugins/editor/class-diagrams/fbx-importer.md) · [USD](../plugins/editor/class-diagrams/usd-import.md) · [模型资源](../runtime/class-diagrams/model-resources.md) · [解码器](../runtime/class-diagrams/resource-codecs.md) · [Animator](../runtime/class-diagrams/animator.md) · [动画系统](../runtime/class-diagrams/animation-system.md)。
 
 ## 角色控制器与编辑器扩展装配
 
-```mermaid
-classDiagram
-    class RuntimeSetup
-    class WorldSystem
-    class ComponentRegistry
-    class CharacterController
-    class CharacterControllerSystem
-    class CharacterMotor
-    class PhysicsSystem
-    class WindowSystem
-    class CharacterControllerCodec
-    class SceneComponentCodec
-    class EditorSystem
-    class SceneCommands
-    class EditorCommands
-    CharacterControllerSystem ..> ComponentRegistry : 初始化时登记可选组件
-    RuntimeSetup ..> WorldSystem : 宿主附属可选子系统
-    WorldSystem *-- ComponentRegistry : 通用类型操作表
-    WorldSystem *-- CharacterControllerSystem : 装配后统一生命周期
-    CharacterControllerSystem ..> CharacterController : 逐节点读取策略设置
-    CharacterControllerSystem ..> CharacterMotor : 提交运动请求
-    CharacterControllerSystem --> PhysicsSystem : 借用碰撞查询
-    CharacterControllerSystem ..> CharacterInput : 调用方明确提交的瞬态意图
-    SceneComponentCodec <|-- CharacterControllerCodec
-    CharacterControllerCodec ..> CharacterController : 复用公开参数校验
-    EditorSystem *-- SceneCommands : 拥有场景身份映射
-    EditorSystem *-- EditorCommands : 拥有事务调度
-```
+角色插件包装核心运动能力，输入与相机插件由宿主登记；编辑器制作和 MCP 适配归编辑器插件。核心不判断项目玩法或控制器身份。
 
-- `RuntimeSetup` 是可空函数指针别名，运行宿主只调用它，不认识插件；默认空时基础系统照常初始化。宿主在回调内附属可选系统；WorldSystem 初始化基础组件表后，CharacterControllerSystem 在自己的初始化方法中登记可选组件，失败按现有生命周期清理。
-- `WorldSystem::component_registry()` 借出其拥有的通用表；Scene 的恢复只按登记工厂创建，不硬编码角色插件。
-- `SceneComponentCodec` 的公开注册函数由编辑器宿主调用。基础表静态存活，扩展表独占插件 Codec，注册与并行导入不能并发，代码不能在运行中卸载。
-- `EditorSystem::scene_commands()` 返回可空服务借用；插件编辑记录通过 `SceneCommands::node_identity` 共用可撤销节点的当前身份值。该值不是 Node 所有权，历史仍须核验原场景代次。
-- 角色输入/相机策略在[运行时角色插件](../plugins/runtime/class-diagrams/character-controller.md)，胶囊运动在[核心 CharacterMotor](../runtime/class-diagrams/character-motor.md)，TOML、撤销和 MCP 注册在[编辑器角色插件](../plugins/editor/class-diagrams/character-controller.md)。MCP 只把调用送入编辑器主线程。
+契约：[运行时角色插件](../plugins/runtime/class-diagrams/character-controller.md) · [核心 CharacterMotor](../runtime/class-diagrams/character-motor.md) · [编辑器角色插件](../plugins/editor/class-diagrams/character-controller.md)。
 
 ## 输入关系
 
-[输入系统](../runtime/class-diagrams/input-system.md)由 RuntimeHost 独占，借用 WindowSystem，并在宿主暂停模拟前更新；不加入 World，也不反向依赖 UI、脚本或角色插件。脚本 BindingContext 仅借用系统并记录本 Run 创建句柄的清理责任。CharacterControllerSystem 无 WindowSystem 借用及固定输入 fallback，调用方明确提交 CharacterInput；脚本通过可选角色组件绑定提交。完整边界见[输入设计](../runtime/input.md)。
+InputSystem 收集设备并执行显式映射；项目配置绑定、玩家配对与虚拟触摸。原生输入与脚本接口共用同一状态来源。
+
+契约：[输入系统](../runtime/class-diagrams/input-system.md) · [输入设计](../runtime/input.md)。
 
 ## 影片关系
 
-影片运行采用本节宿主独占呈现服务、世界后期绑定的所有权；完整方法分别在[播放器](../runtime/class-diagrams/movie-player.md)、[启动装配](../runtime/class-diagrams/movie-startup.md)、[音频](../runtime/class-diagrams/movie-audio.md)、[导入](../plugins/editor/class-diagrams/movie-importer.md)、[任务](../editor/class-diagrams/asset-import-jobs.md)和[MCP](../plugins/editor/class-diagrams/movie-mcp-tools.md)维护，这里只汇总关系。影片 MCP、专用预览与异步导入批次仍待实现。
+宿主独占影片呈现服务，世界中的影片组件后期绑定；读取、解码、音频供数和呈现遵守各自任务与完成契约。专用 MCP、预览及异步导入的实现状态以所属图为准。
 
-```mermaid
-classDiagram
-    class RuntimeHost
-    class Engine
-    class WorldSystem
-    class WindowSystem
-    class RenderSystem
-    class AudioSystem
-    class MoviePlayer
-    class MovieFrame
-    class MoviePlaybackHandle
-    class AudioVoiceHandle
-    class ResourceSystem
-    class ResourceLoader
-    class Resource
-    class TaskSystem
-    class MovieDataT
-    class AudioClipDataT
-    class MovieResourceCodec
-    class ResourceCodec
-    RuntimeHost *-- WindowSystem : 同一窗口
-    RuntimeHost *-- RenderSystem : 早期初始化至关闭
-    RuntimeHost *-- AudioSystem : 同一设备与现有混音
-    RuntimeHost *-- MoviePlayer : 启动与业务共用
-    RuntimeHost --> Engine : 后期初始化游戏系统一次
-    Engine *-- WorldSystem : 世界生命周期
-    RenderSystem --> WorldSystem : 就绪后借用绑定
-    AudioSystem --> WorldSystem : 就绪后借用绑定
-    MoviePlayer --> ResourceSystem : 借用底层目录和加载入口
-    MoviePlayer ..> ResourceLoader : 只使用核心加载契约
-    MoviePlayer --> TaskSystem : 借用已有解码域
-    MoviePlayer --> AudioSystem : 独立声部输出
-    MoviePlayer *-- AudioVoiceHandle : 音频身份
-    MoviePlayer ..> MoviePlaybackHandle : 原生与脚本的播放身份
-    MoviePlayer o-- Resource : 固定本次请求的不可变资源快照
-    MoviePlayer ..> MovieFrame : 交出瞬时平面视图
-    RuntimeHost ..> MovieFrame : 本次同步转交
-    RenderSystem ..> MovieFrame : 复制后上传与单次呈现
-    MovieResourceCodec --|> ResourceCodec
-    MovieResourceCodec ..> MovieDataT : 生成模型校验
-    MovieResourceCodec ..> AudioClipDataT : 真实依赖校验
-    MovieDataT ..> AudioClipDataT : 唯一音频GUID依赖
-```
-
-```mermaid
-classDiagram
-    class MovieImporter
-    class AssetImporter
-    class AssetPipelineSystem
-    class AssetBuildSystem
-    class AssetSyncSystem
-    class ProjectMcpTools
-    class MovieDataT
-    class AudioClipDataT
-    class MoviePlayer
-    class MovieBinding
-    class ScriptBinding
-    class BindingContext
-    class MoviePlaybackHandle
-    class MovieEditorCommands
-    class ResourceSystem
-    class TaskSystem
-    class EditorCommands
-    class EditorMcpTools
-    class McpSystem
-    class register_movie_tools
-    class EditorHost
-    MovieImporter --|> AssetImporter
-    AssetPipelineSystem *-- AssetImporter : 现有显式登记
-    MovieImporter ..> MovieDataT : 转换主GUID产物
-    MovieImporter ..> AudioClipDataT : 转换可选音轨子资源
-    AssetBuildSystem --> AssetPipelineSystem : 现有构建依赖闭包
-    ProjectMcpTools --> AssetBuildSystem : 复用现有资源构建
-    ProjectMcpTools --> AssetSyncSystem : 复用现有完整版本同步
-    MovieBinding --|> ScriptBinding
-    MovieBinding ..> BindingContext : 当前Run调用上下文
-    BindingContext --> MoviePlayer : 可空宿主借用
-    BindingContext *-- MoviePlaybackHandle : 本Run只保留值身份
-    EditorHost *-- MovieEditorCommands : 主线程命令与预览协调
-    MovieEditorCommands --> AssetPipelineSystem : 导入请求和任务查询
-    MovieEditorCommands --> ResourceSystem : 借用以异步读取已导入描述
-    MovieEditorCommands --> TaskSystem : 借用执行摘要与参数IO
-    EditorHost *-- MoviePlayer : 独占预览实例
-    MovieEditorCommands --> MoviePlayer : 持续借用专用预览实例
-    EditorCommands --> MovieEditorCommands : 借用命令回调
-    register_movie_tools ..> McpSystem : 登记工具
-    register_movie_tools --> EditorMcpTools : 固定项目命令通道
-    EditorMcpTools ..> EditorCommands : 现有回执协议
-```
-
-命名空间分别为：核心 `engine`、生成模型 `engine::schema`、MovieImporter 为 `engine::plugins::asset_import`、MovieBinding 为 `engine::plugins::script::bindings`、MovieEditorCommands 为 `engine::editor`、MCP 登记为 `engine::plugins::mcp`。宿主节点只表示入口装配，不新增宿主包装类。运行时不 include 或链接这些具体编辑器/脚本插件；插件通过宿主注入核心借用。
-
-启动流程与业务流程只在调用方策略上不同，不增加第二套播放器、音频设备、GPU 或资源目录。后台只做不可变数据准备；世界/脚本/GPU 的主线程阶段必须实际拆分，不能用一个预算参数掩盖同步长调用。MCP 只转发既有编辑器命令，导入任务扩展原管线而不新增影片 JobManager。编解码后端固定为运行时 libvpx / VP9 与离线 FFmpeg；链接增量、SIMD 分派、实际音画同步及各平台性能须独立验证，不以接口存在代替验收。
+契约：[播放器](../runtime/class-diagrams/movie-player.md) · [启动装配](../runtime/class-diagrams/movie-startup.md) · [音频](../runtime/class-diagrams/movie-audio.md) · [导入](../plugins/editor/class-diagrams/movie-importer.md) · [任务](../editor/class-diagrams/asset-import-jobs.md) · [MCP](../plugins/editor/class-diagrams/movie-mcp-tools.md)。

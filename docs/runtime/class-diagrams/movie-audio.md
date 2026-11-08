@@ -1,6 +1,6 @@
 # 影片复用音频
 
-**资源接入状态：已按用户确认的统一资源契约迁移；验证结果见[测试文档](../../testing.md)。** 资源句柄及保活遵循[高层加载契约](resource-loader.md)。
+资源句柄及保活遵循[高层加载契约](resource-loader.md)。
 
 [类图索引](../../class-diagrams/index.md) · [当前音频系统](audio-system.md) · [影片播放器](movie-player.md) · [启动装配](movie-startup.md) · [影片资源](movie-data.md)
 

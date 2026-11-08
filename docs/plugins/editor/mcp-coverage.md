@@ -1,8 +1,8 @@
-# MCP 功能覆盖
+# MCP 工具能力索引
 
 [MCP 用法](mcp.md) · [公开范例测试](../../testing.md) · [类图索引](../../class-diagrams/index.md)
 
-## 核对方式
+## 查询工具
 
 通过当前构建的标准 `tools/list` 核对实际装配的工具、描述与参数，不在文档维护固定工具总数。可选插件和功能增量会改变数量；注册与参数覆盖不等于工具已完成真实交互或画面验收。
 ```sh
@@ -12,7 +12,7 @@ python3 scripts/mcp_client.py --server build/ninja-engine-release/mcp_app \
 
 输出直接来自当前二进制，包含完整 `inputSchema`。可选插件关闭后工具数量会变化；不要在 AI 客户端硬编码这份数量或假设全部工具存在。`engine.script_tooling` 对照实际装配检查工具集合及缺失插件行为，`engine.mcp_registry` 检查参数模型；执行成功、资源发布完成和画面正确仍须分别验证。
 
-## 已有入口与缺口
+## 模块与范围
 
 | 功能 | 已有 MCP 入口 | 需要补齐或说明的边界 |
 | --- | --- | --- |
@@ -38,28 +38,10 @@ python3 scripts/mcp_client.py --server build/ninja-engine-release/mcp_app \
 
 表内 `set/get_*`、斜线分隔的名称是阅读简写；实际名称和完整参数以 `list` 输出为准。
 
-## 本次已批准并实现的接口
+## 相关契约
 
-1. [项目 TS 执行](../runtime/class-diagrams/project-script-execution.md)：直接提交 TS，复用编辑器编译器，在活动 Run 中执行并返回 JSON；不要求项目预先注册每个操作。
-2. [UI 编辑与交互](class-diagrams/ui-editor.md)：查询控件及实际状态，模拟指针、拖动、滚轮、键盘和文字输入，区分源编辑与临时交互。
-3. [渲染 MCP 补齐](class-diagrams/render-mcp-tools.md)：沿现有组件、命令和撤销链补参数及缺少的组件入口。
+- [项目 TS 执行](../runtime/class-diagrams/project-script-execution.md)：编辑器编译 TS，在活动 Run 中执行并返回 JSON；失败不撤销已发生的项目副作用。
+- [UI 编辑与交互](class-diagrams/ui-editor.md)：源编辑、临时控件状态与真实输入分别报告，控件引用随文档代次失效。
+- [渲染 MCP](class-diagrams/render-mcp-tools.md)：沿组件、命令和撤销链操作，临时诊断状态不写入场景。
 
-以上接口已评审并实现。运行功能仍通过场景组件/材质属性控制，可选功能默认关闭；诊断开关只保留 MCP 临时状态。注册、原生定向测试与真实窗口验证分别记录，不能用模拟返回值宣称业务链路已经通过。
-
-## 验证要求
-
-- 注册与 schema：启用时存在、禁用时消失；错误类型、未知字段、无效枚举和过期身份返回明确失败。
-- 命令与持久化：编辑、撤销/重做、保存、重新导入后值一致；跨场景旧引用拒绝；失败不留下半个组件。
-- 项目脚本：真实 TS 编译诊断、同一活动 VM、JSON 结果、停止/重载后的代次拒绝；执行失败不伪称已撤销副作用。
-- UI：实际 RmlUi 输入到 Controller 的链路，检查焦点、拖动、滚动、文字、遮挡、隐藏/禁用与取消；不直接调用回调冒充操作成功。
-- 范例：测试目的、步骤、预期结果、当前状态归项目维护；MCP 不写死 showcase 的场景或用例。
-
-## 验证入口与记录
-
-- MCP 注册、参数与协议入口：`engine.mcp_registry`、`engine.script_tooling`。实际工具集合依据本次二进制及插件选择。
-- UI 源编辑、查询与输入入口：独立 `editor/ui` 插件及其[类图](class-diagrams/ui-editor.md)。
-- 渲染运行属性与诊断入口：[统一入口契约](render-feature-controls.md)。
-- 项目真实 UI/MCP 操作脚本与范围：[范例操作](../../editor/showcase-coverage.md)。
-- 已执行的平台、通过结果、历史失败与证据：[集中验证记录](../../testing.md#mcp-与公开范例整理2026-11-03)、[上游渲染验收](../../testing.md#上游渲染能力与统一-mcp-功能验收2026-11-04)。
-
-工具回执完成、资源导入激活、项目回调执行与最终画面正确分别核验。Release 用于功能和实际运行验收；Debug 只要求受影响目标编译成功。
+工具调用完成、资源发布、项目回调和画面结果属于不同完成状态。参数与协议使用现有 `engine.mcp_registry`、`engine.script_tooling` 用例；真实交互按[测试文档](../../testing.md)选择相关范围。

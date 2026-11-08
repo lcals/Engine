@@ -32,7 +32,7 @@ HDR/Bloom 使用 `hdrEnabled`、`bloomEnabled`（布尔值）、`bloomThreshold`
 
 方向光级联字段为 `shadowCascades`（整数 1、2、4）、`shadowDistance`（大于 0 且不超过 100000）、`shadowSplitLambda`（0..1）与 `shadowCascadeBlend`（0..0.3）。`shadowResolution` 表示灯请求的阴影尺寸，方向光级联在分配的区域内排布；完整 atlas 的预算由启动配置 `shadow_atlas_size` 决定。MCP 只转发和描述参数，组件校验、撤销以及保存仍由已有编辑器命令完成。
 
-## 本轮渲染能力的编辑入口
+## 渲染编辑入口
 
 以下增量已按评审接入现有编辑器命令；可用工具以当前构建的 `tools/list` 为准。底层能力沿用已批准的[渲染契约](../../../runtime/class-diagrams/forward-lighting-reflections.md)，不增加新的渲染类或全局参数副本。
 

@@ -2,7 +2,7 @@
 
 [类图索引](../class-diagrams/index.md) · [统一生命周期总图](class-diagrams/resource-lifecycle.md) · [高层契约](class-diagrams/resource-loader.md) · [资源插件](../plugins/runtime/class-diagrams/resource-graph.md)
 
-**设计状态：统一加载与释放契约已确认。** 核心负责单项读取与解析，插件实现共享加载与卸载，业务先加载后使用。验证结果集中在[测试文档](../testing.md)。
+核心负责单项读取与解析，插件实现共享加载与卸载，业务先加载后使用。验证结果集中在[测试文档](../testing.md)。
 
 ## 职责与可替换性
 

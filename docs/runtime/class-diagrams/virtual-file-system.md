@@ -2,7 +2,7 @@
 
 [类图索引](../../class-diagrams/index.md) · [统一生命周期](resource-lifecycle.md) · [资源读取](resource-system.md) · [目录](resource-catalog.md)
 
-**状态：已按用户确认的文件读取契约实现同步、异步及取消；验证结果见[测试文档](../../testing.md)。** 沿用 VirtualFileSystem，补足独立异步操作及取消契约；文件层不包含资源计数、GUID、资源解析或依赖图。
+VirtualFileSystem 提供同步读取、独立异步操作及取消；文件层不包含资源计数、GUID、资源解析或依赖图。
 
 ## 文件读取与任务
 
