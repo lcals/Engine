@@ -140,17 +140,19 @@ bool RenderSystem::SceneGpuResources::initialize()
 
 void RenderSystem::SceneGpuResources::release() noexcept
 {
+    frame_data = {};
+    draw_lists = {};
     view_stats.clear();
     selected_lods.clear();
     selected_lod_revisions.clear();
     frame_time_stamp = UINT32_MAX;
     atmosphere.release();
     debug_draw.release();
-    programs.clear();
     for (auto& mesh : meshes)
     {
         mesh.release();
     }
+    programs.clear();
     textures.clear();
     ibl_textures.fill(nullptr);
     release_capture();

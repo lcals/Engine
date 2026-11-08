@@ -2,6 +2,8 @@
 
 **2026-11-07：大场景准备接口、配置和私有索引已实现。** 其余已确认绘制能力保持；本批范围与调用方迁移见[大场景准备关系](large-scene-preparation.md)。
 
+**2026-11-08：已按确认设计实现提交管线，Windows / DirectX 12 定向验收完成。** 新的数据复用、材质绑定和阴影合批关系见[视图提交设计](render-submission.md#提交管线优化设计)，私有签名变化见[本页契约](#提交管线私有契约)，实际验证范围见[测试记录](../../testing.md#功能验收与结果)。不包含 Shader/PSO 预热。
+
 插件的原生纹理接入由 `engine::render::upload_texture(ResourceLoader& loader, ResourceHandle resource, bgfx::TextureHandle& output) -> bool` 提供，声明于 `runtime/render/texture_upload.hpp`。该普通函数在 bgfx API 线程同步准备并上传已加载资源，不加载文件；输出须为空，失败保持为空，成功转交 GPU 纹理所有权，由调用方在 bgfx 关闭前销毁。CPU 资源仅在调用期间保活；插件按需独立持有获取。PreparedTexture/GpuTexture 的转码缓冲、采样标志和生命周期实现继续私有，不向插件公开。bgfx 句柄仅用于原生渲染扩展，不进入场景或脚本接口。
 
 无场景 YUV 影片呈现及世界借用绑定见[影片播放器](movie-player.md#帧视图与呈现)。现已支持帧呈现与绑定；启动交接契约见[影片启动](movie-startup.md)。
@@ -33,7 +35,7 @@ classDiagram
         +release() void
         +resource_count() uint32_t
         +collect_ibl(const Scene* scene, RenderPreparation& preparation) bool
-        +draw_meshes(const WorldSystem& world, const RenderSettings& settings, const SceneDrawView& view, SceneDrawMode mode) bool
+        +draw_meshes(const RenderFrameData& frame, const ViewDrawList& list, const RenderSettings& settings, const SceneDrawView& view, SceneDrawMode mode) bool
         +view_stats vector~RenderViewStats~
     }
     class SceneDrawView
@@ -60,7 +62,8 @@ classDiagram
     class GpuProgram {
         +supports_instancing() bool
         +create(const ShaderDataT& shader) bool
-        +bind_material(const Material& material, const TextureTable& textures, span~const TextureHandle~ frame_textures, bool max_anisotropy) bool
+        +prepare_material(const Material& material, const TextureTable& textures, MaterialBinding& output) bool
+        +bind_material(const MaterialBinding& material, span~const TextureHandle~ frame_textures, bool max_anisotropy) bool
         +release() void
     }
     class GpuMesh {
@@ -118,8 +121,8 @@ classDiagram
     GpuProgram *-- GpuUniform
     GpuProgram *-- GpuSampler
     GpuProgram ..> ShaderDataT : 创建参数及拥有定义副本
-    GpuProgram ..> Material : 绘制期间借用
-    GpuProgram ..> GpuTexture : 绑定期间借用
+    GpuProgram ..> Material : 脏节点准备期间借用
+    GpuProgram ..> GpuTexture : 准备期间解析句柄
     GpuMesh ..> MeshRenderer : 上传期间借用
 ```
 
@@ -141,7 +144,7 @@ classDiagram
 - 平台实现位于 `platforms/<platform>/`，由 CMake 为当前目标选择。`RenderSurface` 负责原生句柄取得、保留、变更策略与 Android 暂停握手；渲染调度不分支判断平台。先停止 bgfx，再释放原生表面。GPU 暂停后可恢复，场景 CPU 数据仍由世界拥有。
 - GPU 拥有者禁用复制，移动必须转移并清空源句柄，析构兜底；全部 GPU 对象在 bgfx 关闭前销毁。参数结构独立于系统头，不改变场景、脚本或 MCP 的公开契约。
 
-`SceneGpuResources` 与 `RendererCallbacks` 是 `RenderSystem` 的私有嵌套类型。前者独占场景通用 Uniform、回退纹理、三张 IBL 纹理、逐类型 GPU 集合及渲染通道；`initialize()` 创建通用资源，`release()` 支持部分初始化和重复清理，`resource_count()` 汇总有效句柄。`prepare_ibl()` 只在调用期间借用活动场景，不保留组件指针；空指针清理 IBL 并使用默认环境。`SceneGpuResources` 不可复制或移动，析构兜底；计数查询为 `const noexcept`，释放为 `noexcept`，状态返回值为 `[[nodiscard]]`。
+`SceneGpuResources` 与 `RendererCallbacks` 是 `RenderSystem` 的私有嵌套类型。前者独占场景通用 Uniform、回退纹理、三张 IBL 纹理、逐类型 GPU 集合及渲染通道；`initialize()` 创建通用资源，`release()` 支持部分初始化和重复清理，`resource_count()` 汇总有效句柄。`collect_ibl()` 只在调用期间借用活动场景，不保留组件指针；空指针清理 IBL 并使用默认环境。`SceneGpuResources` 不可复制或移动，析构兜底；计数查询为 `const noexcept`，释放为 `noexcept`，状态返回值为 `[[nodiscard]]`。
 
 ### 阴影通道
 
@@ -161,20 +164,19 @@ classDiagram
     class GpuMesh
     class GpuTexture
     class Material
-    ShadowPass ..> WorldSystem : 按世界节点身份查询投射物
+    ShadowPass ..> RenderFrameData : 从公共帧取完整投射物
     ShadowPass ..> RenderSettings : 调用期间借用
     ShadowPass ..> ShadowFrame : 填写调用方帧数据
     ShadowPass ..> GpuMesh : 借用上传后的几何
     ShadowPass ..> GpuTexture : 借用材质纹理
-    ShadowPass ..> Material : 绘制期间借用
+    ShadowPass ..> MaterialBinding : 借用预解析阴影参数
 ```
 
 为避免单行签名撑宽类图，`draw()` 的完整参数单列如下；其中所有引用和句柄均仅在调用期间借用：
 
 ```cpp
-bool draw(const WorldSystem& world, const RenderSettings& settings,
-          ShadowFrame& frame, const std::vector<GpuMesh>& meshes,
-          const std::vector<GpuTexture>& textures,
+bool draw(const RenderFrameData& frame_data, const RenderSettings& settings,
+          ShadowFrame& frame,
           bgfx::TextureHandle fallback, bgfx::UniformHandle depth_uniform,
           const RenderConfig& config, std::span<const LocalShadowLight> local_lights,
           std::span<ClusterLight> lights, const float* camera_world,
@@ -183,6 +185,107 @@ bool draw(const WorldSystem& world, const RenderSettings& settings,
 ```
 
 `ShadowPass` 独占 atlas 的颜色纹理、深度纹理、Framebuffer、Shader/Program 及 alpha 裁切和 UV Uniform。`prepare()` 按分辨率准备资源，`draw()` 组织逐级阴影绘制，`texture()` 返回借用句柄；调用方不得销毁它。对象不可复制或移动，析构兜底释放；`release()` 支持重复调用。两个只读查询为 `const noexcept`，释放为 `noexcept`，状态与句柄返回值标注 `[[nodiscard]]`。AO 和 HDR/Bloom 的完整接口见本文后续独立图。
+
+### 提交管线私有契约
+
+**已一次替换旧私有调用，业务接口保持。** 数据结构和生命周期只在[提交管线优化设计](render-submission.md#数据分层与所有权)定义。以下为现行签名，旧声明与转发重载均已删除。`RenderSystem` 的公开方法、场景 schema 与脚本外观保持。
+
+```mermaid
+classDiagram
+    class SceneGpuResources {
+        <<private>>
+        +collect_frame(const WorldSystem& world, RenderFrameData& output) bool
+        +collect_view(const RenderFrameData& frame, const SceneDrawView& view, ViewDrawList& output) bool
+        +draw_meshes(const RenderFrameData& frame, const ViewDrawList& items, const RenderSettings& settings, const SceneDrawView& view, SceneDrawMode mode) bool
+        +prepare_lighting(...) bool
+    }
+    class GpuProgram {
+        <<private>>
+        +prepare_material(const Material& material, const TextureTable& textures, MaterialBinding& output) bool
+        +bind_material(const MaterialBinding& binding, span~const TextureHandle~ frame_textures, bool max_anisotropy) bool
+    }
+    class ShadowPass {
+        <<private>>
+        +draw(...) bool
+    }
+    class WorldSystem
+    class RenderFrameData
+    class ViewDrawList
+    class SceneDrawView
+    class SceneDrawMode
+    class RenderSettings
+    class Material
+    class MaterialBinding
+    class TextureTable {
+        <<existing alias>>
+    }
+    class TextureHandle["bgfx::TextureHandle"]
+    class UniformHandle["bgfx::UniformHandle"]
+    class ViewId["bgfx::ViewId"]
+    class RenderConfig
+    class CameraSettings
+    class ShadowFrame
+    class SceneCaptureRequest
+    class LocalShadowLight
+    class ClusterLight
+    SceneGpuResources ..> WorldSystem : collect_frame 期间借用
+    SceneGpuResources ..> RenderFrameData : 填写或只读借用
+    SceneGpuResources ..> ViewDrawList : 填写或只读借用
+    SceneGpuResources ..> SceneDrawView : 观察者和提交状态
+    SceneGpuResources ..> SceneDrawMode : 当前Pass
+    SceneGpuResources ..> RenderSettings : 当前效果快照
+    SceneGpuResources ..> RenderConfig : 既有渲染预算
+    SceneGpuResources ..> CameraSettings : 灯簇与阴影相机参数
+    SceneGpuResources ..> ShadowFrame : 填写本视图阴影数据
+    SceneGpuResources ..> SceneCaptureRequest : 可空捕获范围
+    SceneGpuResources ..> ViewId : 既有视图编号
+    GpuProgram ..> Material : 准备时读取
+    GpuProgram ..> TextureTable : 准备时解析
+    GpuProgram ..> MaterialBinding : 填写或绑定
+    GpuProgram ..> TextureHandle : 当前视图纹理借用
+    ShadowPass ..> RenderFrameData : 取代直接查询WorldSystem
+    ShadowPass ..> RenderSettings : 当前效果快照
+    ShadowPass ..> ShadowFrame : 写入阴影结果
+    ShadowPass ..> RenderConfig : atlas预算
+    ShadowPass ..> LocalShadowLight : 局部灯输入
+    ShadowPass ..> ClusterLight : 更新实际阴影绑定
+    ShadowPass ..> TextureHandle : 回退贴图借用
+    ShadowPass ..> UniformHandle : 深度参数句柄借用
+    ShadowPass ..> ViewId : 级联或灯面视图起点
+```
+
+长签名如下，全部属于渲染私有实现；既有 ViewId、GPU 句柄和 float 矩阵借用仍不进入业务公开接口：
+
+```cpp
+// SceneGpuResources
+[[nodiscard]] bool prepare_lighting(const render_detail::RenderFrameData& frame_data,
+                                    const RenderSettings& settings, const RenderConfig& config,
+                                    render_detail::SceneDrawView& draw,
+                                    const CameraSettings& lens,
+                                    render_detail::ShadowFrame& frame,
+                                    std::size_t cluster_index, bgfx::ViewId base,
+                                    const SceneCaptureRequest* capture);
+
+// ShadowPass
+[[nodiscard]] bool draw(const RenderFrameData& frame_data, const RenderSettings& settings,
+                        ShadowFrame& frame, bgfx::TextureHandle fallback,
+                        bgfx::UniformHandle depth_uniform, const RenderConfig& config,
+                        std::span<const LocalShadowLight> local_lights,
+                        std::span<ClusterLight> lights, const float* camera_world,
+                        bgfx::ViewId base_view,
+                        const std::span<const std::uint64_t>* caster_ids = nullptr);
+```
+
+- 新增普通数据结构均位于 `engine::render_detail`，`SceneGpuResources` 仍为 RenderSystem 私有嵌套类型；不向核心根命名空间重新导出。图中短名按该归属解释。
+- `collect_frame / collect_view / prepare_material / bind_material` 的返回值均为 nodiscard。`prepare_material`、`bind_material` 为 const 成员；`collect_view` 需更新已有 LOD 滞回，不标 const。失败清空输出，普通容器分配操作不随意标 noexcept。
+- `collect_frame` 先更新实例蒙皮/变形再收集完整候选输入；`collect_view` 只建立当前主相机、反射或捕获列表。ShadowPass 从同一帧输入独立生成级联/灯面列表，不回调 SceneGpuResources，不反向查询世界，也不复用主相机可见集。
+- 阴影和主通道使用同一 DrawBatchKey / DrawBatch 数据约定和游标分块规则，选择各自的实际 Program 和必要状态；不为普通分组函数创建新类。`draw_meshes` 只消费本次帧数据与视图列表，不再查询 ECS 或重新解析 Material。
+- 新 `bind_material` 消费已经解析的数值和采样器绑定。动态帧纹理仍由 view 传入，且必须检查 binding 的 Shader/纹理身份属于当前有效 GPU 资源。GpuMesh 在销毁程序/纹理之前清理其绑定；不把 bgfx 句柄的数字相等当作跨设备代次身份相等。
+- `RenderViewStats` 的字段与现有 scene mesh 统计口径保持；本批阴影和后处理的总提交变化另取 bgfx 统计与私有采样，不混入旧字段制造 draw 数变化。
+- `RenderPreparation` 用 `pending_materials` 跟踪待重建槽；`target_description / target_stage` 对比分辨率、MSAA、效果、反射与捕获描述并按预算推进十个既有目标步骤。没有新增通用任务或渲染图框架。
+- `prepare_scene` 的 ready 继续要求必需目标和实例绑定可用；新增帧快照收集在 render 内发生，不变成资源加载阶段。窗口尺寸、MSAA、效果和捕获目标变化须重新推进准备，过期目标不得作为 ready 内容使用；RuntimeHost、EditorSystem、ScenePreview、捕获调用方需一起核对该顺序，保留唯一 bgfx::frame 提交入口。
+
+既有清理方法、不可复制的 GPU 所有权、设备能力处理和同步/分步资源准备契约保持。替换前已保存基线程序，现行图与调用方同步；完整基准见[测试方案](../../testing.md#渲染管线优化对比方案)。
 
 ### 平台表面
 

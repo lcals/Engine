@@ -4,15 +4,20 @@
 #include "runtime/render/scene_gpu_resources.hpp"
 #include "runtime/render/scene_render_query.hpp"
 #include "runtime/resource/resource.hpp"
+#include "runtime/scene/camera_math.hpp"
 #include "runtime/scene/ecs_scene.hpp"
 #include "runtime/scene/ecs_storage.hpp"
 #include "runtime/scene/environment_component.hpp"
 #include "runtime/scene/mesh_renderer.hpp"
+#include "runtime/scene/planar_reflection_component.hpp"
 #include "runtime/scene/scene.hpp"
+#include "runtime/scene/transform.hpp"
 #include "runtime/task/task_system.hpp"
 #include "runtime/ui/ui_system.hpp"
 #include "runtime/world/world_system.hpp"
 #include <algorithm>
+#include <bit>
+#include <bx/math.h>
 #include <chrono>
 #include <cmath>
 #include <limits>
@@ -361,6 +366,7 @@ RenderPrepareStatus RenderSystem::prepare_scene(RenderPrepareMode mode,
         const bool visible = renderer && renderer.active() && renderer.visible_in_hierarchy();
         if (!visible)
         {
+            state.pending_materials.erase(id);
             if (exists)
             {
                 const auto index = found->second;
@@ -420,6 +426,8 @@ RenderPrepareStatus RenderSystem::prepare_scene(RenderPrepareMode mode,
                 mesh - resources.meshes.data();
             mesh->textures.clear();
             mesh->programs.clear();
+            mesh->materials.clear();
+            state.pending_materials.insert(id);
             const auto texture = [&](ResourceHandle handle)
             {
                 const Resource* source = nullptr;
@@ -447,6 +455,13 @@ RenderPrepareStatus RenderSystem::prepare_scene(RenderPrepareMode mode,
             for (const auto& submesh : data->submeshes)
             {
                 slots.insert(submesh.material_slot());
+            }
+            for (const auto& lod : data->lods)
+            {
+                for (const auto& range : lod->submeshes)
+                {
+                    slots.insert(range.material_slot());
+                }
             }
             for (auto slot : slots)
             {
@@ -718,6 +733,256 @@ RenderPrepareStatus RenderSystem::prepare_scene(RenderPrepareMode mode,
         resources.ibl_textures[index] =
             found == resources.textures.end() ? nullptr : &found->second;
     }
+    while (state.dirty_nodes.empty() && state.textures.empty() && state.pending_programs.empty() &&
+           !state.pending_materials.empty() && budget())
+    {
+        ++items;
+        const auto id = *state.pending_materials.begin();
+        const auto renderer = world_->find_node(id).get_component<MeshRenderer>();
+        const auto found = resources.mesh_index.find({epoch, id, renderer.instance_id()});
+        if (!renderer || found == resources.mesh_index.end())
+        {
+            return fail("Material owner changed during preparation");
+        }
+        auto& bindings = resources.meshes[found->second].materials;
+        bindings.resize(renderer.material_count());
+        std::set<std::size_t> used_slots;
+        const auto* data = renderer.mesh_data();
+        if (data->submeshes.empty())
+        {
+            used_slots.insert(0);
+        }
+        for (const auto& range : data->submeshes)
+        {
+            used_slots.insert(range.material_slot());
+        }
+        for (const auto& lod : data->lods)
+        {
+            for (const auto& range : lod->submeshes)
+            {
+                used_slots.insert(range.material_slot());
+            }
+        }
+        for (std::size_t slot = 0; slot < bindings.size(); ++slot)
+        {
+            const auto material = renderer.material(slot);
+            const auto program = resources.programs.find(material.shader_data());
+            if (!used_slots.contains(slot))
+            {
+                // 未被子网格引用的槽仍参与原有全不透明/LOD 判断，但不分配 GPU 资源。
+                bindings[slot].blend = material.blend_mode();
+                continue;
+            }
+            if (program == resources.programs.end() ||
+                !program->second.prepare_material(material, resources.textures, bindings[slot]))
+            {
+                return fail("Cannot prepare material binding");
+            }
+        }
+        state.pending_materials.erase(state.pending_materials.begin());
+    }
+    // 目标按现有准备预算逐项推进；完成后稳定描述只做比较，不重新创建。
+    RenderSettings rendering;
+    if (!resolve_settings(rendering))
+    {
+        return fail("Cannot resolve render target settings");
+    }
+    const bool drawable = render_detail::drawable_scene(*world_, camera, !extensions_.empty());
+    if (!drawable && hdr_capture_status_ == SceneCaptureStatus::pending &&
+        !resources.hdr_capture_pending)
+    {
+        cancel_hdr_capture();
+    }
+    std::array<Node, 2> plane_nodes{};
+    std::array<std::uint16_t, 2> plane_widths{}, plane_heights{};
+    std::vector<std::uint64_t> description{
+        drawable,
+        width_,
+        height_,
+        config_.msaa_samples,
+        rendering.bloom_enabled,
+        rendering.ao_enabled,
+        rendering.ssr_enabled,
+        std::bit_cast<std::uint32_t>(rendering.ssr_resolution_scale)};
+    if (drawable)
+    {
+        float camera_world[16]{}, camera_view[16]{}, projection[16]{};
+        CameraSettings lens;
+        const auto transform = selected_camera.node().get_component<Transform>();
+        if (!transform || !transform.world_matrix(camera_world) ||
+            !selected_camera.get_settings(lens) ||
+            !camera_detail::view_matrix(camera_world, camera_view) ||
+            !camera_detail::projection_matrix(lens, static_cast<float>(width_) / height_,
+                                              bgfx::getCaps()->homogeneousDepth, projection))
+        {
+            return fail("Cannot read render target observer");
+        }
+        bx::mtxInverse(camera_world, camera_view);
+        std::vector<std::pair<float, Node>> planes;
+        auto query = flecs::world(world_->native_world())
+                         .query_builder<
+                             const ecs_detail::ComponentStorage<PlanarReflectionComponent::Data>>()
+                         .with<ecs_detail::Published>()
+                         .build();
+        query.each(
+            [&](flecs::entity entity, const auto&)
+            {
+                auto node = world_->find_node(entity.id());
+                const auto plane = node.get_component<PlanarReflectionComponent>();
+                const auto mesh = node.get_component<MeshRenderer>();
+                const auto pose = node.get_component<Transform>();
+                float matrix[16]{};
+                if (plane && plane.active() && plane.visible_in_hierarchy() && mesh &&
+                    mesh.active() && mesh.visible_in_hierarchy() &&
+                    selected_camera.mesh_visible(mesh.instance_id()) && pose &&
+                    pose.world_matrix(matrix))
+                {
+                    planes.emplace_back(std::hypot(matrix[12] - camera_world[12],
+                                                   matrix[13] - camera_world[13],
+                                                   matrix[14] - camera_world[14]),
+                                        node);
+                }
+            });
+        std::sort(
+            planes.begin(), planes.end(), [](const auto& a, const auto& b)
+            { return a.first == b.first ? a.second.id() < b.second.id() : a.first < b.first; });
+        for (std::size_t index = 0; index < plane_nodes.size(); ++index)
+        {
+            if (index < std::min<std::size_t>(planes.size(), config_.maximum_planar_reflections))
+            {
+                PlanarReflectionSettings options;
+                plane_nodes[index] = planes[index].second;
+                if (!plane_nodes[index].get_component<PlanarReflectionComponent>().get_settings(
+                        options))
+                {
+                    return fail("Cannot read reflection target settings");
+                }
+                float plane_world[16]{};
+                if (!plane_nodes[index].get_component<Transform>().world_matrix(plane_world))
+                {
+                    return fail("Cannot read reflection transform");
+                }
+                if (!resources.planar[index].mirror(plane_world, camera_world, projection,
+                                                    options.clip_bias))
+                {
+                    plane_nodes[index] = {};
+                    continue;
+                }
+                plane_widths[index] = static_cast<std::uint16_t>(
+                    std::max(1.0F, std::ceil(width_ * options.resolution_scale)));
+                plane_heights[index] = static_cast<std::uint16_t>(
+                    std::max(1.0F, std::ceil(height_ * options.resolution_scale)));
+            }
+        }
+    }
+    for (std::size_t index = 0; index < plane_nodes.size(); ++index)
+    {
+        description.push_back(plane_nodes[index].id());
+        description.push_back(plane_widths[index]);
+        description.push_back(plane_heights[index]);
+    }
+    const bool capture_active = capture_status_ == SceneCaptureStatus::pending;
+    description.push_back(hdr_capture_status_ == SceneCaptureStatus::pending);
+    description.push_back(capture_active);
+    description.push_back(capture_active ? capture_request_.width : 0);
+    description.push_back(capture_active ? capture_request_.height : 0);
+    if (state.target_description != description)
+    {
+        state.target_description = std::move(description);
+        state.target_stage = 0;
+    }
+    constexpr std::size_t target_steps = 10;
+    while (state.target_stage < target_steps && budget())
+    {
+        ++items;
+        bool ready = true;
+        const auto width = static_cast<std::uint16_t>(width_);
+        const auto height = static_cast<std::uint16_t>(height_);
+        switch (state.target_stage)
+        {
+        case 0:
+            ready = !drawable || resources.shadow.prepare(config_.shadow_atlas_size);
+            break;
+        case 1:
+            ready = !drawable || resources.surface_pass.prepare(width, height);
+            break;
+        case 2:
+            ready = !drawable || resources.hdr_post_process.prepare(
+                                     width, height, rendering.bloom_enabled, config_.msaa_samples);
+            break;
+        case 3:
+            if (drawable && rendering.ao_enabled)
+            {
+                ready = resources.ambient_occlusion.prepare(width, height);
+            }
+            else
+            {
+                resources.ambient_occlusion.release();
+            }
+            break;
+        case 4:
+            ready = !drawable || resources.reflections.prepare(width, height, rendering);
+            break;
+        case 5:
+            ready = !drawable || resources.clusters[2].prepare(config_, width, height);
+            break;
+        case 6:
+        case 7:
+        {
+            const auto index = state.target_stage - 6;
+            auto& target = resources.planar[index];
+            if (plane_nodes[index])
+            {
+                ready = target.prepare(plane_widths[index], plane_heights[index],
+                                       config_.msaa_samples) &&
+                        resources.clusters[index].prepare(config_, plane_widths[index],
+                                                          plane_heights[index]);
+                target.node_id = plane_nodes[index].id();
+            }
+            else
+            {
+                target.release();
+                resources.clusters[index].release();
+            }
+            break;
+        }
+        case 8:
+            ready = !capture_active ||
+                    (resources.shadow.prepare(config_.shadow_atlas_size) &&
+                     resources.clusters[3].prepare(config_, capture_request_.width,
+                                                   capture_request_.height) &&
+                     (resources.capture_pending || resources.prepare_capture(capture_request_)));
+            break;
+        case 9:
+            if (hdr_capture_status_ == SceneCaptureStatus::pending &&
+                !resources.hdr_capture_pending)
+            {
+                constexpr auto flags = BGFX_TEXTURE_BLIT_DST | BGFX_TEXTURE_READ_BACK;
+                ready = drawable &&
+                        bgfx::isTextureValid(0, false, 1, bgfx::TextureFormat::RGBA16F, flags);
+                if (ready)
+                {
+                    if (bgfx::isValid(resources.hdr_capture_readback))
+                    {
+                        bgfx::destroy(resources.hdr_capture_readback);
+                    }
+                    resources.hdr_capture_readback = bgfx::createTexture2D(
+                        width, height, false, 1, bgfx::TextureFormat::RGBA16F, flags);
+                    ready = bgfx::isValid(resources.hdr_capture_readback);
+                    resources.hdr_capture_width = width;
+                    resources.hdr_capture_height = height;
+                    resources.hdr_capture_pixels.resize(static_cast<std::size_t>(width) * height *
+                                                        4);
+                }
+            }
+            break;
+        }
+        if (!ready)
+        {
+            return fail("Cannot prepare render pass target");
+        }
+        ++state.target_stage;
+    }
     state.progress.generation = state.generation;
     state.progress.staging_bytes = state.staging_bytes;
     state.progress.discovery_complete = state.dirty_nodes.empty() && !state.ibl_dirty &&
@@ -729,14 +994,16 @@ RenderPrepareStatus RenderSystem::prepare_scene(RenderPrepareMode mode,
         static_cast<std::uint32_t>(state.ready_textures.size() + resources.programs.size() -
                                    state.pending_programs.size() + resources.geometries.size());
     state.status = state.progress.discovery_complete && state.textures.empty() &&
-                           state.pending_programs.empty()
+                           state.pending_programs.empty() && state.pending_materials.empty() &&
+                           state.target_stage == target_steps
                        ? RenderPrepareStatus::ready
                        : RenderPrepareStatus::preparing;
     ENGINE_PROFILE_PLOT("Render.textureStagingBytes", static_cast<double>(state.staging_bytes));
     output = state.progress;
-    const bool capture_active = capture_status_ == SceneCaptureStatus::pending ||
-                                hdr_capture_status_ == SceneCaptureStatus::pending;
-    if (state.status == RenderPrepareStatus::ready && resources.meshes.empty() && !capture_active &&
+    const bool any_capture_active = capture_status_ == SceneCaptureStatus::pending ||
+                                    hdr_capture_status_ == SceneCaptureStatus::pending;
+    if (state.status == RenderPrepareStatus::ready && resources.meshes.empty() &&
+        !any_capture_active &&
         !render_detail::drawable_scene(*world_, camera, !extensions_.empty()))
     {
         release_draw_resources();
@@ -831,6 +1098,9 @@ void RenderSystem::release_scene() noexcept
         state.unused_textures.clear();
         state.unused_programs.clear();
         state.pending_programs.clear();
+        state.pending_materials.clear();
+        state.target_description.clear();
+        state.target_stage = 0;
         state.ibl_sources = {};
         state.dirty_nodes.clear();
         state.scenes.clear();

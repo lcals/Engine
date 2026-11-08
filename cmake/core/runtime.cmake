@@ -53,6 +53,7 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
                 src/engine/runtime/render/renderer_callbacks.cpp
                 src/engine/runtime/render/render_scene.cpp
                 src/engine/runtime/render/scene_draw.cpp
+                src/engine/runtime/render/scene_collect.cpp
                 src/engine/runtime/render/scene_capture.cpp
                 src/engine/runtime/render/passes/clustered_lighting_pass.cpp
                 src/engine/runtime/render/passes/surface_pass.cpp
@@ -87,7 +88,7 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
                 bgfx::bx
                 basisu::basisu_encoder)
     include(${PROJECT_SOURCE_DIR}/cmake/core/render_shaders.cmake)
-    engine_embed_render_shaders(engine_render shadow movie)
+    engine_embed_render_shaders(engine_render shadow shadow_instanced movie)
     engine_embed_upstream_feature_shaders(engine_render)
     engine_embed_assao_shaders(engine_render)
     engine_embed_skinning_shader(engine_render)

@@ -3,6 +3,7 @@
 #include "runtime/render/resources/gpu_sampler.hpp"
 #include "runtime/render/resources/gpu_texture.hpp"
 #include "runtime/render/resources/gpu_uniform.hpp"
+#include "runtime/render/resources/material_binding.hpp"
 #include "runtime/schema/shader_generated.h"
 
 #include <bgfx/bgfx.h>
@@ -31,9 +32,11 @@ struct GpuProgram
 
     // 调用前释放旧句柄；失败后的部分初始化由 release 或析构清理。
     [[nodiscard]] bool create(const schema::ShaderDataT& shader);
-    [[nodiscard]] bool bind_material(const Material& material, const TextureTable& textures,
-                                     std::span<const bgfx::TextureHandle> frame_textures = {},
-                                     bool max_anisotropy = false);
+    [[nodiscard]] bool prepare_material(const Material& material, const TextureTable& textures,
+                                        MaterialBinding& output) const;
+    [[nodiscard]] bool bind_material(const MaterialBinding& material,
+                                     std::span<const bgfx::TextureHandle> frame_textures,
+                                     bool max_anisotropy) const;
     [[nodiscard]] bool supports_instancing() const noexcept
     {
         return bgfx::isValid(instanced_program);

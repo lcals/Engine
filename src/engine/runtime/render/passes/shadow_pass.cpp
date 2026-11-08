@@ -2,22 +2,21 @@
 
 #include "runtime/performance/profiling.hpp"
 #include "runtime/render/render_math.hpp"
+#include "runtime/render/render_submission.hpp"
 #include "runtime/render/render_system.hpp"
-#include "runtime/scene/material.hpp"
-#include "runtime/scene/mesh_renderer.hpp"
-#include "runtime/scene/node.hpp"
-#include "runtime/scene/transform.hpp"
 #include "runtime/schema/shader_generated.h"
-#include "runtime/world/world_system.hpp"
 
 #include "fs_shadow.bin.h"
 #include "vs_shadow.bin.h"
+#include "vs_shadow_instanced.bin.h"
 
 #include <bx/math.h>
 
 #include <SDL3/SDL_log.h>
 #include <algorithm>
 #include <cmath>
+#include <cstring>
+#include <map>
 
 namespace engine::render_detail
 {
@@ -54,6 +53,14 @@ void ShadowPass::release() noexcept
     {
         bgfx::destroy(program_);
     }
+    if (bgfx::isValid(instanced_program_))
+    {
+        bgfx::destroy(instanced_program_);
+    }
+    if (bgfx::isValid(instanced_vertex_))
+    {
+        bgfx::destroy(instanced_vertex_);
+    }
     if (bgfx::isValid(vertex_))
     {
         bgfx::destroy(vertex_);
@@ -78,6 +85,8 @@ void ShadowPass::release() noexcept
     depth_ = BGFX_INVALID_HANDLE;
     framebuffer_ = BGFX_INVALID_HANDLE;
     vertex_ = BGFX_INVALID_HANDLE;
+    instanced_vertex_ = BGFX_INVALID_HANDLE;
+    instanced_program_ = BGFX_INVALID_HANDLE;
     fragment_ = BGFX_INVALID_HANDLE;
     program_ = BGFX_INVALID_HANDLE;
     alpha_ = BGFX_INVALID_HANDLE;
@@ -120,6 +129,20 @@ bool ShadowPass::prepare(std::uint16_t size)
     {
         program_ = bgfx::createProgram(vertex_, fragment_);
     }
+    if (bgfx::getCaps()->limits.maxInstanceData >= 4)
+    {
+        instanced_vertex_ =
+            bgfx::createShader(bgfx::copy(vs_shadow_instanced, sizeof(vs_shadow_instanced)));
+        if (bgfx::isValid(instanced_vertex_) && bgfx::isValid(fragment_))
+        {
+            instanced_program_ = bgfx::createProgram(instanced_vertex_, fragment_);
+        }
+        if (!bgfx::isValid(instanced_program_))
+        {
+            release();
+            return false;
+        }
+    }
     alpha_ = bgfx::createUniform("u_shadow_alpha", bgfx::UniformType::Vec4);
     alpha_sampler_ = bgfx::createUniform("s_shadow_alpha", bgfx::UniformType::Sampler);
     uv_transform_ = bgfx::createUniform("u_shadow_uv", bgfx::UniformType::Vec4);
@@ -138,6 +161,8 @@ std::uint32_t ShadowPass::resource_count() const noexcept
     return static_cast<std::uint32_t>(bgfx::isValid(color_)) +
            static_cast<std::uint32_t>(bgfx::isValid(depth_)) +
            static_cast<std::uint32_t>(bgfx::isValid(framebuffer_)) +
+           static_cast<std::uint32_t>(bgfx::isValid(instanced_vertex_)) +
+           static_cast<std::uint32_t>(bgfx::isValid(instanced_program_)) +
            static_cast<std::uint32_t>(bgfx::isValid(vertex_)) +
            static_cast<std::uint32_t>(bgfx::isValid(fragment_)) +
            static_cast<std::uint32_t>(bgfx::isValid(program_)) +
@@ -146,86 +171,23 @@ std::uint32_t ShadowPass::resource_count() const noexcept
            static_cast<std::uint32_t>(bgfx::isValid(uv_transform_));
 }
 
-bool ShadowPass::bind_material(const Material& material, const TextureTable& textures,
-                               bgfx::TextureHandle fallback)
+bool ShadowPass::bind_material(const MaterialBinding& material, bgfx::TextureHandle fallback)
 {
-    const auto* shader = material.shader_data();
-    if (shader == nullptr)
+    if (!material.shadow_valid)
     {
         return false;
     }
-    const auto parameter = [&shader](std::string_view name)
-    {
-        const auto found = std::find_if(shader->parameters.begin(), shader->parameters.end(),
-                                        [name](const auto& item) { return item->name == name; });
-        return found != shader->parameters.end() ? found->get() : nullptr;
-    };
-    float cutoff = 0.0F;
-    if (const auto* definition = parameter("alphaCutoff"))
-    {
-        const auto* value = definition->default_value.AsFloatValue();
-        if (value == nullptr)
-        {
-            return false;
-        }
-        cutoff = value->value;
-        if ((definition->exposed && !material.get_float("alphaCutoff", cutoff)) ||
-            !std::isfinite(cutoff) || cutoff < 0.0F || cutoff > 1.0F)
-        {
-            return false;
-        }
-    }
-    float base_alpha = 1.0F;
-    Vec4 uv_transform(1.0, 1.0, 0.0, 0.0);
-    bgfx::TextureHandle texture = fallback;
-    if (cutoff > 0.0F)
-    {
-        const auto* color = parameter("baseColor");
-        const auto* value = color != nullptr ? color->default_value.AsVec4Value() : nullptr;
-        if (value == nullptr)
-        {
-            return false;
-        }
-        Vec4 tint = value->value;
-        if (color->exposed && !material.get_v4("baseColor", tint))
-        {
-            return false;
-        }
-        base_alpha = static_cast<float>(tint.w());
-        const auto& resource = material.texture("baseColorTexture");
-        const auto* found = find_texture(textures, resource);
-        if (resource.id == 0 || found == nullptr)
-        {
-            return false;
-        }
-        texture = found->handle;
-        if (const auto* uv = parameter("uvTransform"))
-        {
-            const auto* transform = uv->default_value.AsVec4Value();
-            if (!transform)
-            {
-                return false;
-            }
-            uv_transform = transform->value;
-            if (uv->exposed && !material.get_v4("uvTransform", uv_transform))
-            {
-                return false;
-            }
-        }
-    }
-    const float alpha[] = {cutoff, base_alpha, 0.0F, 0.0F};
-    bgfx::setUniform(alpha_, alpha);
-    const float uv[] = {static_cast<float>(uv_transform.x()), static_cast<float>(uv_transform.y()),
-                        static_cast<float>(uv_transform.z()), static_cast<float>(uv_transform.w())};
-    bgfx::setUniform(uv_transform_, uv);
-    bgfx::setTexture(0, alpha_sampler_, texture);
+    bgfx::setUniform(alpha_, material.shadow_alpha.data());
+    bgfx::setUniform(uv_transform_, material.shadow_uv.data());
+    bgfx::setTexture(0, alpha_sampler_,
+                     bgfx::isValid(material.shadow_texture) ? material.shadow_texture : fallback);
     return true;
 }
 
-bool ShadowPass::draw(const WorldSystem& world, const RenderSettings& settings, ShadowFrame& frame,
-                      const std::vector<GpuMesh>& meshes, const TextureTable& textures,
-                      bgfx::TextureHandle fallback, bgfx::UniformHandle depth_uniform,
-                      const RenderConfig& config, std::span<const LocalShadowLight> local_lights,
+bool ShadowPass::draw(const RenderFrameData& frame_data, const RenderSettings& settings,
+                      ShadowFrame& frame, bgfx::TextureHandle fallback,
+                      bgfx::UniformHandle depth_uniform, const RenderConfig& config,
+                      std::span<const LocalShadowLight> local_lights,
                       std::span<ClusterLight> lights, const float* camera_world,
                       bgfx::ViewId base_view, const std::span<const std::uint64_t>* caster_ids)
 {
@@ -251,37 +213,29 @@ bool ShadowPass::draw(const WorldSystem& world, const RenderSettings& settings, 
     struct Caster
     {
         const GpuMesh* mesh = nullptr;
-        MeshRenderer renderer = {};
+        const RenderFrameData::Mesh* source = nullptr;
         std::array<float, 16> model{};
         std::array<std::array<float, 3>, 8> world_points{};
         ShadowBounds bounds;
     };
     std::vector<Caster> casters;
-    casters.reserve(meshes.size());
-    for (const auto& mesh : meshes)
+    casters.reserve(frame_data.meshes.size());
+    for (const auto& source : frame_data.meshes)
     {
+        const auto& mesh = *source.gpu;
         if (caster_ids != nullptr &&
             std::find(caster_ids->begin(), caster_ids->end(), mesh.node_id) == caster_ids->end())
         {
             continue;
         }
-        Node node = world.find_node(mesh.node_id);
-        const auto renderer =
-            static_cast<bool>(node) ? node.get_component<MeshRenderer>() : MeshRenderer{};
-        const auto transform =
-            static_cast<bool>(node) ? node.get_component<Transform>() : Transform{};
-        if (static_cast<bool>(renderer) && !renderer.cast_shadows())
+        if (!source.cast_shadows)
         {
             continue;
         }
         Caster caster;
-        if (!renderer || renderer.mesh_data() == nullptr || !transform ||
-            !transform.world_matrix(caster.model.data()))
-        {
-            return false;
-        }
         caster.mesh = &mesh;
-        caster.renderer = renderer;
+        caster.source = &source;
+        caster.model = source.model;
         caster.bounds.reset();
         float combined[16]{};
         bx::mtxMul(combined, caster.model.data(), frame.view.data());
@@ -315,47 +269,117 @@ bool ShadowPass::draw(const WorldSystem& world, const RenderSettings& settings, 
                           1.0F};
     const float depth_scale[] = {caps->homogeneousDepth ? 0.5F : 1.0F,
                                  caps->homogeneousDepth ? 0.5F : 0.0F, 0.0F, 0.0F};
-    const auto submit_caster = [&](const Caster& caster, bgfx::ViewId view)
+    struct Item
+    {
+        const Caster* caster = nullptr;
+        const MaterialBinding* material = nullptr;
+    };
+    std::vector<Item> items;
+    std::vector<DrawBatch> batches;
+    std::map<DrawBatchKey, std::size_t> batch_index;
+    const auto collect_caster = [&](const Caster& caster)
     {
         const auto& mesh = *caster.mesh;
-        const auto* data = caster.renderer.mesh_data();
-        const auto submit = [&](std::uint32_t first, std::uint32_t count, std::size_t slot)
+        const auto* data = caster.source->data;
+        const auto collect = [&](std::uint32_t first, std::uint32_t count, std::size_t slot)
         {
-            const auto material = caster.renderer.material(slot);
-            if (!material)
+            if (slot >= mesh.materials.size())
             {
                 return false;
             }
-            if (material.blend_mode() != schema::BlendMode::opaque)
+            const auto& material = mesh.materials[slot];
+            if (material.blend != schema::BlendMode::opaque)
             {
                 return true;
             }
-            if (!bind_material(material, textures, fallback))
+            if (!material.shadow_valid)
             {
                 return false;
             }
-            bgfx::setTransform(caster.model.data());
-            bgfx::setUniform(depth_uniform, depth_scale);
-            mesh.bind_vertices();
-            bgfx::setIndexBuffer(mesh.geometry->indices, first, count);
-            bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_WRITE_Z |
-                           BGFX_STATE_DEPTH_TEST_LESS |
-                           cull_state(material.cull_mode(), caster.model.data()));
-            bgfx::submit(view, program_);
+            DrawBatchKey key;
+            key.geometry = reinterpret_cast<std::uintptr_t>(mesh.geometry.get());
+            key.program = instanced_program_.idx;
+            key.state = BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_WRITE_Z |
+                        BGFX_STATE_DEPTH_TEST_LESS | cull_state(material.cull, caster.model.data());
+            key.first = first;
+            key.count = count;
+            key.shadow_alpha = material.shadow_alpha;
+            key.shadow_uv = material.shadow_uv;
+            key.shadow_texture = material.shadow_texture.idx;
+            const auto item = items.size();
+            items.push_back({&caster, &material});
+            if (!caster_ids && caster.source->instancing && caster.source->instance_eligible &&
+                bgfx::isValid(instanced_program_))
+            {
+                auto [found, inserted] = batch_index.try_emplace(key, batches.size());
+                if (inserted)
+                {
+                    batches.push_back({key, {}, 0});
+                }
+                batches[found->second].items.push_back(item);
+            }
+            else
+            {
+                batches.push_back({key, {item}, 0});
+            }
             return true;
         };
         if (data->submeshes.empty() &&
-            !submit(0, static_cast<std::uint32_t>(data->indices.size()), 0))
+            !collect(0, static_cast<std::uint32_t>(data->indices.size()), 0))
         {
             return false;
         }
         for (const auto& submesh : data->submeshes)
         {
-            if (!submit(submesh.first_index(), submesh.index_count(), submesh.material_slot()))
+            if (!collect(submesh.first_index(), submesh.index_count(), submesh.material_slot()))
             {
                 return false;
             }
         }
+        return true;
+    };
+    const auto submit_batches = [&](bgfx::ViewId view)
+    {
+        for (auto& batch : batches)
+        {
+            while (batch.cursor < batch.items.size())
+            {
+                const auto& item = items[batch.items[batch.cursor]];
+                const auto& caster = *item.caster;
+                if (!bind_material(*item.material, fallback))
+                {
+                    return false;
+                }
+                constexpr std::uint16_t stride = 16 * sizeof(float);
+                const auto remaining =
+                    static_cast<std::uint32_t>(batch.items.size() - batch.cursor);
+                const auto available =
+                    remaining > 1 ? bgfx::getAvailInstanceDataBuffer(remaining, stride) : 0;
+                const auto count = available >= 2 ? available : 1U;
+                if (count > 1)
+                {
+                    bgfx::InstanceDataBuffer buffer;
+                    bgfx::allocInstanceDataBuffer(&buffer, count, stride);
+                    for (std::uint32_t index = 0; index < count; ++index)
+                    {
+                        const auto* instance = items[batch.items[batch.cursor + index]].caster;
+                        std::memcpy(buffer.data + index * stride, instance->model.data(), stride);
+                    }
+                    bgfx::setInstanceDataBuffer(&buffer);
+                }
+                batch.cursor += count;
+                bgfx::setTransform(caster.model.data());
+                bgfx::setUniform(depth_uniform, depth_scale);
+                caster.mesh->bind_vertices();
+                bgfx::setIndexBuffer(caster.mesh->geometry->indices, batch.key.first,
+                                     batch.key.count);
+                bgfx::setState(batch.key.state);
+                bgfx::submit(view, count > 1 ? instanced_program_ : program_);
+            }
+        }
+        items.clear();
+        batches.clear();
+        batch_index.clear();
         return true;
     };
     for (std::uint16_t index = 0; index < cascade_count; ++index)
@@ -410,10 +434,14 @@ bool ShadowPass::draw(const WorldSystem& world, const RenderSettings& settings, 
             {
                 continue;
             }
-            if (!submit_caster(caster, view))
+            if (!collect_caster(caster))
             {
                 return false;
             }
+        }
+        if (!submit_batches(view))
+        {
+            return false;
         }
     }
     std::vector<const LocalShadowLight*> candidates;
@@ -582,10 +610,14 @@ bool ShadowPass::draw(const WorldSystem& world, const RenderSettings& settings, 
                     }
                     outside &= mask;
                 }
-                if (outside == 0 && !submit_caster(caster, view))
+                if (outside == 0 && !collect_caster(caster))
                 {
                     return false;
                 }
+            }
+            if (!submit_batches(view))
+            {
+                return false;
             }
             frame.local_records.push_back(record);
         }

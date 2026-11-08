@@ -196,6 +196,8 @@ void RenderSystem::release_extensions_scene() noexcept
 
 bool RenderSystem::on_initialize(const EngineConfig&)
 {
+    // 初始化前的非法准备请求不能把新的渲染生命周期永久留在 failed。
+    preparation_.reset();
     if (config_.cluster_tile_size < 16 || config_.cluster_tile_size > 256 ||
         config_.cluster_depth_slices == 0 || config_.cluster_depth_slices > 64 ||
         config_.maximum_lights == 0 || config_.maximum_lights > 4096 ||
@@ -513,6 +515,20 @@ bool RenderSystem::render(Camera camera)
     const bool drawn = draw_scene(camera, current_settings) &&
                        draw_diffuse_capture(current_settings) &&
                        (ui_ == nullptr || ui_->render(width_, height_));
+    if (scene_resources_)
+    {
+        // 在扩展/UI 返回后撤销所有借用，下一次结构修改和 GPU 资源回收前不留旧指针。
+        auto& frame = scene_resources_->frame_data;
+        frame.meshes.clear();
+        frame.lights.clear();
+        frame.probes.clear();
+        frame.world_epoch = 0;
+        for (auto& list : scene_resources_->draw_lists)
+        {
+            list.opaque.clear();
+            list.transparent.clear();
+        }
+    }
     if (!drawn && hdr_capture_status_ == SceneCaptureStatus::pending &&
         (!scene_resources_ || !scene_resources_->hdr_capture_pending))
     {

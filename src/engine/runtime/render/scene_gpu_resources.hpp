@@ -10,6 +10,7 @@
 #include "runtime/render/passes/shadow_pass.hpp"
 #include "runtime/render/passes/skinning_pass.hpp"
 #include "runtime/render/passes/surface_pass.hpp"
+#include "runtime/render/render_submission.hpp"
 #include "runtime/render/render_system.hpp"
 #include "runtime/render/resources/gpu_mesh.hpp"
 #include "runtime/render/resources/gpu_program.hpp"
@@ -60,6 +61,8 @@ struct TexturePrepareWork
 struct RenderSystem::SceneGpuResources
 {
     std::vector<RenderViewStats> view_stats;
+    render_detail::RenderFrameData frame_data;
+    std::array<render_detail::ViewDrawList, 4> draw_lists;
     bool culling_applied = false;
     bool lod_applied = false;
     render_detail::AtmospherePass atmosphere;
@@ -149,14 +152,21 @@ struct RenderSystem::SceneGpuResources
     SceneGpuResources& operator=(SceneGpuResources&&) = delete;
 
     [[nodiscard]] bool initialize();
-    [[nodiscard]] bool prepare_lighting(const WorldSystem& world, const RenderSettings& settings,
-                                        const RenderConfig& config,
+    [[nodiscard]] bool collect_frame(const WorldSystem& world,
+                                     render_detail::RenderFrameData& output);
+    [[nodiscard]] bool collect_view(const render_detail::RenderFrameData& frame,
+                                    const render_detail::SceneDrawView& view,
+                                    render_detail::ViewDrawList& output);
+    [[nodiscard]] bool prepare_lighting(const render_detail::RenderFrameData& frame_data,
+                                        const RenderSettings& settings, const RenderConfig& config,
                                         render_detail::SceneDrawView& draw,
                                         const CameraSettings& lens,
                                         render_detail::ShadowFrame& frame,
                                         std::size_t cluster_index, bgfx::ViewId base,
                                         const SceneCaptureRequest* capture);
-    [[nodiscard]] bool draw_meshes(const WorldSystem& world, const RenderSettings& settings,
+    [[nodiscard]] bool draw_meshes(const render_detail::RenderFrameData& frame,
+                                   const render_detail::ViewDrawList& list,
+                                   const RenderSettings& settings,
                                    const render_detail::SceneDrawView& view,
                                    render_detail::SceneDrawMode mode);
     [[nodiscard]] bool prepare_capture(const SceneCaptureRequest& request);
@@ -180,6 +190,9 @@ struct RenderSystem::RenderPreparation
     std::vector<std::uint64_t> observers;
     std::vector<std::uint64_t> scenes;
     std::set<std::uint64_t> dirty_nodes;
+    std::set<std::uint64_t> pending_materials;
+    std::vector<std::uint64_t> target_description;
+    std::size_t target_stage = 0;
     bool discover = true;
     bool ibl_dirty = true;
     std::uint64_t staging_bytes = 0;

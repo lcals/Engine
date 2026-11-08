@@ -35,6 +35,11 @@ bool RenderSystem::request_hdr_capture()
     }
     hdr_capture_scene_id_ = scene->id();
     hdr_capture_status_ = SceneCaptureStatus::pending;
+    if (preparation_)
+    {
+        preparation_->target_description.clear();
+        preparation_->status = RenderPrepareStatus::preparing;
+    }
     return true;
 }
 
@@ -57,6 +62,11 @@ void RenderSystem::cancel_hdr_capture() noexcept
     if (scene_resources_ && !scene_resources_->hdr_capture_pending)
     {
         scene_resources_->hdr_capture_pixels.clear();
+        if (bgfx::isValid(scene_resources_->hdr_capture_readback))
+        {
+            bgfx::destroy(scene_resources_->hdr_capture_readback);
+            scene_resources_->hdr_capture_readback = BGFX_INVALID_HANDLE;
+        }
     }
 }
 
@@ -74,27 +84,13 @@ void RenderSystem::submit_hdr_capture()
         return;
     }
     auto& resources = *scene_resources_;
-    const auto* caps = bgfx::getCaps();
-    constexpr auto readback_flags = BGFX_TEXTURE_BLIT_DST | BGFX_TEXTURE_READ_BACK;
     const auto source = resources.hdr_post_process.scene_color();
-    if (!caps || !bgfx::isValid(source) || width_ == 0 || height_ == 0 || width_ > UINT16_MAX ||
-        height_ > UINT16_MAX ||
-        !bgfx::isTextureValid(0, false, 1, bgfx::TextureFormat::RGBA16F, readback_flags))
+    if (!bgfx::isValid(source) || !bgfx::isValid(resources.hdr_capture_readback) ||
+        resources.hdr_capture_width != width_ || resources.hdr_capture_height != height_)
     {
         hdr_capture_status_ = SceneCaptureStatus::failed;
         return;
     }
-    resources.hdr_capture_width = static_cast<std::uint16_t>(width_);
-    resources.hdr_capture_height = static_cast<std::uint16_t>(height_);
-    resources.hdr_capture_readback =
-        bgfx::createTexture2D(resources.hdr_capture_width, resources.hdr_capture_height, false, 1,
-                              bgfx::TextureFormat::RGBA16F, readback_flags);
-    if (!bgfx::isValid(resources.hdr_capture_readback))
-    {
-        hdr_capture_status_ = SceneCaptureStatus::failed;
-        return;
-    }
-    resources.hdr_capture_pixels.resize(static_cast<std::size_t>(width_) * height_ * 4);
     // bgfx resolves multisample attachments when the drawing view ends. The
     // capture view follows transparent/extension and final display resolve;
     // display resolve samples but does not modify this linear scene texture.
@@ -396,14 +392,14 @@ bool RenderSystem::draw_diffuse_capture(const RenderSettings& rendering)
         return fail();
     }
     auto& resources = *scene_resources_;
+    if (resources.frame_data.world_epoch == 0 &&
+        !resources.collect_frame(*world_, resources.frame_data))
+    {
+        return fail();
+    }
     if (capture_status_ == SceneCaptureStatus::pending && !resources.capture_pending)
     {
         auto& request = capture_request_;
-        if (!resources.prepare_capture(request))
-        {
-            resources.release_capture();
-            return fail();
-        }
         float capture_world[16];
         bx::mtxInverse(capture_world, request.view.data());
         render_detail::SceneDrawView draw;
@@ -423,8 +419,9 @@ bool RenderSystem::draw_diffuse_capture(const RenderSettings& rendering)
             return fail();
         }
         render_detail::ShadowFrame capture_shadow;
-        if (!resources.prepare_lighting(*world_, rendering, config_, draw, lens, capture_shadow, 3,
-                                        render_detail::capture_shadow_view, &request))
+        if (!resources.prepare_lighting(resources.frame_data, rendering, config_, draw, lens,
+                                        capture_shadow, 3, render_detail::capture_shadow_view,
+                                        &request))
         {
             return fail();
         }
@@ -436,8 +433,10 @@ bool RenderSystem::draw_diffuse_capture(const RenderSettings& rendering)
         bgfx::setViewClear(draw.id, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, std::uint32_t{0x000000ff},
                            1.0F, std::uint8_t{0});
         bgfx::touch(draw.id);
-        if (!resources.draw_capture_sky(request, rendering) ||
-            !resources.draw_meshes(*world_, rendering, draw, render_detail::SceneDrawMode::capture))
+        if (!resources.collect_view(resources.frame_data, draw, resources.draw_lists[3]) ||
+            !resources.draw_capture_sky(request, rendering) ||
+            !resources.draw_meshes(resources.frame_data, resources.draw_lists[3], rendering, draw,
+                                   render_detail::SceneDrawMode::capture))
         {
             return fail();
         }
@@ -501,6 +500,11 @@ bool RenderSystem::request_diffuse_capture(const SceneCaptureRequest& request)
     capture_request_ = request;
     capture_snapshot_ = std::move(snapshot);
     capture_status_ = SceneCaptureStatus::pending;
+    if (preparation_)
+    {
+        preparation_->target_description.clear();
+        preparation_->status = RenderPrepareStatus::preparing;
+    }
     if (scene_resources_)
     {
         scene_resources_->capture_cancelled = false;

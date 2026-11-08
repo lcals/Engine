@@ -12,9 +12,11 @@
 #include "runtime/scene/light.hpp"
 #include "runtime/scene/light_probe_volume_component.hpp"
 #include "runtime/scene/mesh_renderer.hpp"
+#include "runtime/scene/planar_reflection_component.hpp"
 #include "runtime/scene/post_process_component.hpp"
 #include "runtime/scene/scene.hpp"
 #include "runtime/scene/transform.hpp"
+#include "runtime/utils/path_utils.hpp"
 #include "runtime/window/window_system.hpp"
 #include "runtime/world/world_system.hpp"
 
@@ -23,8 +25,14 @@
 #include <bgfx/bgfx.h>
 
 #include <algorithm>
+#include <charconv>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <filesystem>
+#include <fstream>
+#include <numeric>
+#include <string_view>
 #include <vector>
 
 namespace
@@ -226,6 +234,418 @@ bool pixels(const SceneCaptureImage& left, const SceneCaptureImage& right, const
     return expect(maximum == 0, message);
 }
 
+int benchmark(int argc, char** argv)
+{
+    std::string scenario = "shared";
+    std::filesystem::path output;
+    std::uint32_t objects = 4096, settle_frames = 120, measured_frames = 600, seed = 20261108;
+    for (int index = 2; index < argc; index += 2)
+    {
+        if (index + 1 == argc)
+        {
+            std::fprintf(stderr, "benchmark failed at line %d (SDL: %s)\n", __LINE__,
+                         SDL_GetError());
+            return 1;
+        }
+        const std::string_view option = argv[index], value = argv[index + 1];
+        if (option == "--scenario")
+        {
+            scenario = value;
+        }
+        else if (option == "--output")
+        {
+            output = PathUtils::from_utf8(value);
+        }
+        else
+        {
+            auto* destination = option == "--objects"         ? &objects
+                                : option == "--settle-frames" ? &settle_frames
+                                : option == "--frames"        ? &measured_frames
+                                : option == "--seed"          ? &seed
+                                                              : nullptr;
+            const auto parsed =
+                destination
+                    ? std::from_chars(value.data(), value.data() + value.size(), *destination)
+                    : std::from_chars_result{};
+            if (!destination || parsed.ec != std::errc{} ||
+                parsed.ptr != value.data() + value.size())
+            {
+                std::fprintf(stderr, "benchmark failed at line %d (SDL: %s)\n", __LINE__,
+                             SDL_GetError());
+                return 1;
+            }
+        }
+    }
+    const bool mixed = scenario == "mixed" || scenario == "dynamic" || scenario == "views";
+    if ((!mixed && scenario != "shared" && scenario != "probes" && scenario != "shadow") ||
+        output.empty() || objects == 0 || objects > 16384 || measured_frames == 0 ||
+        measured_frames > 10000)
+    {
+        std::fprintf(stderr, "benchmark failed at line %d (SDL: %s)\n", __LINE__, SDL_GetError());
+        return 1;
+    }
+    std::error_code error;
+    if (!std::filesystem::create_directories(output, error) || error)
+    {
+        std::fprintf(stderr, "benchmark requires a new output directory\n");
+        std::fprintf(stderr, "benchmark failed at line %d (SDL: %s)\n", __LINE__, SDL_GetError());
+        return 1;
+    }
+    using Clock = std::chrono::steady_clock;
+    const auto elapsed = [](Clock::time_point begin)
+    { return std::chrono::duration<double, std::milli>(Clock::now() - begin).count(); };
+    const auto begin = Clock::now();
+    EngineConfig config;
+    config.window_title = "Rendering submission benchmark";
+    config.width = 1280;
+    config.height = 720;
+    config.target_frame_rate = -1;
+    test_support::ResourceServices services;
+    WorldSystem world(&services.loader);
+    WindowSystem window;
+    RenderSystem renderer(window, &world);
+    test_support::ResourceFixture fixture;
+    if (!services.initialize(config) || !services.prepare_builtins() || !world.initialize(config) ||
+        !window.initialize(config) || !renderer.initialize(config) || !renderer.set_vsync(false))
+    {
+        std::fprintf(stderr, "benchmark failed at line %d (SDL: %s)\n", __LINE__, SDL_GetError());
+        return 1;
+    }
+    const double initialize_ms = elapsed(begin);
+    const auto load_begin = Clock::now();
+    std::vector<std::string> geometry_paths;
+    for (std::uint32_t index = 0; index < (mixed ? 4U : 1U); ++index)
+    {
+        auto geometry = grid();
+        geometry.path += std::to_string(index);
+        if (mixed)
+        {
+            geometry.lods.clear();
+            geometry.submeshes.emplace_back(0, 192, 0);
+            geometry.submeshes.emplace_back(192, 192, 1);
+        }
+        geometry_paths.push_back(geometry.path);
+        if (!fixture.add(geometry))
+        {
+            std::fprintf(stderr, "benchmark failed at line %d (SDL: %s)\n", __LINE__,
+                         SDL_GetError());
+            return 1;
+        }
+    }
+    const auto side = static_cast<std::uint32_t>(std::ceil(std::sqrt(objects)));
+    std::vector<std::string> probe_paths;
+    if (scenario == "probes")
+    {
+        for (std::uint32_t index = 0; index < 16; ++index)
+        {
+            auto probe = probes("lighting/benchmark", index % 2 == 0);
+            probe.path += std::to_string(index);
+            const double extent = side * (.2 + .02 * (index % 4));
+            const double x = (static_cast<double>(index % 4) - 1.5) * side * .22;
+            const double y = (static_cast<double>(index / 4) - 1.5) * side * .22;
+            probe.bounds_min = {x - extent, y - extent, -2};
+            probe.bounds_max = {x + extent, y + extent, 2};
+            probe.valid[index % 8] = 0;
+            probe_paths.push_back(probe.path);
+            if (!fixture.add(probe))
+            {
+                std::fprintf(stderr, "benchmark failed at line %d (SDL: %s)\n", __LINE__,
+                             SDL_GetError());
+                return 1;
+            }
+        }
+    }
+    if (!services.publish_and_load(fixture.catalog, {{"content", fixture.root}}))
+    {
+        std::fprintf(stderr, "benchmark failed at line %d (SDL: %s)\n", __LINE__, SDL_GetError());
+        return 1;
+    }
+    const double load_ms = elapsed(load_begin);
+    const auto scene_begin = Clock::now();
+    auto* scene = world.create_scene("Submission benchmark");
+    if (!scene)
+    {
+        std::fprintf(stderr, "benchmark failed at line %d (SDL: %s)\n", __LINE__, SDL_GetError());
+        return 1;
+    }
+    auto camera_node = scene->create_node("Camera");
+    auto camera = camera_node.add_component<Camera>();
+    auto post = camera_node.add_component<PostProcessComponent>();
+    auto environment = scene->create_node("Environment").add_component<EnvironmentComponent>();
+    auto light = scene->create_node("Directional").add_component<Light>();
+    CameraSettings lens;
+    lens.projection = schema::Projection::orthographic;
+    lens.orthographic_size = static_cast<float>(side) * 1.1F;
+    lens.frustum_culling_enabled = true;
+    lens.far_clip = 250;
+    TransformSettings camera_pose;
+    camera_pose.position = {0, 0, 80};
+    if (scenario == "views")
+    {
+        // 镜面为局部 XZ 平面；观察方向不能与平面平行，否则斜裁剪投影不可逆。
+        lens.projection = schema::Projection::perspective;
+        camera_pose.position = {0, side * .25, side * 1.5};
+        camera_pose.rotation = {-10, 0, 0};
+    }
+    auto lighting = test_support::read_settings(environment);
+    lighting.ambient_intensity = .3F;
+    auto light_settings = test_support::read_settings(light);
+    light_settings.cast_shadows = scenario == "shadow";
+    light_settings.shadow_cascades = 4;
+    light_settings.shadow_resolution = 1024;
+    auto post_settings = test_support::read_settings(post);
+    post_settings.ao_enabled = post_settings.ssr_enabled = scenario == "views";
+    if (!camera || !post || !environment || !light || !camera.set_settings(lens) ||
+        !camera_node.get_component<Transform>().set_settings(camera_pose) ||
+        !scene->set_active_camera(camera) || !environment.set_settings(lighting) ||
+        !light.set_settings(light_settings) || !post.set_settings(post_settings))
+    {
+        std::fprintf(stderr, "benchmark failed at line %d (SDL: %s)\n", __LINE__, SDL_GetError());
+        return 1;
+    }
+    if (scenario == "shadow")
+    {
+        auto point_node = scene->create_node("Point");
+        auto point = point_node.add_component<Light>();
+        auto settings = test_support::read_settings(point);
+        settings.kind = schema::LightKind::point;
+        settings.range = static_cast<float>(side);
+        settings.cast_shadows = true;
+        TransformSettings pose;
+        pose.position = {0, 0, 8};
+        if (!point.set_settings(settings) ||
+            !point_node.get_component<Transform>().set_settings(pose))
+        {
+            std::fprintf(stderr, "benchmark failed at line %d (SDL: %s)\n", __LINE__,
+                         SDL_GetError());
+            return 1;
+        }
+    }
+    for (const auto& path : probe_paths)
+    {
+        auto volume = scene->create_node(path).add_component<LightProbeVolumeComponent>();
+        auto settings = test_support::read_settings(volume);
+        if (!services.core.catalog().identities().path_to_guid(path, settings.probes_guid) ||
+            !volume.set_settings(settings))
+        {
+            std::fprintf(stderr, "benchmark failed at line %d (SDL: %s)\n", __LINE__,
+                         SDL_GetError());
+            return 1;
+        }
+    }
+    std::vector<MeshRenderer> meshes;
+    std::vector<TransformSettings> poses;
+    meshes.reserve(objects);
+    poses.reserve(objects);
+    for (std::uint32_t index = 0; index < objects; ++index)
+    {
+        auto node = scene->create_node("Mesh " + std::to_string(index));
+        auto mesh = node.add_component<MeshRenderer>();
+        TransformSettings pose;
+        pose.position = {static_cast<double>(index % side) - (side - 1) * .5,
+                         static_cast<double>(index / side) - (side - 1) * .5, 0};
+        pose.scale = {mixed && index % 7 == 0 ? -.8 : .8, .8, .8};
+        if (!mesh || !mesh.set_mesh(geometry_paths[index % geometry_paths.size()]) ||
+            !mesh.set_static_instancing_enabled(true) || !mesh.set_static_lod_enabled(false) ||
+            !mesh.set_material_count(mixed ? 2 : 1) ||
+            !node.get_component<Transform>().set_settings(pose))
+        {
+            std::fprintf(stderr, "benchmark failed at line %d (SDL: %s)\n", __LINE__,
+                         SDL_GetError());
+            return 1;
+        }
+        for (std::size_t slot = 0; slot < mesh.material_count(); ++slot)
+        {
+            auto material = mesh.material(slot);
+            const double tint = mixed ? static_cast<double>((index + seed + slot) % 16) / 16 : .6;
+            const bool transparent = mixed && index % 64 == 0 && slot == 1;
+            if (!material.set_type("builtin://materials/default-pbr") ||
+                !material.set_v4("baseColor", {.2, tint, .9, transparent ? .5 : 1.0}) ||
+                !material.set_float("metallic", 0) || !material.set_float("roughness", .6F) ||
+                !material.set_blend_mode(transparent ? schema::BlendMode::alpha_blend
+                                                     : schema::BlendMode::opaque))
+            {
+                std::fprintf(stderr, "benchmark failed at line %d (SDL: %s)\n", __LINE__,
+                             SDL_GetError());
+                return 1;
+            }
+        }
+        if (scenario == "views" && index == 0 && !node.add_component<PlanarReflectionComponent>())
+        {
+            std::fprintf(stderr, "benchmark failed at line %d (SDL: %s)\n", __LINE__,
+                         SDL_GetError());
+            return 1;
+        }
+        meshes.push_back(mesh);
+        poses.push_back(pose);
+    }
+    const double scene_ms = elapsed(scene_begin);
+    const auto prepare_begin = Clock::now();
+    if (!test_support::prepare_render(renderer))
+    {
+        std::fprintf(stderr, "benchmark failed at line %d (SDL: %s)\n", __LINE__, SDL_GetError());
+        return 1;
+    }
+    const double prepare_ms = elapsed(prepare_begin);
+    if (!frames(window, renderer, static_cast<int>(settle_frames)))
+    {
+        std::fprintf(stderr, "benchmark failed at line %d (SDL: %s)\n", __LINE__, SDL_GetError());
+        return 1;
+    }
+    struct Sample
+    {
+        double prepare_ms{}, render_ms{}, gpu_ms{-1}, submit_ms{-1};
+        std::uint32_t gpu_frame{}, draws{}, compute{}, blits{}, transient_bytes{};
+        std::uint16_t textures{}, vertices{}, indices{}, targets{};
+        std::int64_t texture_bytes{}, target_bytes{};
+        RenderViewStats scene{};
+        std::vector<RenderViewStats> views;
+    };
+    std::vector<Sample> samples(measured_frames);
+    for (std::uint32_t frame = 0; frame < measured_frames; ++frame)
+    {
+        if (!window.tick(1.0 / 60.0) || !window.can_render())
+        {
+            std::fprintf(stderr, "benchmark failed at line %d (SDL: %s)\n", __LINE__,
+                         SDL_GetError());
+            return 1;
+        }
+        if (scenario == "dynamic")
+        {
+            for (std::size_t index = 0; index < meshes.size(); index += 100)
+            {
+                auto pose = poses[index];
+                pose.position = {pose.position.x(), pose.position.y(), .25 * std::sin(frame * .1)};
+                if (!meshes[index].node().get_component<Transform>().set_settings(pose) ||
+                    (frame % 30 == 0 &&
+                     !meshes[index].material().set_float("roughness", frame % 60 == 0 ? .3F : .6F)))
+                {
+                    std::fprintf(stderr, "benchmark failed at line %d (SDL: %s)\n", __LINE__,
+                                 SDL_GetError());
+                    return 1;
+                }
+            }
+        }
+        auto& sample = samples[frame];
+        const auto prepare_start = Clock::now();
+        if (!test_support::prepare_render(renderer))
+        {
+            std::fprintf(stderr, "benchmark failed at line %d (SDL: %s)\n", __LINE__,
+                         SDL_GetError());
+            return 1;
+        }
+        sample.prepare_ms = elapsed(prepare_start);
+        const auto render_start = Clock::now();
+        if (!renderer.render())
+        {
+            std::fprintf(stderr, "benchmark failed at line %d (SDL: %s)\n", __LINE__,
+                         SDL_GetError());
+            return 1;
+        }
+        sample.render_ms = elapsed(render_start);
+        const auto views = renderer.submission_stats();
+        sample.views.assign(views.begin(), views.end());
+        for (const auto& view : views)
+        {
+            if (view.view_id == render_detail::main_view)
+            {
+                sample.scene = view;
+            }
+        }
+        const auto& stats = *bgfx::getStats();
+        sample.gpu_frame = stats.gpuFrameNum;
+        if (stats.gpuTimerFreq > 0 && stats.gpuTimeBegin > 0 &&
+            stats.gpuTimeEnd >= stats.gpuTimeBegin)
+        {
+            sample.gpu_ms = (stats.gpuTimeEnd - stats.gpuTimeBegin) * 1000.0 / stats.gpuTimerFreq;
+        }
+        if (stats.cpuTimerFreq > 0 && stats.cpuTimeEnd >= stats.cpuTimeBegin)
+        {
+            sample.submit_ms =
+                (stats.cpuTimeEnd - stats.cpuTimeBegin) * 1000.0 / stats.cpuTimerFreq;
+        }
+        sample.draws = stats.numDraw;
+        sample.compute = stats.numCompute;
+        sample.blits = stats.numBlit;
+        sample.textures = stats.numTextures;
+        sample.vertices = stats.numVertexBuffers;
+        sample.indices = stats.numIndexBuffers;
+        sample.targets = stats.numFrameBuffers;
+        sample.texture_bytes = stats.textureMemoryUsed;
+        sample.target_bytes = stats.rtMemoryUsed;
+        sample.transient_bytes = stats.transientVbUsed;
+    }
+    SceneCaptureImage image;
+    RenderViewStats image_stats;
+    if (!capture(window, renderer, image, image_stats))
+    {
+        std::fprintf(stderr, "benchmark failed at line %d (SDL: %s)\n", __LINE__, SDL_GetError());
+        return 1;
+    }
+    std::ofstream pixels_file(output / "image.rgba32f", std::ios::binary);
+    pixels_file.write(reinterpret_cast<const char*>(image.rgba.data()),
+                      static_cast<std::streamsize>(image.rgba.size() * sizeof(float)));
+    std::ofstream metadata(output / "metadata.json");
+    metadata << "{\"scenario\":\"" << scenario << "\",\"objects\":" << objects
+             << ",\"seed\":" << seed << ",\"settle_frames\":" << settle_frames
+             << ",\"frames\":" << measured_frames << ",\"width\":" << image.width
+             << ",\"height\":" << image.height << ",\"vsync\":false,\"msaa\":1,\"backend\":\""
+             << bgfx::getRendererName(bgfx::getRendererType())
+             << "\",\"vendor\":" << bgfx::getCaps()->vendorId
+             << ",\"device\":" << bgfx::getCaps()->deviceId
+             << ",\"initialize_ms\":" << initialize_ms << ",\"load_ms\":" << load_ms
+             << ",\"scene_ms\":" << scene_ms << ",\"prepare_ms\":" << prepare_ms << "}\n";
+    std::ofstream csv(output / "frames.csv");
+    csv << "frame,prepare_ms,render_ms,gpu_frame,gpu_ms,backend_submit_ms,draws,compute,blits,"
+           "visible,scene_draws,batches,instances,triangles,textures,vertex_buffers,index_buffers,"
+           "framebuffers,texture_bytes,target_bytes,transient_bytes\n";
+    for (std::size_t index = 0; index < samples.size(); ++index)
+    {
+        const auto& s = samples[index];
+        csv << index << ',' << s.prepare_ms << ',' << s.render_ms << ',' << s.gpu_frame << ','
+            << s.gpu_ms << ',' << s.submit_ms << ',' << s.draws << ',' << s.compute << ','
+            << s.blits << ',' << s.scene.visible_meshes << ',' << s.scene.draw_calls << ','
+            << s.scene.instance_batches << ',' << s.scene.submitted_instances << ','
+            << s.scene.triangles << ',' << s.textures << ',' << s.vertices << ',' << s.indices
+            << ',' << s.targets << ',' << s.texture_bytes << ',' << s.target_bytes << ','
+            << s.transient_bytes << '\n';
+    }
+    std::ofstream view_csv(output / "views.csv");
+    view_csv << "frame,view,candidates,culled,visible,draws,batches,instances,triangles\n";
+    for (std::size_t index = 0; index < samples.size(); ++index)
+    {
+        for (const auto& view : samples[index].views)
+        {
+            view_csv << index << ',' << view.view_id << ',' << view.candidate_meshes << ','
+                     << view.culled_meshes << ',' << view.visible_meshes << ',' << view.draw_calls
+                     << ',' << view.instance_batches << ',' << view.submitted_instances << ','
+                     << view.triangles << '\n';
+        }
+    }
+    std::vector<double> times;
+    for (const auto& sample : samples)
+    {
+        times.push_back(sample.render_ms);
+    }
+    std::sort(times.begin(), times.end());
+    const auto percentile = [&](double p)
+    { return times[static_cast<std::size_t>(p * (times.size() - 1))]; };
+    std::ofstream summary(output / "summary.json");
+    summary << "{\"render_mean_ms\":"
+            << std::accumulate(times.begin(), times.end(), 0.0) / times.size()
+            << ",\"render_p50_ms\":" << percentile(.5) << ",\"render_p95_ms\":" << percentile(.95)
+            << ",\"render_p99_ms\":" << percentile(.99) << ",\"render_max_ms\":" << times.back()
+            << "}\n";
+    const bool written =
+        pixels_file.good() && metadata.good() && csv.good() && view_csv.good() && summary.good();
+    std::printf("benchmark %s: %u objects, render P50 %.3f / P95 %.3f / P99 %.3f ms, draws %u\n",
+                scenario.c_str(), objects, percentile(.5), percentile(.95), percentile(.99),
+                samples.back().draws);
+    renderer.shutdown();
+    world.destroy_scene();
+    return written ? 0 : 1;
+}
+
 int test()
 {
     EngineConfig config;
@@ -423,6 +843,40 @@ int test()
     {
         return 1;
     }
+    auto receiver_node = scene->create_node("Shadow receiver");
+    auto receiver = receiver_node.add_component<MeshRenderer>();
+    TransformSettings receiver_pose;
+    receiver_pose.position = {0, 0, -2};
+    receiver_pose.scale = {12, 8, 1};
+    TransformSettings sun_pose;
+    sun_pose.rotation = {0, -35, 0};
+    auto shadow_settings = test_support::read_settings(light);
+    shadow_settings.cast_shadows = true;
+    shadow_settings.shadow_resolution = 512;
+    shadow_settings.shadow_cascades = 4;
+    SceneCaptureImage shadow_ordinary, shadow_instanced;
+    RenderViewStats shadow_stats;
+    if (!receiver || !receiver.set_mesh(geometry.path) ||
+        !receiver_node.get_component<Transform>().set_settings(receiver_pose) ||
+        !light_node.get_component<Transform>().set_settings(sun_pose) ||
+        !light.set_settings(shadow_settings) ||
+        !visible[1].material().set_float("alphaCutoff", .5F) ||
+        !visible[1].material().set_v4("baseColor", {.2, .6, .9, .25}) ||
+        !set_instancing(meshes, false) || !capture(window, renderer, shadow_ordinary, shadow_stats))
+    {
+        return 1;
+    }
+    const auto ordinary_draws = bgfx::getStats()->numDraw;
+    if (!set_instancing(meshes, true) ||
+        !capture(window, renderer, shadow_instanced, shadow_stats) ||
+        !pixels(
+            shadow_ordinary, shadow_instanced,
+            "shadow batching preserves alpha clipping, mirrored culling and off-camera casters") ||
+        !expect(bgfx::getStats()->numDraw < ordinary_draws,
+                "shadow instancing reduces actual backend draws"))
+    {
+        return 1;
+    }
     std::printf("render submission: draws %u -> %u -> %u; LOD triangles %llu -> %llu\n",
                 all_stats.draw_calls, cull_stats.draw_calls, instance_stats.draw_calls,
                 static_cast<unsigned long long>(cull_stats.triangles),
@@ -433,7 +887,11 @@ int test()
 }
 } // namespace
 
-int main(int, char**)
+int main(int argc, char** argv)
 {
+    if (argc > 1)
+    {
+        return std::string_view(argv[1]) == "--benchmark" ? benchmark(argc, argv) : 1;
+    }
     return test();
 }

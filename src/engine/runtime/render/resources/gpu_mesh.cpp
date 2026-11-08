@@ -32,6 +32,7 @@ GpuMesh& GpuMesh::operator=(GpuMesh&& other) noexcept
         geometry = std::move(other.geometry);
         textures = std::move(other.textures);
         programs = std::move(other.programs);
+        materials = std::move(other.materials);
         deformed_vertices = std::exchange(other.deformed_vertices,
                                           bgfx::DynamicVertexBufferHandle{bgfx::kInvalidHandle});
         palette =
@@ -191,6 +192,7 @@ void GpuMesh::release() noexcept
     geometry.reset();
     textures.clear();
     programs.clear();
+    materials.clear();
     node_id = 0;
     instance_id = 0;
     revision = 0;

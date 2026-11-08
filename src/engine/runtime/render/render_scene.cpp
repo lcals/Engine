@@ -76,108 +76,18 @@ bool RenderSystem::draw_scene(Camera view_camera, const RenderSettings& renderin
     // Mirrors and light capture need the actual orthonormal camera, not a scaled Node transform.
     bx::mtxInverse(camera_world, view);
     auto& resources = *scene_resources_;
-    bool uses_skinning = false;
-    for (auto& mesh : resources.meshes)
+    if (!resources.collect_frame(*world_, resources.frame_data))
     {
-        const auto renderer = world_->find_node(mesh.node_id).get_component<MeshRenderer>();
-        if (!renderer || renderer.instance_id() != mesh.instance_id ||
-            renderer.mesh_revision() != mesh.revision ||
-            !mesh.update_deformation(renderer, resources.skinning))
-        {
-            return false;
-        }
-        uses_skinning = uses_skinning || bgfx::isValid(mesh.palette);
+        return false;
     }
-    if (!uses_skinning)
-    {
-        resources.skinning.release();
-    }
-    struct Plane
-    {
-        Node node = {};
-        float distance = 0;
-    };
-    std::vector<Plane> planes;
-    {
-        const auto process =
-            [&](Node node,
-                const ecs_detail::ComponentStorage<PlanarReflectionComponent::Data>& stored) -> bool
-        {
-            const auto* owner = node.scene();
-            (void)owner;
-            (void)stored;
-
-            const auto reflection = node.get_component<PlanarReflectionComponent>();
-            const auto mesh = node.get_component<MeshRenderer>();
-            const auto transform = node.get_component<Transform>();
-            std::array<float, 16> matrix{};
-            if (reflection && reflection.active() && reflection.visible_in_hierarchy() && mesh &&
-                mesh.active() && mesh.visible_in_hierarchy() &&
-                camera.mesh_visible(mesh.instance_id()) && transform &&
-                transform.world_matrix(matrix.data()))
-            {
-                planes.push_back(
-                    {node, std::hypot(matrix[12] - camera_world[12], matrix[13] - camera_world[13],
-                                      matrix[14] - camera_world[14])});
-            }
-
-            return true;
-        };
-        auto query = flecs::world(world_->native_world())
-                         .query_builder<
-                             const ecs_detail::ComponentStorage<PlanarReflectionComponent::Data>>()
-                         .with<ecs_detail::Published>()
-                         .build();
-        bool query_success = true;
-        query.each(
-            [&](flecs::entity entity,
-                const ecs_detail::ComponentStorage<PlanarReflectionComponent::Data>& stored)
-            {
-                if (query_success)
-                {
-                    query_success = process(world_->find_node(entity.id()), stored);
-                }
-            });
-        (void)query_success;
-    }
-    std::sort(
-        planes.begin(), planes.end(), [](const Plane& a, const Plane& b)
-        { return a.distance == b.distance ? a.node.id() < b.node.id() : a.distance < b.distance; });
-    const auto plane_count =
-        std::min<std::size_t>(config_.maximum_planar_reflections, planes.size());
     for (std::size_t index = 0; index < resources.planar.size(); ++index)
     {
         auto& target = resources.planar[index];
-        if (index >= plane_count)
+        if (target.node_id == 0)
         {
-            target.release();
-            resources.clusters[index].release();
             continue;
         }
-        const auto node = planes[index].node;
-        PlanarReflectionSettings options;
-        float matrix[16]{};
-        if (!node.get_component<PlanarReflectionComponent>().get_settings(options) ||
-            !node.get_component<Transform>().world_matrix(matrix))
-        {
-            return false;
-        }
-        if (!target.prepare(
-                static_cast<std::uint16_t>(std::max(
-                    1.0F, std::ceil(static_cast<float>(width_) * options.resolution_scale))),
-                static_cast<std::uint16_t>(std::max(
-                    1.0F, std::ceil(static_cast<float>(height_) * options.resolution_scale))),
-                config_.msaa_samples))
-        {
-            return false;
-        }
-        if (!target.mirror(matrix, camera_world, projection, options.clip_bias))
-        {
-            target.release();
-            resources.clusters[index].release();
-            continue;
-        }
-        target.node_id = node.id();
+        const auto node = world_->find_node(target.node_id);
         const auto base = static_cast<bgfx::ViewId>(3 + index * 39);
         render_detail::SceneDrawView draw;
         draw.renderer = this;
@@ -194,8 +104,8 @@ bool RenderSystem::draw_scene(Camera view_camera, const RenderSettings& renderin
         draw.multisampling = config_.msaa_samples > 1;
         draw.max_anisotropy = config_.max_anisotropy;
         render_detail::ShadowFrame shadow;
-        if (!resources.prepare_lighting(*world_, rendering, config_, draw, settings, shadow, index,
-                                        base, nullptr))
+        if (!resources.prepare_lighting(resources.frame_data, rendering, config_, draw, settings,
+                                        shadow, index, base, nullptr))
         {
             return false;
         }
@@ -205,7 +115,9 @@ bool RenderSystem::draw_scene(Camera view_camera, const RenderSettings& renderin
         {
             return false;
         }
-        if (!resources.draw_meshes(*world_, rendering, draw, render_detail::SceneDrawMode::opaque))
+        if (!resources.collect_view(resources.frame_data, draw, resources.draw_lists[index]) ||
+            !resources.draw_meshes(resources.frame_data, resources.draw_lists[index], rendering,
+                                   draw, render_detail::SceneDrawMode::opaque))
         {
             return false;
         }
@@ -222,36 +134,25 @@ bool RenderSystem::draw_scene(Camera view_camera, const RenderSettings& renderin
     draw.lod_observer = {camera.instance_id(), 0};
     draw.max_anisotropy = config_.max_anisotropy;
     render_detail::ShadowFrame shadow;
-    if (!resources.prepare_lighting(*world_, rendering, config_, draw, settings, shadow, 2,
-                                    render_detail::shadow_view, nullptr))
+    if (!resources.prepare_lighting(resources.frame_data, rendering, config_, draw, settings,
+                                    shadow, 2, render_detail::shadow_view, nullptr))
     {
         return false;
     }
-    if (!resources.surface_pass.prepare(draw.width, draw.height) ||
-        !resources.hdr_post_process.prepare(draw.width, draw.height, rendering.bloom_enabled,
-                                            config_.msaa_samples))
+    if (!resources.collect_view(resources.frame_data, draw, resources.draw_lists[2]))
     {
         return false;
-    }
-    if (rendering.ao_enabled)
-    {
-        if (!resources.ambient_occlusion.prepare(draw.width, draw.height))
-        {
-            return false;
-        }
-    }
-    else
-    {
-        resources.ambient_occlusion.release();
     }
     resources.surface_pass.begin(view, projection);
     draw.id = render_detail::ambient_occlusion_depth_view;
-    if (!resources.draw_meshes(*world_, rendering, draw, render_detail::SceneDrawMode::depth))
+    if (!resources.draw_meshes(resources.frame_data, resources.draw_lists[2], rendering, draw,
+                               render_detail::SceneDrawMode::depth))
     {
         return false;
     }
     draw.id = render_detail::surface_view;
-    if (!resources.draw_meshes(*world_, rendering, draw, render_detail::SceneDrawMode::surface))
+    if (!resources.draw_meshes(resources.frame_data, resources.draw_lists[2], rendering, draw,
+                               render_detail::SceneDrawMode::surface))
     {
         return false;
     }
@@ -271,7 +172,8 @@ bool RenderSystem::draw_scene(Camera view_camera, const RenderSettings& renderin
     {
         return false;
     }
-    if (!resources.draw_meshes(*world_, rendering, draw, render_detail::SceneDrawMode::opaque))
+    if (!resources.draw_meshes(resources.frame_data, resources.draw_lists[2], rendering, draw,
+                               render_detail::SceneDrawMode::opaque))
     {
         return false;
     }
@@ -284,8 +186,7 @@ bool RenderSystem::draw_scene(Camera view_camera, const RenderSettings& renderin
             rendering.ibl_enabled && resources.ibl_textures[2]
                 ? resources.ibl_textures[2]->handle
                 : bgfx::TextureHandle{bgfx::kInvalidHandle};
-        if (!resources.reflections.prepare(draw.width, draw.height, rendering) ||
-            !resources.reflections.render(
+        if (!resources.reflections.render(
                 view, projection, frozen_scene, resources.hdr_post_process.opaque_specular(),
                 resources.surface_pass.depth(), resources.surface_pass.normal_roughness(),
                 resources.surface_pass.specular(), reflection_lut, rendering))
@@ -294,15 +195,12 @@ bool RenderSystem::draw_scene(Camera view_camera, const RenderSettings& renderin
         }
         frozen_scene = resources.reflections.texture();
     }
-    else
-    {
-        resources.reflections.release();
-    }
     resources.hdr_post_process.begin_transparency(frozen_scene, view, projection);
     draw.id = render_detail::transparent_view;
     draw.textures[0] = frozen_scene;
     draw.textures[1] = resources.surface_pass.depth();
-    if (!resources.draw_meshes(*world_, rendering, draw, render_detail::SceneDrawMode::transparent))
+    if (!resources.draw_meshes(resources.frame_data, resources.draw_lists[2], rendering, draw,
+                               render_detail::SceneDrawMode::transparent))
     {
         return false;
     }

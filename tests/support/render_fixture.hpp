@@ -1,13 +1,21 @@
 #pragma once
 #include "runtime/render/render_system.hpp"
+#include <cstdio>
 
 namespace test_support
 {
 inline bool prepare_render(engine::RenderSystem& renderer, engine::Camera camera = {})
 {
     engine::RenderPrepareProgress progress;
-    return renderer.prepare_scene(engine::RenderPrepareMode::synchronous, progress, 0, camera) ==
-           engine::RenderPrepareStatus::ready;
+    const bool ready = renderer.prepare_scene(engine::RenderPrepareMode::synchronous, progress, 0,
+                                              camera) == engine::RenderPrepareStatus::ready;
+    if (!ready)
+    {
+        const auto error = renderer.preparation_error();
+        std::fprintf(stderr, "render preparation failed: %.*s\n", static_cast<int>(error.size()),
+                     error.data());
+    }
+    return ready;
 }
 inline bool render_frame(engine::RenderSystem& renderer, engine::Camera camera = {})
 {
