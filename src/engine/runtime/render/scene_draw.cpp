@@ -394,6 +394,7 @@ bool RenderSystem::SceneGpuResources::draw_meshes(const render_detail::RenderFra
             const auto count = available >= 2 ? available : 1U;
             if (count > 1)
             {
+                ENGINE_PROFILE_ZONE("Render.instanceData");
                 bgfx::allocInstanceDataBuffer(&instance_buffer, count, instance_stride);
                 for (std::uint32_t index = 0; index < count; ++index)
                 {

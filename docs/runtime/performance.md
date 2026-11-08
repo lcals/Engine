@@ -103,6 +103,6 @@ python3 scripts/performance/summarize_trace.py \
 
 ## 采样结果
 
-当前 Windows 渲染基线和代价统一见[测试记录](../testing.md#渲染性能基线)。Shader/PSO 预热、CPU 子阶段占比及整体启动速度尚未验证。
+Windows 渲染基线和代价见[测试记录](../testing.md#渲染性能基线)，Tracy 的收集、组批与等待占比见[CPU 分段诊断](../testing.md#cpu-分段诊断)。Shader/PSO 预热与整体启动速度尚未验证。
 
 2026-11-01 的 macOS 单线程地形/物理样本、后续并行样本不再作为当前版本的性能依据；历史过程保留在 Git 与本地 `build/terrain-step5-jolt-boxes/`。当时 Jolt 单步与整体物理没有达到 0.5 ms，不能把局部碰撞更新的结果外推为整条链路达标，也不能将这些数字外推到 Windows 或手机。

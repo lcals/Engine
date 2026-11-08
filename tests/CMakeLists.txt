@@ -1495,6 +1495,7 @@ if(TARGET engine_runtime AND TARGET engine_render AND TARGET engine_resource_gra
                           PRIVATE engine::runtime engine::window engine::render engine::world
                                   engine::resource SDL3::SDL3)
     engine_apply_options(engine_render_submission_test)
+    engine_enable_profiling(engine_render_submission_test)
     if(ENGINE_ENABLE_GPU_TESTS)
         add_test(NAME engine.render_submission COMMAND engine_render_submission_test)
         set_tests_properties(engine.render_submission

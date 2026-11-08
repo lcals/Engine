@@ -129,6 +129,11 @@ classDiagram
     direction TB
     class RenderSystem
     class WorldSystem
+    class ComponentStorage
+    class NodeRuntime
+    class WorldTransform
+    class MeshRendererRuntime
+    class CameraRuntime
     class SceneGpuResources
     class RenderPreparation
     class GpuMesh
@@ -172,6 +177,11 @@ classDiagram
     RenderSystem *-- RenderPreparation : 既有脏节点及资源准备
     SceneGpuResources *-- RenderFrameData : 工作数组拥有者
     SceneGpuResources *-- ViewDrawList : 主视图及各独立观察者列表
+    SceneGpuResources ..> ComponentStorage : 读取已发布网格Data及身份
+    SceneGpuResources ..> NodeRuntime : 读取有效激活与可见性
+    SceneGpuResources ..> WorldTransform : 借用安全点世界矩阵
+    SceneGpuResources ..> MeshRendererRuntime : 稳定阶段借用资源与姿态
+    SceneGpuResources ..> CameraRuntime : 视图内借用隐藏名单
     RenderPreparation ..> SceneGpuResources : 按脏节点更新绑定
     SceneGpuResources *-- GpuMesh
     SceneGpuResources *-- GpuProgram
@@ -198,6 +208,8 @@ classDiagram
 
 新增 struct 均归 `engine::render_detail`；SceneGpuResources 仍为 RenderSystem 的私有嵌套类型，其他既有类只作跨图引用。以上字段标注身份与索引，不表示可以只凭这些字段合批。完整数据与相等规则如下：
 
+ComponentStorage、NodeRuntime 与 WorldTransform 引用[场景 ECS 列](ecs-scene.md#3-真实数据按具体类型存储)；MeshRendererRuntime、CameraRuntime 为既有组件内部列，不在本图重复定义字段，也不向业务公开。
+
 | 数据 | 保存内容 | 有效期 |
 | --- | --- | --- |
 | MaterialBinding | 槽实例身份、Shader 资源版本、按声明布局打包的数值、采样器和纹理身份、CullMode/BlendMode；标准阴影所用 alpha/UV 数据从同一具名参数解析 | 由 GpuMesh 拥有，随槽或依赖变化重建；不拥有场景材质、不自行加载或增加第二套引用计数 |
@@ -215,9 +227,9 @@ classDiagram
 ### 收集、更新与失效
 
 1. `prepare_scene` 复用现有 Published + Node/Component 通知与脏节点集合，准备唯一 GPU 资源并更新受影响的材质槽绑定。现有 Material setter 已通知 MeshRenderer 修改，不新增公开 revision getter 或第二套全世界监听器。
-2. `render` 先更新已有变形/蒙皮缓冲和边界，再收集一次公共帧数据。世界矩阵、层级激活与可见性读取当前安全点结果；本批不引入跨帧对象变换缓存，所以父节点移动不依赖新增失效通知。
+2. 公共帧收集先刷新已有世界派生状态，再直接查询 Published 网格的 Data、ComponentState 和 NodeRuntime，在稳定阶段短期借用 MeshRendererRuntime 与 WorldTransform。网格身份仍以世界代次、实体及组件实例匹配 GPU 准备索引，资源版本不匹配时拒绝绘制。变形/蒙皮更新直接消费同一 Runtime 列；没有 Lightmap 引用时跳过绑定校验，有引用时复用 MeshRenderer 的完整烘焙有效性规则。不增加第二份场景状态或跨帧 ECS 指针缓存，公开句柄继续逐次校验身份。
 3. 灯和探针从已发布 ECS 列各收集一次。探针逆矩阵、体积和资源有效性在收集时求出；逐物体只做选择与插值。同一静态物体在主视图多个 Pass 的采样结果复用。
-4. 主观察视图只做一次手动隐藏、视锥、LOD 与子网格筛选。反射、阴影和捕获独立建列表；主相机看不到的阴影投射物不能被提前丢弃。阴影保持现有拓扑/选层语义，不顺带改变 LOD 策略。
+4. 主观察视图只做一次手动隐藏、视锥、LOD 与子网格筛选。相机身份在进入视图收集时校验，隐藏名单只在本次稳定阶段借用一次，逐物体直接查询；不跨视图或帧保存借用。反射、阴影和捕获独立建列表；主相机看不到的阴影投射物不能被提前丢弃。阴影保持现有拓扑/选层语义，不顺带改变 LOD 策略。
 5. 每个 Pass 从列表选择所需项，用有效状态键建立批次并提交。透明按原子网格深度稳定排序，保持普通提交；不以不透明批次排序改变透明混合结果。
 
 | 变化 | 处理 |

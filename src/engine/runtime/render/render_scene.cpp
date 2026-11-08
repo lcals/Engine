@@ -240,8 +240,14 @@ bool RenderSystem::draw_scene(Camera view_camera, const RenderSettings& renderin
         }
         invoking_extensions_ = false;
     }
-    if (!draw_debug_overlay(camera, view, projection) ||
-        !resources.hdr_post_process.resolve(rendering))
+    {
+        ENGINE_PROFILE_ZONE("Render.debugOverlay");
+        if (!draw_debug_overlay(camera, view, projection))
+        {
+            return false;
+        }
+    }
+    if (!resources.hdr_post_process.resolve(rendering))
     {
         return false;
     }
