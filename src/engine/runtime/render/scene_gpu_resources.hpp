@@ -152,8 +152,7 @@ struct RenderSystem::SceneGpuResources
     SceneGpuResources& operator=(SceneGpuResources&&) = delete;
 
     [[nodiscard]] bool initialize();
-    [[nodiscard]] bool collect_frame(const WorldSystem& world,
-                                     render_detail::RenderFrameData& output);
+    [[nodiscard]] bool collect_frame(WorldSystem& world, render_detail::RenderFrameData& output);
     [[nodiscard]] bool collect_view(const render_detail::RenderFrameData& frame,
                                     const render_detail::SceneDrawView& view,
                                     render_detail::ViewDrawList& output);

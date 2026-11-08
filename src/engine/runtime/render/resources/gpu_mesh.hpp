@@ -12,6 +12,7 @@
 namespace engine
 {
 class MeshRenderer;
+struct MeshRendererRuntime;
 namespace schema
 {
 struct ShaderDataT;
@@ -34,7 +35,8 @@ struct GpuMesh
     GpuMesh& operator=(GpuMesh&& other) noexcept;
 
     [[nodiscard]] bool create(const MeshRenderer& renderer, std::shared_ptr<GpuGeometry> source);
-    [[nodiscard]] bool update_deformation(const MeshRenderer& renderer, SkinningPass& skinning);
+    [[nodiscard]] bool update_deformation(const MeshRendererRuntime& runtime,
+                                          SkinningPass& skinning);
     void bind_vertices() const;
     void release() noexcept;
 

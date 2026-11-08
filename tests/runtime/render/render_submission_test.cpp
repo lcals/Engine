@@ -5,6 +5,7 @@
 
 #include "plugins/runtime/resource_graph/resource_graph_system.hpp"
 #include "runtime/engine_config.hpp"
+#include "runtime/performance/profiling.hpp"
 #include "runtime/render/render_constants.hpp"
 #include "runtime/render/render_system.hpp"
 #include "runtime/scene/camera.hpp"
@@ -398,6 +399,8 @@ int benchmark(int argc, char** argv)
         std::vector<RenderViewStats> views;
     };
     std::vector<Sample> samples(measured_frames);
+    [[maybe_unused]] constexpr char sample_begin[] = "Render sample {\"complete\":false}";
+    ENGINE_PROFILE_MESSAGE(sample_begin, sizeof(sample_begin) - 1);
     for (std::uint32_t frame = 0; frame < measured_frames; ++frame)
     {
         if (!window.tick(1.0 / 60.0) || !window.can_render())
@@ -455,6 +458,8 @@ int benchmark(int argc, char** argv)
         sample.target_bytes = stats.rtMemoryUsed;
         sample.transient_bytes = stats.transientVbUsed;
     }
+    [[maybe_unused]] constexpr char sample_end[] = "Render sample {\"complete\":true}";
+    ENGINE_PROFILE_MESSAGE(sample_end, sizeof(sample_end) - 1);
     SceneCaptureImage image;
     RenderViewStats image_stats;
     if (!capture(window, renderer, image, image_stats))

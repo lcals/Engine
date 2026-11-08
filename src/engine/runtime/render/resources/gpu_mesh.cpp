@@ -1,7 +1,9 @@
 #include "runtime/render/resources/gpu_mesh.hpp"
 
 #include "runtime/render/passes/skinning_pass.hpp"
+#include "runtime/resource/types/mesh_resource.hpp"
 #include "runtime/scene/mesh_renderer.hpp"
+#include "runtime/scene/mesh_renderer_runtime.hpp"
 #include "runtime/scene/node.hpp"
 
 #include <utility>
@@ -61,23 +63,23 @@ bool GpuMesh::create(const MeshRenderer& renderer, std::shared_ptr<GpuGeometry> 
     return true;
 }
 
-bool GpuMesh::update_deformation(const MeshRenderer& renderer, SkinningPass& skinning)
+bool GpuMesh::update_deformation(const MeshRendererRuntime& runtime, SkinningPass& skinning)
 {
     if (geometry == nullptr)
     {
         return false;
     }
-    const auto positions = renderer.deformed_vertices();
-    const auto transforms = renderer.skinning_palette();
+    const auto& positions = runtime.deformed_vertices_;
+    const auto& transforms = runtime.skinning_palette_;
     const bool has_skin = !transforms.empty();
-    if (deformation_revision == renderer.deformation_revision() && skinned_ == has_skin &&
+    if (deformation_revision == runtime.deformation_revision_ && skinned_ == has_skin &&
         bgfx::isValid(deformed_vertices) == (has_skin || !positions.empty()))
     {
         return true;
     }
     if (has_skin)
     {
-        const auto normal_transforms = renderer.skinning_normal_palette();
+        const auto& normal_transforms = runtime.skinning_normal_palette_;
         std::array<float, 3> low;
         std::array<float, 3> high;
         if (transforms.size() != normal_transforms.size() || !skinning.prepare() ||
@@ -125,10 +127,10 @@ bool GpuMesh::update_deformation(const MeshRenderer& renderer, SkinningPass& ski
     }
     else
     {
-        const auto* data = renderer.mesh_data();
+        const auto* data = runtime.mesh_resource_.data<MeshResource>();
         std::vector<GpuVertex> packed;
         if (data == nullptr ||
-            !GpuGeometry::pack_vertices(*data, positions, renderer.deformed_tangents(), packed,
+            !GpuGeometry::pack_vertices(*data, positions, runtime.deformed_tangents_, packed,
                                         minimum, maximum))
         {
             return false;
@@ -155,7 +157,7 @@ bool GpuMesh::update_deformation(const MeshRenderer& renderer, SkinningPass& ski
             }
         }
     }
-    deformation_revision = renderer.deformation_revision();
+    deformation_revision = runtime.deformation_revision_;
     return true;
 }
 

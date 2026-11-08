@@ -70,7 +70,7 @@ classDiagram
         +minimum Vec3
         +maximum Vec3
         +create(const MeshRenderer& renderer, shared_ptr~GpuGeometry~ geometry) bool
-        +update_deformation(const MeshRenderer& renderer, SkinningPass& skinning) bool
+        +update_deformation(const MeshRendererRuntime& runtime, SkinningPass& skinning) bool
         +bind_vertices() void
         +release() void
     }
@@ -97,6 +97,7 @@ classDiagram
     class Scene
     class Material
     class MeshRenderer
+    class MeshRendererRuntime
     class ShaderDataT
     RenderSystem *-- SceneGpuResources : 独占场景GPU资源
     RenderSystem *-- RendererCallbacks : 独占截图与bgfx回调
@@ -124,6 +125,7 @@ classDiagram
     GpuProgram ..> Material : 脏节点准备期间借用
     GpuProgram ..> GpuTexture : 准备期间解析句柄
     GpuMesh ..> MeshRenderer : 上传期间借用
+    GpuMesh ..> MeshRendererRuntime : 稳定阶段借用姿态列
 ```
 
 图中两个蒙皮方法的完整签名如下；矩阵 span 仅在调用期间借用，边界通过输出参数返回。`dispatch` 不接管缓冲所有权，源几何、palette 及输出缓冲由现有 GPU 拥有者管理，并遵守 bgfx 异步提交生命周期：
@@ -194,7 +196,7 @@ bool draw(const RenderFrameData& frame_data, const RenderSettings& settings,
 classDiagram
     class SceneGpuResources {
         <<private>>
-        +collect_frame(const WorldSystem& world, RenderFrameData& output) bool
+        +collect_frame(WorldSystem& world, RenderFrameData& output) bool
         +collect_view(const RenderFrameData& frame, const SceneDrawView& view, ViewDrawList& output) bool
         +draw_meshes(const RenderFrameData& frame, const ViewDrawList& items, const RenderSettings& settings, const SceneDrawView& view, SceneDrawMode mode) bool
         +prepare_lighting(...) bool
@@ -278,7 +280,7 @@ classDiagram
 
 - 新增普通数据结构均位于 `engine::render_detail`，`SceneGpuResources` 仍为 RenderSystem 私有嵌套类型；不向核心根命名空间重新导出。图中短名按该归属解释。
 - `collect_frame / collect_view / prepare_material / bind_material` 的返回值均为 nodiscard。`prepare_material`、`bind_material` 为 const 成员；`collect_view` 需更新已有 LOD 滞回，不标 const。失败清空输出，普通容器分配操作不随意标 noexcept。
-- `collect_frame` 先更新实例蒙皮/变形再收集完整候选输入；`collect_view` 只建立当前主相机、反射或捕获列表。ShadowPass 从同一帧输入独立生成级联/灯面列表，不回调 SceneGpuResources，不反向查询世界，也不复用主相机可见集。
+- `collect_frame` 先刷新世界派生状态，短期借用具体 ECS 列，更新实例蒙皮/变形并收集完整候选输入；`collect_view` 在入口校验相机、借用隐藏名单，只建立当前主相机、反射或捕获列表。ShadowPass 从同一帧输入独立生成级联/灯面列表，不回调 SceneGpuResources，不反向查询世界，也不复用主相机可见集。
 - 阴影和主通道使用同一 DrawBatchKey / DrawBatch 数据约定和游标分块规则，选择各自的实际 Program 和必要状态；不为普通分组函数创建新类。`draw_meshes` 只消费本次帧数据与视图列表，不再查询 ECS 或重新解析 Material。
 - 新 `bind_material` 消费已经解析的数值和采样器绑定。动态帧纹理仍由 view 传入，且必须检查 binding 的 Shader/纹理身份属于当前有效 GPU 资源。GpuMesh 在销毁程序/纹理之前清理其绑定；不把 bgfx 句柄的数字相等当作跨设备代次身份相等。
 - `RenderViewStats` 的字段与现有 scene mesh 统计口径保持；本批阴影和后处理的总提交变化另取 bgfx 统计与私有采样，不混入旧字段制造 draw 数变化。

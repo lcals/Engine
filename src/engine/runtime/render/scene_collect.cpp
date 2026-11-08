@@ -4,10 +4,13 @@
 #include "runtime/render/mesh_lod_selection.hpp"
 #include "runtime/render/render_math.hpp"
 #include "runtime/resource/types/light_probe_resource.hpp"
+#include "runtime/resource/types/mesh_resource.hpp"
+#include "runtime/scene/camera_runtime.hpp"
 #include "runtime/scene/ecs_storage.hpp"
 #include "runtime/scene/light.hpp"
 #include "runtime/scene/light_probe_volume_component.hpp"
 #include "runtime/scene/mesh_renderer.hpp"
+#include "runtime/scene/mesh_renderer_runtime.hpp"
 #include "runtime/scene/planar_reflection_component.hpp"
 #include "runtime/scene/transform.hpp"
 #include "runtime/world/world_system.hpp"
@@ -16,6 +19,7 @@
 #include <bx/math.h>
 #include <cmath>
 #include <limits>
+#include <span>
 #include <unordered_map>
 
 namespace engine
@@ -107,7 +111,7 @@ bool sample_probe(const render_detail::RenderFrameData& frame, const std::array<
 }
 } // namespace
 
-bool RenderSystem::SceneGpuResources::collect_frame(const WorldSystem& world,
+bool RenderSystem::SceneGpuResources::collect_frame(WorldSystem& world,
                                                     render_detail::RenderFrameData& output)
 {
     ENGINE_PROFILE_ZONE("Render.collectFrame");
@@ -122,6 +126,10 @@ bool RenderSystem::SceneGpuResources::collect_frame(const WorldSystem& world,
         output.probes.clear();
         return false;
     };
+    if (!world.refresh_scene_state())
+    {
+        return fail();
+    }
     auto ecs = flecs::world(world.native_world());
     auto probes =
         ecs.query_builder<const ecs_detail::ComponentStorage<LightProbeVolumeComponent::Data>>()
@@ -156,88 +164,113 @@ bool RenderSystem::SceneGpuResources::collect_frame(const WorldSystem& world,
     bool valid = true, uses_skinning = false;
     std::unordered_map<std::size_t, std::vector<const render_detail::MaterialBinding*>> bindings;
     std::size_t next_binding = 0;
-    auto query = ecs.query_builder<const ecs_detail::ComponentStorage<MeshRenderer::Data>>()
+    auto query = ecs.query_builder<const ecs_detail::ComponentStorage<MeshRenderer::Data>,
+                                   const ecs_detail::NodeRuntime>()
                      .with<ecs_detail::Published>()
                      .build();
     query.each(
-        [&](flecs::entity entity, const auto&)
+        [&](flecs::entity entity, const ecs_detail::ComponentStorage<MeshRenderer::Data>& stored,
+            const ecs_detail::NodeRuntime& node)
         {
-            auto node = world.find_node(entity.id());
-            const auto renderer = node.get_component<MeshRenderer>();
-            if (!valid || !renderer || !renderer.active() || !renderer.visible_in_hierarchy())
+            ENGINE_PROFILE_ZONE("Render.collectMesh");
+            if (!valid || stored.state.instance_id == 0 || !stored.state.flags.enabled ||
+                !stored.state.flags.visible || !node.active || !node.visible_in_hierarchy)
             {
                 return;
             }
             const auto found =
-                mesh_index.find({world.epoch(), entity.id(), renderer.instance_id()});
+                mesh_index.find({world.epoch(), entity.id(), stored.state.instance_id});
             if (found == mesh_index.end())
             {
                 valid = false;
                 return;
             }
             auto& gpu = meshes[found->second];
+            const auto* runtime = entity.try_get<MeshRendererRuntime>();
+            const auto* transform = entity.try_get<ecs_detail::WorldTransform>();
             render_detail::RenderFrameData::Mesh mesh;
             mesh.gpu = &gpu;
-            mesh.data = renderer.mesh_data();
-            const auto transform = node.get_component<Transform>();
-            if (!mesh.data || !transform || gpu.revision != renderer.mesh_revision() ||
-                !gpu.update_deformation(renderer, skinning) || gpu.materials.empty() ||
-                !transform.world_matrix(mesh.model.data()) ||
-                !render_detail::normal_matrix(mesh.model.data(), mesh.normal.data()))
             {
-                valid = false;
-                return;
-            }
-            uses_skinning = uses_skinning || bgfx::isValid(gpu.palette);
-            for (auto& binding : gpu.materials)
-            {
-                const bool opaque = binding.blend == schema::BlendMode::opaque;
-                mesh.all_opaque = mesh.all_opaque && opaque;
-                mesh.any_opaque = mesh.any_opaque || opaque;
-                mesh.any_transparent = mesh.any_transparent || !opaque;
-                auto& bucket = bindings[binding.content_hash];
-                const auto equal = std::find_if(bucket.begin(), bucket.end(), [&](const auto* value)
-                                                { return *value == binding; });
-                if (equal != bucket.end())
-                {
-                    binding.binding_id = (*equal)->binding_id;
-                }
-                else
-                {
-                    binding.binding_id = next_binding++;
-                    bucket.push_back(&binding);
-                }
-            }
-            const auto plane = node.get_component<PlanarReflectionComponent>();
-            mesh.plane = static_cast<bool>(plane);
-            mesh.active_plane = plane && plane.active() && plane.visible_in_hierarchy();
-            mesh.instance_eligible = renderer.mesh_resource().id != 0 && mesh.data->skin.empty() &&
-                                     renderer.deformed_vertices().empty() &&
-                                     renderer.skinning_palette().empty();
-            mesh.instancing = renderer.static_instancing_enabled();
-            mesh.lod = renderer.static_lod_enabled();
-            mesh.cast_shadows = renderer.cast_shadows();
-            for (std::size_t axis = 0; axis < 3; ++axis)
-            {
-                mesh.center[axis] = (gpu.minimum[axis] + gpu.maximum[axis]) * .5F;
-            }
-            mesh.center = render_detail::transform_point(mesh.model.data(), mesh.center);
-            mesh.lightmap = ibl_lut_fallback;
-            const auto source = renderer.lightmap_resource();
-            if (source.id)
-            {
-                const auto* texture = render_detail::find_texture(textures, source);
-                if (!texture)
+                ENGINE_PROFILE_ZONE("Render.meshState");
+                if (!runtime || !transform || !transform->valid)
                 {
                     valid = false;
                     return;
                 }
-                mesh.lightmap = texture->handle;
-                mesh.has_lightmap = true;
+                mesh.data = runtime->mesh_resource_.data<MeshResource>();
+                mesh.model = transform->matrix;
+                if (!mesh.data || gpu.revision != runtime->mesh_revision_ ||
+                    !gpu.update_deformation(*runtime, skinning) || gpu.materials.empty() ||
+                    !render_detail::normal_matrix(mesh.model.data(), mesh.normal.data()))
+                {
+                    valid = false;
+                    return;
+                }
+                uses_skinning = uses_skinning || bgfx::isValid(gpu.palette);
             }
-            else
             {
-                mesh.has_probe = sample_probe(output, mesh.center, mesh.coefficients);
+                ENGINE_PROFILE_ZONE("Render.meshMaterials");
+                for (auto& binding : gpu.materials)
+                {
+                    const bool opaque = binding.blend == schema::BlendMode::opaque;
+                    mesh.all_opaque = mesh.all_opaque && opaque;
+                    mesh.any_opaque = mesh.any_opaque || opaque;
+                    mesh.any_transparent = mesh.any_transparent || !opaque;
+                    auto& bucket = bindings[binding.content_hash];
+                    const auto equal =
+                        std::find_if(bucket.begin(), bucket.end(),
+                                     [&](const auto* value) { return *value == binding; });
+                    if (equal != bucket.end())
+                    {
+                        binding.binding_id = (*equal)->binding_id;
+                    }
+                    else
+                    {
+                        binding.binding_id = next_binding++;
+                        bucket.push_back(&binding);
+                    }
+                }
+            }
+            {
+                ENGINE_PROFILE_ZONE("Render.meshFlagsAndLighting");
+                const auto* plane =
+                    entity.try_get<ecs_detail::ComponentStorage<PlanarReflectionComponent::Data>>();
+                mesh.plane = plane && plane->state.instance_id != 0;
+                mesh.active_plane =
+                    mesh.plane && plane->state.flags.enabled && plane->state.flags.visible;
+                mesh.instance_eligible =
+                    runtime->mesh_resource_.handle().id != 0 && mesh.data->skin.empty() &&
+                    runtime->deformed_vertices_.empty() && runtime->skinning_palette_.empty();
+                mesh.instancing = stored.data.static_instancing_enabled;
+                mesh.lod = stored.data.static_lod_enabled;
+                mesh.cast_shadows = stored.data.cast_shadows;
+                for (std::size_t axis = 0; axis < 3; ++axis)
+                {
+                    mesh.center[axis] = (gpu.minimum[axis] + gpu.maximum[axis]) * .5F;
+                }
+                mesh.center = render_detail::transform_point(mesh.model.data(), mesh.center);
+                mesh.lightmap = ibl_lut_fallback;
+                // 烘焙绑定仍由组件校验；无绑定的对象无需再查组件、网格和变换。
+                const auto source = runtime->lightmap_resource_.handle().id != 0
+                                        ? world.find_node(entity.id())
+                                              .get_component<MeshRenderer>()
+                                              .lightmap_resource()
+                                        : ResourceHandle{};
+                if (source.id)
+                {
+                    const auto* texture = render_detail::find_texture(textures, source);
+                    if (!texture)
+                    {
+                        valid = false;
+                        return;
+                    }
+                    mesh.lightmap = texture->handle;
+                    mesh.has_lightmap = true;
+                }
+                else
+                {
+                    mesh.has_probe = sample_probe(output, mesh.center, mesh.coefficients);
+                }
             }
             output.meshes.push_back(mesh);
         });
@@ -304,11 +337,24 @@ bool RenderSystem::SceneGpuResources::collect_view(const render_detail::RenderFr
         render_detail::build_frustum_planes(draw.view, draw.projection,
                                             bgfx::getCaps()->homogeneousDepth, planes);
     culling_applied = culling_applied || frustum_ready;
+    const bool filter_visibility = static_cast<bool>(draw.visibility);
+    std::span<const std::uint64_t> hidden_meshes;
+    if (filter_visibility)
+    {
+        const auto* camera = ecs_detail::component_runtime(draw.visibility);
+        if (!camera)
+        {
+            return fail();
+        }
+        hidden_meshes = camera->hidden_meshes_;
+    }
     for (std::size_t index = 0; index < frame.meshes.size(); ++index)
     {
         const auto& mesh = frame.meshes[index];
         const auto& gpu = *mesh.gpu;
-        if ((draw.visibility && !draw.visibility.mesh_visible(gpu.instance_id)) ||
+        if ((filter_visibility &&
+             (gpu.instance_id == 0 ||
+              std::binary_search(hidden_meshes.begin(), hidden_meshes.end(), gpu.instance_id))) ||
             (draw.reflection && mesh.active_plane) ||
             (draw.capture && std::find(draw.capture->node_ids.begin(), draw.capture->node_ids.end(),
                                        gpu.node_id) == draw.capture->node_ids.end()))

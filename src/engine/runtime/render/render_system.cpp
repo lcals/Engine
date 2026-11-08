@@ -424,6 +424,7 @@ bool RenderSystem::stats_visible() const noexcept
 
 bool RenderSystem::prepare_frame()
 {
+    ENGINE_PROFILE_ZONE("Render.prepareFrame");
     if (callbacks_ != nullptr)
     {
         callbacks_->process(tasks_);
@@ -495,9 +496,12 @@ bool RenderSystem::render(Camera camera)
     }
 
     RenderSettings current_settings;
-    if (!resolve_settings(current_settings))
     {
-        return false;
+        ENGINE_PROFILE_ZONE("Render.resolveSettings");
+        if (!resolve_settings(current_settings))
+        {
+            return false;
+        }
     }
     bgfx::setViewFrameBuffer(render_detail::main_view, BGFX_INVALID_HANDLE);
     bgfx::setViewClear(render_detail::main_view, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH,
@@ -538,13 +542,16 @@ bool RenderSystem::render(Camera camera)
         ENGINE_PROFILE_ZONE("Render.frameSubmit");
         frame_number_ = bgfx::frame();
     }
-    if (drawn)
     {
-        publish_features();
+        ENGINE_PROFILE_ZONE("Render.pollResults");
+        if (drawn)
+        {
+            publish_features();
+        }
+        poll_diffuse_capture();
+        poll_hdr_capture();
+        collect_preparation(false);
     }
-    poll_diffuse_capture();
-    poll_hdr_capture();
-    collect_preparation(false);
     ENGINE_PROFILE_FRAME();
 #if defined(ENGINE_ENABLE_TRACY)
     profile_renderer_stats();
