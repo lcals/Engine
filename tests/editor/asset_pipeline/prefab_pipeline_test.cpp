@@ -4,6 +4,7 @@
 #include "editor/asset_pipeline/prefab_importer.hpp"
 #include "editor/asset_pipeline/scene_importer.hpp"
 #include "runtime/resource/resource_system.hpp"
+#include "runtime/resource/virtual_file_system.hpp"
 #include "scene_snapshot.hpp"
 
 #include <algorithm>
@@ -63,6 +64,7 @@ bool composition(const std::filesystem::path& directory)
 {
     std::string error;
     schema::PrefabDataT prefab;
+    prefab.schema_version = 2;
     prefab.root_id = 1;
     prefab.nodes.push_back(node(1));
     prefab.nodes.push_back(node(2, 1));
@@ -101,6 +103,7 @@ bool composition(const std::filesystem::path& directory)
         return false;
     }
     schema::SceneDataT scene;
+    scene.schema_version = 2;
     scene.info = std::make_unique<schema::SceneInfoT>();
     scene.info->name = "Instances";
     scene.nodes = std::move(expanded);
@@ -180,6 +183,7 @@ bool model_identity()
         model.nodes.push_back(std::move(value));
     }
     schema::PrefabDataT prefab;
+    prefab.schema_version = 2;
     prefab.root_id = 1;
     if (!expect(PrefabImporter::from_model(model, material_a, prefab, error),
                 "Model uses injected default material offline", error))
@@ -216,6 +220,7 @@ bool dependencies(const std::filesystem::path& directory)
     }
     ImportContext context{identities, kinds, directory, directory, directory, "test", nullptr, {}};
     schema::PrefabDataT prefab;
+    prefab.schema_version = 2;
     prefab.root_id = 1;
     prefab.nodes.push_back(node(1));
     schema::MeshRendererDataT mesh;
@@ -256,6 +261,7 @@ bool dependencies(const std::filesystem::path& directory)
     override->components.push_back(std::move(text));
     placed.overrides.push_back(std::move(override));
     schema::SceneDataT scene;
+    scene.schema_version = 2;
     scene.info = std::make_unique<schema::SceneInfoT>();
     scene.info->name = "Dependency test";
     if (!PrefabImporter::expand_instance(prefab, placed, 11, scene.nodes, error))
@@ -297,7 +303,7 @@ bool dependencies(const std::filesystem::path& directory)
     const auto publish_scene = [&](bool legacy_node_layout = false)
     {
         std::vector<std::byte> payload, entity;
-        if (!ResourceSystem::read_binary(directory / scene_guid, payload))
+        if (!VirtualFileSystem::read_file(directory / scene_guid, payload))
         {
             return false;
         }
@@ -322,7 +328,7 @@ bool dependencies(const std::filesystem::path& directory)
             const auto mappings = builder.CreateVector(instances);
             const auto info = schema::SceneInfo::Pack(builder, snapshot->info.get());
             schema::FinishSceneDataBuffer(
-                builder, schema::CreateSceneData(builder, 1, info, nodes, mappings));
+                builder, schema::CreateSceneData(builder, 2, info, nodes, mappings));
             flatbuffers::Verifier verifier(builder.GetBufferPointer(), builder.GetSize());
             if (!expect(!schema::VerifySceneDataBuffer(verifier),
                         "fixture uses incompatible cached node layout"))
@@ -369,7 +375,7 @@ bool dependencies(const std::filesystem::path& directory)
         return false;
     }
     std::vector<std::byte> rebuilt;
-    if (!ResourceSystem::read_binary(directory / scene_guid, rebuilt))
+    if (!VirtualFileSystem::read_file(directory / scene_guid, rebuilt))
     {
         return false;
     }
@@ -385,7 +391,7 @@ bool dependencies(const std::filesystem::path& directory)
         return false;
     }
     std::vector<std::byte> payload, entity;
-    if (!ResourceSystem::read_binary(directory / prefab_guid, payload))
+    if (!VirtualFileSystem::read_file(directory / prefab_guid, payload))
     {
         return false;
     }
@@ -411,7 +417,7 @@ bool dependencies(const std::filesystem::path& directory)
     {
         return false;
     }
-    if (!ResourceSystem::read_binary(directory / scene_guid, payload))
+    if (!VirtualFileSystem::read_file(directory / scene_guid, payload))
     {
         return false;
     }

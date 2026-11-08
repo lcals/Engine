@@ -13,11 +13,11 @@ classDiagram
         +UiComponent(Component component)
         +register_type(ComponentRegistry& registry) bool$
         +valid_settings(const UiDataT& settings)$ bool
-        +settings() UiDataT
+
         +get_settings(UiDataT& output) bool
         +set_settings(const UiDataT& settings) bool
         +set_document(string_view path) bool
-        +document() ResourcePtr
+        +document() ResourceHandle
         +document_revision() uint64
         +restore_data(const ComponentDataT& data) bool
     }
@@ -145,4 +145,4 @@ classDiagram
 
 隐藏或停用节点/UiComponent 保留 Rml 文档与控件身份。隐藏清除输入捕获及排队事件，停用还暂停 Context 更新；恢复后使用同一文档。`set_document_visible` 只写组件本地 visible，`document_visible` 返回有效激活及可见结果，不另存可写文档状态。删除组件、替换文档或卸载所属场景才释放文档。
 
-本页组件均为可复制值句柄，生成设置唯一存于 `ComponentStorage<Data>` 的 ECS 列；`settings()` 返回独立值，`get_settings(output)` 明确返回失败。Runtime 为 ECS 中的领域运行列，资源引用、请求和缓存归该列或所属 System；句柄不拥有这些数据。Runtime 定义与可变访问仅供所属模块内部实现使用，公开组件不提供 `runtime()`；原生系统的 ECS 列借用仅在当前结构稳定阶段有效，不能跨结构修改留存。类型注册、失效身份与查询规则见 [ECS 场景](ecs-scene.md)。
+本页组件均为可复制值句柄，生成设置唯一存于 `ComponentStorage<Data>` 的 ECS 列；`get_settings(output)` 返回独立值并明确报告失败，失败输出安全默认值；不保留吞掉失败的 settings() 包装。Runtime 为 ECS 中的领域运行列，资源引用、请求和缓存归该列或所属 System；句柄不拥有这些数据。Runtime 定义与可变访问仅供所属模块内部实现使用，公开组件不提供 `runtime()`；原生系统的 ECS 列借用仅在当前结构稳定阶段有效，不能跨结构修改留存。类型注册、失效身份与查询规则见 [ECS 场景](ecs-scene.md)。

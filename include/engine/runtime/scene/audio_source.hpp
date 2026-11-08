@@ -6,6 +6,11 @@
 #include <memory>
 #include <string_view>
 
+namespace engine
+{
+class ResourceReference;
+}
+
 namespace engine::schema
 {
 struct AudioClipDataT;
@@ -40,7 +45,6 @@ public:
     using Runtime = AudioSourceRuntime;
     static constexpr ComponentType component_type = ComponentType::AudioSourceData;
     [[nodiscard]] static bool valid_settings(const schema::AudioSourceDataT& settings) noexcept;
-    [[nodiscard]] schema::AudioSourceDataT settings() const noexcept;
     [[nodiscard]] bool get_settings(Data& output) const noexcept;
     [[nodiscard]] bool set_settings(const schema::AudioSourceDataT& settings);
     [[nodiscard]] bool restore_data(const schema::ComponentDataT& data);
@@ -55,6 +59,7 @@ public:
     [[nodiscard]] AudioPlayback playback() const noexcept;
 
 private:
+    [[nodiscard]] bool apply_settings(const Data& settings, ResourceReference prepared);
     template <class T> friend auto engine::ecs_detail::component_runtime(T component) noexcept;
     [[nodiscard]] Runtime* runtime() const noexcept;
 };

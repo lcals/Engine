@@ -54,12 +54,6 @@ bool RigidBody::valid_settings(const schema::RigidBodyDataT& value) noexcept
             (zero(value.linear_velocity) && zero(value.angular_velocity)));
 }
 
-schema::RigidBodyDataT RigidBody::settings() const noexcept
-{
-    const auto* value = read_data<Data>();
-    return value ? *value : Data{};
-}
-
 bool RigidBody::get_settings(Data& output) const noexcept
 {
     const auto* value = read_data<Data>();
@@ -78,8 +72,10 @@ bool RigidBody::set_settings(const schema::RigidBodyDataT& value) noexcept
         return false;
     }
     auto collider = node().get_component<Collider>();
-    if (value.motion != schema::BodyMotion::static_body && collider.valid() &&
-        collider.settings().shape == schema::ColliderShape::mesh)
+    Collider::Data collider_settings;
+    if (value.motion != schema::BodyMotion::static_body && collider &&
+        (!collider.get_settings(collider_settings) ||
+         collider_settings.shape == schema::ColliderShape::mesh))
     {
         return false;
     }
@@ -121,7 +117,8 @@ bool RigidBody::add_impulse(const Vec3& value) noexcept
     {
         return false;
     }
-    if (!active() || settings().motion != schema::BodyMotion::dynamic ||
+    const auto* data = read_data<Data>();
+    if (!data || !active() || data->motion != schema::BodyMotion::dynamic ||
         !vector_bounded(value, 1000000.0))
     {
         return false;
@@ -143,7 +140,11 @@ bool RigidBody::set_linear_velocity(const Vec3& value) noexcept
     {
         return false;
     }
-    auto replacement = settings();
+    Data replacement;
+    if (!get_settings(replacement))
+    {
+        return false;
+    }
     replacement.linear_velocity = value;
     return set_settings(replacement);
 }
@@ -154,7 +155,8 @@ Vec3 RigidBody::linear_velocity() const noexcept
     {
         return {};
     }
-    return settings().linear_velocity;
+    const auto* data = read_data<Data>();
+    return data ? data->linear_velocity : Vec3{};
 }
 
 } // namespace engine

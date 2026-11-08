@@ -1,4 +1,7 @@
+#include "../../support/render_fixture.hpp"
 #include "resource_fixture.hpp"
+#include "resource_services.hpp"
+#include "scene_snapshot.hpp"
 
 #include "runtime/engine_config.hpp"
 #include "runtime/render/render_system.hpp"
@@ -42,7 +45,8 @@ bool frames(engine::WindowSystem& window, engine::RenderSystem& renderer, int co
 {
     for (int i = 0; i < count; ++i)
     {
-        if (!window.tick(1.0 / 60.0) || !window.can_render() || !renderer.render(camera))
+        if (!window.tick(1.0 / 60.0) || !window.can_render() ||
+            !test_support::render_frame(renderer, camera))
         {
             return false;
         }
@@ -65,24 +69,21 @@ engine::schema::TextureDataT environment_texture(const char* path, bool cube)
             pixels[offset + 1] = static_cast<std::uint8_t>(half >> 8);
         }
     }
-    std::string bytes(68 + pixels.size(), '\0');
-    bx::StaticMemoryBlockWriter writer(bytes.data(), static_cast<std::uint32_t>(bytes.size()));
-    bx::Error error;
-    const auto written = bimg::imageWriteKtx(
-        &writer, cube ? bimg::TextureFormat::RGBA16F : bimg::TextureFormat::RG16F, cube,
-        4, 4, 0, 1, 1, false, pixels.data(), &error);
     engine::schema::TextureDataT result;
+    result.schema_version = 2;
     result.path = path;
     result.width = result.height = 4;
     result.mip_count = 1;
     result.srgb = false;
     result.cube_map = cube;
-    result.encoding = engine::schema::TextureEncoding::ktx;
-    result.format = cube ? engine::schema::TextureFormat::rgba16f
-                         : engine::schema::TextureFormat::rg16f;
-    if (error.isOk() && written == static_cast<std::int32_t>(bytes.size()))
+    result.encoding = engine::schema::TextureEncoding::native;
+    result.format =
+        cube ? engine::schema::TextureFormat::rgba16f : engine::schema::TextureFormat::rg16f;
+    result.data = std::move(pixels);
+    const auto face_bytes = 4 * 4 * channels * 2;
+    for (std::uint32_t face = 0; face < (cube ? 6U : 1U); ++face)
     {
-        result.data.assign(bytes.begin(), bytes.end());
+        result.subresources.emplace_back(0, face, face * face_bytes, face_bytes);
     }
     return result;
 }
@@ -90,11 +91,14 @@ engine::schema::TextureDataT environment_texture(const char* path, bool cube)
 engine::schema::TextureDataT albedo(const char* path, const std::array<std::uint8_t, 3>& rgb)
 {
     engine::schema::TextureDataT result;
+    result.schema_version = 2;
     result.path = path;
     result.width = result.height = 4;
     result.srgb = true;
-    result.encoding = engine::schema::TextureEncoding::rgba8;
+    result.encoding = engine::schema::TextureEncoding::native;
     result.format = engine::schema::TextureFormat::rgba8;
+    result.subresources.emplace_back(0, 0, 0,
+                                     static_cast<std::uint64_t>(result.width) * result.height * 4);
     for (int i = 0; i < 16; ++i)
     {
         result.data.insert(result.data.end(), rgb.begin(), rgb.end());
@@ -107,8 +111,8 @@ engine::schema::MeshDataT quad()
 {
     engine::schema::MeshDataT result;
     result.path = "meshes/hdr-capture-quad";
-    result.vertices = {{-1, -1, 0, 0, 0, 1}, {1, -1, 0, 0, 0, 1},
-                       {1, 1, 0, 0, 0, 1}, {-1, 1, 0, 0, 0, 1}};
+    result.vertices = {
+        {-1, -1, 0, 0, 0, 1}, {1, -1, 0, 0, 0, 1}, {1, 1, 0, 0, 0, 1}, {-1, 1, 0, 0, 0, 1}};
     result.indices = {0, 1, 2, 0, 2, 3};
     result.texcoords = {{0, 1}, {1, 1}, {1, 0}, {0, 0}};
     result.tangents.assign(4, {1, 0, 0, 1});
@@ -146,8 +150,9 @@ bool test()
     engine::EngineConfig config;
     config.window_title = "Scene HDR capture";
     config.width = config.height = 128;
-    engine::ResourceSystem resources;
-    engine::WorldSystem world;
+    test_support::ResourceServices services;
+    auto& resources = services.core;
+    engine::WorldSystem world(&services.loader);
     engine::WindowSystem window;
     engine::RenderSystem renderer(window, &world);
     test_support::ResourceFixture fixture;
@@ -159,10 +164,11 @@ bool test()
     const auto top_texture = albedo("textures/capture-top", top);
     const auto bottom_texture = albedo("textures/capture-bottom", bottom);
     if (!expect(!renderer.request_hdr_capture(), "reject request before initialization") ||
-        !resources.initialize(config) || !world.initialize(config) || !window.initialize(config) ||
-        !renderer.initialize(config) || !fixture.add(irr) || !fixture.add(pre) ||
-        !fixture.add(lut) || !fixture.add(top_texture) || !fixture.add(bottom_texture) ||
-        !fixture.publish(resources) ||
+        !(services.initialize(config) && services.prepare_builtins()) ||
+        !world.initialize(config) || !window.initialize(config) || !renderer.initialize(config) ||
+        !fixture.add(irr) || !fixture.add(pre) || !fixture.add(lut) || !fixture.add(top_texture) ||
+        !fixture.add(bottom_texture) ||
+        !services.publish_and_load(fixture.catalog, {{"content", fixture.root}}) ||
         !expect(!renderer.request_hdr_capture(), "reject request without scene"))
     {
         return false;
@@ -182,17 +188,17 @@ bool test()
     lens.orthographic_size = 1;
     engine::TransformSettings camera_pose;
     camera_pose.position = {0, 0, 3};
-    auto environment = env.settings();
+    auto environment = test_support::read_settings(env);
     environment.ibl_enabled = true;
     environment.ibl_intensity = 1;
-    auto lighting = light.settings();
+    auto lighting = test_support::read_settings(light);
     lighting.intensity = 8;
     if (!camera || !post || !env || !light || !camera.set_settings(lens) ||
         !camera_node.get_component<engine::Transform>().set_settings(camera_pose) ||
         !scene->set_active_camera(camera) || !light.set_settings(lighting) ||
-        !engine::ResourceSystem::path_to_guid(irr.path, environment.ibl_irradiance_guid) ||
-        !engine::ResourceSystem::path_to_guid(pre.path, environment.ibl_prefilter_guid) ||
-        !engine::ResourceSystem::path_to_guid(lut.path, environment.ibl_lut_guid) ||
+        !resources.catalog().identities().path_to_guid(irr.path, environment.ibl_irradiance_guid) ||
+        !resources.catalog().identities().path_to_guid(pre.path, environment.ibl_prefilter_guid) ||
+        !resources.catalog().identities().path_to_guid(lut.path, environment.ibl_lut_guid) ||
         !env.set_settings(environment))
     {
         return false;
@@ -207,8 +213,8 @@ bool test()
         if (!mesh || !mesh.set_mesh_data(quad()) ||
             !node.get_component<engine::Transform>().set_settings(pose) ||
             !mesh.material().set_type("builtin://materials/default-pbr") ||
-            !mesh.material().set_texture("baseColorTexture", i == 0 ? top_texture.path
-                                                                      : bottom_texture.path) ||
+            !mesh.material().set_texture("baseColorTexture",
+                                         i == 0 ? top_texture.path : bottom_texture.path) ||
             !mesh.material().set_v4("baseColor", {1, 1, 1, 1}) ||
             !mesh.material().set_float("metallic", 0) ||
             !mesh.material().set_float("roughness", 1) ||
@@ -263,7 +269,7 @@ bool test()
     {
         return false;
     }
-    auto post_settings = post.settings();
+    auto post_settings = test_support::read_settings(post);
     post_settings.hdr_enabled = true;
     post_settings.bloom_enabled = true;
     post_settings.bloom_threshold = 0.2F;
@@ -284,8 +290,8 @@ bool test()
     }
     auto* preview_scene = preview_world.create_scene("External view");
     auto preview_node = preview_scene ? preview_scene->create_node("Camera") : engine::Node{};
-    auto preview_camera = preview_node ? preview_node.add_component<engine::Camera>()
-                                       : engine::Camera{};
+    auto preview_camera =
+        preview_node ? preview_node.add_component<engine::Camera>() : engine::Camera{};
     engine::SceneCaptureImage external_view;
     if (!preview_camera || !preview_camera.set_settings(lens) ||
         !preview_node.get_component<engine::Transform>().set_settings(camera_pose) ||
@@ -293,9 +299,8 @@ bool test()
         !frames(window, renderer, 1) ||
         !expect(renderer.hdr_capture_status() == engine::SceneCaptureStatus::cancelled,
                 "actual frame without any camera cancels pending capture") ||
-        !capture(window, renderer, external_view, preview_camera) ||
-        !check_image(external_view) || !renderer.request_hdr_capture() ||
-        !frames(window, renderer, 1, preview_camera))
+        !capture(window, renderer, external_view, preview_camera) || !check_image(external_view) ||
+        !renderer.request_hdr_capture() || !frames(window, renderer, 1, preview_camera))
     {
         return false;
     }
@@ -347,8 +352,7 @@ bool test()
                 return false;
             }
             engine::SceneCaptureImage multisampled;
-            if (!capture(window, renderer, multisampled) ||
-                !check_image(multisampled))
+            if (!capture(window, renderer, multisampled) || !check_image(multisampled))
             {
                 return false;
             }
@@ -371,7 +375,8 @@ bool test()
     }
     renderer.cancel_hdr_capture();
     if (!expect(renderer.hdr_capture_status() == engine::SceneCaptureStatus::cancelled,
-                "cancel submitted GPU capture") || !frames(window, renderer, 8) ||
+                "cancel submitted GPU capture") ||
+        !frames(window, renderer, 8) ||
         !expect(renderer.hdr_capture_status() == engine::SceneCaptureStatus::cancelled,
                 "retired readback does not revive cancelled result") ||
         !expect(renderer.request_hdr_capture(), "request after old readback retires") ||
@@ -382,7 +387,8 @@ bool test()
     world.destroy_scene();
     if (!frames(window, renderer, 1) ||
         !expect(renderer.hdr_capture_status() == engine::SceneCaptureStatus::cancelled &&
-                    !renderer.take_hdr_capture(image), "scene retirement cancels old capture"))
+                    !renderer.take_hdr_capture(image),
+                "scene retirement cancels old capture"))
     {
         return false;
     }

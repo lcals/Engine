@@ -34,12 +34,6 @@ bool CharacterCamera::valid_settings(const schema::CharacterCameraDataT& value) 
            bounded(value.collision_margin, 0.0F, 100.0F);
 }
 
-schema::CharacterCameraDataT CharacterCamera::settings() const noexcept
-{
-    const auto* value = read_data<Data>();
-    return value ? *value : Data{};
-}
-
 bool CharacterCamera::get_settings(Data& output) const noexcept
 {
     const auto* value = read_data<Data>();
@@ -125,11 +119,12 @@ bool CharacterCamera::synchronize_angles() noexcept
         return true;
     }
     auto transform = node().get_component<Transform>();
-    if (!transform.valid())
+    TransformSettings pose;
+    if (!transform.get_settings(pose))
     {
         return false;
     }
-    const auto& rotation = transform.settings().rotation;
+    const auto& rotation = pose.rotation;
     return set_angles(rotation.y(), rotation.x());
 }
 
@@ -143,9 +138,14 @@ bool CharacterCamera::set_angles(double yaw, double pitch) noexcept
     {
         return false;
     }
+    Data data;
+    if (!get_settings(data))
+    {
+        return false;
+    }
     runtime()->yaw_ = std::remainder(yaw, 360.0);
-    runtime()->pitch_ = std::clamp(pitch, static_cast<double>(settings().pitch_min),
-                                   static_cast<double>(settings().pitch_max));
+    runtime()->pitch_ =
+        std::clamp(pitch, static_cast<double>(data.pitch_min), static_cast<double>(data.pitch_max));
     runtime()->angles_initialized_ = true;
     return true;
 }

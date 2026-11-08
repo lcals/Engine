@@ -1,5 +1,7 @@
 #include "plugins/editor/mcp/editor_mcp_tools.hpp"
+#include "editor/file_text.hpp"
 #include "plugins/editor/mcp/component_mcp_tools.hpp"
+#include "plugins/editor/mcp/editor_tool_registration.hpp"
 
 #include "editor/asset_pipeline/project_lock.hpp"
 #include "plugins/editor/mcp/mcp_system.hpp"
@@ -70,7 +72,7 @@ bool read_json(const fs::path& path, Json& value, bool& exists)
     }
     const auto size = fs::file_size(path, error);
     std::string text;
-    if (error || size > max_file_size || !ResourceSystem::read_text(path, text) ||
+    if (error || size > max_file_size || !engine::editor::file_detail::read_text(path, text) ||
         text.size() > max_file_size)
     {
         return false;
@@ -141,14 +143,6 @@ bool publish_request(const fs::path& runtime, const Json& request)
     return true;
 }
 
-Json object_schema(Json properties, Json required = Json::array())
-{
-    return {{"type", "object"},
-            {"properties", std::move(properties)},
-            {"required", std::move(required)},
-            {"additionalProperties", false}};
-}
-
 Json vector_schema(std::size_t count)
 {
     return {{"type", "array"},
@@ -194,10 +188,8 @@ bool EditorMcpTools::register_tools(McpSystem& system)
     const auto register_command =
         [&](std::string name, std::string command, std::string description, Json schema)
     {
-        return system.register_tool(
-            {std::move(name), std::move(description), std::move(schema),
-             [this, command = std::move(command)](const Json& arguments, Json& reply)
-             { return call_command(command, arguments, reply); }});
+        return register_editor_command_tool(system, *this, std::move(name), std::move(description),
+                                            std::move(schema), std::move(command));
     };
     const auto required_node = Json::array({"sceneId", "nodeId"});
     const auto node_properties = Json{{"sceneId", id_schema()}, {"nodeId", id_schema()}};
@@ -253,7 +245,8 @@ bool EditorMcpTools::register_tools(McpSystem& system)
                "The result includes totalNodes and offset. "
                "Omitted limit returns all remaining nodes.",
                object_schema({{"offset", {{"type", "integer"}, {"minimum", 0}}},
-                              {"limit", {{"type", "integer"}, {"minimum", 0}}}})) &&
+                              {"limit", {{"type", "integer"}, {"minimum", 0}}}},
+                             Json::array())) &&
            register_command(
                "create_node", "create_node",
                "Create a named node with Transform and an optional component.",
@@ -331,7 +324,8 @@ bool EditorMcpTools::register_tools(McpSystem& system)
                "close_editor", "close_editor",
                "Acknowledge the request, then close the editor after the delay.",
                object_schema(
-                   {{"delayMs", {{"type", "integer"}, {"minimum", 100}, {"maximum", 10000}}}})) &&
+                   {{"delayMs", {{"type", "integer"}, {"minimum", 100}, {"maximum", 10000}}}},
+                   Json::array())) &&
            system.register_tool(
                {"get_editor_receipt", "Look up a durable editor receipt by session and request id.",
                 object_schema({{"session", id_schema()}, {"requestId", id_schema()}},

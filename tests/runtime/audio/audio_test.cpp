@@ -1,6 +1,8 @@
 #include "scene_snapshot.hpp"
 
 #include "resource_fixture.hpp"
+#include "resource_services.hpp"
+#include "tracked_resource_loader.hpp"
 
 #include "runtime/audio/audio_system.hpp"
 #include "runtime/engine_config.hpp"
@@ -92,11 +94,12 @@ bool add_clip(test_support::ResourceFixture& fixture, std::string_view path, std
     return true;
 }
 
-bool prepare(test_support::ResourceFixture& fixture, engine::ResourceSystem& resources)
+bool prepare(test_support::ResourceFixture& fixture, test_support::ResourceServices& resources)
 {
     return !fixture.root.empty() && resources.initialize({}) &&
            add_clip(fixture, "audio/mono.wav", 1) && add_clip(fixture, "audio/stereo.wav", 2) &&
-           fixture.publish(resources);
+           fixture.publish(resources.core) && resources.load("audio/mono.wav") &&
+           resources.load("audio/stereo.wav");
 }
 
 bool pump(engine::AudioSystem& audio, std::chrono::milliseconds duration)
@@ -132,8 +135,9 @@ bool wait_stopped(engine::AudioSystem& audio, engine::AudioSource source)
 bool settings_and_resources()
 {
     test_support::ResourceFixture fixture;
-    engine::ResourceSystem resources;
-    engine::WorldSystem world;
+    test_support::ResourceServices resources;
+    test_support::TrackedResourceLoader tracked(resources.loader);
+    engine::WorldSystem world(&tracked);
     if (!expect(prepare(fixture, resources) && world.initialize({}), "prepare audio resources"))
     {
         return false;
@@ -142,14 +146,16 @@ bool settings_and_resources()
     auto node = scene ? scene->create_node("Speaker") : engine::Node{};
     auto source = node ? node.add_component<engine::AudioSource>() : engine::AudioSource{};
     auto listener = node ? node.add_component<engine::AudioListener>() : engine::AudioListener{};
+    const auto acquires = tracked.acquires();
     if (!expect(source && listener, "attach audio components") ||
         !expect(!source.play() && source.clip_data() == nullptr, "empty clip cannot play") ||
-        !expect(source.set_clip("audio/mono.wav"), "load audio by virtual path"))
+        !expect(source.set_clip("audio/mono.wav") && tracked.acquires() == acquires + 1,
+                "path binding acquires the loaded clip once and keeps that acquisition"))
     {
         return false;
     }
     const auto* retained = source.clip_data();
-    auto settings = source.settings();
+    auto settings = test_support::read_settings(source);
     settings.clip_guid = "20000000-0000-4000-8000-000000000099";
     if (!expect(engine::AudioSource::valid_settings(settings) && !source.set_settings(settings) &&
                     source.clip_data() == retained,
@@ -159,25 +165,26 @@ bool settings_and_resources()
     {
         return false;
     }
-    settings = source.settings();
+    settings = test_support::read_settings(source);
     settings.pitch = 0.0F;
-    if (!expect(!source.set_settings(settings) && source.settings().pitch == 1.0F,
+    if (!expect(!source.set_settings(settings) && test_support::read_settings(source).pitch == 1.0F,
                 "invalid pitch leaves settings unchanged"))
     {
         return false;
     }
-    settings = source.settings();
+    settings = test_support::read_settings(source);
     settings.volume = std::numeric_limits<float>::quiet_NaN();
     if (!expect(!engine::AudioSource::valid_settings(settings), "reject nonfinite volume"))
     {
         return false;
     }
-    settings = source.settings();
+    settings = test_support::read_settings(source);
     settings.max_distance = settings.min_distance;
-    auto listener_settings = listener.settings();
+    auto listener_settings = test_support::read_settings(listener);
     listener_settings.volume = -1.0F;
     if (!expect(!source.set_settings(settings), "reject empty attenuation interval") ||
-        !expect(!listener.set_settings(listener_settings) && listener.settings().volume == 1.0F,
+        !expect(!listener.set_settings(listener_settings) &&
+                    test_support::read_settings(listener).volume == 1.0F,
                 "listener rejects invalid gain"))
     {
         return false;
@@ -201,7 +208,7 @@ bool settings_and_resources()
     missing_flags.flags.reset();
     missing_flags.payload.AsAudioSourceData()->volume = 0.25F;
     if (!expect(source.play() && !source.restore_data(missing_flags) &&
-                    source.settings() == *snapshot.payload.AsAudioSourceData() &&
+                    test_support::read_settings(source) == *snapshot.payload.AsAudioSourceData() &&
                     source.playback() == engine::AudioPlayback::pending && source.stop(),
                 "typed restore with missing flags preserves settings and pending playback"))
     {
@@ -220,9 +227,9 @@ bool playback_and_lifecycle()
         return false;
     }
     test_support::ResourceFixture fixture;
-    engine::ResourceSystem resources;
-    engine::WorldSystem world;
-    engine::AudioSystem audio(&world);
+    test_support::ResourceServices resources;
+    engine::WorldSystem world(&resources.loader);
+    engine::AudioSystem audio(&resources.loader, &world);
     if (!expect(prepare(fixture, resources) && world.initialize({}) && audio.initialize({}),
                 "initialize without opening an audio device") ||
         !expect(audio.tick(0.0) && audio.voice_count() == 0 && SDL_WasInit(SDL_INIT_AUDIO) == 0,
@@ -255,7 +262,7 @@ bool playback_and_lifecycle()
     auto listener_node = scene->create_node("Listener");
     auto listener = listener_node ? listener_node.add_component<engine::AudioListener>()
                                   : engine::AudioListener{};
-    auto settings = source.settings();
+    auto settings = test_support::read_settings(source);
     settings.loop = true;
     settings.pitch = 1.5F;
     settings.volume = 0.5F;
@@ -277,7 +284,8 @@ bool playback_and_lifecycle()
     edited_settings->pitch = 0.75F;
     if (!expect(source.restore_data(edited) && source.playing() && audio.tick(0.0) &&
                     source.playing() && audio.voice_count() == 1 &&
-                    source.settings().volume == 0.25F && source.settings().pitch == 0.75F,
+                    test_support::read_settings(source).volume == 0.25F &&
+                    test_support::read_settings(source).pitch == 0.75F,
                 "editing same-clip settings preserves active playback") ||
         !expect(source.pause() && audio.tick(0.0) && !source.playing() && audio.voice_count() == 1,
                 "source pause retains one unbound stream"))
@@ -302,7 +310,7 @@ bool playback_and_lifecycle()
     {
         return false;
     }
-    auto second_settings = second.settings();
+    auto second_settings = test_support::read_settings(second);
     second_settings.spatial = false;
     if (!expect(second.set_settings(second_settings) && audio.set_paused(true) && audio.tick(0.0) &&
                     audio.paused() && audio.voice_count() == 2 && second.playing(),
@@ -315,7 +323,7 @@ bool playback_and_lifecycle()
     {
         return false;
     }
-    auto transform = listener_node.get_component<engine::Transform>().settings();
+    auto transform = test_support::read_settings(listener_node.get_component<engine::Transform>());
     transform.position = engine::Vec3(100.0, 0.0, 0.0);
     transform.rotation = engine::Vec3(0.0, 90.0, 0.0);
     if (!expect(listener_node.get_component<engine::Transform>().set_settings(transform) &&
@@ -363,8 +371,8 @@ bool playback_and_lifecycle()
         return false;
     }
     world.destroy_scene();
-    if (!expect(audio.tick(0.0) && audio.voice_count() == 0 && SDL_WasInit(SDL_INIT_AUDIO) == 0,
-                "scene destruction closes all streams and the logical device"))
+    if (!expect(audio.tick(0.0) && audio.voice_count() == 0 && SDL_WasInit(SDL_INIT_AUDIO) != 0,
+                "scene destruction closes streams and preserves the shared output device"))
     {
         return false;
     }
@@ -396,9 +404,9 @@ bool playback_and_lifecycle()
 bool persistent_audio()
 {
     test_support::ResourceFixture fixture;
-    engine::ResourceSystem resources;
-    engine::WorldSystem world;
-    engine::AudioSystem audio(&world);
+    test_support::ResourceServices resources;
+    engine::WorldSystem world(&resources.loader);
+    engine::AudioSystem audio(&resources.loader, &world);
     if (!expect(prepare(fixture, resources) && world.initialize({}) && audio.initialize({}),
                 "initialize persistent audio test"))
     {
@@ -442,35 +450,60 @@ bool persistent_audio()
         return false;
     }
     world.destroy_scene();
-    return expect(audio.tick(0) && SDL_WasInit(SDL_INIT_AUDIO) == 0,
-                  "full world cleanup closes the output device");
+    if (!expect(audio.tick(0) && SDL_WasInit(SDL_INIT_AUDIO) != 0,
+                "world cleanup retains the shared device until explicit service cleanup"))
+    {
+        return false;
+    }
+    audio.clear();
+    return expect(SDL_WasInit(SDL_INIT_AUDIO) == 0, "service cleanup closes the output device");
 }
 
 bool independent_voice()
 {
     test_support::ResourceFixture fixture;
-    engine::ResourceSystem resources;
-    engine::AudioSystem audio;
-    engine::ResourcePtr clip;
+    test_support::ResourceServices resources;
+    engine::AudioSystem audio(&resources.loader);
+    engine::ResourceReference clip;
     engine::AudioVoiceHandle handle;
     engine::AudioPlaybackStatus status;
     if (!expect(prepare(fixture, resources) && audio.initialize({}) &&
                     resources.load("20000000-0000-4000-8000-000000000001", clip),
                 "prepare independent audio") ||
-        !expect(audio.play(clip, handle) && audio.set_paused(handle, true) &&
-                    audio.playback(handle, status) && status.state == engine::AudioVoiceState::paused,
+        !expect(audio.play(clip.handle(), handle) && audio.set_paused(handle, true) &&
+                    audio.playback(handle, status) &&
+                    status.state == engine::AudioVoiceState::paused,
                 "pause independent voice without a world") ||
         !expect(audio.tick(0) && audio.set_paused(handle, false), "resume without a world"))
+    {
+        return false;
+    }
+    if (!audio.playback(handle, status))
+    {
+        return false;
+    }
+    const double snapshot_position = status.position_seconds;
+    SDL_Delay(180);
+    if (!expect(audio.playback(handle, status) &&
+                    status.state == engine::AudioVoiceState::playing &&
+                    status.position_seconds == snapshot_position,
+                "const playback only reads the last published snapshot"))
     {
         return false;
     }
     for (int index = 0; index < 100; ++index)
     {
         SDL_Delay(10);
-        if (!audio.playback(handle, status)) return false;
-        if (status.state == engine::AudioVoiceState::completed) break;
+        if (!audio.tick(0) || !audio.playback(handle, status))
+        {
+            return false;
+        }
+        if (status.state == engine::AudioVoiceState::completed)
+        {
+            break;
+        }
     }
-    return expect(status.state == engine::AudioVoiceState::completed &&
+    return expect(status.state == engine::AudioVoiceState::completed && !audio.stop(handle) &&
                       audio.release(handle) && !audio.playback(handle, status),
                   "independent voice drains and invalidates its handle");
 }
@@ -483,9 +516,9 @@ bool unavailable_device()
         return false;
     }
     test_support::ResourceFixture fixture;
-    engine::ResourceSystem resources;
-    engine::WorldSystem world;
-    engine::AudioSystem audio(&world);
+    test_support::ResourceServices resources;
+    engine::WorldSystem world(&resources.loader);
+    engine::AudioSystem audio(&resources.loader, &world);
     if (!expect(prepare(fixture, resources) && world.initialize({}) && audio.initialize({}) &&
                     audio.tick(0),
                 "absence of audio hardware does not prevent idle engine initialization"))
@@ -517,8 +550,7 @@ bool unavailable_device()
 int main()
 {
     return settings_and_resources() && playback_and_lifecycle() && persistent_audio() &&
-                   independent_voice() &&
-                   unavailable_device()
+                   independent_voice() && unavailable_device()
                ? 0
                : 1;
 }

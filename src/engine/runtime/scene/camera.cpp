@@ -43,12 +43,6 @@ Camera::Runtime* Camera::runtime() const noexcept
     return runtime_state<Runtime>();
 }
 
-CameraSettings Camera::settings() const noexcept
-{
-    const auto* value = read_data<Data>();
-    return value ? *value : Data{};
-}
-
 bool Camera::get_settings(Data& output) const noexcept
 {
     const auto* value = read_data<Data>();
@@ -129,14 +123,15 @@ bool Camera::viewport_point_to_ray(const Vec2& point, double aspect, Vec3& origi
     float world[16]{};
     float view[16]{};
     float projection[16]{};
-    if (!transform.valid() || !transform.world_matrix(world) ||
+    Data data;
+    if (!get_settings(data) || !transform.valid() || !transform.world_matrix(world) ||
         !camera_detail::view_matrix(world, view) ||
-        !camera_detail::projection_matrix(settings(), aspect, false, projection))
+        !camera_detail::projection_matrix(data, aspect, false, projection))
     {
         return false;
     }
-    const bool perspective = settings().projection == schema::Projection::perspective;
-    const double near_clip = settings().near_clip;
+    const bool perspective = data.projection == schema::Projection::perspective;
+    const double near_clip = data.near_clip;
     const double scale = perspective ? near_clip : 1.0;
     // 反解对称投影的 X/Y，直接取近面 Z，避免远近裁剪比影响矩阵求逆精度。
     const std::array<double, 3> local_origin = {(point.x() * 2.0 - 1.0) * scale / projection[0],

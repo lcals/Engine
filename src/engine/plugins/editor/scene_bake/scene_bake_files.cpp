@@ -1,4 +1,6 @@
 #include "plugins/editor/scene_bake/scene_bake_files.hpp"
+#include "editor/file_text.hpp"
+#include "runtime/resource/virtual_file_system.hpp"
 
 #include "editor/asset_pipeline/asset_io.hpp"
 #include "editor/asset_pipeline/importers/mesh_importer.hpp"
@@ -6,9 +8,14 @@
 #include "editor/asset_pipeline/scene_importer.hpp"
 #include "plugins/editor/scene_bake/lighting_bake_job.hpp"
 #include "runtime/core/guid_map.hpp"
+#include "runtime/resource/codecs/texture_resource_codec.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/utils/path_utils.hpp"
 
+#include <bimg/bimg.h>
+#include <bx/allocator.h>
+#include <bx/error.h>
+#include <bx/readerwriter.h>
 #include <toml++/toml.hpp>
 
 #include <algorithm>
@@ -27,6 +34,33 @@ namespace
 {
 namespace fs = std::filesystem;
 namespace io = editor::asset_pipeline;
+
+bool write_lightmap(const fs::path& path, const schema::TextureDataT& image, std::string& error)
+{
+    if (!TextureResourceCodec::validate(image) ||
+        image.encoding != schema::TextureEncoding::native ||
+        image.format != schema::TextureFormat::rgba16f || image.cube_map || image.srgb ||
+        image.mip_count != 1)
+    {
+        error = "Baked lightmap must be a native linear RGBA16F image";
+        return false;
+    }
+    bx::DefaultAllocator allocator;
+    bx::MemoryBlock block(&allocator);
+    bx::MemoryWriter writer(&block);
+    bx::Error status;
+    const auto written =
+        bimg::imageWriteKtx(&writer, bimg::TextureFormat::RGBA16F, false, image.width, image.height,
+                            0, 1, 1, false, image.data.data(), &status);
+    if (!status.isOk() || written <= 0)
+    {
+        error = "Cannot encode the baked lightmap source";
+        return false;
+    }
+    return io::write_bytes(
+        path, {static_cast<const std::byte*>(block.more(0)), static_cast<std::size_t>(written)},
+        error);
+}
 
 bool safe_path(const fs::path& root, const fs::path& relative, fs::path& output, std::string& error)
 {
@@ -88,7 +122,7 @@ bool fingerprint(const fs::path& path, bool& exists, std::string& hash, std::str
         return false;
     }
     ByteBuffer bytes;
-    if (!ResourceSystem::read_binary(path, bytes))
+    if (!VirtualFileSystem::read_file(path, bytes))
     {
         error = "Cannot read a bake source or existing output";
         return false;
@@ -187,7 +221,7 @@ bool SceneBakeFiles::initialize(const fs::path& root, std::string_view scene,
         if (files_.back().existed)
         {
             std::string text;
-            if (!ResourceSystem::read_text(meta, text))
+            if (!engine::editor::file_detail::read_text(meta, text))
             {
                 error = "Cannot read existing IBL metadata";
                 return false;
@@ -297,7 +331,7 @@ bool SceneBakeFiles::stage(const std::array<std::vector<std::uint8_t>, 3>& image
         std::string meta;
         if (files_[index * 2 + 1].existed)
         {
-            if (!ResourceSystem::read_text(files_[index * 2 + 1].target, meta))
+            if (!engine::editor::file_detail::read_text(files_[index * 2 + 1].target, meta))
             {
                 error = "Cannot preserve the existing IBL metadata";
                 return false;
@@ -423,7 +457,7 @@ bool SceneBakeFiles::add_output(std::string_view filename, std::string_view impo
     if (files_.back().existed)
     {
         std::string text;
-        if (!ResourceSystem::read_text(meta, text))
+        if (!engine::editor::file_detail::read_text(meta, text))
         {
             error = "Cannot read bake metadata";
             return false;
@@ -594,7 +628,7 @@ bool SceneBakeFiles::stage_meta(std::size_t index, std::string_view importer, st
     std::string text;
     if (file.existed)
     {
-        if (!ResourceSystem::read_text(file.target, text))
+        if (!engine::editor::file_detail::read_text(file.target, text))
         {
             error = "Cannot preserve bake metadata";
             return false;
@@ -724,7 +758,7 @@ bool SceneBakeFiles::stage_lighting(const LightingBakeOutputs& output, std::stri
         ByteBuffer payload, entity;
         std::uint32_t header_size = 0;
         if (code || !importer.convert(asset, context, error) ||
-            !ResourceSystem::read_binary(context.output / asset.guid, payload) ||
+            !VirtualFileSystem::read_file(context.output / asset.guid, payload) ||
             !ResourceSystem::encode_resource(asset.guid, asset.kind, payload, entity, header_size))
         {
             if (error.empty())
@@ -738,8 +772,7 @@ bool SceneBakeFiles::stage_lighting(const LightingBakeOutputs& output, std::stri
         renderer->lightmap_transform.assign(item.transform.begin(), item.transform.end());
         ++index;
         renderer->lightmap_guid = outputs_[index].guid;
-        if (!io::write_bytes(files_[index * 2].staged,
-                             std::as_bytes(std::span(item.lightmap->data)), error) ||
+        if (!write_lightmap(files_[index * 2].staged, *item.lightmap, error) ||
             !stage_meta(index, "texture_ktx", error))
         {
             return false;

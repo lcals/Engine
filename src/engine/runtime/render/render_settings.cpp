@@ -64,8 +64,13 @@ bool scene_render_components(Scene& scene, SceneRenderComponents& output)
             }
             output.environment = world.find_node(entity.id()).get_component<EnvironmentComponent>();
         });
-    const auto atmosphere_sun_id =
-        output.environment ? output.environment.settings().atmosphere_sun_node_id : 0;
+    EnvironmentSettings environment;
+    if (output.environment && !output.environment.get_settings(environment))
+    {
+        output = {};
+        return false;
+    }
+    const auto atmosphere_sun_id = environment.atmosphere_sun_node_id;
     Light first_directional;
     std::uint64_t first_order = UINT64_MAX;
     auto lights = flecs::world(world.native_world())
@@ -133,9 +138,9 @@ bool scene_render_components(Scene& scene, SceneRenderComponents& output)
 RenderSettings render_settings(const SceneRenderComponents& components)
 {
     RenderSettings settings;
-    if (static_cast<bool>(components.environment))
+    EnvironmentSettings environment;
+    if (components.environment.get_settings(environment))
     {
-        const auto& environment = components.environment.settings();
         settings.ambient_color = color_channels(environment.ambient_color);
         settings.ambient_intensity = environment.ambient_intensity;
         settings.ambient_tricolor = environment.ambient_tricolor;
@@ -153,15 +158,16 @@ RenderSettings render_settings(const SceneRenderComponents& components)
         settings.atmosphere = environment;
         settings.atmosphere_scene_id = components.environment.node().scene()->id();
     }
-    if (components.atmosphere_sun &&
-        (!components.shadow_light || !components.shadow_light.settings().cast_shadows ||
-         components.shadow_light == components.atmosphere_sun))
+    LightSettings light;
+    const bool has_light = components.shadow_light.get_settings(light);
+    LightSettings sun;
+    if (components.atmosphere_sun.get_settings(sun) &&
+        (!has_light || !light.cast_shadows || components.shadow_light == components.atmosphere_sun))
     {
         float matrix[16]{};
         const auto transform = components.atmosphere_sun.node().get_component<Transform>();
         if (transform && transform.world_matrix(matrix))
         {
-            const auto sun = components.atmosphere_sun.settings();
             const float length = std::hypot(matrix[8], matrix[9], matrix[10]);
             if (std::isfinite(length) && length > 0)
             {
@@ -174,31 +180,31 @@ RenderSettings render_settings(const SceneRenderComponents& components)
             }
         }
     }
-    if (static_cast<bool>(components.post_process))
+    PostProcessSettings post_process;
+    if (components.post_process.get_settings(post_process))
     {
-        settings.exposure = components.post_process.settings().exposure;
-        settings.filmic_tonemap = components.post_process.settings().filmic_tonemap;
-        settings.hdr_enabled = components.post_process.settings().hdr_enabled;
-        settings.bloom_enabled = components.post_process.settings().bloom_enabled;
-        settings.bloom_threshold = components.post_process.settings().bloom_threshold;
-        settings.bloom_intensity = components.post_process.settings().bloom_intensity;
-        settings.bloom_radius = components.post_process.settings().bloom_radius;
-        settings.ssr_enabled = components.post_process.settings().ssr_enabled;
-        settings.ssr_resolution_scale = components.post_process.settings().ssr_resolution_scale;
-        settings.ssr_max_steps = components.post_process.settings().ssr_max_steps;
-        settings.ssr_max_distance = components.post_process.settings().ssr_max_distance;
-        settings.ssr_thickness = components.post_process.settings().ssr_thickness;
-        settings.ssr_roughness_cutoff = components.post_process.settings().ssr_roughness_cutoff;
-        settings.ao_enabled = components.post_process.settings().ao_enabled;
-        settings.ao_radius = components.post_process.settings().ao_radius;
-        settings.ao_strength = components.post_process.settings().ao_strength;
-        settings.ao_power = components.post_process.settings().ao_power;
-        settings.ao_fade_start = components.post_process.settings().ao_fade_start;
-        settings.ao_fade_end = components.post_process.settings().ao_fade_end;
+        settings.exposure = post_process.exposure;
+        settings.filmic_tonemap = post_process.filmic_tonemap;
+        settings.hdr_enabled = post_process.hdr_enabled;
+        settings.bloom_enabled = post_process.bloom_enabled;
+        settings.bloom_threshold = post_process.bloom_threshold;
+        settings.bloom_intensity = post_process.bloom_intensity;
+        settings.bloom_radius = post_process.bloom_radius;
+        settings.ssr_enabled = post_process.ssr_enabled;
+        settings.ssr_resolution_scale = post_process.ssr_resolution_scale;
+        settings.ssr_max_steps = post_process.ssr_max_steps;
+        settings.ssr_max_distance = post_process.ssr_max_distance;
+        settings.ssr_thickness = post_process.ssr_thickness;
+        settings.ssr_roughness_cutoff = post_process.ssr_roughness_cutoff;
+        settings.ao_enabled = post_process.ao_enabled;
+        settings.ao_radius = post_process.ao_radius;
+        settings.ao_strength = post_process.ao_strength;
+        settings.ao_power = post_process.ao_power;
+        settings.ao_fade_start = post_process.ao_fade_start;
+        settings.ao_fade_end = post_process.ao_fade_end;
     }
-    if (components.shadow_light.valid())
+    if (has_light)
     {
-        const auto& light = components.shadow_light.settings();
         settings.directional_shadows = light.cast_shadows;
         settings.shadow_resolution = light.shadow_resolution;
         settings.shadow_bias = light.shadow_bias;

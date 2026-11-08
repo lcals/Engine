@@ -1,37 +1,37 @@
 # 多边形拓扑操作
 
-图中的建模类、枚举和配置类型属于 `engine::plugins::modeling`；生成数据仍属于 `engine::schema`。
+图中的 mesh 表示 `engine::plugins::modeling::mesh` 命名空间，不是 C++ 类。选择、枚举和配置类型仍属于 `engine::plugins::modeling`；生成数据仍属于 `engine::schema`。
 
 ```mermaid
 classDiagram
-    class MeshTopology {
-        +transform(EditableMeshDataT& data, const MeshSelection& selection, const array~double, 16~& matrix, string& error) bool$
-        +extrude(EditableMeshDataT& data, span~const uint64_t~ faces, double distance, bool individual, string& error) bool$
-        +extrude_edges(EditableMeshDataT& data, span~const MeshEdge~ edges, const Vec3& delta, string& error) bool$
-        +inset(EditableMeshDataT& data, span~const uint64_t~ faces, double distance, string& error, bool group = false) bool$
-        +erase_faces(EditableMeshDataT& data, span~const uint64_t~ faces, string& error) bool$
-        +reverse_faces(EditableMeshDataT& data, span~const uint64_t~ faces, string& error) bool$
-        +triangulate(EditableMeshDataT& data, span~const uint64_t~ faces, string& error) bool$
-        +subdivide(EditableMeshDataT& data, span~const uint64_t~ faces, uint32_t iterations, string& error) bool$
-        +weld(EditableMeshDataT& data, span~const uint64_t~ vertices, double tolerance, string& error) bool$
-        +merge_vertices(EditableMeshDataT& data, span~const uint64_t~ vertices, const Vec3& position, string& error) bool$
-        +split_vertices(EditableMeshDataT& data, span~const uint64_t~ vertices, string& error) bool$
-        +detach_faces(EditableMeshDataT& data, span~const uint64_t~ faces, string& error) bool$
-        +duplicate_faces(EditableMeshDataT& data, span~const uint64_t~ faces, string& error) bool$
-        +bridge(EditableMeshDataT& data, span~const uint64_t~ first_loop, span~const uint64_t~ second_loop, string& error) bool$
-        +fill_hole(EditableMeshDataT& data, span~const uint64_t~ loop, string& error) bool$
-        +dissolve_edge(EditableMeshDataT& data, MeshEdge edge, string& error) bool$
-        +split_edge(EditableMeshDataT& data, MeshEdge edge, double fraction, string& error) bool$
-        +connect_vertices(EditableMeshDataT& data, uint64_t face, uint64_t first, uint64_t second, string& error) bool$
-        +set_material(EditableMeshDataT& data, span~const uint64_t~ faces, uint32_t slot, string& error) bool$
-        +set_color(EditableMeshDataT& data, span~const uint64_t~ faces, const Color& color, string& error) bool$
-        +select_faces(const EditableMeshDataT& data, span~const uint64_t~ faces, MeshFaceSelection mode, vector~uint64_t~& output, string& error) bool$
-        +edge_ring(const EditableMeshDataT& data, MeshEdge edge, vector~MeshEdge~& output, string& error) bool$
-        +edge_loop(const EditableMeshDataT& data, MeshEdge edge, vector~MeshEdge~& output, string& error) bool$
-        +loop_cut(EditableMeshDataT& data, MeshEdge edge, uint32_t cuts, double pinch, double offset, string& error) bool$
-        +append(EditableMeshDataT& data, const EditableMeshDataT& other, string& error, uint32_t material_slot_offset = 0) bool$
+    class mesh {
+        <<namespace>>
+        +transform(EditableMeshDataT& data, const MeshSelection& selection, const array~double, 16~& matrix, string& error) bool
+        +extrude(EditableMeshDataT& data, span~const uint64_t~ faces, double distance, bool individual, string& error) bool
+        +extrude_edges(EditableMeshDataT& data, span~const MeshEdge~ edges, const Vec3& delta, string& error) bool
+        +inset(EditableMeshDataT& data, span~const uint64_t~ faces, double distance, string& error, bool group = false) bool
+        +erase_faces(EditableMeshDataT& data, span~const uint64_t~ faces, string& error) bool
+        +reverse_faces(EditableMeshDataT& data, span~const uint64_t~ faces, string& error) bool
+        +triangulate(EditableMeshDataT& data, span~const uint64_t~ faces, string& error) bool
+        +subdivide(EditableMeshDataT& data, span~const uint64_t~ faces, uint32_t iterations, string& error) bool
+        +weld(EditableMeshDataT& data, span~const uint64_t~ vertices, double tolerance, string& error) bool
+        +merge_vertices(EditableMeshDataT& data, span~const uint64_t~ vertices, const Vec3& position, string& error) bool
+        +split_vertices(EditableMeshDataT& data, span~const uint64_t~ vertices, string& error) bool
+        +detach_faces(EditableMeshDataT& data, span~const uint64_t~ faces, string& error) bool
+        +duplicate_faces(EditableMeshDataT& data, span~const uint64_t~ faces, string& error) bool
+        +bridge(EditableMeshDataT& data, span~const uint64_t~ first_loop, span~const uint64_t~ second_loop, string& error) bool
+        +fill_hole(EditableMeshDataT& data, span~const uint64_t~ loop, string& error) bool
+        +dissolve_edge(EditableMeshDataT& data, MeshEdge edge, string& error) bool
+        +split_edge(EditableMeshDataT& data, MeshEdge edge, double fraction, string& error) bool
+        +connect_vertices(EditableMeshDataT& data, uint64_t face, uint64_t first, uint64_t second, string& error) bool
+        +set_material(EditableMeshDataT& data, span~const uint64_t~ faces, uint32_t slot, string& error) bool
+        +set_color(EditableMeshDataT& data, span~const uint64_t~ faces, const Color& color, string& error) bool
+        +select_faces(const EditableMeshDataT& data, span~const uint64_t~ faces, MeshFaceSelection mode, vector~uint64_t~& output, string& error) bool
+        +edge_ring(const EditableMeshDataT& data, MeshEdge edge, vector~MeshEdge~& output, string& error) bool
+        +edge_loop(const EditableMeshDataT& data, MeshEdge edge, vector~MeshEdge~& output, string& error) bool
+        +loop_cut(EditableMeshDataT& data, MeshEdge edge, uint32_t cuts, double pinch, double offset, string& error) bool
+        +append(EditableMeshDataT& data, const EditableMeshDataT& other, string& error, uint32_t material_slot_offset = 0) bool
     }
-    class EditableMesh
     class EditableMeshDataT
     class MeshSelection
     class MeshEdge
@@ -43,13 +43,12 @@ classDiagram
         grow
         shrink
     }
-    MeshTopology ..> EditableMesh : 公共模型验证
-    MeshTopology ..> EditableMeshDataT : 借用并原子替换
-    MeshTopology ..> MeshSelection : 顶点边面选区
-    MeshTopology ..> MeshEdge : 边身份
-    MeshTopology ..> Vec3 : 合并位置及边挤出位移
-    MeshTopology ..> Color : 面角颜色
-    MeshTopology ..> MeshFaceSelection : 连通扩展与收缩策略
+    mesh ..> EditableMeshDataT : 借用并原子替换
+    mesh ..> MeshSelection : 顶点边面选区
+    mesh ..> MeshEdge : 边身份
+    mesh ..> Vec3 : 合并位置及边挤出位移
+    mesh ..> Color : 面角颜色
+    mesh ..> MeshFaceSelection : 连通扩展与收缩策略
 ```
 
 所有操作在候选副本上执行，验证成功后替换原数据。失败保持原数据和身份。新几何分配新 ID，已有未替换几何保留 ID。

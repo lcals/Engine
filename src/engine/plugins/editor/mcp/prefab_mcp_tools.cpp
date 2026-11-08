@@ -1,4 +1,5 @@
 #include "plugins/editor/mcp/component_mcp_tools.hpp"
+#include "plugins/editor/mcp/editor_tool_registration.hpp"
 
 namespace engine::plugins::mcp
 {
@@ -12,14 +13,9 @@ bool register_prefab_tools(McpSystem& system, EditorMcpTools& editor)
                                         Json required)
     {
         const auto command = name;
-        return system.register_tool({std::move(name),
-                                     std::move(description),
-                                     {{"type", "object"},
-                                      {"properties", std::move(properties)},
-                                      {"required", std::move(required)},
-                                      {"additionalProperties", false}},
-                                     [&editor, command](const Json& arguments, Json& reply)
-                                     { return editor.call_command(command, arguments, reply); }});
+        return register_editor_command_tool(
+            system, editor, std::move(name), std::move(description),
+            object_schema(std::move(properties), std::move(required)), command);
     };
     const Json fields = {{"type", "array"},
                          {"items", {{"type", "string"}, {"minLength", 1}, {"maxLength", 128}}},

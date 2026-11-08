@@ -1,5 +1,7 @@
 # 建模资源导入
 
+**精简状态：代码已切换到 mesh 命名空间函数；本模块公开方法保持。** 函数签名见[建模计算](editable-mesh.md)。
+
 建模导入属于 `engine::plugins::modeling`。宿主把插件实现注入编辑器资源管线；编辑器及运行时均不依赖建模插件。
 
 ```mermaid
@@ -11,7 +13,9 @@ classDiagram
         +convert(const ImportAsset& asset, const ImportContext& context, string& error) bool
     }
     class AssetPipelineSystem
-    class EditableMesh
+    class mesh {
+        <<namespace>>
+    }
     class ImportAsset
     class ImportContext
     class EditableMeshDataT
@@ -19,7 +23,7 @@ classDiagram
     AssetImporter <|-- MeshImporter
     MeshImporter <|-- ModelingMeshImporter
     AssetPipelineSystem *-- AssetImporter : 宿主注入后独占
-    ModelingMeshImporter ..> EditableMesh : 校验并编译权威建模源
+    ModelingMeshImporter ..> mesh : 校验并编译权威建模源
     ModelingMeshImporter ..> ImportAsset : 借用源身份
     ModelingMeshImporter ..> ImportContext : 借用批次上下文
     ModelingMeshImporter ..> EditableMeshDataT : 反序列化可编辑拓扑

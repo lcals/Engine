@@ -1,9 +1,11 @@
 #include "plugins/editor/effects/effect_commands.hpp"
+#include "editor/resource_access.hpp"
 
-#include "editor/commands/components/component_edit.hpp"
+#include "editor/commands/component_commands.hpp"
 #include "editor/commands/scene_commands.hpp"
 #include "plugins/runtime/effects/effect_component.hpp"
 #include "runtime/resource/resource_system.hpp"
+#include "runtime/world/world_system.hpp"
 
 namespace engine::plugins::effects
 {
@@ -12,7 +14,8 @@ namespace
 
 using Json = nlohmann::json;
 
-bool read(const Json& arguments, schema::EffectDataT& value, std::string& error)
+bool read(ResourceLoader* loader, const Json& arguments, schema::EffectDataT& value,
+          std::vector<ResourceReference>& prepared, std::string& error)
 {
     if (!editor::components::fields(arguments,
                                     {"enabled", "effect", "speed", "loop", "playOnAwake"}, error))
@@ -33,20 +36,16 @@ bool read(const Json& arguments, schema::EffectDataT& value, std::string& error)
         }
         else
         {
-            Guid guid;
-            const auto* resources = ResourceSystem::instance();
-            if (resources == nullptr || !ResourceSystem::path_to_guid(path, guid))
-            {
-                error = "Effect resource path was not found";
-                return false;
-            }
-            const auto* entry = resources->catalog().find(guid);
-            if (entry == nullptr || entry->kind != schema::AssetKind::effect)
+            engine::ResourceReference resource;
+            if (!editor::resource_access::load(loader, path, resource) ||
+                resource->kind() != schema::AssetKind::effect)
             {
                 error = "effect path must reference an imported Effekseer resource";
                 return false;
             }
+            auto guid = resource->info().guid;
             value.effect_guid = std::move(guid);
+            prepared.push_back(std::move(resource));
         }
     }
     if (arguments.contains("speed") && !editor::components::number(arguments["speed"], value.speed))
@@ -75,23 +74,18 @@ bool read(const Json& arguments, schema::EffectDataT& value, std::string& error)
     return true;
 }
 
-Json write(const EffectComponent& component)
+Json write(ResourceLoader* loader, const schema::EffectDataT& value)
 {
-    const auto& value = component.settings();
     std::string path;
     if (!value.effect_guid.empty())
     {
-        static_cast<void>(ResourceSystem::guid_to_path(value.effect_guid, path));
+        static_cast<void>(editor::resource_access::path(loader, value.effect_guid, path));
     }
     return {{"effect", path},
             {"effectGuid", value.effect_guid},
             {"speed", value.speed},
             {"loop", value.loop},
-            {"playOnAwake", value.play_on_awake},
-            {"enabled", component.enabled()},
-            {"playing", component.playing()},
-            {"sceneId", std::to_string(component.node().scene()->id())},
-            {"nodeId", std::to_string(component.node().id())}};
+            {"playOnAwake", value.play_on_awake}};
 }
 
 } // namespace
@@ -99,69 +93,18 @@ Json write(const EffectComponent& component)
 bool register_effect_commands(WorldSystem& world, editor::SceneCommands& scene_commands,
                               editor::EditorCommands& commands)
 {
-    if (!commands.register_command(
-            "set_effect", true,
-            [&world, &scene_commands](const Json& arguments, Json& result,
-                                      std::unique_ptr<editor::EditorEdit>& edit, std::string& error)
+    if (!editor::components::register_component<EffectComponent, schema::EffectDataT>(
+            world, scene_commands, commands, "effect",
+            [&world](Node, const Json& args, auto& data, auto& prepared, auto& error)
+            { return read(world.resource_loader(), args, data, prepared, error); },
+            [&world](EffectComponent component, const auto& data)
             {
-                auto node = editor::components::target(world, arguments, error);
-                if (!node)
+                auto result = write(world.resource_loader(), data);
+                if (component)
                 {
-                    return false;
+                    result["playing"] = component.playing();
                 }
-                const auto component = node.get_component<EffectComponent>();
-                std::optional<schema::ComponentDataT> before;
-                if (component.valid())
-                {
-                    before.emplace();
-                    if (!component.build_data(*before))
-                    {
-                        error = "Cannot snapshot effect component";
-                        return false;
-                    }
-                }
-                auto value = component.valid() ? component.settings() : schema::EffectDataT{};
-                if (!read(arguments, value, error))
-                {
-                    return false;
-                }
-                schema::ComponentDataT after;
-                after.flags = std::make_unique<schema::ComponentFlagsT>();
-                after.flags->enabled = !component || component.enabled();
-                after.flags->visible = !component || component.visible();
-                if (arguments.contains("enabled"))
-                {
-                    if (!arguments["enabled"].is_boolean())
-                    {
-                        error = "enabled must be boolean";
-                        return false;
-                    }
-                    after.flags->enabled = arguments["enabled"].get<bool>();
-                }
-                auto identity = scene_commands.node_identity(node.id());
-                if (!identity)
-                {
-                    error = "Cannot resolve stable node identity";
-                    return false;
-                }
-                std::string path;
-                if (!value.effect_guid.empty())
-                {
-                    static_cast<void>(ResourceSystem::guid_to_path(value.effect_guid, path));
-                }
-                result = {{"effect", path},
-                          {"effectGuid", value.effect_guid},
-                          {"speed", value.speed},
-                          {"loop", value.loop},
-                          {"playOnAwake", value.play_on_awake},
-                          {"enabled", after.flags->enabled},
-                          {"sceneId", std::to_string(node.scene()->id())},
-                          {"nodeId", std::to_string(node.id())}};
-                after.payload.Set(std::move(value));
-                edit = std::make_unique<editor::components::ComponentEdit>(
-                    world, node.scene()->id(), std::move(identity), std::move(before),
-                    std::move(after));
-                return true;
+                return result;
             }))
     {
         return false;
@@ -188,13 +131,23 @@ bool register_effect_commands(WorldSystem& world, editor::SceneCommands& scene_c
                     }
                     return false;
                 }
-                result = write(component);
+                schema::EffectDataT data;
+                if (!component.get_settings(data))
+                {
+                    error = "Cannot read component settings";
+                    return false;
+                }
+                result = write(world.resource_loader(), data);
+                result["enabled"] = component.enabled();
+                result["playing"] = component.playing();
+                result["sceneId"] = std::to_string(node.scene()->id());
+                result["nodeId"] = std::to_string(node.id());
                 return true;
             });
     };
-    return control("get_effect", nullptr) && control("play_effect", &EffectComponent::play) &&
+    return control("play_effect", &EffectComponent::play) &&
            control("pause_effect", &EffectComponent::pause) &&
-           control("stop_effect", &EffectComponent::stop) && control("get_effect_state", nullptr);
+           control("stop_effect", &EffectComponent::stop);
 }
 
 } // namespace engine::plugins::effects

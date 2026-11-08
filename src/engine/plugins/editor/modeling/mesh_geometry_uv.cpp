@@ -69,9 +69,8 @@ bool face_projection(schema::EditableMeshDataT& data, schema::ModelingFaceT& fac
 
 } // namespace
 
-bool MeshGeometry::project_uv(schema::EditableMeshDataT& data,
-                              std::span<const std::uint64_t> face_ids,
-                              const MeshUvProjectionOptions& options, std::string& error)
+bool mesh::project_uv(schema::EditableMeshDataT& data, std::span<const std::uint64_t> face_ids,
+                      const MeshUvProjectionOptions& options, std::string& error)
 {
     if (options.projection != MeshUvProjection::planar &&
         options.projection != MeshUvProjection::box &&
@@ -191,9 +190,8 @@ bool MeshGeometry::project_uv(schema::EditableMeshDataT& data,
     return math::commit(data, std::move(candidate), error);
 }
 
-bool MeshGeometry::transform_uv(schema::EditableMeshDataT& data,
-                                std::span<const std::uint64_t> face_ids,
-                                const MeshUvTransformOptions& options, std::string& error)
+bool mesh::transform_uv(schema::EditableMeshDataT& data, std::span<const std::uint64_t> face_ids,
+                        const MeshUvTransformOptions& options, std::string& error)
 {
     if (!finite_uv(options.scale) || !finite_uv(options.offset) || !finite_uv(options.pivot) ||
         !std::isfinite(options.rotation_degrees))
@@ -238,9 +236,8 @@ bool MeshGeometry::transform_uv(schema::EditableMeshDataT& data,
     return math::commit(data, std::move(candidate), error);
 }
 
-bool MeshGeometry::unwrap_face_uv(schema::EditableMeshDataT& data,
-                                  std::span<const std::uint64_t> face_ids,
-                                  const MeshUvUnwrapOptions& options, std::string& error)
+bool mesh::unwrap_face_uv(schema::EditableMeshDataT& data, std::span<const std::uint64_t> face_ids,
+                          const MeshUvUnwrapOptions& options, std::string& error)
 {
     if (!std::isfinite(options.padding) || options.padding < 0.0 || options.padding >= 0.5)
     {
@@ -293,9 +290,8 @@ bool MeshGeometry::unwrap_face_uv(schema::EditableMeshDataT& data,
     return math::commit(data, std::move(candidate), error);
 }
 
-bool MeshGeometry::hotspot_uv(schema::EditableMeshDataT& data,
-                              std::span<const std::uint64_t> face_ids,
-                              const MeshHotspotOptions& options, std::string& error)
+bool mesh::hotspot_uv(schema::EditableMeshDataT& data, std::span<const std::uint64_t> face_ids,
+                      const MeshHotspotOptions& options, std::string& error)
 {
     if (options.rectangles.empty() || options.rectangles.size() > 65536 ||
         !std::isfinite(options.padding) || options.padding < 0.0)
@@ -379,9 +375,8 @@ bool MeshGeometry::hotspot_uv(schema::EditableMeshDataT& data,
     return math::commit(data, std::move(candidate), error);
 }
 
-bool MeshGeometry::set_smoothing(schema::EditableMeshDataT& data,
-                                 std::span<const std::uint64_t> face_ids, std::uint32_t group,
-                                 std::string& error)
+bool mesh::set_smoothing(schema::EditableMeshDataT& data, std::span<const std::uint64_t> face_ids,
+                         std::uint32_t group, std::string& error)
 {
     schema::EditableMeshDataT candidate = data;
     std::vector<schema::ModelingFaceT*> faces;
@@ -396,12 +391,11 @@ bool MeshGeometry::set_smoothing(schema::EditableMeshDataT& data,
     return math::commit(data, std::move(candidate), error);
 }
 
-bool MeshGeometry::auto_smooth(schema::EditableMeshDataT& data, double angle_degrees,
-                               std::string& error)
+bool mesh::auto_smooth(schema::EditableMeshDataT& data, double angle_degrees, std::string& error)
 {
     error.clear();
     if (!std::isfinite(angle_degrees) || angle_degrees < 0.0 || angle_degrees > 180.0 ||
-        !EditableMesh::validate(data, error))
+        !mesh::validate(data, error))
     {
         if (error.empty())
         {

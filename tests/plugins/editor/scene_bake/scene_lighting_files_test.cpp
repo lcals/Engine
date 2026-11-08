@@ -1,4 +1,6 @@
+#include "file_text.hpp"
 #include "resource_fixture.hpp"
+#include "runtime/resource/virtual_file_system.hpp"
 #include "scene_snapshot.hpp"
 
 #include "editor/asset_pipeline/asset_io.hpp"
@@ -76,6 +78,7 @@ bool exercise()
     const auto mesh_guid = fixture.catalog.entries.front()->guid;
     constexpr const char* scene_guid = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
     schema::SceneDataT scene;
+    scene.schema_version = 2;
     scene.info = std::make_unique<schema::SceneInfoT>();
     scene.info->name = "Lighting test";
     auto node = std::make_unique<schema::NodeDataT>();
@@ -107,7 +110,7 @@ bool exercise()
         "max_relative_error = 0.01\n";
     if (!check(
             editor::SceneImporter::write(scene_path, scene, error) &&
-                ResourceSystem::read_text(scene_path, original) &&
+                test_support::read_text(scene_path, original) &&
                 io::write_text(fixture.root / "assets/source.mesh", "original geometry", error) &&
                 io::write_text(fixture.root / "assets/source.mesh.meta",
                                "guid = \"" + mesh_guid + "\"\n", error) &&
@@ -165,7 +168,14 @@ bool exercise()
     fixed.mesh = std::make_shared<schema::MeshDataT>(mesh);
     fixed.transform = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
     fixed.lightmap = std::make_shared<schema::TextureDataT>();
-    fixed.lightmap->data = {1, 2, 3, 4};
+    fixed.lightmap->schema_version = 2;
+    fixed.lightmap->path = "baked/lightmap";
+    fixed.lightmap->width = fixed.lightmap->height = 1;
+    fixed.lightmap->srgb = false;
+    fixed.lightmap->encoding = schema::TextureEncoding::native;
+    fixed.lightmap->format = schema::TextureFormat::rgba16f;
+    fixed.lightmap->subresources.emplace_back(0, 0, 0, 8);
+    fixed.lightmap->data = {0, 0, 0, 0, 0, 0, 0, 60};
     output.meshes.push_back(fixed);
     bake::BakedProbeLighting probe;
     probe.node_id = 2;
@@ -185,11 +195,11 @@ bool exercise()
     std::string staged_meta;
     ByteBuffer staged_mesh;
     if (!check(
-            ResourceSystem::read_text(fixture.root / "cache/bake/test-1/0.new.meta", staged_meta) &&
+            test_support::read_text(fixture.root / "cache/bake/test-1/0.new.meta", staged_meta) &&
                 staged_meta == preserved_meta &&
-                ResourceSystem::read_binary(fixture.root / "cache/bake/test-1/compiled" /
-                                                files.outputs()[0].guid,
-                                            staged_mesh),
+                VirtualFileSystem::read_file(fixture.root / "cache/bake/test-1/compiled" /
+                                                 files.outputs()[0].guid,
+                                             staged_mesh),
             "staged source has its exact adjacent meta including existing LOD settings"))
     {
         return false;
@@ -203,26 +213,25 @@ bool exercise()
         return false;
     }
     std::string current;
-    if (!check(ResourceSystem::read_text(scene_path, current) && current == original,
+    if (!check(test_support::read_text(scene_path, current) && current == original,
                "staging preserves original scene"))
     {
         return false;
     }
     unsigned refreshes = 0;
-    if (!check(!files.publish(
-                   [&](std::string& message)
-                   {
-                       ++refreshes;
-                       message = "simulated import failure";
-                       return refreshes > 1;
-                   },
-                   error) &&
-                   refreshes == 2 && ResourceSystem::read_text(scene_path, current) &&
-                   current == original &&
-                   !fs::exists(fixture.root / "assets/test/lighting-1.mesh") &&
-                   ResourceSystem::read_text(output_meta, staged_meta) &&
-                   staged_meta == preserved_meta,
-               "failed import rolls back whole batch", error))
+    if (!check(
+            !files.publish(
+                [&](std::string& message)
+                {
+                    ++refreshes;
+                    message = "simulated import failure";
+                    return refreshes > 1;
+                },
+                error) &&
+                refreshes == 2 && test_support::read_text(scene_path, current) &&
+                current == original && !fs::exists(fixture.root / "assets/test/lighting-1.mesh") &&
+                test_support::read_text(output_meta, staged_meta) && staged_meta == preserved_meta,
+            "failed import rolls back whole batch", error))
     {
         return false;
     }
@@ -263,7 +272,7 @@ bool exercise()
                        files.outputs()[2].guid &&
                    fs::exists(fixture.root / "assets/test/lighting-1.mesh.meta") &&
                    fs::exists(fixture.root / "assets/test/probes-2.lightprobe.meta") &&
-                   ResourceSystem::read_text(output_meta, staged_meta) &&
+                   test_support::read_text(output_meta, staged_meta) &&
                    staged_meta == preserved_meta,
                "published scene binds UV2 mesh hash, lightmap, transform, and probe identities"))
     {
@@ -290,7 +299,7 @@ bool exercise()
     std::uint32_t header = 0;
     return check(
         !code && importer.convert(asset, context, error) &&
-            ResourceSystem::read_binary(context.output / asset.guid, payload) &&
+            VirtualFileSystem::read_file(context.output / asset.guid, payload) &&
             ResourceSystem::encode_resource(asset.guid, asset.kind, payload, encoded, header) &&
             io::hash_bytes(encoded) == result->lightmap_mesh_hash,
         "published importer and staged importer produce the exact bound mesh hash", error);

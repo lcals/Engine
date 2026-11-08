@@ -21,7 +21,6 @@ public:
     using Runtime = RigidBodyRuntime;
     static constexpr ComponentType component_type = ComponentType::RigidBodyData;
     [[nodiscard]] static bool valid_settings(const schema::RigidBodyDataT& settings) noexcept;
-    [[nodiscard]] schema::RigidBodyDataT settings() const noexcept;
     [[nodiscard]] bool get_settings(Data& output) const noexcept;
     [[nodiscard]] bool set_settings(const schema::RigidBodyDataT& settings) noexcept;
     [[nodiscard]] bool restore_data(const schema::ComponentDataT& data);

@@ -1,4 +1,4 @@
-import {
+import { Resources, ResourceHandle,
     Animator, AudioListener, AudioSource, Camera, CharacterMotor, Collider, Debug,
     DestructionComponent, EffectComponent, Gameplay, MeshRenderer, Physics,
     PhysicsImpact, Scene, TerrainComponent, Time, Transform, UiComponent, Vector3,
@@ -31,6 +31,7 @@ const camera_names = { overview: "Overview camera", front: "Front camera", walk:
 const max_secondary_damage = 24;
 
 export default class Game extends Gameplay {
+    private readonly resources: ResourceHandle[] = [];
     private readonly input = new CharacterControls();
     scene: Scene | null = null;
     private terrain: TerrainComponent | null = null;
@@ -70,6 +71,12 @@ export default class Game extends Gameplay {
     private explosion_generation = 0;
 
     override OnInitialize(): boolean {
+        for (const path of ["scenes/destruction-integration.scene", "prefabs/characters/player.prefab", "materials/character.material", "models/locomotions.fbx/animations/walk"]) {
+            const resource = Resources.Load(path);
+            if (!resource) { Debug.LogError(`Cannot load ${path}: ${Resources.lastError}`); return false; }
+            this.resources.push(resource);
+        }
+
         this.scene = Scene.Load("scenes/destruction-integration.scene");
         const scene = this.scene;
         if (!scene) return false;
@@ -486,6 +493,10 @@ export default class Game extends Gameplay {
     }
 
     override OnShutdown(): void {
+        for (const resource of this.resources.splice(0)) {
+            if (!Resources.Release(resource)) Debug.LogError("Cannot release showcase resource");
+        }
+
         ++this.explosion_generation;
         this.pending_explosions.length = 0;
         this.explosion_active = false;

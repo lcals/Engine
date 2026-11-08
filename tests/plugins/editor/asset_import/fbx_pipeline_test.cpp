@@ -1,5 +1,7 @@
 #include "editor/asset_pipeline/asset_pipeline_system.hpp"
+#include "file_text.hpp"
 #include "plugins/editor/asset_import/fbx_importer.hpp"
+#include "resource_services.hpp"
 #include "runtime/task/task_system.hpp"
 #include "runtime/task/thread_system.hpp"
 #if defined(ENGINE_FBX_TEST_BUILD)
@@ -131,7 +133,8 @@ bool material_remaps(editor::AssetPipelineSystem& pipeline, const Project& proje
     }
     Guid expected_pbr;
     if (!expect(slots > 0 &&
-                    ResourceSystem::path_to_guid("builtin://materials/default-pbr", expected_pbr) &&
+                    resources.catalog().identities().path_to_guid("builtin://materials/default-pbr",
+                                                                  expected_pbr) &&
                     default_material == expected_pbr,
                 "FBX material slots without explicit remaps use the builtin PBR material"))
     {
@@ -506,17 +509,24 @@ bool animation_motion(editor::AssetPipelineSystem& pipeline, const Project& proj
 }
 
 #if defined(ENGINE_FBX_TEST_GRAPH)
-bool model_loading(const Project& project, const ResourceCatalog& catalog, const Guid& model_guid,
-                   const Guid& mesh_guid, const Guid& skeleton_guid)
+bool model_loading(ThreadSystem& threads, const Project& project, const ResourceCatalog& catalog,
+                   const Guid& model_guid, const Guid& mesh_guid, const Guid& skeleton_guid)
 {
-    ResourceSystem resources;
-    plugins::resource_graph::ResourceGraphSystem graph(resources);
-    ResourcePtr model;
+    test_support::ResourceServices services(&threads);
+    auto& resources = services.core;
+    auto& graph = services.loader;
+    engine::ResourceReference model;
+    const auto is_loaded = [&](std::string_view guid)
+    {
+        engine::ResourceReference value;
+        return value.acquire(&graph, guid);
+    };
     if (!expect(
-            resources.initialize({}) &&
+            services.initialize({}) &&
                 resources.update_catalog(catalog.data(), {{"content", project.root / "cache"}}) &&
-                graph.initialize({}) && graph.load(model_guid, model) && model->model() &&
-                graph.find(mesh_guid) && graph.find(skeleton_guid),
+                services.prepare_builtins() && services.load(model_guid, model) &&
+                model.data<engine::ModelResource>() && is_loaded(mesh_guid) &&
+                is_loaded(skeleton_guid),
             "model loading resolves its mesh and the mesh's skeleton"))
     {
         return false;
@@ -524,7 +534,7 @@ bool model_loading(const Project& project, const ResourceCatalog& catalog, const
     for (const auto& entry : catalog.data().entries)
     {
         if (entry->kind == schema::AssetKind::animation &&
-            !expect(!graph.find(entry->guid), "model loading does not retain any source animation"))
+            !expect(!is_loaded(entry->guid), "model loading does not retain any source animation"))
         {
             return false;
         }
@@ -765,7 +775,7 @@ int main()
         return 1;
     }
 #if defined(ENGINE_FBX_TEST_GRAPH)
-    if (!model_loading(project, catalog, model_guid, mesh_guid, skeleton_guid))
+    if (!model_loading(threads, project, catalog, model_guid, mesh_guid, skeleton_guid))
     {
         return 1;
     }
@@ -780,8 +790,8 @@ int main()
     const auto count = pipeline.last_build().scanned;
     std::string original_meta;
     std::string original_locomotion_meta;
-    if (!expect(ResourceSystem::read_text(skeleton_meta, original_meta) &&
-                    ResourceSystem::read_text(locomotion_meta, original_locomotion_meta),
+    if (!expect(test_support::read_text(skeleton_meta, original_meta) &&
+                    test_support::read_text(locomotion_meta, original_locomotion_meta),
                 "read generated meta") ||
         !expect(original_meta.find("subresources") != std::string::npos,
                 "meta persists child identities") ||

@@ -1,4 +1,8 @@
+#include "../../support/render_fixture.hpp"
+#include "resource_services.hpp"
+#include "runtime/resource/virtual_file_system.hpp"
 #include "scene_snapshot.hpp"
+#include "tracked_resource_loader.hpp"
 
 #include "animation_fixture.hpp"
 #include "resource_fixture.hpp"
@@ -97,7 +101,7 @@ bool render_frames(engine::WindowSystem& windows, engine::RenderSystem& renderer
         }
         if (windows.can_render())
         {
-            if (!expect(renderer.render(camera), "submit a real GPU frame"))
+            if (!expect(test_support::render_frame(renderer, camera), "submit a real GPU frame"))
             {
                 return false;
             }
@@ -242,7 +246,7 @@ bool test_window_and_renderer(const engine::EngineConfig& config)
         !expect(!windows.initialize(invalid_config), "reject zero window width") ||
         !expect(windows.native_window() == nullptr,
                 "failed window initialization leaves no window") ||
-        !expect(!renderer.render(), "reject rendering before initialization") ||
+        !expect(!test_support::render_frame(renderer), "reject rendering before initialization") ||
         !expect(!renderer.initialize(config), "renderer requires an initialized window") ||
         !expect(windows.initialize(config), "initialize SDL window") ||
         !expect(renderer.initialize(config), "initialize GPU renderer") ||
@@ -279,7 +283,7 @@ bool test_window_and_renderer(const engine::EngineConfig& config)
         !push_application_event(SDL_EVENT_WILL_ENTER_BACKGROUND) ||
         !expect(windows.tick(delta_time), "poll background event") ||
         !expect(!windows.can_render(), "background application must pause drawing") ||
-        !expect(!renderer.render(), "renderer must reject a paused window") ||
+        !expect(!test_support::render_frame(renderer), "renderer must reject a paused window") ||
         !push_application_event(SDL_EVENT_DID_ENTER_FOREGROUND) ||
         !render_frames(windows, renderer, 8))
     {
@@ -392,27 +396,30 @@ bool create_cube_scene(engine::WorldSystem& world, bool unlit)
 
 bool test_scene_renderer(const engine::EngineConfig& config)
 {
-    engine::ResourceSystem resources;
-    if (!expect(resources.initialize(config), "initialize render resource definitions"))
+    test_support::ResourceServices services;
+    auto& resources = services.core;
+    if (!expect((services.initialize(config) && services.prepare_builtins()),
+                "initialize render resource definitions"))
     {
         return false;
     }
-    engine::WorldSystem world;
+    engine::WorldSystem world(&services.loader);
     engine::WindowSystem windows;
     engine::RenderSystem renderer(windows, &world);
-    if (!expect(!renderer.prepare_scene(), "preparation requires initialized renderer") ||
+    if (!expect(!test_support::prepare_render(renderer),
+                "preparation requires initialized renderer") ||
         !expect(world.initialize(config), "initialize scene world") ||
         !expect(windows.initialize(config), "initialize scene window") ||
         !expect(renderer.initialize(config), "initialize scene renderer") ||
         !render_frames(windows, renderer, 8) ||
-        !expect(!renderer.scene_prepared() && renderer.gpu_resource_count() == 0,
+        !expect(test_support::render_ready(renderer) && renderer.gpu_resource_count() == 0,
                 "idle editor owns no project GPU resources"))
     {
         return false;
     }
     // 自定义资源路径和逻辑参数名复用同一着色器二进制，渲染器不识别材质种类。
     engine::schema::ShaderDataT custom(
-        *engine::ResourceSystem::find_shader("builtin://shaders/pbr"));
+        *services.loaded<engine::ShaderResource>("builtin://shaders/pbr"));
     custom.path = "shaders/tests/custom";
     custom.parameters.front()->name = "tint";
     engine::schema::ShaderDataT incomplete(custom);
@@ -426,7 +433,8 @@ bool test_scene_renderer(const engine::EngineConfig& config)
     custom_material.shader_path = custom.path;
     test_support::ResourceFixture fixture;
     if (!expect(fixture.add(custom) && fixture.add(incomplete) && fixture.add(unknown) &&
-                    fixture.add(custom_material) && fixture.publish(resources),
+                    fixture.add(custom_material) &&
+                    services.publish_and_load(fixture.catalog, {{"content", fixture.root}}),
                 "submit custom shader and material entity directory"))
     {
         return false;
@@ -454,10 +462,10 @@ bool test_scene_renderer(const engine::EngineConfig& config)
             return valid;
         };
         if (!create_cube_scene(world, cycle == 0) ||
-            !expect(renderer.prepare_scene(), "prepare embedded cube resources") ||
-            !expect(renderer.scene_prepared() && renderer.gpu_resource_count() > 0,
+            !expect(test_support::prepare_render(renderer), "prepare embedded cube resources") ||
+            !expect(test_support::render_ready(renderer) && renderer.gpu_resource_count() > 0,
                     "prepared scene owns GPU handles") ||
-            !expect(renderer.prepare_scene(), "preparing twice is idempotent") ||
+            !expect(test_support::prepare_render(renderer), "preparing twice is idempotent") ||
             !render_frames(windows, renderer, 8) ||
             !expect(bgfx::getStats()->numDraw > idle_draws,
                     "mesh contributes real depth, surface and color draws above blank baseline") ||
@@ -484,13 +492,17 @@ bool test_scene_renderer(const engine::EngineConfig& config)
              {"shaders/tests/incomplete", "shaders/tests/unknown-uniform"})
         {
             if (!expect(mesh.material().set_shader(invalid_path), "select schema-valid shader") ||
-                !expect(
-                    !renderer.prepare_scene() && renderer.gpu_resource_count() == 0,
-                    "shader reflection rejects missing and unknown uniforms with full cleanup") ||
-                !expect(mesh.material().set_shader(custom.path), "restore valid shader") ||
+                !expect(!test_support::prepare_render(renderer) &&
+                            renderer.gpu_resource_count() == 0,
+                        "shader reflection rejects missing and unknown uniforms with full cleanup"))
+            {
+                return false;
+            }
+            renderer.release_scene();
+            if (!expect(mesh.material().set_shader(custom.path), "restore valid shader") ||
                 !render_frames(windows, renderer, 8) ||
                 !expect(renderer.gpu_resource_count() > 0,
-                        "renderer recovers without retaining failed program handles"))
+                        "explicit reset retires the failed preparation generation"))
             {
                 return false;
             }
@@ -514,7 +526,7 @@ bool test_scene_renderer(const engine::EngineConfig& config)
             return false;
         }
 
-        // 热重载替换场景时不提前通知渲染器，render 按存活节点增量准备资源。
+        // 热重载替换场景时不提前通知渲染器，准备入口按存活节点更新资源。
         world.destroy_scene();
         if (!create_cube_scene(world, false) || !render_frames(windows, renderer, 8) ||
             !expect(renderer.gpu_resource_count() > 0 && bgfx::getStats()->numDraw == scene_draws,
@@ -526,7 +538,7 @@ bool test_scene_renderer(const engine::EngineConfig& config)
         world.destroy_scene();
         renderer.release_scene();
         renderer.release_scene();
-        if (!expect(!renderer.scene_prepared() && renderer.gpu_resource_count() == 0,
+        if (!expect(!test_support::render_ready(renderer) && renderer.gpu_resource_count() == 0,
                     "stop releases project ownership immediately") ||
             !render_frames(windows, renderer, 8) ||
             !expect(bgfx::getStats()->numDraw == idle_draws,
@@ -599,7 +611,7 @@ struct Screenshot
 bool read_screenshot(const std::filesystem::path& path, Screenshot& output)
 {
     engine::ByteBuffer bytes;
-    if (!engine::ResourceSystem::read_binary(path, bytes) || bytes.size() < 18)
+    if (!engine::VirtualFileSystem::read_file(path, bytes) || bytes.size() < 18)
     {
         return false;
     }
@@ -732,12 +744,15 @@ engine::schema::MeshDataT textured_quad()
 engine::schema::TextureDataT test_texture(const char* path, bool srgb, bool blocks)
 {
     engine::schema::TextureDataT data;
+    data.schema_version = 2;
     data.path = path;
     data.width = 8;
     data.height = 8;
     data.srgb = srgb;
-    data.encoding = engine::schema::TextureEncoding::rgba8;
+    data.encoding = engine::schema::TextureEncoding::native;
     data.format = engine::schema::TextureFormat::rgba8;
+    data.subresources.emplace_back(0, 0, 0,
+                                   static_cast<std::uint64_t>(data.width) * data.height * 4);
     for (std::uint32_t y = 0; y < data.height; ++y)
     {
         for (std::uint32_t x = 0; x < data.width; ++x)
@@ -772,24 +787,21 @@ engine::schema::TextureDataT ibl_test_texture(const char* path, bool cube)
             pixels[offset + 1] = static_cast<std::uint8_t>(half >> 8);
         }
     }
-    std::string bytes(64 + 4 + pixels.size(), '\0');
-    bx::StaticMemoryBlockWriter writer(bytes.data(), static_cast<std::uint32_t>(bytes.size()));
-    bx::Error error;
-    const auto written = bimg::imageWriteKtx(
-        &writer, cube ? bimg::TextureFormat::RGBA16F : bimg::TextureFormat::RG16F, cube, 4, 4, 0, 1,
-        1, false, pixels.data(), &error);
     engine::schema::TextureDataT result;
+    result.schema_version = 2;
     result.path = path;
     result.width = result.height = 4;
     result.mip_count = 1;
     result.srgb = false;
     result.cube_map = cube;
-    result.encoding = engine::schema::TextureEncoding::ktx;
+    result.encoding = engine::schema::TextureEncoding::native;
     result.format =
         cube ? engine::schema::TextureFormat::rgba16f : engine::schema::TextureFormat::rg16f;
-    if (error.isOk() && written == static_cast<std::int32_t>(bytes.size()))
+    result.data = std::move(pixels);
+    const auto face_bytes = 4 * 4 * channels * 2;
+    for (std::uint32_t face = 0; face < (cube ? 6U : 1U); ++face)
     {
-        result.data.assign(bytes.begin(), bytes.end());
+        result.subresources.emplace_back(0, face, face * face_bytes, face_bytes);
     }
     return result;
 }
@@ -809,16 +821,18 @@ bool near_color(const std::array<std::uint8_t, 3>& color, int r, int g, int b)
 
 bool test_scene_sampling(const engine::EngineConfig& config)
 {
-    engine::ResourceSystem resources;
-    engine::WorldSystem world;
+    test_support::ResourceServices services;
+    auto& resources = services.core;
+    engine::WorldSystem world(&services.loader);
     engine::WindowSystem windows;
     engine::RenderSystem renderer(windows, &world);
     test_support::ResourceFixture fixture;
     if (!expect(!renderer.set_msaa_samples(4) && !renderer.supports_msaa_samples(1) &&
                     !renderer.set_max_anisotropy(true) && !renderer.supports_max_anisotropy(),
                 "sampling controls reject an unavailable GPU") ||
-        !resources.initialize(config) || !world.initialize(config) || !windows.initialize(config) ||
-        !renderer.initialize(config) || !render_frames(windows, renderer, 4))
+        !(services.initialize(config) && services.prepare_builtins()) ||
+        !world.initialize(config) || !windows.initialize(config) || !renderer.initialize(config) ||
+        !render_frames(windows, renderer, 4))
     {
         return false;
     }
@@ -836,7 +850,7 @@ bool test_scene_sampling(const engine::EngineConfig& config)
     auto mesh = test_support::scene_nodes(*scene).front().get_component<engine::MeshRenderer>();
     auto environment =
         scene->create_node("Sampling background").add_component<engine::EnvironmentComponent>();
-    auto background = environment.settings();
+    auto background = test_support::read_settings(environment);
     background.clear_color = 0x000000ff;
     Screenshot baseline;
     if (!mesh || !environment || !environment.set_settings(background) ||
@@ -897,6 +911,7 @@ bool test_scene_sampling(const engine::EngineConfig& config)
         return false;
     }
     engine::schema::TextureDataT checker;
+    checker.schema_version = 2;
     checker.path = "textures/sampling-checker";
     checker.width = checker.height = 256;
     checker.mip_count = 9;
@@ -937,12 +952,13 @@ bool test_scene_sampling(const engine::EngineConfig& config)
     engine::TransformSettings pose;
     pose.rotation = {80, 0, 0};
     auto camera = scene->active_camera();
-    auto lens = camera.settings();
+    auto lens = test_support::read_settings(camera);
     lens.projection = engine::schema::Projection::orthographic;
     lens.orthographic_size = 2;
     engine::TransformSettings camera_pose;
     camera_pose.position = {0, 0, 3};
-    if (!expect(fixture.add(checker) && fixture.publish(resources),
+    if (!expect(fixture.add(checker) &&
+                    services.publish_and_load(fixture.catalog, {{"content", fixture.root}}),
                 "publish mipmapped sampler fixture") ||
         !mesh.set_mesh_data(plane) ||
         !mesh.material().set_type("builtin://materials/default-unlit") ||
@@ -997,24 +1013,25 @@ bool test_scene_sampling(const engine::EngineConfig& config)
 
 bool test_orthographic_pbr_view(const engine::EngineConfig& config)
 {
-    engine::ResourceSystem resources;
-    engine::WorldSystem world;
+    test_support::ResourceServices services;
+    auto& resources = services.core;
+    engine::WorldSystem world(&services.loader);
     engine::WindowSystem windows;
     engine::RenderSystem renderer(windows, &world);
     test_support::ResourceFixture fixture;
-    if (!resources.initialize(config) || !world.initialize(config) || !windows.initialize(config) ||
-        !renderer.initialize(config) || !render_frames(windows, renderer, 4) ||
-        !create_cube_scene(world, false))
+    if (!(services.initialize(config) && services.prepare_builtins()) ||
+        !world.initialize(config) || !windows.initialize(config) || !renderer.initialize(config) ||
+        !render_frames(windows, renderer, 4) || !create_cube_scene(world, false))
     {
         return false;
     }
     auto* scene = world.scene();
     auto camera = scene->active_camera();
-    auto lens = camera.settings();
+    auto lens = test_support::read_settings(camera);
     lens.projection = engine::schema::Projection::orthographic;
     lens.orthographic_size = 2.0F;
     auto transform = camera.node().get_component<engine::Transform>();
-    auto settings = transform.settings();
+    auto settings = test_support::read_settings(transform);
     Screenshot near_view;
     Screenshot far_view;
     if (!camera.set_settings(lens) ||
@@ -1049,8 +1066,9 @@ bool test_orthographic_pbr_view(const engine::EngineConfig& config)
 
 bool test_pbr_occlusion_lighting(const engine::EngineConfig& config)
 {
-    engine::ResourceSystem resources;
-    engine::WorldSystem world;
+    test_support::ResourceServices services;
+    auto& resources = services.core;
+    engine::WorldSystem world(&services.loader);
     engine::WindowSystem windows;
     engine::RenderSystem renderer(windows, &world);
     test_support::ResourceFixture fixture;
@@ -1092,11 +1110,12 @@ bool test_pbr_occlusion_lighting(const engine::EngineConfig& config)
         occluded.data[i + 1] = unoccluded.data[i + 1] = 255;
         occluded.data[i + 2] = unoccluded.data[i + 2] = 255;
     }
-    if (!resources.initialize(config) || !world.initialize(config) || !windows.initialize(config) ||
-        !renderer.initialize(config) || !fixture.add(occluded) || !fixture.add(unoccluded) ||
-        !fixture.add(specgloss_srgb) || !fixture.add(specgloss_srgb_rough) ||
-        !fixture.add(specgloss_linear) || !fixture.add(tilted_normal) ||
-        !fixture.add(frame_normal) || !fixture.publish(resources) ||
+    if (!(services.initialize(config) && services.prepare_builtins()) ||
+        !world.initialize(config) || !windows.initialize(config) || !renderer.initialize(config) ||
+        !fixture.add(occluded) || !fixture.add(unoccluded) || !fixture.add(specgloss_srgb) ||
+        !fixture.add(specgloss_srgb_rough) || !fixture.add(specgloss_linear) ||
+        !fixture.add(tilted_normal) || !fixture.add(frame_normal) ||
+        !services.publish_and_load(fixture.catalog, {{"content", fixture.root}}) ||
         !render_frames(windows, renderer, 4))
     {
         return false;
@@ -1137,7 +1156,7 @@ bool test_pbr_occlusion_lighting(const engine::EngineConfig& config)
     {
         return false;
     }
-    auto env_settings = environment.settings();
+    auto env_settings = test_support::read_settings(environment);
     env_settings.ambient_intensity = 1;
     if (!light.set_enabled(false) || !environment.set_settings(env_settings) ||
         !material.set_texture("ormTexture", occluded.path) ||
@@ -1481,7 +1500,7 @@ bool test_pbr_occlusion_lighting(const engine::EngineConfig& config)
     camera_pose.position = {0, 0, 3};
     camera_pose.rotation = {0, 0, 0};
     light_pose.rotation = {0, 0, 0};
-    auto light_settings = light.settings();
+    auto light_settings = test_support::read_settings(light);
     light_settings.intensity = 0.0001F;
     Screenshot smooth_peak;
     if (!camera_node.get_component<engine::Transform>().set_settings(camera_pose) ||
@@ -1621,8 +1640,9 @@ bool test_pbr_occlusion_lighting(const engine::EngineConfig& config)
 
 bool test_ibl_white_furnace(const engine::EngineConfig& config)
 {
-    engine::ResourceSystem resources;
-    engine::WorldSystem world;
+    test_support::ResourceServices services;
+    auto& resources = services.core;
+    engine::WorldSystem world(&services.loader);
     engine::WindowSystem windows;
     engine::RenderSystem renderer(windows, &world);
     test_support::ResourceFixture fixture;
@@ -1635,10 +1655,12 @@ bool test_ibl_white_furnace(const engine::EngineConfig& config)
     {
         std::copy(albedo_texel.begin(), albedo_texel.end(), albedo.data.begin() + i);
     }
-    if (!resources.initialize(config) || !world.initialize(config) || !windows.initialize(config) ||
-        !renderer.initialize(config) || irradiance.data.empty() || prefilter.data.empty() ||
-        lut.data.empty() || !fixture.add(irradiance) || !fixture.add(prefilter) ||
-        !fixture.add(lut) || !fixture.add(albedo) || !fixture.publish(resources) ||
+    if (!(services.initialize(config) && services.prepare_builtins()) ||
+        !world.initialize(config) || !windows.initialize(config) || !renderer.initialize(config) ||
+        irradiance.data.empty() || prefilter.data.empty() || lut.data.empty() ||
+        !fixture.add(irradiance) || !fixture.add(prefilter) || !fixture.add(lut) ||
+        !fixture.add(albedo) ||
+        !services.publish_and_load(fixture.catalog, {{"content", fixture.root}}) ||
         !render_frames(windows, renderer, 4))
     {
         return false;
@@ -1656,12 +1678,12 @@ bool test_ibl_white_furnace(const engine::EngineConfig& config)
     engine::CameraSettings lens;
     lens.projection = engine::schema::Projection::orthographic;
     lens.orthographic_size = 2;
-    auto env = environment.settings();
+    auto env = test_support::read_settings(environment);
     env.ibl_enabled = true;
     env.ibl_intensity = 1;
-    if (!engine::ResourceSystem::path_to_guid(irradiance.path, env.ibl_irradiance_guid) ||
-        !engine::ResourceSystem::path_to_guid(prefilter.path, env.ibl_prefilter_guid) ||
-        !engine::ResourceSystem::path_to_guid(lut.path, env.ibl_lut_guid) ||
+    if (!resources.catalog().identities().path_to_guid(irradiance.path, env.ibl_irradiance_guid) ||
+        !resources.catalog().identities().path_to_guid(prefilter.path, env.ibl_prefilter_guid) ||
+        !resources.catalog().identities().path_to_guid(lut.path, env.ibl_lut_guid) ||
         !expect(mesh && camera && environment && mesh.set_mesh_data(textured_quad()) &&
                     camera.set_settings(lens) &&
                     camera_node.get_component<engine::Transform>().set_settings(camera_pose) &&
@@ -1850,7 +1872,7 @@ bool test_ibl_white_furnace(const engine::EngineConfig& config)
     // this tests scene composition with quantization, not float HDR readback.
     auto light_node = scene->create_node("HDR composition light");
     auto light = light_node ? light_node.add_component<engine::Light>() : engine::Light{};
-    auto light_settings = light.settings();
+    auto light_settings = test_support::read_settings(light);
     light_settings.intensity = 3;
     if (!light || !light.set_settings(light_settings) || !light.set_enabled(false) ||
         !material.set_float("specularWorkflow", 0) || !material.set_v4("baseColor", {1, 1, 1, 1}) ||
@@ -1919,20 +1941,18 @@ bool test_ibl_white_furnace(const engine::EngineConfig& config)
 
 bool test_gpu_skinning(const engine::EngineConfig& config)
 {
-    engine::ResourceSystem resources;
-#if defined(ENGINE_TEST_RESOURCE_GRAPH)
-    engine::plugins::resource_graph::ResourceGraphSystem graph(resources);
-#endif
-    engine::WorldSystem world;
+    test_support::ResourceServices services;
+    auto& resources = services.core;
+    engine::WorldSystem world(&services.loader);
     engine::WindowSystem windows;
     engine::RenderSystem renderer(windows, &world);
     test_support::ResourceFixture fixture;
-    if (!resources.initialize(config) || !world.initialize(config) || !windows.initialize(config) ||
-        !renderer.initialize(config))
+    if (!(services.initialize(config) && services.prepare_builtins()) ||
+        !world.initialize(config) || !windows.initialize(config) || !renderer.initialize(config))
     {
         return false;
     }
-    const auto skeleton = test_support::animation::skeleton(false);
+    auto skeleton = test_support::animation::skeleton(false);
     auto mesh = textured_quad();
     mesh.path = "meshes/gpu-skinning";
     mesh.skeleton_guid = test_support::animation::target_guid;
@@ -1948,6 +1968,11 @@ bool test_gpu_skinning(const engine::EngineConfig& config)
     {
         return false;
     }
+    std::string sampling_error;
+    if (!engine::editor::asset_pipeline::prepare_skeleton_sampling(skeleton, sampling_error))
+    {
+        return false;
+    }
     flatbuffers::FlatBufferBuilder skeleton_builder;
     engine::schema::FinishSkeletonDataBuffer(
         skeleton_builder, engine::schema::SkeletonData::Pack(skeleton_builder, &skeleton));
@@ -1959,17 +1984,11 @@ bool test_gpu_skinning(const engine::EngineConfig& config)
         !test_support::animation::add(fixture, test_support::animation::mesh_guid, mesh.path,
                                       engine::schema::AssetKind::mesh, mesh_builder,
                                       {test_support::animation::target_guid}) ||
-        !fixture.publish(resources))
+        !services.publish_and_load(fixture.catalog, {{"content", fixture.root}}))
     {
         return false;
     }
-#if defined(ENGINE_TEST_RESOURCE_GRAPH)
-    if (!graph.initialize(config))
-    {
-        return false;
-    }
-    resources.set_loader(&graph);
-#endif
+
     if (!render_frames(windows, renderer, 4))
     {
         return false;
@@ -1984,10 +2003,10 @@ bool test_gpu_skinning(const engine::EngineConfig& config)
     {
         return false;
     }
-    auto camera_settings = camera.settings();
+    auto camera_settings = test_support::read_settings(camera);
     camera_settings.projection = engine::schema::Projection::orthographic;
     camera_settings.orthographic_size = 2;
-    auto pose = camera_node.get_component<engine::Transform>().settings();
+    auto pose = test_support::read_settings(camera_node.get_component<engine::Transform>());
     pose.position = {0, 0, 3};
     if (!camera.set_settings(camera_settings) ||
         !camera_node.get_component<engine::Transform>().set_settings(pose) ||
@@ -2035,7 +2054,8 @@ bool test_gpu_skinning(const engine::EngineConfig& config)
     }
 #if defined(ENGINE_TEST_RESOURCE_GRAPH)
     // bgfx 的 numVertexBuffers 同时计入每个 compute dynamic buffer 的底层存储。
-    if (!expect(first.mesh_resource() == second.mesh_resource() &&
+    if (!expect(test_support::get_resource(services.loader, first.mesh_resource()) ==
+                        test_support::get_resource(services.loader, second.mesh_resource()) &&
                     gpu_counts().vertices == single.vertices + 2 &&
                     gpu_counts().indices == single.indices &&
                     renderer.gpu_resource_count() == single_resource_count + 2,
@@ -2118,41 +2138,103 @@ bool test_gpu_skinning(const engine::EngineConfig& config)
                   "shared geometry and per-instance skinning buffers retire together");
 }
 
+bool test_incremental_preparation(const engine::EngineConfig& config)
+{
+    engine::ThreadSystem threads({.worker_limit = 2});
+    engine::TaskSystem tasks(threads, {.name = "Incremental preparation", .max_concurrency = 1});
+    test_support::ResourceServices services(&threads);
+    engine::WorldSystem world(&services.loader);
+    engine::WindowSystem windows;
+    engine::RenderSystem renderer(windows, &world, nullptr, nullptr, &tasks,
+                                  {.texture_batch_size = 1,
+                                   .texture_staging_bytes = 64,
+                                   .prepare_items_per_step = 1,
+                                   .prepare_seconds_per_step = 0.002,
+                                   .upload_bytes_per_step = 16});
+    if (!threads.initialize(config) || !tasks.initialize(config) || !services.initialize(config) ||
+        !services.prepare_builtins() || !world.initialize(config) || !windows.initialize(config) ||
+        !renderer.initialize(config) || !create_cube_scene(world, false))
+    {
+        return false;
+    }
+    std::promise<void> release;
+    const auto gate = release.get_future().share();
+    auto occupied = tasks.submit("Hold texture worker",
+                                 [gate]
+                                 {
+                                     gate.wait();
+                                     return true;
+                                 });
+    engine::RenderPrepareProgress progress;
+    const auto begin = std::chrono::steady_clock::now();
+    auto status = engine::RenderPrepareStatus::preparing;
+    for (int i = 0; i < 16 && progress.staging_bytes == 0; ++i)
+    {
+        status = renderer.prepare_scene(engine::RenderPrepareMode::incremental, progress);
+    }
+    const auto elapsed =
+        std::chrono::duration<double>(std::chrono::steady_clock::now() - begin).count();
+    const auto generation = progress.generation;
+    const auto frame = renderer.frame_number();
+    renderer.release_scene();
+    const bool nonblocking = occupied.valid() && status == engine::RenderPrepareStatus::preparing &&
+                             progress.staging_bytes > 0 && progress.staging_bytes <= 64 &&
+                             elapsed < 0.5 && renderer.frame_number() == frame;
+    release.set_value();
+    if (!expect(nonblocking && occupied.get(),
+                "incremental preparation and cancellation never wait for a blocked worker"))
+    {
+        return false;
+    }
+    for (int step = 0; step < 256; ++step)
+    {
+        if (!windows.tick(1.0 / 60.0))
+        {
+            return false;
+        }
+        status = renderer.prepare_scene(engine::RenderPrepareMode::incremental, progress);
+        if (!expect(status != engine::RenderPrepareStatus::failed && progress.staging_bytes <= 64,
+                    "retired and active staging stay within one shared budget"))
+        {
+            return false;
+        }
+        const bool rendered = renderer.render();
+        if (status == engine::RenderPrepareStatus::ready)
+        {
+            return expect(rendered && progress.generation > generation &&
+                              progress.discovery_complete &&
+                              progress.resources_ready == progress.resources_total,
+                          "cancelled work cannot complete the replacement generation");
+        }
+    }
+    return expect(false, "incremental preparation finishes within the fixture frame limit");
+}
+
 bool test_textured_renderer(const engine::EngineConfig& config, bool shared)
 {
     engine::ThreadSystem threads({.worker_limit = 2});
     engine::TaskSystem tasks(threads, {.name = "Texture preparation", .max_concurrency = 2});
-    engine::ResourceSystem resources;
-#if defined(ENGINE_TEST_RESOURCE_GRAPH)
-    engine::plugins::resource_graph::ResourceGraphSystem graph(resources);
-#endif
-    engine::WorldSystem world;
+    test_support::ResourceServices services(&threads);
+    auto& resources = services.core;
+    engine::WorldSystem world(&services.loader);
     engine::WindowSystem windows;
     engine::RenderSystem renderer(windows, &world, nullptr, nullptr, shared ? &tasks : nullptr);
     test_support::ResourceFixture fixture;
-    if (!expect((!shared || (threads.initialize(config) && tasks.initialize(config))) &&
-                    resources.initialize(config) && world.initialize(config) &&
-                    windows.initialize(config) && renderer.initialize(config),
+    if (!expect((threads.initialize(config) && tasks.initialize(config)) &&
+                    (services.initialize(config) && services.prepare_builtins()) &&
+                    world.initialize(config) && windows.initialize(config) &&
+                    renderer.initialize(config),
                 "initialize texture rendering systems") ||
         !expect(fixture.add(test_texture("textures/blocks", true, true)) &&
                     fixture.add(test_texture("textures/gray-srgb", true, false)) &&
                     fixture.add(test_texture("textures/gray-linear", false, false)) &&
-                    fixture.publish(resources),
+                    services.publish_and_load(fixture.catalog, {{"content", fixture.root}}),
                 "publish texture fixtures through the resource catalog") ||
         !render_frames(windows, renderer, 8))
     {
         return false;
     }
-#if defined(ENGINE_TEST_RESOURCE_GRAPH)
-    if (shared)
-    {
-        if (!expect(graph.initialize(config), "initialize shared texture loader"))
-        {
-            return false;
-        }
-        resources.set_loader(&graph);
-    }
-#endif
+
     const auto idle = gpu_counts();
     auto* scene = world.create_scene("Texture GPU test");
     auto quad_node = scene ? scene->create_node("Quad") : engine::Node{};
@@ -2213,7 +2295,7 @@ bool test_textured_renderer(const engine::EngineConfig& config, bool shared)
     // the former gamma 2.2 approximation even when middle gray looks similar.
     auto environment_node = scene->create_node("Clear color");
     auto environment = environment_node.add_component<engine::EnvironmentComponent>();
-    auto background = environment.settings();
+    auto background = test_support::read_settings(environment);
     background.clear_color = 0x0a407fff;
     Screenshot srgb_dark;
     if (!expect(
@@ -2435,7 +2517,7 @@ bool test_textured_renderer(const engine::EngineConfig& config, bool shared)
         return false;
     }
 
-    const auto texture_increment = shared ? 0 : mesh.material().shader_data()->samplers.size();
+    constexpr std::size_t texture_increment = 0;
     auto second_node = scene->create_node("Second texture quad");
     auto second =
         second_node ? second_node.add_component<engine::MeshRenderer>() : engine::MeshRenderer{};
@@ -2450,7 +2532,7 @@ bool test_textured_renderer(const engine::EngineConfig& config, bool shared)
         !expect(bgfx::getStats()->numDraw == single_draws + 3 &&
                     gpu_counts().textures == single_mesh.textures + texture_increment &&
                     gpu_counts().vertices == single_mesh.vertices + 1,
-                "GPU uploads follow entity ownership: distinct in core, shared through graph"))
+                "GPU uploads share immutable resources through the injected loader"))
     {
         return false;
     }
@@ -2564,19 +2646,36 @@ bool test_textured_renderer(const engine::EngineConfig& config, bool shared)
     engine::RenderSystem limited(windows, &world, nullptr, nullptr, shared ? &tasks : nullptr,
                                  {.texture_batch_size = 4, .texture_staging_bytes = 1});
     return expect(limited.initialize(config) && create_cube_scene(world, false) &&
-                      !limited.prepare_scene() && limited.gpu_resource_count() == 0,
+                      !test_support::prepare_render(limited) && limited.gpu_resource_count() == 0,
                   "oversized texture fails before allocating staging pixels and cleans candidates");
 }
 
 bool test_render_settings_and_capture(const engine::EngineConfig& config)
 {
-    engine::ResourceSystem resources;
-    engine::WorldSystem world;
+    test_support::ResourceServices services;
+    auto& resources = services.core;
+    engine::WorldSystem world(&services.loader);
     engine::WindowSystem windows;
     engine::RenderSystem renderer(windows, &world);
     test_support::ResourceFixture fixture;
-    if (!resources.initialize(config) || !world.initialize(config) || !windows.initialize(config) ||
-        !renderer.initialize(config) || !render_frames(windows, renderer, 8))
+    if (!(services.initialize(config) && services.prepare_builtins()) ||
+        !world.initialize(config) || !windows.initialize(config) || !renderer.initialize(config) ||
+        !render_frames(windows, renderer, 8))
+    {
+        return false;
+    }
+    auto skeleton = test_support::animation::skeleton(false);
+    std::string sampling_error;
+    if (!engine::editor::asset_pipeline::prepare_skeleton_sampling(skeleton, sampling_error))
+    {
+        return false;
+    }
+    flatbuffers::FlatBufferBuilder skeleton_builder;
+    engine::schema::FinishSkeletonDataBuffer(
+        skeleton_builder, engine::schema::SkeletonData::Pack(skeleton_builder, &skeleton));
+    if (!test_support::animation::add(fixture, test_support::animation::target_guid, skeleton.path,
+                                      engine::schema::AssetKind::skeleton, skeleton_builder) ||
+        !services.publish_and_load(fixture.catalog, {{"content", fixture.root}}))
     {
         return false;
     }
@@ -2614,7 +2713,7 @@ bool test_render_settings_and_capture(const engine::EngineConfig& config)
     {
         return false;
     }
-    auto invalid = post_process.settings();
+    auto invalid = test_support::read_settings(post_process);
     invalid.exposure = std::numeric_limits<float>::quiet_NaN();
     if (!expect(!post_process.set_settings(invalid) && renderer.settings().exposure == 1.0F,
                 "invalid post-process settings preserve the previous configuration"))
@@ -2642,9 +2741,9 @@ bool test_render_settings_and_capture(const engine::EngineConfig& config)
     {
         return false;
     }
-    auto environment_settings = environment.settings();
-    auto post_settings = post_process.settings();
-    auto light_settings = light.settings();
+    auto environment_settings = test_support::read_settings(environment);
+    auto post_settings = test_support::read_settings(post_process);
+    auto light_settings = test_support::read_settings(light);
     const auto apply_settings = [&]()
     {
         return environment.set_settings(environment_settings) &&
@@ -2663,7 +2762,7 @@ bool test_render_settings_and_capture(const engine::EngineConfig& config)
     for (const auto projection :
          {engine::schema::Projection::perspective, engine::schema::Projection::orthographic})
     {
-        auto camera_projection = scene->active_camera().settings();
+        auto camera_projection = test_support::read_settings(scene->active_camera());
         camera_projection.projection = projection;
         camera_projection.orthographic_size = 6.0F;
         post_settings.ao_enabled = false;
@@ -2706,7 +2805,7 @@ bool test_render_settings_and_capture(const engine::EngineConfig& config)
             return false;
         }
     }
-    auto perspective = scene->active_camera().settings();
+    auto perspective = test_support::read_settings(scene->active_camera());
     perspective.projection = engine::schema::Projection::perspective;
     environment_settings.ambient_intensity = 0.0F;
     Screenshot direct_only;
@@ -2873,6 +2972,8 @@ bool test_render_settings_and_capture(const engine::EngineConfig& config)
         return false;
     }
     auto skin_source = posed;
+    skin_source.skeleton_guid = test_support::animation::target_guid;
+    skin_source.mesh_to_skeleton = test_support::animation::translation(0, 0, 0);
     skin_source.skin.assign(skin_source.vertices.size(), {0, 0, 0, 0, 1, 0, 0, 0});
     const float cosine = std::cos(0.5F);
     const float sine = std::sin(0.5F);
@@ -2967,7 +3068,7 @@ bool test_render_settings_and_capture(const engine::EngineConfig& config)
     }
     engine::ByteBuffer png;
     constexpr std::array<unsigned char, 8> signature{137, 80, 78, 71, 13, 10, 26, 10};
-    if (!expect(engine::ResourceSystem::read_binary(capture, png) && png.size() > 24 &&
+    if (!expect(engine::VirtualFileSystem::read_file(capture, png) && png.size() > 24 &&
                     std::equal(signature.begin(), signature.end(), png.begin(),
                                [](unsigned char expected, std::byte value)
                                { return expected == std::to_integer<unsigned char>(value); }),
@@ -3001,13 +3102,15 @@ bool test_render_settings_and_capture(const engine::EngineConfig& config)
 
 bool test_reflections_water_and_diffuse_capture(const engine::EngineConfig& config)
 {
-    engine::ResourceSystem resources;
-    engine::WorldSystem world;
+    test_support::ResourceServices services;
+    auto& resources = services.core;
+    engine::WorldSystem world(&services.loader);
     engine::WindowSystem windows;
     engine::RenderSystem renderer(windows, &world);
     test_support::ResourceFixture fixture;
-    if (!expect(resources.initialize(config) && world.initialize(config) &&
-                    windows.initialize(config) && renderer.initialize(config),
+    if (!expect((services.initialize(config) && services.prepare_builtins()) &&
+                    world.initialize(config) && windows.initialize(config) &&
+                    renderer.initialize(config),
                 "initialize reflection and water GPU fixture") ||
         !render_frames(windows, renderer, 4))
     {
@@ -3067,9 +3170,9 @@ bool test_reflections_water_and_diffuse_capture(const engine::EngineConfig& conf
     {
         return false;
     }
-    auto environment_settings = environment.settings();
+    auto environment_settings = test_support::read_settings(environment);
     environment_settings.ambient_intensity = 0.2F;
-    auto post_settings = post.settings();
+    auto post_settings = test_support::read_settings(post);
     post_settings.ssr_enabled = false;
     post_settings.ao_enabled = true;
     post_settings.hdr_enabled = true;
@@ -3304,12 +3407,13 @@ bool test_reflections_water_and_diffuse_capture(const engine::EngineConfig& conf
     ssr_ibl_environment.ibl_intensity = 1;
     if (irradiance.data.empty() || prefilter.data.empty() || lut.data.empty() ||
         !fixture.add(irradiance) || !fixture.add(prefilter) || !fixture.add(lut) ||
-        !fixture.publish(resources) ||
-        !engine::ResourceSystem::path_to_guid(irradiance.path,
-                                              ssr_ibl_environment.ibl_irradiance_guid) ||
-        !engine::ResourceSystem::path_to_guid(prefilter.path,
-                                              ssr_ibl_environment.ibl_prefilter_guid) ||
-        !engine::ResourceSystem::path_to_guid(lut.path, ssr_ibl_environment.ibl_lut_guid) ||
+        !services.publish_and_load(fixture.catalog, {{"content", fixture.root}}) ||
+        !resources.catalog().identities().path_to_guid(irradiance.path,
+                                                       ssr_ibl_environment.ibl_irradiance_guid) ||
+        !resources.catalog().identities().path_to_guid(prefilter.path,
+                                                       ssr_ibl_environment.ibl_prefilter_guid) ||
+        !resources.catalog().identities().path_to_guid(lut.path,
+                                                       ssr_ibl_environment.ibl_lut_guid) ||
         !environment.set_settings(ssr_ibl_environment))
     {
         return false;
@@ -3421,7 +3525,7 @@ bool test_reflections_water_and_diffuse_capture(const engine::EngineConfig& conf
     }
     for (auto light : local_lights)
     {
-        auto settings = light.settings();
+        auto settings = test_support::read_settings(light);
         const auto name = settings.kind == engine::schema::LightKind::point ? "point" : "spot";
         Screenshot unshadowed;
         settings.cast_shadows = false;
@@ -3616,7 +3720,7 @@ bool test_async_capture(const engine::EngineConfig& config)
     engine::ByteBuffer png;
     constexpr std::array<unsigned char, 8> signature{137, 80, 78, 71, 13, 10, 26, 10};
     if (!expect(renderer.screenshot_status() == engine::ScreenshotStatus::complete &&
-                    engine::ResourceSystem::read_binary(capture, png) && png.size() > 24 &&
+                    engine::VirtualFileSystem::read_file(capture, png) && png.size() > 24 &&
                     std::equal(signature.begin(), signature.end(), png.begin(),
                                [](unsigned char expected, std::byte value)
                                { return expected == std::to_integer<unsigned char>(value); }),
@@ -3630,13 +3734,15 @@ bool test_async_capture(const engine::EngineConfig& config)
 
 bool test_hdr_and_bloom(const engine::EngineConfig& config)
 {
-    engine::ResourceSystem resources;
-    engine::WorldSystem world;
+    test_support::ResourceServices services;
+    auto& resources = services.core;
+    engine::WorldSystem world(&services.loader);
     engine::WindowSystem windows;
     engine::RenderSystem renderer(windows, &world);
     test_support::ResourceFixture fixture;
-    if (!resources.initialize(config) || !world.initialize(config) || !windows.initialize(config) ||
-        !renderer.initialize(config) || !render_frames(windows, renderer, 8))
+    if (!(services.initialize(config) && services.prepare_builtins()) ||
+        !world.initialize(config) || !windows.initialize(config) || !renderer.initialize(config) ||
+        !render_frames(windows, renderer, 8))
     {
         return false;
     }
@@ -3678,13 +3784,13 @@ bool test_hdr_and_bloom(const engine::EngineConfig& config)
     }
     auto environment_component = environment.get_component<engine::EnvironmentComponent>();
     auto post_process = scene->active_camera().node().get_component<engine::PostProcessComponent>();
-    auto environment_settings = environment_component.settings();
+    auto environment_settings = test_support::read_settings(environment_component);
     environment_settings.clear_color = 0x000000ff;
     if (!environment_component.set_settings(environment_settings))
     {
         return false;
     }
-    auto settings = post_process.settings();
+    auto settings = test_support::read_settings(post_process);
     settings.filmic_tonemap = true;
     Screenshot sdr;
     if (!post_process.set_settings(settings) || !render_frames(windows, renderer, 8) ||
@@ -3855,11 +3961,12 @@ bool test_render_extensions(const engine::EngineConfig& config)
 {
     // 扩展比渲染器活得更久：渲染器析构必须解除反向登记。
     ObservedRenderExtension extension;
-    engine::ResourceSystem resources;
-    engine::WorldSystem world;
+    test_support::ResourceServices services;
+    auto& resources = services.core;
+    engine::WorldSystem world(&services.loader);
     engine::WindowSystem windows;
-    if (!expect(resources.initialize(config) && world.initialize(config) &&
-                    windows.initialize(config),
+    if (!expect((services.initialize(config) && services.prepare_builtins()) &&
+                    world.initialize(config) && windows.initialize(config),
                 "initialize extension test owners"))
     {
         return false;
@@ -3895,7 +4002,7 @@ bool test_render_extensions(const engine::EngineConfig& config)
             preview_node.valid() ? preview_node.add_component<engine::Camera>() : engine::Camera{};
         engine::TransformSettings preview_transform;
         preview_transform.position = {3, 2, 5};
-        auto post_settings = post.settings();
+        auto post_settings = test_support::read_settings(post);
         post_settings.hdr_enabled = true;
         post_settings.bloom_enabled = true;
         if (!expect(preview &&
@@ -3910,7 +4017,8 @@ bool test_render_extensions(const engine::EngineConfig& config)
             return false;
         }
         extension.accept_draw = false;
-        if (!expect(!renderer.render(preview), "extension draw failure reaches caller"))
+        if (!expect(!test_support::render_frame(renderer, preview),
+                    "extension draw failure reaches caller"))
         {
             return false;
         }
@@ -3983,13 +4091,14 @@ bool test_engine(const engine::EngineConfig& config, const engine::RuntimeParall
     invalid_config.width = 0;
     if (!expect(&engine::Engine::instance() == &engine::Engine::instance(),
                 "Engine must be a singleton") ||
-        !expect(!engine.initialize(invalid_config, nullptr, nullptr, nullptr, nullptr, parallel),
+        !expect(!engine.initialize(invalid_config, nullptr, nullptr, nullptr, nullptr, nullptr,
+                                   parallel),
                 "reject invalid window configuration") ||
         !expect(engine.tick(delta_time) == engine::FrameStatus::failed,
                 "tick must fail before initialization") ||
-        !expect(engine.initialize(config, nullptr, nullptr, nullptr, nullptr, parallel),
+        !expect(engine.initialize(config, nullptr, nullptr, nullptr, nullptr, nullptr, parallel),
                 "initialize engine with all runtime systems") ||
-        !expect(!engine.initialize(config, nullptr, nullptr, nullptr, nullptr, parallel),
+        !expect(!engine.initialize(config, nullptr, nullptr, nullptr, nullptr, nullptr, parallel),
                 "reject repeated initialization while running") ||
         !expect(engine.gameplay()->script_status() == nullptr && !engine.gameplay()->start() &&
                     !engine.gameplay()->last_error().empty(),
@@ -4008,42 +4117,12 @@ bool test_engine(const engine::EngineConfig& config, const engine::RuntimeParall
         return false;
     }
 
-    const auto* builtin = engine::ResourceSystem::find_shader("builtin://shaders/pbr");
-    if (!expect(builtin != nullptr, "engine owns builtin definitions"))
-    {
-        return false;
-    }
-    engine::schema::ShaderDataT project_shader(*builtin);
-    project_shader.path = "shaders/lifecycle";
-    engine::schema::MaterialDataT project_material;
-    project_material.type_path = "materials/lifecycle";
-    project_material.shader_path = project_shader.path;
-    test_support::ResourceFixture fixture;
-    auto* resources = engine::ResourceSystem::instance();
-    engine::ResourcePtr held;
-    engine::ResourcePtr separate;
-    if (!expect(
-            resources && &resources->loader() == resources && fixture.add(project_shader) &&
-                fixture.add(project_material) &&
-                engine.gameplay()->set_resources(fixture.catalog, {{"content", fixture.root}}) &&
-                fixture.load(project_material.type_path, held),
-            "host without script plugin can submit a resource directory to the core") ||
-        !expect(fixture.load(project_material.type_path, separate) && separate != held &&
-                    held->material()->shader_path == project_shader.path &&
-                    engine::ResourceSystem::find_shader(project_shader.path) == nullptr,
-                "default host does not silently install recursive loading or shared caches"))
-    {
-        return false;
-    }
-    held.reset();
-    separate.reset();
-    engine.gameplay()->stop();
-    engine.gameplay()->stop();
-    if (!expect(engine::ResourceSystem::find_shader(project_shader.path) == nullptr &&
-                    engine::ResourceSystem::find_material(project_material.type_path) == nullptr &&
-                    engine::ResourceSystem::find_shader("builtin://shaders/pbr") == builtin,
-                "stopped project retains no unowned project definitions and preserves builtin "
-                "identity"))
+    auto* world = engine.world();
+    auto* scene = world ? world->create_scene("No resource plugin") : nullptr;
+    auto node = scene ? scene->create_node("Unavailable mesh") : engine::Node{};
+    if (!expect(world && world->resource_loader() == nullptr && node &&
+                    !node.add_component<engine::MeshRenderer>(),
+                "basic host starts without a resource plugin and reports unavailable resource use"))
     {
         return false;
     }
@@ -4058,89 +4137,47 @@ bool test_engine(const engine::EngineConfig& config, const engine::RuntimeParall
     engine.shutdown();
     return expect(engine.tick(delta_time) == engine::FrameStatus::failed,
                   "shutdown engine must reject frames") &&
-           expect(engine.initialize(config, nullptr, nullptr, nullptr, nullptr, parallel),
+           expect(engine.initialize(config, nullptr, nullptr, nullptr, nullptr, nullptr, parallel),
                   "reinitialize engine after shutdown") &&
            tick_engine_frames(engine, 8);
 }
 
-class ObservedResourceLoader final : public engine::ResourceLoader
-{
-public:
-    explicit ObservedResourceLoader(engine::ResourceSystem& resources) noexcept
-        : resources_(resources)
-    {
-    }
-
-    [[nodiscard]] bool load(std::string_view guid, engine::ResourcePtr& output) override
-    {
-        ++loads_;
-        return resources_.load(guid, output);
-    }
-
-    [[nodiscard]] engine::ResourcePtr find(std::string_view guid) const noexcept override
-    {
-        return resources_.find(guid);
-    }
-
-    [[nodiscard]] const std::string& last_error() const noexcept override
-    {
-        return resources_.last_error();
-    }
-
-    [[nodiscard]] std::size_t loads() const noexcept
-    {
-        return loads_;
-    }
-
-private:
-    engine::ResourceSystem& resources_;
-    std::size_t loads_ = 0;
-};
-
 bool test_borrowed_resource_host(const engine::EngineConfig& config,
                                  const engine::RuntimeParallelConfig& parallel)
 {
-    engine::ResourceSystem resources;
-    ObservedResourceLoader loader(resources);
+    test_support::ResourceServices services;
+    test_support::TrackedResourceLoader loader(services.loader);
     engine::RuntimeHost host;
-    if (!expect(!host.initialize(config, &resources, nullptr, nullptr, nullptr, parallel) &&
-                    engine::Engine::instance().system_count() == 0 &&
-                    engine::ResourceSystem::instance() == nullptr,
-                "uninitialized borrowed resources fail before claiming the engine") ||
-        !expect(resources.initialize(config), "initialize caller-owned resource core"))
+    if (!expect(!host.initialize(config, &services.core, &loader, nullptr, nullptr, nullptr,
+                                 parallel) &&
+                    engine::Engine::instance().system_count() == 0,
+                "uninitialized borrowed core fails before claiming the engine") ||
+        !services.initialize(config) || !services.prepare_builtins())
     {
         return false;
     }
-    resources.set_loader(&loader);
-    auto invalid_config = config;
-    invalid_config.width = 0;
-    if (!expect(!host.initialize(invalid_config, &resources, nullptr, nullptr, nullptr, parallel) &&
-                    resources.is_initialized() &&
-                    engine::ResourceSystem::instance() == &resources &&
-                    &resources.loader() == &loader,
-                "partial host initialization never closes borrowed resource services") ||
-        !expect(host.initialize(config, &resources, nullptr, nullptr, nullptr, parallel) &&
-                    &resources.loader() == &loader,
-                "runtime host preserves the caller's selected loader") ||
-        !expect(host.world() && create_cube_scene(*host.world(), false),
-                "scene components use the injected loader") ||
+    auto invalid = config;
+    invalid.width = 0;
+    if (!expect(!host.initialize(invalid, &services.core, &loader, nullptr, nullptr,
+                                 &services.threads, parallel) &&
+                    services.core.is_initialized(),
+                "failed host preserves borrowed services") ||
+        !host.initialize(config, &services.core, &loader, nullptr, nullptr, &services.threads,
+                         parallel) ||
+        !expect(host.world()->resource_loader() == &loader &&
+                    create_cube_scene(*host.world(), false),
+                "world receives the replaceable loader") ||
         !tick_engine_frames(host, 8) ||
-        !expect(loader.loads() > 0, "material and mesh reads reached the selected loader"))
+        !expect(loader.acquires() > 0 && loader.loads() == 0,
+                "business use only acquires ready resources and never performs I/O"))
     {
-        host.shutdown();
-        resources.set_loader(nullptr);
         return false;
     }
     host.shutdown();
     host.shutdown();
-    const bool preserved =
-        expect(resources.is_initialized() && engine::ResourceSystem::instance() == &resources &&
-                   &resources.loader() == &loader && engine::Engine::instance().system_count() == 0,
-               "host shutdown releases consumers but never closes caller-owned resources");
-    resources.set_loader(nullptr);
-    resources.shutdown();
-    return preserved && expect(engine::ResourceSystem::instance() == nullptr,
-                               "caller closes resources after the runtime host");
+    return expect(services.core.is_initialized() && services.loader.is_initialized() &&
+                      loader.released() && engine::Engine::instance().system_count() == 0,
+                  "host releases all consumers while caller retains service ownership");
 }
 
 struct ScriptLifecycle
@@ -4171,8 +4208,7 @@ public:
         script_lifecycle.destroyed = true;
     }
 
-    [[nodiscard]] bool prepare_gameplay(const engine::ResourceCatalog&, const engine::MountList&,
-                                        std::string_view, std::string_view) override
+    [[nodiscard]] bool prepare_gameplay(const engine::ResourceHandle&, std::string_view) override
     {
         return false;
     }
@@ -4188,7 +4224,8 @@ public:
             script_lifecycle.scene_present_when_stopped || world_.scene() != nullptr;
     }
 
-    [[nodiscard]] bool execute_project_script(const engine::ProjectScriptRequest&,
+    [[nodiscard]] bool execute_project_script(const engine::ResourceHandle&,
+                                              const engine::ProjectScriptRequest&,
                                               std::string& result, std::string& error) override
     {
         result.clear();
@@ -4218,7 +4255,7 @@ protected:
     {
         ++script_lifecycle.shutdowns;
         script_lifecycle.shutdown_before_world =
-            world_.is_initialized() && engine::ResourceSystem::instance() != nullptr;
+            world_.is_initialized() && world_.resource_loader() != nullptr;
     }
 
 private:
@@ -4229,12 +4266,19 @@ private:
 bool test_script_runtime_factory(const engine::EngineConfig& config,
                                  const engine::RuntimeParallelConfig& parallel)
 {
+    test_support::ResourceServices services;
+    if (!services.initialize(config) || !services.prepare_builtins())
+    {
+        return false;
+    }
     engine::RuntimeHost host;
     const auto failed_factory =
         [](engine::WorldSystem&, engine::RenderSystem&, engine::UiSystem&, engine::PhysicsSystem&,
            engine::NavigationSystem&, engine::InputSystem&, engine::WindowSystem&,
-           engine::AnimationSystem&, engine::MoviePlayer*) -> std::unique_ptr<engine::ScriptRuntime> { return {}; };
-    if (!expect(!host.initialize(config, nullptr, failed_factory, nullptr, nullptr, parallel) &&
+           engine::AnimationSystem&,
+           engine::MoviePlayer*) -> std::unique_ptr<engine::ScriptRuntime> { return {}; };
+    if (!expect(!host.initialize(config, &services.core, &services.loader, failed_factory, nullptr,
+                                 &services.threads, parallel) &&
                     engine::Engine::instance().system_count() == 0 && host.world() == nullptr,
                 "failed script factory unwinds the partial host without a fallback"))
     {
@@ -4243,13 +4287,14 @@ bool test_script_runtime_factory(const engine::EngineConfig& config,
     script_lifecycle = {};
     const auto factory = [](engine::WorldSystem& world, engine::RenderSystem& renderer,
                             engine::UiSystem&, engine::PhysicsSystem&, engine::NavigationSystem&,
-                            engine::InputSystem&, engine::WindowSystem&,
-                            engine::AnimationSystem&, engine::MoviePlayer*) -> std::unique_ptr<engine::ScriptRuntime>
+                            engine::InputSystem&, engine::WindowSystem&, engine::AnimationSystem&,
+                            engine::MoviePlayer*) -> std::unique_ptr<engine::ScriptRuntime>
     {
         script_lifecycle.renderer = &renderer;
         return std::make_unique<ObservedScriptRuntime>(world);
     };
-    if (!expect(host.initialize(config, nullptr, factory, nullptr, nullptr, parallel) &&
+    if (!expect(host.initialize(config, &services.core, &services.loader, factory, nullptr,
+                                &services.threads, parallel) &&
                     script_lifecycle.world == host.world() &&
                     script_lifecycle.renderer == host.renderer() &&
                     script_lifecycle.initialized == 1 &&
@@ -4287,7 +4332,8 @@ int main(int, char**)
 
     const bool windows_passed = test_window_and_renderer(config);
     const bool scene_passed = windows_passed && test_scene_renderer(config);
-    bool textures_passed = scene_passed && test_textured_renderer(config, false);
+    bool textures_passed = scene_passed && test_incremental_preparation(config) &&
+                           test_textured_renderer(config, false);
     textures_passed = textures_passed && test_textured_renderer(config, true);
     const bool sampling_passed = textures_passed && test_scene_sampling(config);
     const bool skinning_passed = sampling_passed && test_orthographic_pbr_view(config) &&

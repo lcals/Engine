@@ -1,4 +1,6 @@
 #include "editor/asset_pipeline/asset_pipeline_system.hpp"
+#include "file_text.hpp"
+#include "resource_fixture.hpp"
 #include "runtime/engine_config.hpp"
 #include "runtime/resource/codecs/audio_resource_codec.hpp"
 #include "runtime/resource/resource_system.hpp"
@@ -46,7 +48,7 @@ bool write(const fs::path& path, std::string_view text)
 std::string read(const fs::path& path)
 {
     std::string text;
-    return ResourceSystem::read_text(path, text) ? text : std::string{};
+    return test_support::read_text(path, text) ? text : std::string{};
 }
 
 void append_u16(std::string& text, std::uint16_t value)
@@ -152,27 +154,39 @@ int main()
                 "initialize pipeline") ||
         !expect(pipeline.build_assets(project.root), pipeline.last_error()) ||
         !expect(pipeline.last_build().imported == 1, "first build imports the WAV") ||
-        !expect(resources.initialize({}), "initialize resource core") ||
+        !expect(test_support::register_resource_codecs(resources) && resources.initialize({}),
+                "initialize resource core") ||
         !expect(resources.update_catalog(pipeline.catalog(), {{"content", project.root / "cache"}}),
-                resources.last_error()))
+                std::string(resources.last_error())))
     {
         return 1;
     }
     Guid guid;
-    ResourcePtr original;
+    std::unique_ptr<Resource> original;
     if (!expect(resources.catalog().identities().path_to_guid("tone.WAV", guid),
                 "audio has a stable GUID") ||
         !expect(read(meta).find("[audio]") != std::string::npos &&
                     read(meta).find("sample_rate = 48000") != std::string::npos,
                 "new audio receives default adjacent metadata") ||
-        !expect(resources.load(guid, original), resources.last_error()) ||
-        !expect(original->info().kind == schema::AssetKind::audio && original->audio() != nullptr,
+        !expect(resources.read(guid, original), std::string(resources.last_error())) ||
+        !expect(original->info().kind == schema::AssetKind::audio &&
+                    engine::resource_detail::data<engine::AudioResource>(original.get()) != nullptr,
                 "core decodes AudioClipData") ||
-        !expect(original->audio()->sample_rate == 48000 && original->audio()->channels == 2 &&
-                    original->audio()->frames == 480 && original->audio()->samples.size() == 960,
-                "default import converts mono PCM16 into stereo float") ||
-        !expect(std::abs(original->audio()->samples[100] - 0.5F) < 0.001F,
-                "decoded waveform is preserved") ||
+        !expect(
+            engine::resource_detail::data<engine::AudioResource>(original.get())->sample_rate ==
+                    48000 &&
+                engine::resource_detail::data<engine::AudioResource>(original.get())->channels ==
+                    2 &&
+                engine::resource_detail::data<engine::AudioResource>(original.get())->frames ==
+                    480 &&
+                engine::resource_detail::data<engine::AudioResource>(original.get())
+                        ->samples.size() == 960,
+            "default import converts mono PCM16 into stereo float") ||
+        !expect(
+            std::abs(
+                engine::resource_detail::data<engine::AudioResource>(original.get())->samples[100] -
+                0.5F) < 0.001F,
+            "decoded waveform is preserved") ||
         !expect(pipeline.build_assets(project.root), pipeline.last_error()) ||
         !expect(pipeline.last_build().imported == 0 && pipeline.last_build().reused == 1,
                 "unchanged audio reuses cached entity"))
@@ -181,21 +195,30 @@ int main()
     }
     const auto old_revision = pipeline.last_build().revision;
     const auto changed_meta = metadata(guid, "sample_rate = 24000\nchannels = 1\ngain = 0.5\n");
-    ResourcePtr changed;
+    std::unique_ptr<Resource> changed;
     if (!expect(write(meta, changed_meta), "update audio import settings") ||
         !expect(pipeline.build_assets(project.root), pipeline.last_error()) ||
         !expect(pipeline.last_build().imported == 1 &&
                     pipeline.last_build().revision != old_revision,
                 "audio metadata change regenerates its GUID cache") ||
         !expect(resources.update_catalog(pipeline.catalog(), {{"content", project.root / "cache"}}),
-                resources.last_error()) ||
-        !expect(resources.load(guid, changed), resources.last_error()) ||
-        !expect(changed->audio()->sample_rate == 24000 && changed->audio()->channels == 1 &&
-                    changed->audio()->frames == 240 &&
-                    std::abs(changed->audio()->samples[100] - 0.25F) < 0.01F,
+                std::string(resources.last_error())) ||
+        !expect(resources.read(guid, changed), std::string(resources.last_error())) ||
+        !expect(engine::resource_detail::data<engine::AudioResource>(changed.get())->sample_rate ==
+                        24000 &&
+                    engine::resource_detail::data<engine::AudioResource>(changed.get())->channels ==
+                        1 &&
+                    engine::resource_detail::data<engine::AudioResource>(changed.get())->frames ==
+                        240 &&
+                    std::abs(engine::resource_detail::data<engine::AudioResource>(changed.get())
+                                 ->samples[100] -
+                             0.25F) < 0.01F,
                 "resampling, channel conversion and gain affect generated PCM") ||
-        !expect(original->audio()->channels == 2 && original->audio()->sample_rate == 48000,
-                "old resource reference remains unchanged"))
+        !expect(
+            engine::resource_detail::data<engine::AudioResource>(original.get())->channels == 2 &&
+                engine::resource_detail::data<engine::AudioResource>(original.get())->sample_rate ==
+                    48000,
+            "old resource reference remains unchanged"))
     {
         return 1;
     }
@@ -234,13 +257,13 @@ int main()
     {
         return 1;
     }
-    auto invalid_clip = *changed->audio();
+    auto invalid_clip = *engine::resource_detail::data<engine::AudioResource>(changed.get());
     invalid_clip.frames = std::numeric_limits<std::uint64_t>::max();
     if (!expect(!AudioResourceCodec::validate(invalid_clip), "core rejects overflowing frames"))
     {
         return 1;
     }
-    invalid_clip = *changed->audio();
+    invalid_clip = *engine::resource_detail::data<engine::AudioResource>(changed.get());
     invalid_clip.samples[0] = std::numeric_limits<float>::infinity();
     if (!expect(!AudioResourceCodec::validate(invalid_clip), "core rejects nonfinite PCM"))
     {

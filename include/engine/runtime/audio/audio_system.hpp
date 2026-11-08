@@ -1,7 +1,7 @@
 #pragma once
 
+#include "runtime/resource/resource_handle.hpp"
 #include "runtime/system/system.hpp"
-#include "runtime/resource/resource.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -13,6 +13,7 @@ namespace engine
 {
 
 class WorldSystem;
+class ResourceLoader;
 
 struct AudioVoiceHandle
 {
@@ -41,10 +42,11 @@ class AudioSystem final : public System
 {
 public:
     // 可空借用，非空世界须存活至本系统关闭。
-    explicit AudioSystem(WorldSystem* world = nullptr) noexcept;
+    explicit AudioSystem(ResourceLoader* resources = nullptr,
+                         WorldSystem* world = nullptr) noexcept;
     ~AudioSystem() noexcept override;
     [[nodiscard]] bool set_world(WorldSystem* world);
-    [[nodiscard]] bool play(ResourcePtr clip, AudioVoiceHandle& output);
+    [[nodiscard]] bool play(const ResourceHandle& clip, AudioVoiceHandle& output);
     [[nodiscard]] bool set_paused(AudioVoiceHandle handle, bool paused);
     [[nodiscard]] bool stop(AudioVoiceHandle handle);
     [[nodiscard]] bool playback(AudioVoiceHandle handle, AudioPlaybackStatus& output) const;
@@ -63,6 +65,7 @@ protected:
 
 private:
     struct Impl;
+    ResourceLoader* resources_ = nullptr;
     WorldSystem* world_ = nullptr;
     std::unique_ptr<Impl> impl_;
 };

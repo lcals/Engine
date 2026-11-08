@@ -60,14 +60,14 @@ engine::Node create(engine::Scene& scene, const char* name, const engine::Vec3& 
         return {};
     }
     auto transform = node.get_component<engine::Transform>();
-    auto settings = transform.settings();
+    auto settings = test_support::read_settings(transform);
     settings.position = position;
     auto collider = node.add_component<engine::Collider>();
     if (!collider.valid() || !transform.set_settings(settings))
     {
         return {};
     }
-    auto collision = collider.settings();
+    auto collision = test_support::read_settings(collider);
     collision.shape = shape;
     collision.restitution = 0.0F;
     if (!collider.set_settings(collision) ||
@@ -92,7 +92,7 @@ bool advance(engine::PhysicsSystem& physics, unsigned int frames)
 
 double height(engine::Node node)
 {
-    return node.get_component<engine::Transform>().settings().position.y();
+    return test_support::read_settings(node.get_component<engine::Transform>()).position.y();
 }
 
 bool collision_and_lifecycle()
@@ -112,7 +112,7 @@ bool collision_and_lifecycle()
     {
         return false;
     }
-    auto floor_settings = floor.get_component<engine::Collider>().settings();
+    auto floor_settings = test_support::read_settings(floor.get_component<engine::Collider>());
     floor_settings.half_extents = {8, 0.5, 8};
     if (!expect(floor.get_component<engine::Collider>().set_settings(floor_settings),
                 "configure floor") ||
@@ -128,7 +128,7 @@ bool collision_and_lifecycle()
         return false;
     }
     auto rigid = box.get_component<engine::RigidBody>();
-    auto body_settings = rigid.settings();
+    auto body_settings = test_support::read_settings(rigid);
     body_settings.mass = 2.0F;
     body_settings.linear_velocity = {};
     body_settings.angular_velocity = {};
@@ -211,16 +211,16 @@ bool fixed_step_and_validation()
         return false;
     }
     auto collider = node.get_component<engine::Collider>();
-    auto collision = collider.settings();
+    auto collision = test_support::read_settings(collider);
     collision.radius = std::numeric_limits<float>::quiet_NaN();
     auto rigid = node.get_component<engine::RigidBody>();
-    auto invalid = rigid.settings();
+    auto invalid = test_support::read_settings(rigid);
     invalid.mass = 0;
     if (!expect(!engine::Collider::valid_settings(collision) && !collider.set_settings(collision) &&
-                    collider.settings().radius == 0.5F,
+                    test_support::read_settings(collider).radius == 0.5F,
                 "invalid collider settings preserve existing state") ||
         !expect(!engine::RigidBody::valid_settings(invalid) && !rigid.set_settings(invalid) &&
-                    rigid.settings().mass == 1.0F,
+                    test_support::read_settings(rigid).mass == 1.0F,
                 "invalid body settings preserve existing state") ||
         !expect(!rigid.add_impulse({std::numeric_limits<double>::infinity(), 0, 0}),
                 "nonfinite impulse is rejected") ||
@@ -233,7 +233,7 @@ bool fixed_step_and_validation()
     {
         return false;
     }
-    auto settings = rigid.settings();
+    auto settings = test_support::read_settings(rigid);
     settings.motion = engine::schema::BodyMotion::static_body;
     settings.linear_velocity = {};
     settings.angular_velocity = {};
@@ -276,7 +276,7 @@ bool velocity_updates_at_capacity()
         else if (index == 1)
         {
             kinematic = body;
-            auto settings = body.settings();
+            auto settings = test_support::read_settings(body);
             settings.motion = engine::schema::BodyMotion::kinematic;
             if (!body.set_settings(settings))
             {
@@ -290,10 +290,10 @@ bool velocity_updates_at_capacity()
     {
         return false;
     }
-    auto settings = moving.settings();
+    auto settings = test_support::read_settings(moving);
     settings.linear_velocity = {2, 0, 0};
     settings.angular_velocity = {0, 1, 0};
-    auto kinematic_settings = kinematic.settings();
+    auto kinematic_settings = test_support::read_settings(kinematic);
     kinematic_settings.linear_velocity = {0, 0, 3};
     kinematic_settings.angular_velocity = {0, 0, 1};
     if (!expect(moving.set_settings(settings) && moving.add_impulse({1, 0, 0}) &&
@@ -301,19 +301,21 @@ bool velocity_updates_at_capacity()
                     fixture.physics.body_count() == capacity,
                 "velocity-only sync succeeds at capacity and retains queued impulse") ||
         !expect(std::abs(moving.linear_velocity().x() - 3.0) < 0.001 &&
-                    std::abs(moving.settings().angular_velocity.y() - 1.0) < 0.001 &&
-                    kinematic.settings() == kinematic_settings,
+                    std::abs(test_support::read_settings(moving).angular_velocity.y() - 1.0) <
+                        0.001 &&
+                    test_support::read_settings(kinematic) == kinematic_settings,
                 "dynamic and kinematic linear/angular velocities reach actual physical bodies") ||
         !expect(fixture.physics.tick(0.0) && std::abs(moving.linear_velocity().x() - 3.0) < 0.001,
                 "repeated synchronization does not consume the impulse twice"))
     {
         return false;
     }
-    settings = moving.settings();
+    settings = test_support::read_settings(moving);
     settings.linear_velocity = {};
     settings.angular_velocity = {};
     return expect(moving.set_settings(settings) && fixture.physics.tick(0.0) &&
-                      moving.settings() == settings && fixture.physics.body_count() == capacity,
+                      test_support::read_settings(moving) == settings &&
+                      fixture.physics.body_count() == capacity,
                   "setting velocity to zero updates in place at full capacity");
 }
 
@@ -332,7 +334,7 @@ bool hierarchy_and_kinematic()
     {
         return false;
     }
-    auto parent_settings = parent.get_component<engine::Transform>().settings();
+    auto parent_settings = test_support::read_settings(parent.get_component<engine::Transform>());
     parent_settings.position = {5, 0, 0};
     parent_settings.rotation = {0, 90, 0};
     parent_settings.scale = {2, 2, 2};
@@ -352,7 +354,7 @@ bool hierarchy_and_kinematic()
     {
         return false;
     }
-    auto motion = mover.get_component<engine::RigidBody>().settings();
+    auto motion = test_support::read_settings(mover.get_component<engine::RigidBody>());
     motion.motion = engine::schema::BodyMotion::kinematic;
     motion.linear_velocity = {1, 0, 0};
     motion.linear_damping = 0;
@@ -380,7 +382,8 @@ bool hierarchy_and_kinematic()
         std::abort();
     }
     parent_settings.scale = {2, 1, 1};
-    auto platform_settings = platform.get_component<engine::Transform>().settings();
+    auto platform_settings =
+        test_support::read_settings(platform.get_component<engine::Transform>());
     platform_settings.rotation = {0, 45, 0};
     return parent.get_component<engine::Transform>().set_settings(parent_settings) &&
            platform.get_component<engine::Transform>().set_settings(platform_settings) &&
@@ -404,7 +407,7 @@ bool trigger_and_registration()
     {
         return false;
     }
-    auto settings = trigger.get_component<engine::Collider>().settings();
+    auto settings = test_support::read_settings(trigger.get_component<engine::Collider>());
     settings.is_trigger = true;
     if (!trigger.get_component<engine::Collider>().set_settings(settings))
     {
@@ -481,7 +484,7 @@ bool targeted_ray()
     {
         std::abort();
     }
-    auto sensor = collider.settings();
+    auto sensor = test_support::read_settings(collider);
     sensor.is_trigger = true;
     if (!expect(collider.set_settings(sensor) &&
                     fixture.physics.cast_ray(collider, {0, 4, 0}, {0, -8, 0}, fraction) &&
@@ -596,9 +599,9 @@ bool query_filters()
     {
         return false;
     }
-    auto settings = sensor.get_component<engine::Collider>().settings();
+    auto settings = test_support::read_settings(sensor.get_component<engine::Collider>());
     settings.is_trigger = true;
-    auto motion = kinematic.get_component<engine::RigidBody>().settings();
+    auto motion = test_support::read_settings(kinematic.get_component<engine::RigidBody>());
     motion.motion = engine::schema::BodyMotion::kinematic;
     if (!sensor.get_component<engine::Collider>().set_settings(settings) ||
         !kinematic.get_component<engine::RigidBody>().set_settings(motion) ||
@@ -743,7 +746,7 @@ bool query_lifecycle()
         return false;
     }
     auto transform = near.get_component<engine::Transform>();
-    auto pose = transform.settings();
+    auto pose = test_support::read_settings(transform);
     pose.position = {3, pose.position.y(), pose.position.z()};
     if (!expect(transform.set_settings(pose) && fixture.physics.is_hit_valid(saved) &&
                     fixture.physics.tick(0) && query(far.id()) &&
@@ -809,11 +812,11 @@ bool impact_snapshots()
     const auto strike = [&](engine::PhysicsImpact& output)
     {
         auto transform = sphere.get_component<engine::Transform>();
-        auto pose = transform.settings();
+        auto pose = test_support::read_settings(transform);
         pose.position = {0, 0.6, 0};
         pose.rotation = {};
         auto rigid = sphere.get_component<engine::RigidBody>();
-        auto motion = rigid.settings();
+        auto motion = test_support::read_settings(rigid);
         motion.mass = 2;
         motion.gravity_factor = 0;
         motion.linear_damping = 0;
@@ -929,7 +932,7 @@ bool impact_snapshots()
     {
         return false;
     }
-    auto replacement_settings = replacement_collider.settings();
+    auto replacement_settings = test_support::read_settings(replacement_collider);
     replacement_settings.shape = engine::schema::ColliderShape::sphere;
     if (!replacement_collider.set_settings(replacement_settings) || !strike(next))
     {
@@ -971,7 +974,7 @@ bool rotation_and_scale()
     }
     auto transform = node.get_component<engine::Transform>();
     auto rigid = node.get_component<engine::RigidBody>();
-    auto motion = rigid.settings();
+    auto motion = test_support::read_settings(rigid);
     motion.gravity_factor = 0;
     const std::array rotations{engine::Vec3(30, 90, 0),        engine::Vec3(30, 90, 20),
                                engine::Vec3(-7, -90, 0),       engine::Vec3(45, 89.999, 20),
@@ -987,7 +990,7 @@ bool rotation_and_scale()
         for (const auto& rotation : rotations)
         {
             fixture.physics.clear();
-            auto pose = transform.settings();
+            auto pose = test_support::read_settings(transform);
             pose.rotation = rotation;
             pose.scale = {1, 2, 0.5};
             std::array<float, 16> before{};
@@ -1007,7 +1010,7 @@ bool rotation_and_scale()
             }
         }
     }
-    auto pose = transform.settings();
+    auto pose = test_support::read_settings(transform);
     pose.rotation = {};
     pose.scale = {-1, -1, 1};
     if (!expect(transform.set_settings(pose) && !fixture.physics.tick(0.0) &&
@@ -1017,7 +1020,7 @@ bool rotation_and_scale()
         return false;
     }
     auto collider = node.get_component<engine::Collider>();
-    auto collision = collider.settings();
+    auto collision = test_support::read_settings(collider);
     collision.shape = engine::schema::ColliderShape::sphere;
     collision.radius = 1000;
     pose.scale = {0.0001, 0.00019, 0.0001};
@@ -1120,7 +1123,8 @@ bool transient_mesh_collision()
     const auto* previous = collider.mesh_data();
     mesh.vertices.clear();
     if (!expect(previous != nullptr && previous->vertices.size() == 25 &&
-                    collider.mesh_path().empty() && collider.settings().mesh_guid.empty(),
+                    collider.mesh_path().empty() &&
+                    test_support::read_settings(collider).mesh_guid.empty(),
                 "transient collision owns an immutable copy and has no fabricated resource GUID") ||
         !expect(!fixture.physics.set_mesh_data(collider, mesh) &&
                     collider.mesh_data() == previous && cast(0.25, true),
@@ -1144,7 +1148,7 @@ bool transient_mesh_collision()
     }
     engine::schema::ComponentDataT serialized;
     serialized.payload.Set(engine::schema::ColliderDataT{});
-    const auto original_data = collider.data();
+    const auto original_data = test_support::read_data(collider);
     if (!expect(!collider.build_data(serialized) && serialized.payload.value == nullptr &&
                     !collider.restore_data(original_data) && collider.mesh_data() == previous,
                 "transient geometry cannot silently serialize or restore without a GUID") ||
@@ -1158,7 +1162,7 @@ bool transient_mesh_collision()
     {
         return false;
     }
-    auto moving = rigid.settings();
+    auto moving = test_support::read_settings(rigid);
     if (!expect(!rigid.set_settings(moving), "mesh cannot switch to dynamic motion"))
     {
         return false;
@@ -1290,23 +1294,23 @@ bool segmented_mesh_collision()
     {
         return false;
     }
-    const auto settings = collider.settings();
+    const auto settings = test_support::read_settings(collider);
     auto invalid = updated;
     invalid.parts[0] = collision_part(-4, -2);
     auto invalid_mesh = collision_grid(false);
     invalid_mesh.indices[0] = static_cast<std::uint32_t>(invalid_mesh.vertices.size());
     invalid.parts[2] = std::make_shared<const engine::schema::MeshDataT>(std::move(invalid_mesh));
     if (!expect(!fixture.physics.set_mesh_parts(collider, invalid) &&
-                    collider.settings() == settings && cast(-4, true, 1) && cast(4, true, 2) &&
-                    cast(0, false) && fixture.physics.tick(0) && cast(-4, true, 1) &&
-                    fixture.physics.body_count() == 1,
+                    test_support::read_settings(collider) == settings && cast(-4, true, 1) &&
+                    cast(4, true, 2) && cast(0, false) && fixture.physics.tick(0) &&
+                    cast(-4, true, 1) && fixture.physics.body_count() == 1,
                 "failure after a valid changed part preserves the whole live batch and next tick"))
     {
         return false;
     }
     engine::schema::ComponentDataT serialized;
     serialized.payload.Set(engine::schema::ColliderDataT{});
-    const auto transient = collider.data();
+    const auto transient = test_support::read_data(collider);
     if (!expect(!collider.build_data(serialized) && serialized.payload.value == nullptr &&
                     !collider.restore_data(transient) && cast(-4, true, 1) && cast(4, true, 2),
                 "failed serialization and restore preserve transient segmented collision"))
@@ -1428,13 +1432,13 @@ bool segmented_mesh_seams()
         return false;
     }
     auto collider = floor.get_component<engine::Collider>();
-    auto ground = collider.settings();
+    auto ground = test_support::read_settings(collider);
     ground.friction = 0;
     auto sliding_collider = slider.get_component<engine::Collider>();
-    auto collision = sliding_collider.settings();
+    auto collision = test_support::read_settings(sliding_collider);
     collision.friction = 0;
     auto rigid = slider.get_component<engine::RigidBody>();
-    auto motion = rigid.settings();
+    auto motion = test_support::read_settings(rigid);
     motion.linear_velocity = {3, 0, 0};
     motion.linear_damping = 0;
     motion.angular_damping = 0;
@@ -1464,7 +1468,7 @@ bool segmented_mesh_seams()
             return false;
         }
     }
-    auto position = slider.get_component<engine::Transform>().settings().position;
+    auto position = test_support::read_settings(slider.get_component<engine::Transform>()).position;
     if (!expect(position.x() > 4.2 && position.x() < 4.8 && std::abs(position.z() - 0.25) < 0.08 &&
                     rigid.linear_velocity().x() > 2.8 && fixture.physics.body_count() == 2,
                 "the sliding body crosses both seams without snagging or sideways deflection") ||
@@ -1507,16 +1511,16 @@ bool segmented_mesh_transforms()
         return false;
     }
     auto transform = floor.get_component<engine::Transform>();
-    auto pose = transform.settings();
+    auto pose = test_support::read_settings(transform);
     pose.position = {2, 1, 0};
     pose.rotation = {0, 90, 0};
     pose.scale = {2, 1.5, 0.75};
     auto parent_transform = parent.get_component<engine::Transform>();
-    auto parent_pose = parent_transform.settings();
+    auto parent_pose = test_support::read_settings(parent_transform);
     parent_pose.position = {10, 2, -7};
     parent_pose.rotation = {0, 45, 0};
     parent_pose.scale = {1.5, 1.5, 1.5};
-    auto collision = collider.settings();
+    auto collision = test_support::read_settings(collider);
     collision.center = {1, 0.5, -0.75};
     std::array<float, 16> matrix{};
     if (!expect(parent_transform.set_settings(parent_pose) && floor.set_parent(parent) &&
@@ -1590,7 +1594,7 @@ bool segmented_mesh_character_seams()
     }
     auto motor = player.add_component<engine::CharacterMotor>();
     auto transform = player.get_component<engine::Transform>();
-    auto pose = transform.settings();
+    auto pose = test_support::read_settings(transform);
     pose.position = {-4.5, 0.02, 0.25};
     auto collider = floor.get_component<engine::Collider>();
     engine::MeshCollisionData parts;
@@ -1620,7 +1624,7 @@ bool segmented_mesh_character_seams()
             return false;
         }
     }
-    const auto& position = transform.settings().position;
+    const auto& position = test_support::read_settings(transform).position;
     return expect(
         position.x() > 4.2 && position.x() < 4.8 && std::abs(position.z() - 0.25) < 0.08 &&
             motor.velocity().x() > 2.8 && fixture.physics.character_count() == 1 &&
@@ -1646,9 +1650,9 @@ bool accumulated_shape_scale()
         }
         auto collider = node.get_component<engine::Collider>();
         auto transform = node.get_component<engine::Transform>();
-        auto pose = transform.settings();
+        auto pose = test_support::read_settings(transform);
         pose.scale = {1, 2, 1};
-        auto settings = collider.settings();
+        auto settings = test_support::read_settings(collider);
         settings.center = {0, 2, 0};
         settings.half_extents = {6, 10, 2};
         engine::MeshCollisionData parts;
@@ -1764,10 +1768,10 @@ bool compound_box_geometry()
         return false;
     }
     auto transform = node.get_component<engine::Transform>();
-    auto pose = transform.settings();
+    auto pose = test_support::read_settings(transform);
     pose.scale = {2, 2, 2};
     auto collider = node.get_component<engine::Collider>();
-    auto compound = collider.settings();
+    auto compound = test_support::read_settings(collider);
     compound.shape = engine::schema::ColliderShape::compound;
     compound.center = {1, 0.5, -0.25};
     compound.hulls.push_back(cube_hull(2));
@@ -1839,14 +1843,14 @@ bool dynamic_pose_feedback()
     auto transform = node.get_component<engine::Transform>();
     auto collider = node.get_component<engine::Collider>();
     auto rigid = node.get_component<engine::RigidBody>();
-    auto pose = transform.settings();
+    auto pose = test_support::read_settings(transform);
     pose.rotation = {30, 89.999, 20};
-    auto collision = collider.settings();
+    auto collision = test_support::read_settings(collider);
     collision.shape = engine::schema::ColliderShape::compound;
     collision.center = {1, 0.5, -0.25};
     collision.hulls.push_back(cube_hull(1));
     collision.hulls.push_back(cube_hull(3));
-    auto motion = rigid.settings();
+    auto motion = test_support::read_settings(rigid);
     motion.gravity_factor = 0;
     motion.linear_damping = 0;
     motion.angular_damping = 0;
@@ -1886,8 +1890,8 @@ bool dynamic_pose_feedback()
         {
             return false;
         }
-        const auto& angular = rigid.settings().angular_velocity;
-        const auto saved_pose = transform.settings();
+        const auto& angular = test_support::read_settings(rigid).angular_velocity;
+        const auto saved_pose = test_support::read_settings(transform);
         const engine::Vec3 origin(hull_center.x(), hull_center.y() + 3, hull_center.z());
         float before = 0;
         float after = 0;
@@ -1899,15 +1903,15 @@ bool dynamic_pose_feedback()
             !expect(fixture.physics.cast_ray(collider, origin, {0, -6, 0}, before) && before > 0 &&
                         before < 1 && fixture.physics.tick(0) &&
                         fixture.physics.cast_ray(collider, origin, {0, -6, 0}, after) &&
-                        before == after && transform.settings() == saved_pose,
+                        before == after && test_support::read_settings(transform) == saved_pose,
                     "zero-step synchronization leaves the current rotating collision unchanged"))
         {
             return false;
         }
     }
-    motion = rigid.settings();
+    motion = test_support::read_settings(rigid);
     motion.angular_velocity = {};
-    pose = transform.settings();
+    pose = test_support::read_settings(transform);
     pose.position = {10, 4, -2};
     pose.rotation = {0, 90, 0};
     pose.scale = {2, 2, 2};
@@ -1917,7 +1921,8 @@ bool dynamic_pose_feedback()
                     fixture.physics.cast_ray(collider, {9.5, 9, -6}, {0, -8, 0}, fraction) &&
                     std::abs(fraction - 0.375F) < 0.00001F &&
                     fixture.physics.cast_ray(collider, {9.5, 9, -8}, {0, -8, 0}, fraction) &&
-                    fraction == 1 && rigid.settings().angular_velocity == engine::Vec3{},
+                    fraction == 1 &&
+                    test_support::read_settings(rigid).angular_velocity == engine::Vec3{},
                 "caller pose, scale and stop requests replace the last simulated pose"))
     {
         return false;
@@ -1934,9 +1939,9 @@ bool dynamic_pose_feedback()
     {
         return false;
     }
-    collision = collider.settings();
+    collision = test_support::read_settings(collider);
     collision.center = {-2, 0, 0};
-    motion = rigid.settings();
+    motion = test_support::read_settings(rigid);
     motion.gravity_factor = 0;
     motion.linear_damping = 0;
     motion.angular_damping = 0;
@@ -1948,7 +1953,7 @@ bool dynamic_pose_feedback()
                     fixture.physics.cast_ray(collider, {9.5, 9, -6}, {0, -8, 0}, fraction) &&
                     fraction == 1 && fixture.physics.tick(1.0 / 60.0) &&
                     std::abs(height(node) - (4 + 2.0 / 60.0)) < 0.00001 &&
-                    rigid.settings().angular_velocity == engine::Vec3{},
+                    test_support::read_settings(rigid).angular_velocity == engine::Vec3{},
                 "replacement components use their new shape and motion without stale spin"))
     {
         return false;
@@ -1970,10 +1975,10 @@ bool compound_collision()
     {
         return false;
     }
-    auto floor_data = floor.get_component<engine::Collider>().settings();
+    auto floor_data = test_support::read_settings(floor.get_component<engine::Collider>());
     floor_data.half_extents = {10, 0.5, 10};
     auto collider = island.get_component<engine::Collider>();
-    auto compound = collider.settings();
+    auto compound = test_support::read_settings(collider);
     compound.shape = engine::schema::ColliderShape::compound;
     compound.hulls.push_back(cube_hull(-1));
     compound.hulls.push_back(cube_hull(1));
@@ -2004,12 +2009,12 @@ bool compound_collision()
     {
         return false;
     }
-    const auto original = collider.settings();
+    const auto original = test_support::read_settings(collider);
     auto invalid = compound;
     invalid.hulls.front()->vertices.assign(4, engine::Vec3{});
     if (!expect(!fixture.physics.set_collider_data(collider, invalid) &&
-                    collider.settings() == original && fixture.physics.body_count() == 2 &&
-                    cast(-1, true) && cast(1, true),
+                    test_support::read_settings(collider) == original &&
+                    fixture.physics.body_count() == 2 && cast(-1, true) && cast(1, true),
                 "degenerate hull preparation leaves live compound and settings unchanged"))
     {
         return false;
@@ -2041,11 +2046,11 @@ bool compound_collision()
         return false;
     }
     auto transform = island.get_component<engine::Transform>();
-    auto pose = transform.settings();
+    auto pose = test_support::read_settings(transform);
     pose.scale = {2, 1, 1};
     if (!expect(transform.set_settings(pose) &&
                     !fixture.physics.set_collider_data(collider, compound) &&
-                    collider.settings() == original && cast(-1, true),
+                    test_support::read_settings(collider) == original && cast(-1, true),
                 "nonuniform compound scale fails without replacing collision"))
     {
         return false;
@@ -2072,14 +2077,14 @@ bool compound_collision()
     }
     compound.hulls.clear();
     compound.hulls.push_back(cube_hull(2));
-    pose = transform.settings();
+    pose = test_support::read_settings(transform);
     pose.position = {0, 4, 0};
     pose.rotation = {};
     if (!expect(transform.set_settings(pose) &&
                     fixture.physics.set_collider_data(collider, compound) && cast(2, true) &&
                     cast(0, false) && fixture.physics.body_count() == 2 &&
                     advance(fixture.physics, 240) && std::abs(height(island) - 0.5) < 0.08 &&
-                    std::abs(transform.settings().position.x()) < 0.05,
+                    std::abs(test_support::read_settings(transform).position.x()) < 0.05,
                 "single off-center hull keeps node origin while Jolt computes center of mass"))
     {
         return false;
@@ -2101,7 +2106,7 @@ bool compound_collision()
     {
         std::abort();
     }
-    auto ordinary = collider.settings();
+    auto ordinary = test_support::read_settings(collider);
     ordinary.shape = engine::schema::ColliderShape::box;
     ordinary.hulls.clear();
     return expect(fixture.physics.set_collider_data(collider, ordinary) &&
@@ -2124,7 +2129,7 @@ bool snapshot_reuse_lifecycle()
         return false;
     }
     auto collider = node.get_component<engine::Collider>();
-    auto compound = collider.settings();
+    auto compound = test_support::read_settings(collider);
     compound.shape = engine::schema::ColliderShape::compound;
     compound.hulls.push_back(cube_hull(-1));
     compound.hulls.push_back(cube_hull(1));
@@ -2143,7 +2148,7 @@ bool snapshot_reuse_lifecycle()
         return false;
     }
     // settings 返回独立快照；嵌套数据也只能经校验后的 setter 提交。
-    auto edited = collider.settings();
+    auto edited = test_support::read_settings(collider);
     for (auto& vertex : edited.hulls.front()->vertices)
     {
         vertex.mutate_x(vertex.x() - 2.0);
@@ -2179,7 +2184,7 @@ bool snapshot_reuse_lifecycle()
     {
         return false;
     }
-    auto replacement = collider.settings();
+    auto replacement = test_support::read_settings(collider);
     replacement.center = {3, 0, 0};
     if (!expect(collider.set_settings(replacement) && fixture.physics.tick(0.0) &&
                     fixture.physics.body_count() == 1 && cast(3, true) && cast(-3, false) &&
@@ -2261,11 +2266,12 @@ bool world_pause_and_resume()
     {
         return false;
     }
-    const auto before = body.get_component<engine::Transform>().settings();
+    const auto before = test_support::read_settings(body.get_component<engine::Transform>());
     const auto velocity = body.get_component<engine::RigidBody>().linear_velocity();
     if (!expect(paused.world.set_paused(true) && paused.world.set_paused(true) &&
                     paused.world.paused() && paused.world.tick(60) && paused.physics.tick(60) &&
-                    body.get_component<engine::Transform>().settings() == before &&
+                    test_support::read_settings(body.get_component<engine::Transform>()) ==
+                        before &&
                     body.get_component<engine::RigidBody>().linear_velocity() == velocity &&
                     paused.physics.contacts().empty(),
                 "world pause preserves pose and velocity without new contacts"))

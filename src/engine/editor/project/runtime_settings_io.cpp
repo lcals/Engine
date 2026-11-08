@@ -1,4 +1,5 @@
 #include "editor/project/runtime_settings_io.hpp"
+#include "editor/file_text.hpp"
 
 #include "runtime/resource/resource_system.hpp"
 
@@ -61,7 +62,7 @@ bool read_source(const std::filesystem::path& path, std::string_view platform, J
                  std::string& error)
 {
     std::string text;
-    if (!ResourceSystem::read_text(path, text) || text.size() > 65536)
+    if (!engine::editor::file_detail::read_text(path, text) || text.size() > 65536)
     {
         error = "Cannot read project runtime settings (maximum 64 KiB per file)";
         return false;

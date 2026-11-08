@@ -24,11 +24,6 @@ bool BoneAttachment::valid_settings(const Data& data) noexcept
            model_value_utils::quaternion(data.offset.rotation()) &&
            (!data.follow_enabled || (data.source_node_id != 0 && !data.socket_name.empty()));
 }
-BoneAttachment::Data BoneAttachment::settings() const noexcept
-{
-    const auto* value = read_data<Data>();
-    return value ? *value : Data{};
-}
 bool BoneAttachment::get_settings(Data& output) const noexcept
 {
     const auto* value = read_data<Data>();
@@ -66,18 +61,19 @@ bool BoneAttachment::set_source(Animator source)
     {
         return false;
     }
-    const auto info = source.node().info();
-    if (!info.properties)
+    Data data;
+    const auto source_id = source.node().local_id();
+    if (!source_id || !get_settings(data))
     {
         return false;
     }
-    auto data = settings();
-    data.source_node_id = info.properties->id;
+    data.source_node_id = source_id;
     return set_settings(data);
 }
 bool BoneAttachment::following() const noexcept
 {
-    if (!valid() || !active() || !settings().follow_enabled || !runtime()->source ||
+    Data data;
+    if (!get_settings(data) || !active() || !data.follow_enabled || !runtime()->source ||
         !runtime()->source.active() ||
         !engine::ecs_detail::component_runtime(runtime()->source)->pose_revision_ ||
         !runtime()->following)

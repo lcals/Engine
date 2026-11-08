@@ -1,3 +1,4 @@
+import { resourceStub } from "./resource_mock.mjs";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
@@ -11,7 +12,7 @@ const root = path.resolve(
 const output = await mkdtemp(path.join(tmpdir(), "engine-physics-interactions-"));
 
 // 运行真实范例/MVC；仅替代原生边界，不在测试中模拟 Jolt 碰撞或 Detour 移动。
-const source = String.raw`
+const source = resourceStub + String.raw`
 export const fixture={ids:[],scene:null,avatars:[],agents:[],motors:[],queries:[],overlaps:[],hit:null,
     actorPositions:0,clears:0,paths:[],subscriptions:new Map(),subscriptionId:0,offCalls:[],failSubscription:0,
     emit(contact) {

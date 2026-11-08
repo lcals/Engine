@@ -1,6 +1,7 @@
 #if defined(ENGINE_HAS_NAVIGATION_CROWD_PLUGIN) && ENGINE_HAS_NAVIGATION_CROWD_PLUGIN
 
 #include "plugins/runtime/script/bindings/navigation_agent_binding.hpp"
+#include "plugins/runtime/script/bindings/binding_helpers.hpp"
 
 #include "plugins/runtime/navigation_crowd/navigation_agent.hpp"
 #include "plugins/runtime/script/bindings/binding_context.hpp"
@@ -61,13 +62,6 @@ navigation_crowd::NavigationAgent component(const Arguments& arguments, int coun
                    instance == agent.instance_id()
                ? agent
                : navigation_crowd::NavigationAgent{};
-}
-
-void add(const Arguments& arguments)
-{
-    auto node = BindingContext::node(arguments);
-    arguments.set_return(arguments.count() == 2 && node.valid() &&
-                         node.add_component<navigation_crowd::NavigationAgent>().valid());
 }
 
 void configure(const Arguments& arguments)
@@ -172,7 +166,8 @@ bool NavigationAgentBinding::register_functions(vm::ScriptVm& vm) const
 {
     return vm.integer("NavigationAgentKind",
                       static_cast<int>(navigation_crowd::NavigationAgent::component_type)) &&
-           vm.function("NavigationAgentAdd", add) &&
+           vm.function("NavigationAgentAdd",
+                       binding_detail::add_component<navigation_crowd::NavigationAgent>) &&
            vm.function("NavigationAgentConfigure", configure) &&
            vm.function("NavigationAgentMoveTo", move_to) &&
            vm.function("NavigationAgentStop", stop) && vm.function("NavigationAgentState", state) &&

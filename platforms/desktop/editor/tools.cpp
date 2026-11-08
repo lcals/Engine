@@ -1,3 +1,4 @@
+#include "editor/asset_pipeline/editor_tool_directories.hpp"
 #include "editor/asset_pipeline/editor_tools.hpp"
 
 #include "runtime/utils/path_utils.hpp"

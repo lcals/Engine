@@ -1,9 +1,16 @@
 #pragma once
 
+#include "runtime/resource/resource_handle.hpp"
+
 #include "runtime/scene/component.hpp"
 
 #include <memory>
 #include <string_view>
+
+namespace engine
+{
+class ResourceReference;
+}
 
 namespace engine
 {
@@ -25,15 +32,15 @@ public:
     using Runtime = TextComponentRuntime;
     static constexpr ComponentType component_type = ComponentType::TextData;
     [[nodiscard]] static bool valid_settings(const schema::TextDataT& settings) noexcept;
-    [[nodiscard]] schema::TextDataT settings() const noexcept;
     [[nodiscard]] bool get_settings(Data& output) const noexcept;
     [[nodiscard]] bool set_settings(const schema::TextDataT& settings);
     [[nodiscard]] bool set_font(std::string_view path);
-    [[nodiscard]] std::shared_ptr<const Resource> font() const noexcept;
-    [[nodiscard]] std::shared_ptr<const Resource> shader() const noexcept;
+    [[nodiscard]] ResourceHandle font() const noexcept;
+    [[nodiscard]] ResourceHandle shader() const noexcept;
     [[nodiscard]] bool restore_data(const schema::ComponentDataT& data);
 
 private:
+    [[nodiscard]] bool apply_settings(const Data& settings, ResourceReference prepared);
     template <class T> friend auto engine::ecs_detail::component_runtime(T component) noexcept;
     [[nodiscard]] Runtime* runtime() const noexcept;
 };

@@ -46,12 +46,6 @@ bool CharacterMotor::valid_settings(const schema::CharacterMotorDataT& value) no
            bounded(value.external_damping, 0.0F, 1000.0F);
 }
 
-schema::CharacterMotorDataT CharacterMotor::settings() const noexcept
-{
-    const auto* value = read_data<Data>();
-    return value ? *value : Data{};
-}
-
 bool CharacterMotor::get_settings(Data& output) const noexcept
 {
     const auto* value = read_data<Data>();

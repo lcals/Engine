@@ -96,9 +96,8 @@ bool repair_unused_corners(const schema::EditableMeshDataT& data,
 
 } // namespace
 
-bool MeshGeometry::unwrap_uv(schema::EditableMeshDataT& data,
-                             std::span<const std::uint64_t> face_ids,
-                             const MeshUvUnwrapOptions& options, std::string& error)
+bool mesh::unwrap_uv(schema::EditableMeshDataT& data, std::span<const std::uint64_t> face_ids,
+                     const MeshUvUnwrapOptions& options, std::string& error)
 {
     error.clear();
     if (!std::isfinite(options.padding) || options.padding < 0.0 || options.padding >= 0.25 ||
@@ -161,7 +160,7 @@ bool MeshGeometry::unwrap_uv(schema::EditableMeshDataT& data,
             append_loop(hole->vertices, hole->texcoords, hole->colors);
         }
         std::vector<std::uint32_t> local;
-        if (!EditableMesh::triangulate_face(candidate, face, local, error))
+        if (!mesh::triangulate_face(candidate, face, local, error))
         {
             return false;
         }

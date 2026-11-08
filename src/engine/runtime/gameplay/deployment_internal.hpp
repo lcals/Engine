@@ -24,8 +24,14 @@ constexpr std::size_t maximum_text_size = 4 * 1024 * 1024;
 
 [[nodiscard]] inline bool read_text(const fs::path& path, std::string& text)
 {
-    if (ResourceSystem::read_text(path, text) && text.size() <= maximum_text_size)
+    ByteBuffer bytes;
+    if (VirtualFileSystem::read_file(path, bytes) && bytes.size() <= maximum_text_size)
     {
+        text.clear();
+        if (!bytes.empty())
+        {
+            text.assign(reinterpret_cast<const char*>(bytes.data()), bytes.size());
+        }
         return true;
     }
     text.clear();

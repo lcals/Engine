@@ -531,13 +531,12 @@ bool UiEditorCommands::State::source(std::string_view name, const Json& args, Js
             return false;
         }
     }
-    auto* resources = ResourceSystem::instance();
-    if (!resources)
+    auto catalog = std::make_shared<ResourceCatalog>();
+    if (!ResourceSystem::read_catalog(project / "cache", *catalog))
     {
-        error = "UI source validation requires the active resource catalog";
+        error = "UI source validation requires the published project resource catalog";
         return false;
     }
-    auto catalog = std::make_shared<ResourceCatalog>(resources->catalog());
     auto job = std::make_shared<SourceJob>();
     job->id = std::to_string(++sequence);
     const auto root = project;

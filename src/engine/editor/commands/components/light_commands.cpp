@@ -8,103 +8,90 @@ namespace engine::editor::components
 {
 namespace
 {
-class LightEdit final : public EditorEdit
+constexpr std::uint64_t color_field = std::uint64_t{1} << 0;
+constexpr std::uint64_t intensity_field = std::uint64_t{1} << 1;
+constexpr std::uint64_t kind_field = std::uint64_t{1} << 2;
+constexpr std::uint64_t range_field = std::uint64_t{1} << 3;
+constexpr std::uint64_t inner_angle_field = std::uint64_t{1} << 4;
+constexpr std::uint64_t outer_angle_field = std::uint64_t{1} << 5;
+constexpr std::uint64_t cast_shadows_field = std::uint64_t{1} << 6;
+constexpr std::uint64_t shadow_resolution_field = std::uint64_t{1} << 7;
+constexpr std::uint64_t shadow_bias_field = std::uint64_t{1} << 8;
+
+[[nodiscard]] bool change_light(const Target& target, const LightSettings& expected,
+                                const LightSettings& replacement, std::uint64_t selected,
+                                std::string& error)
 {
-public:
-    Target target;
-    LightSettings before;
-    LightSettings after;
-    bool color = false;
-    bool intensity = false;
-    bool kind = false;
-    bool range = false;
-    bool inner_angle = false;
-    bool outer_angle = false;
-    bool cast_shadows = false;
-    bool shadow_resolution = false;
-    bool shadow_bias = false;
-
-    explicit LightEdit(Target value) : target(value)
+    auto node = target.node(error);
+    auto component = node.valid() ? node.get_component<Light>() : Light{};
+    if (!component)
     {
+        error = "Light target no longer exists";
+        return false;
     }
-
-    bool apply(std::string& error) override
+    LightSettings current;
+    if (!component.get_settings(current))
     {
-        return change(before, after, error);
+        error = "Cannot read component settings";
+        return false;
     }
-
-    bool revert(std::string& error) override
+    if (((selected & color_field) && !same(current.color, expected.color)) ||
+        ((selected & intensity_field) && current.intensity != expected.intensity) ||
+        ((selected & kind_field) && current.kind != expected.kind) ||
+        ((selected & range_field) && current.range != expected.range) ||
+        ((selected & inner_angle_field) && current.inner_angle != expected.inner_angle) ||
+        ((selected & outer_angle_field) && current.outer_angle != expected.outer_angle) ||
+        ((selected & cast_shadows_field) && current.cast_shadows != expected.cast_shadows) ||
+        ((selected & shadow_resolution_field) &&
+         current.shadow_resolution != expected.shadow_resolution) ||
+        ((selected & shadow_bias_field) && current.shadow_bias != expected.shadow_bias))
     {
-        return change(after, before, error);
+        error = "Light changed outside this edit; undo or redo is stale";
+        return false;
     }
-
-private:
-    bool change(const LightSettings& expected, const LightSettings& replacement, std::string& error)
+    if (selected & color_field)
     {
-        auto node = target.node(error);
-        auto component = node.valid() ? node.get_component<Light>() : Light{};
-        if (!component)
-        {
-            error = "Light target no longer exists";
-            return false;
-        }
-        auto current = component.settings();
-        if ((color && !same(current.color, expected.color)) ||
-            (intensity && current.intensity != expected.intensity) ||
-            (kind && current.kind != expected.kind) || (range && current.range != expected.range) ||
-            (inner_angle && current.inner_angle != expected.inner_angle) ||
-            (outer_angle && current.outer_angle != expected.outer_angle) ||
-            (cast_shadows && current.cast_shadows != expected.cast_shadows) ||
-            (shadow_resolution && current.shadow_resolution != expected.shadow_resolution) ||
-            (shadow_bias && current.shadow_bias != expected.shadow_bias))
-        {
-            error = "Light changed outside this edit; undo or redo is stale";
-            return false;
-        }
-        if (color)
-        {
-            current.color = replacement.color;
-        }
-        if (intensity)
-        {
-            current.intensity = replacement.intensity;
-        }
-        if (kind)
-        {
-            current.kind = replacement.kind;
-        }
-        if (range)
-        {
-            current.range = replacement.range;
-        }
-        if (inner_angle)
-        {
-            current.inner_angle = replacement.inner_angle;
-        }
-        if (outer_angle)
-        {
-            current.outer_angle = replacement.outer_angle;
-        }
-        if (cast_shadows)
-        {
-            current.cast_shadows = replacement.cast_shadows;
-        }
-        if (shadow_resolution)
-        {
-            current.shadow_resolution = replacement.shadow_resolution;
-        }
-        if (shadow_bias)
-        {
-            current.shadow_bias = replacement.shadow_bias;
-        }
-        if (!component.set_settings(current))
-        {
-            error = "Invalid light values";
-            return false;
-        }
-        return true;
+        current.color = replacement.color;
     }
-};
+    if (selected & intensity_field)
+    {
+        current.intensity = replacement.intensity;
+    }
+    if (selected & kind_field)
+    {
+        current.kind = replacement.kind;
+    }
+    if (selected & range_field)
+    {
+        current.range = replacement.range;
+    }
+    if (selected & inner_angle_field)
+    {
+        current.inner_angle = replacement.inner_angle;
+    }
+    if (selected & outer_angle_field)
+    {
+        current.outer_angle = replacement.outer_angle;
+    }
+    if (selected & cast_shadows_field)
+    {
+        current.cast_shadows = replacement.cast_shadows;
+    }
+    if (selected & shadow_resolution_field)
+    {
+        current.shadow_resolution = replacement.shadow_resolution;
+    }
+    if (selected & shadow_bias_field)
+    {
+        current.shadow_bias = replacement.shadow_bias;
+    }
+    if (!component.set_settings(current))
+    {
+        error = "Invalid light values";
+        return false;
+    }
+    return true;
+}
 
 } // namespace
 
@@ -129,9 +116,14 @@ bool prepare_light(WorldSystem& world, NodeAliases& aliases, const Json& argumen
         error = "Node has no Light";
         return false;
     }
-    auto edit = std::make_unique<LightEdit>(target);
-    edit->before = component.settings();
-    edit->after = edit->before;
+    LightSettings before;
+    if (!component.get_settings(before))
+    {
+        error = "Cannot read component settings";
+        return false;
+    }
+    auto after = before;
+    std::uint64_t selected = 0;
     if (arguments.contains("color"))
     {
         std::array<double, 4> values{};
@@ -142,9 +134,9 @@ bool prepare_light(WorldSystem& world, NodeAliases& aliases, const Json& argumen
             error = "Light color requires four numbers in [0, 1]";
             return false;
         }
-        edit->color = true;
-        edit->after.color = Color(static_cast<float>(values[0]), static_cast<float>(values[1]),
-                                  static_cast<float>(values[2]), static_cast<float>(values[3]));
+        selected |= color_field;
+        after.color = Color(static_cast<float>(values[0]), static_cast<float>(values[1]),
+                            static_cast<float>(values[2]), static_cast<float>(values[3]));
     }
     if (arguments.contains("intensity"))
     {
@@ -155,8 +147,8 @@ bool prepare_light(WorldSystem& world, NodeAliases& aliases, const Json& argumen
             error = "Light intensity must be a finite nonnegative float";
             return false;
         }
-        edit->intensity = true;
-        edit->after.intensity = static_cast<float>(value);
+        selected |= intensity_field;
+        after.intensity = static_cast<float>(value);
     }
     if (arguments.contains("kind"))
     {
@@ -168,22 +160,22 @@ bool prepare_light(WorldSystem& world, NodeAliases& aliases, const Json& argumen
         const auto value = arguments["kind"].get<std::string>();
         if (value == "directional")
         {
-            edit->after.kind = schema::LightKind::directional;
+            after.kind = schema::LightKind::directional;
         }
         else if (value == "point")
         {
-            edit->after.kind = schema::LightKind::point;
+            after.kind = schema::LightKind::point;
         }
         else if (value == "spot")
         {
-            edit->after.kind = schema::LightKind::spot;
+            after.kind = schema::LightKind::spot;
         }
         else
         {
             error = "Unknown light kind";
             return false;
         }
-        edit->kind = true;
+        selected |= kind_field;
     }
     if (arguments.contains("castShadows"))
     {
@@ -192,8 +184,8 @@ bool prepare_light(WorldSystem& world, NodeAliases& aliases, const Json& argumen
             error = "castShadows must be boolean";
             return false;
         }
-        edit->cast_shadows = true;
-        edit->after.cast_shadows = arguments["castShadows"].get<bool>();
+        selected |= cast_shadows_field;
+        after.cast_shadows = arguments["castShadows"].get<bool>();
     }
     if (arguments.contains("shadowResolution"))
     {
@@ -203,8 +195,8 @@ bool prepare_light(WorldSystem& world, NodeAliases& aliases, const Json& argumen
             error = "shadowResolution must be an integer in 128..8192";
             return false;
         }
-        edit->shadow_resolution = true;
-        edit->after.shadow_resolution = value.get<std::uint16_t>();
+        selected |= shadow_resolution_field;
+        after.shadow_resolution = value.get<std::uint16_t>();
     }
     if (arguments.contains("shadowBias"))
     {
@@ -214,8 +206,8 @@ bool prepare_light(WorldSystem& world, NodeAliases& aliases, const Json& argumen
             error = "shadowBias must be a finite value in 0..0.1";
             return false;
         }
-        edit->shadow_bias = true;
-        edit->after.shadow_bias = static_cast<float>(value);
+        selected |= shadow_bias_field;
+        after.shadow_bias = static_cast<float>(value);
     }
     for (const char* name : {"range", "innerAngle", "outerAngle"})
     {
@@ -231,22 +223,23 @@ bool prepare_light(WorldSystem& world, NodeAliases& aliases, const Json& argumen
         }
         if (std::string_view(name) == "range")
         {
-            edit->range = true;
-            edit->after.range = static_cast<float>(value);
+            selected |= range_field;
+            after.range = static_cast<float>(value);
         }
         else if (std::string_view(name) == "innerAngle")
         {
-            edit->inner_angle = true;
-            edit->after.inner_angle = static_cast<float>(value);
+            selected |= inner_angle_field;
+            after.inner_angle = static_cast<float>(value);
         }
         else
         {
-            edit->outer_angle = true;
-            edit->after.outer_angle = static_cast<float>(value);
+            selected |= outer_angle_field;
+            after.outer_angle = static_cast<float>(value);
         }
     }
     result = {{"sceneId", std::to_string(target.scene_id)}};
-    output = std::move(edit);
+    output = std::make_unique<PropertyEdit<schema::LightDataT>>(
+        std::move(target), before, std::move(after), selected, change_light);
     return true;
 }
 

@@ -1,4 +1,6 @@
 #include "editor/commands/prefab_commands.hpp"
+#include "editor/resource_access.hpp"
+#include "runtime/resource/types/prefab_resource.hpp"
 
 #include "editor/asset_pipeline/components/scene_component_codec.hpp"
 #include "editor/asset_pipeline/prefab_importer.hpp"
@@ -34,7 +36,7 @@ NodeIdentities retain_identities(SceneCommands& commands, const Scene& scene)
     }
     for (const auto& node : nodes)
     {
-        result.emplace(node.info().properties->id, commands.node_identity(node.id()));
+        result.emplace(node.local_id(), commands.node_identity(node.id()));
     }
     return result;
 }
@@ -48,7 +50,7 @@ std::vector<schema::NodeIdMappingT> current_ids(const Scene& scene, const NodeId
         {
             schema::NodeIdMappingT mapping;
             mapping.source_id = local;
-            mapping.target_id = node.info().properties->id;
+            mapping.target_id = node.local_id();
             result.push_back(mapping);
         }
     }
@@ -218,7 +220,12 @@ bool capture(Instance& instance, std::uint64_t source, Node node, ComponentType 
     {
         if (!entry.info)
         {
-            entry.info = std::make_unique<schema::NodeInfoT>(node.info());
+            entry.info = std::make_unique<schema::NodeInfoT>();
+            if (!node.build_info(*entry.info))
+            {
+                error = "Cannot snapshot prefab node";
+                return false;
+            }
         }
         for (const auto& field : fields)
         {
@@ -246,7 +253,7 @@ bool capture(Instance& instance, std::uint64_t source, Node node, ComponentType 
         return false;
     }
     schema::PrefabComponentOverrideT current;
-    current.component = std::make_unique<schema::ComponentDataT>(component.data());
+    current.component = std::make_unique<schema::ComponentDataT>();
     // Dynamic meshes are exported by ScenePersistence; ordinary renderers retain current bindings.
     if (!component.build_data(*current.component))
     {
@@ -255,7 +262,11 @@ bool capture(Instance& instance, std::uint64_t source, Node node, ComponentType 
             error = "Cannot snapshot prefab component";
             return false;
         }
-        *current.component = component.data();
+        if (!component.get_data(*current.component))
+        {
+            error = "Cannot read prefab component storage";
+            return false;
+        }
         auto* mesh = current.component->payload.AsMeshRendererData();
         for (const auto& previous : entry.components)
         {
@@ -265,7 +276,8 @@ bool capture(Instance& instance, std::uint64_t source, Node node, ComponentType 
             }
         }
         const auto renderer = node.get_component<MeshRenderer>();
-        if (!ResourceSystem::path_to_guid(renderer.material().type_path(), mesh->material_guid))
+        if (!resource_access::guid(node.scene()->world().resource_loader(),
+                                   renderer.material().type_path(), mesh->material_guid))
         {
             error = "Cannot resolve prefab material identity";
             return false;
@@ -274,7 +286,8 @@ bool capture(Instance& instance, std::uint64_t source, Node node, ComponentType 
         for (std::size_t slot = 1; slot < renderer.material_count(); ++slot)
         {
             Guid material;
-            if (!ResourceSystem::path_to_guid(renderer.material(slot).type_path(), material))
+            if (!resource_access::guid(node.scene()->world().resource_loader(),
+                                       renderer.material(slot).type_path(), material))
             {
                 error = "Cannot resolve prefab material identity";
                 return false;
@@ -368,7 +381,12 @@ bool capture_link(Instance& instance, Scene& scene, const schema::PrefabDataT& p
             return false;
         }
         auto& entry = node_override(instance, source->info->properties->id);
-        entry.info = std::make_unique<schema::NodeInfoT>(node.info());
+        entry.info = std::make_unique<schema::NodeInfoT>();
+        if (!node.build_info(*entry.info))
+        {
+            error = "Cannot snapshot prefab node";
+            return false;
+        }
         if (node.name() != source->info->properties->name)
         {
             entry.fields.emplace_back("name");
@@ -389,7 +407,7 @@ bool capture_link(Instance& instance, Scene& scene, const schema::PrefabDataT& p
                 parent = id.target_id;
             }
         }
-        if (node.info().parent_id != parent)
+        if (entry.info->parent_id != parent)
         {
             entry.fields.emplace_back("parent");
         }
@@ -430,7 +448,11 @@ bool capture_link(Instance& instance, Scene& scene, const schema::PrefabDataT& p
                     error = "Cannot snapshot component for prefab association";
                     return false;
                 }
-                current = component.data();
+                if (!component.get_data(current))
+                {
+                    error = "Cannot read prefab component storage";
+                    return false;
+                }
                 current.payload.AsMeshRendererData()->mesh_guid =
                     (*original)->payload.AsMeshRendererData()->mesh_guid;
                 forced.emplace_back("mesh");
@@ -443,8 +465,8 @@ bool capture_link(Instance& instance, Scene& scene, const schema::PrefabDataT& p
                 for (std::size_t slot = 0; slot < renderer.material_count(); ++slot)
                 {
                     Guid material;
-                    if (!ResourceSystem::path_to_guid(renderer.material(slot).type_path(),
-                                                      material))
+                    if (!resource_access::guid(node.scene()->world().resource_loader(),
+                                               renderer.material(slot).type_path(), material))
                     {
                         error = "Cannot resolve associated material";
                         return false;
@@ -535,7 +557,7 @@ public:
         auto node = resolve(error);
         std::uint64_t source = 0;
         const auto current =
-            node ? instance_for(*node.scene(), node.info().properties->id, source) : std::nullopt;
+            node ? instance_for(*node.scene(), node.local_id(), source) : std::nullopt;
         if (!current)
         {
             error = "Prefab association changed before editing";
@@ -566,7 +588,7 @@ public:
         auto node = resolve(error);
         std::uint64_t source = 0;
         const auto current =
-            node ? instance_for(*node.scene(), node.info().properties->id, source) : std::nullopt;
+            node ? instance_for(*node.scene(), node.local_id(), source) : std::nullopt;
         if (!current || *current != after_)
         {
             error = "Prefab overrides changed outside this edit";
@@ -649,7 +671,7 @@ private:
             return false;
         }
         std::uint64_t source = 0;
-        const auto current = instance_for(*scene, node.info().properties->id, source);
+        const auto current = instance_for(*scene, node.local_id(), source);
         if (bool(current) != bool(current_expected) || (current && *current != *current_expected))
         {
             error = "Prefab source metadata changed outside this edit";
@@ -859,7 +881,7 @@ bool override_command(WorldSystem& world, SceneCommands& scenes, const Json& arg
         return false;
     }
     std::uint64_t source = 0;
-    const auto current = instance_for(*node.scene(), node.info().properties->id, source);
+    const auto current = instance_for(*node.scene(), node.local_id(), source);
     if (!current)
     {
         error = "Node is not a prefab source member";
@@ -879,16 +901,16 @@ bool override_command(WorldSystem& world, SceneCommands& scenes, const Json& arg
     std::unique_ptr<EditorEdit> property;
     if (revert)
     {
-        ResourcePtr resource;
-        auto* resources = ResourceSystem::instance();
-        if (!resources || !resources->loader().load(current->prefab_guid, resource) || !resource ||
-            !resource->prefab())
+        ResourceReference resource;
+        auto* loader = world.resource_loader();
+        if (!resource_access::load(loader, current->prefab_guid, resource) || !resource ||
+            !resource.data<PrefabResource>())
         {
             error = "Cannot load the prefab baseline";
             return false;
         }
         const schema::NodeDataT* baseline = nullptr;
-        for (const auto& candidate : resource->prefab()->nodes)
+        for (const auto& candidate : resource.data<PrefabResource>()->nodes)
         {
             if (candidate->info->properties->id == source)
             {
@@ -945,7 +967,13 @@ bool override_command(WorldSystem& world, SceneCommands& scenes, const Json& arg
         }
         else
         {
-            auto replacement = node.info();
+            schema::NodeInfoT before;
+            if (!node.build_info(before))
+            {
+                error = "Cannot snapshot prefab node";
+                return false;
+            }
+            auto replacement = before;
             for (const auto& field : fields)
             {
                 if (field == "enabled")
@@ -962,9 +990,9 @@ bool override_command(WorldSystem& world, SceneCommands& scenes, const Json& arg
                     return false;
                 }
             }
-            property =
-                std::make_unique<PrefabNodeFlagsEdit>(world, scenes.node_identity(node.id()),
-                                                      node.scene()->id(), node.info(), replacement);
+            property = std::make_unique<PrefabNodeFlagsEdit>(world, scenes.node_identity(node.id()),
+                                                             node.scene()->id(), std::move(before),
+                                                             std::move(replacement));
         }
         remove_fields(after, source, type, fields);
     }
@@ -1009,7 +1037,7 @@ bool wrap_edit(WorldSystem& world, SceneCommands& scenes, std::string_view comma
         return false;
     }
     std::uint64_t source = 0;
-    if (!instance_for(*scene, node.info().properties->id, source))
+    if (!instance_for(*scene, node.local_id(), source))
     {
         return true;
     }
@@ -1138,15 +1166,14 @@ bool register_prefab_commands(WorldSystem& world, SceneCommands& scenes,
                     return false;
                 }
                 std::uint64_t source = 0;
-                const auto instance =
-                    instance_for(*node.scene(), node.info().properties->id, source);
+                const auto instance = instance_for(*node.scene(), node.local_id(), source);
                 if (!instance)
                 {
                     result = {{"prefab", nullptr}};
                     return true;
                 }
                 std::string path;
-                (void)ResourceSystem::guid_to_path(instance->prefab_guid, path);
+                (void)resource_access::path(world.resource_loader(), instance->prefab_guid, path);
                 Json overrides = Json::array();
                 for (const auto& value : instance->overrides)
                 {
@@ -1189,9 +1216,8 @@ bool register_prefab_commands(WorldSystem& world, SceneCommands& scenes,
                     return false;
                 }
                 std::uint64_t source = 0;
-                const auto instance =
-                    instance_for(*node.scene(), node.info().properties->id, source);
-                if (!instance || instance->root_id != node.info().properties->id)
+                const auto instance = instance_for(*node.scene(), node.local_id(), source);
+                if (!instance || instance->root_id != node.local_id())
                 {
                     error = "unlink_prefab requires the instance root";
                     return false;
@@ -1219,30 +1245,32 @@ bool register_prefab_commands(WorldSystem& world, SceneCommands& scenes,
                 {
                     return false;
                 }
-                auto* resources = ResourceSystem::instance();
+                auto* loader = world.resource_loader();
                 Guid guid;
-                ResourcePtr resource;
-                if (!resources ||
-                    !ResourceSystem::path_to_guid(arguments["path"].get<std::string>(), guid) ||
-                    !resources->loader().load(guid, resource) || !resource || !resource->prefab())
+                ResourceReference resource;
+                if (!resource_access::load(loader, arguments["path"].get<std::string>(),
+                                           resource) ||
+                    !resource || !resource.data<PrefabResource>())
                 {
                     error = "Cannot load prefab source for association";
                     return false;
                 }
+                guid = resource->info().guid;
                 std::uint64_t source = 0;
-                if (instance_for(*node.scene(), node.info().properties->id, source))
+                if (instance_for(*node.scene(), node.local_id(), source))
                 {
                     error = "Node already belongs to a prefab";
                     return false;
                 }
                 Instance instance;
                 instance.prefab_guid = guid;
-                instance.root_id = node.info().properties->id;
-                for (const auto& member : resource->prefab()->nodes)
+                instance.root_id = node.local_id();
+                for (const auto& member : resource.data<PrefabResource>()->nodes)
                 {
-                    auto target = member->info->properties->id == resource->prefab()->root_id
-                                      ? node
-                                      : node.scene()->find_local_node(member->info->properties->id);
+                    auto target =
+                        member->info->properties->id == resource.data<PrefabResource>()->root_id
+                            ? node
+                            : node.scene()->find_local_node(member->info->properties->id);
                     bool descendant = false;
                     for (auto parent = target; parent; parent = parent.parent())
                     {
@@ -1258,10 +1286,10 @@ bool register_prefab_commands(WorldSystem& world, SceneCommands& scenes,
                     }
                     auto mapping = std::make_unique<schema::NodeIdMappingT>();
                     mapping->source_id = member->info->properties->id;
-                    mapping->target_id = target.info().properties->id;
+                    mapping->target_id = target.local_id();
                     instance.node_mappings.push_back(std::move(mapping));
                 }
-                if (!capture_link(instance, *node.scene(), *resource->prefab(), error))
+                if (!capture_link(instance, *node.scene(), *resource.data<PrefabResource>(), error))
                 {
                     return false;
                 }

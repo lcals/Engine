@@ -1,4 +1,5 @@
 #include "plugins/runtime/script/bindings/environment_component_binding.hpp"
+#include "plugins/runtime/script/bindings/binding_helpers.hpp"
 
 #include "plugins/runtime/script/bindings/binding_context.hpp"
 #include "runtime/scene/environment_component.hpp"
@@ -55,14 +56,6 @@ Object.freeze(EnvironmentComponent.prototype);
 Object.freeze(EnvironmentComponent);
 )js";
 
-EnvironmentComponent environment(const Arguments& arguments, int count)
-{
-    arguments.set_return(false);
-    auto node = BindingContext::node(arguments);
-    return node.valid() && arguments.count() == count ? node.get_component<EnvironmentComponent>()
-                                                      : EnvironmentComponent{};
-}
-
 bool read_color(const Arguments& arguments, int index, Color& output)
 {
     float r = 0.0F;
@@ -78,21 +71,19 @@ bool read_color(const Arguments& arguments, int index, Color& output)
     return true;
 }
 
-void add(const Arguments& arguments)
-{
-    auto node = BindingContext::node(arguments);
-    arguments.set_return(arguments.count() == 2 && node.valid() &&
-                         node.add_component<EnvironmentComponent>().valid());
-}
-
 void ambient(const Arguments& arguments)
 {
-    auto target = environment(arguments, 6);
+    auto target = binding_detail::component<EnvironmentComponent>(arguments, 6);
     if (!target)
     {
         return;
     }
-    auto value = target.settings();
+    EnvironmentComponent::Data value{};
+    if (!target.get_settings(value))
+    {
+        arguments.set_return(false);
+        return;
+    }
     value.ambient_tricolor = false;
     if (read_color(arguments, 2, value.ambient_color) &&
         BindingContext::scalar(arguments, 5, value.ambient_intensity))
@@ -103,12 +94,17 @@ void ambient(const Arguments& arguments)
 
 void tricolor(const Arguments& arguments)
 {
-    auto target = environment(arguments, 12);
+    auto target = binding_detail::component<EnvironmentComponent>(arguments, 12);
     if (!target)
     {
         return;
     }
-    auto value = target.settings();
+    EnvironmentComponent::Data value{};
+    if (!target.get_settings(value))
+    {
+        arguments.set_return(false);
+        return;
+    }
     value.ambient_tricolor = true;
     if (read_color(arguments, 2, value.ambient_sky_color) &&
         read_color(arguments, 5, value.ambient_equator_color) &&
@@ -121,12 +117,17 @@ void tricolor(const Arguments& arguments)
 
 void linear_fog(const Arguments& arguments)
 {
-    auto target = environment(arguments, 8);
+    auto target = binding_detail::component<EnvironmentComponent>(arguments, 8);
     if (!target || !arguments.is_boolean(2))
     {
         return;
     }
-    auto value = target.settings();
+    EnvironmentComponent::Data value{};
+    if (!target.get_settings(value))
+    {
+        arguments.set_return(false);
+        return;
+    }
     value.fog_mode = arguments.boolean(2) ? schema::FogMode::linear : schema::FogMode::none;
     if (read_color(arguments, 3, value.fog_color) &&
         BindingContext::scalar(arguments, 6, value.fog_start) &&
@@ -138,12 +139,17 @@ void linear_fog(const Arguments& arguments)
 
 void exponential_fog(const Arguments& arguments)
 {
-    auto target = environment(arguments, 8);
+    auto target = binding_detail::component<EnvironmentComponent>(arguments, 8);
     if (!target || !arguments.is_boolean(2) || !arguments.is_boolean(7))
     {
         return;
     }
-    auto value = target.settings();
+    EnvironmentComponent::Data value{};
+    if (!target.get_settings(value))
+    {
+        arguments.set_return(false);
+        return;
+    }
     value.fog_mode = !arguments.boolean(2)  ? schema::FogMode::none
                      : arguments.boolean(7) ? schema::FogMode::exponential_squared
                                             : schema::FogMode::exponential;
@@ -156,24 +162,34 @@ void exponential_fog(const Arguments& arguments)
 
 void clear_color(const Arguments& arguments)
 {
-    auto target = environment(arguments, 3);
+    auto target = binding_detail::component<EnvironmentComponent>(arguments, 3);
     if (!target || !arguments.is_uint32(2))
     {
         return;
     }
-    auto value = target.settings();
+    EnvironmentComponent::Data value{};
+    if (!target.get_settings(value))
+    {
+        arguments.set_return(false);
+        return;
+    }
     value.clear_color = arguments.unsigned_integer(2);
     arguments.set_return(target.set_settings(value));
 }
 
 void ibl(const Arguments& arguments)
 {
-    auto target = environment(arguments, 4);
+    auto target = binding_detail::component<EnvironmentComponent>(arguments, 4);
     if (!target || !arguments.is_boolean(2))
     {
         return;
     }
-    auto value = target.settings();
+    EnvironmentComponent::Data value{};
+    if (!target.get_settings(value))
+    {
+        arguments.set_return(false);
+        return;
+    }
     value.ibl_enabled = arguments.boolean(2);
     if (BindingContext::scalar(arguments, 3, value.ibl_intensity))
     {
@@ -183,7 +199,7 @@ void ibl(const Arguments& arguments)
 
 void atmosphere(const Arguments& arguments)
 {
-    auto target = environment(arguments, 6);
+    auto target = binding_detail::component<EnvironmentComponent>(arguments, 6);
     auto* context = BindingContext::current(arguments);
     std::uint64_t sun_scene = 0, sun_id = 0;
     std::string text;
@@ -194,19 +210,25 @@ void atmosphere(const Arguments& arguments)
     {
         return;
     }
-    auto settings = target.settings();
+    EnvironmentComponent::Data settings{};
+    if (!target.get_settings(settings))
+    {
+        arguments.set_return(false);
+        return;
+    }
     settings.atmosphere_enabled = arguments.boolean(2);
     settings.atmosphere_sun_node_id = 0;
     if (sun_id != 0)
     {
         const auto sun = context->find_node(sun_scene, sun_id);
         const auto light = sun ? sun.get_component<Light>() : Light{};
-        if (!sun || sun.scene() != target.node().scene() || !light ||
-            light.settings().kind != schema::LightKind::directional)
+        LightSettings light_settings;
+        if (!sun || sun.scene() != target.node().scene() || !light.get_settings(light_settings) ||
+            light_settings.kind != schema::LightKind::directional)
         {
             return;
         }
-        settings.atmosphere_sun_node_id = sun.info().properties->id;
+        settings.atmosphere_sun_node_id = sun.local_id();
     }
     const auto parameters = nlohmann::json::parse(text, nullptr, false);
     if (!parameters.is_object())
@@ -301,7 +323,8 @@ std::string_view EnvironmentComponentBinding::source() const noexcept
 bool EnvironmentComponentBinding::register_functions(vm::ScriptVm& vm) const
 {
     return vm.integer("EnvironmentKind", static_cast<int>(EnvironmentComponent::component_type)) &&
-           vm.function("EnvironmentAdd", add) && vm.function("EnvironmentAmbient", ambient) &&
+           vm.function("EnvironmentAdd", binding_detail::add_component<EnvironmentComponent>) &&
+           vm.function("EnvironmentAmbient", ambient) &&
            vm.function("EnvironmentTricolor", tricolor) &&
            vm.function("EnvironmentLinearFog", linear_fog) &&
            vm.function("EnvironmentExponentialFog", exponential_fog) &&

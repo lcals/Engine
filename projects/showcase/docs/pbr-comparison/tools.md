@@ -4,7 +4,6 @@
 输出独立 `report.json`，由 `compare_cases.py`（Blender Python）比较，再由 `write_report.py` 生成嵌入原图的单文件 HTML。
 完整复现命令与结果见 [当前结果](current-results.md)。这三个步骤不修改场景或自动调节参数。
 
-当前修复、验证结果和未覆盖范围以[当前结果](current-results.md)为入口。历史记录保留在 [standard-v2 复测](standard-v2-results.md)、[统一显示变换对照](display-matched-results.md)和 [SpecGloss v3](specgloss-v3-results.md)；它们使用不同阶段的引擎截图，不能混作当前版本一次完整验收。
 
 当前输出使用精确 sRGB。生成匹配参考时，把已有线性 EXR 转到独立目录：
 

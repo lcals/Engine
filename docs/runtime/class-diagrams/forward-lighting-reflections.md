@@ -97,7 +97,7 @@ classDiagram
         +PlanarReflectionComponent()
         +PlanarReflectionComponent(Component component)
         +register_type(ComponentRegistry& registry) bool$
-        +settings() PlanarReflectionSettings
+
         +get_settings(PlanarReflectionSettings& output) bool
         +set_settings(const PlanarReflectionSettings& settings) bool
         +restore_data(const ComponentDataT& data) bool
@@ -112,7 +112,7 @@ classDiagram
     PostProcessComponent ..> PostProcessSettings : 使用现有事务设置接口
 ```
 
-SSR 参数扩展现有 `PostProcessData` 和渲染设置快照；`set_settings()` 整体校验后提交。分辨率比例 `[0.25,1]`，步数 `[8,256]`，距离 `(0,100000]`，厚度 `(0,10]`，粗糙度截止值 `[0,1]`。本轮 SSR 使用确定性层级深度遍历，尚不包含随机射线、运动矢量和时序降噪。法线、粗糙度和 F0 来自真实材质；有效命中替换 IBL 的线性 split-sum 子项，未命中保留 IBL，其他环境近似项也保持不变。
+SSR 参数扩展现有 `PostProcessData` 和渲染设置快照；`set_settings()` 整体校验后提交。分辨率比例 `[0.25,1]`，步数 `[8,256]`，距离 `(0,100000]`，厚度 `(0,10]`，粗糙度截止值 `[0,1]`。SSR 使用确定性层级深度遍历，尚不包含随机射线、运动矢量和时序降噪。法线、粗糙度和 F0 来自真实材质；有效命中替换 IBL 的线性 split-sum 子项，未命中保留 IBL，其他环境近似项也保持不变。
 
 平面组件挂在拥有 MeshRenderer 的普通节点上，局部 XZ 平面和 +Y 法线经 Transform 定义反射平面；无需在节点里增加专用字段。开关使用已有 Component.enabled；比例范围同 SSR，裁剪偏移 `[0,1]`。同一节点的子网格共用该平面。首版按平面捕获不透明/裁切建筑及蒙皮角色，排除反射面和依赖场景颜色的透明对象，关闭递归反射；反射镜头独立计算可见性、灯簇和方向光阴影范围，不能拿主镜头可见列表代替。
 
@@ -199,11 +199,11 @@ classDiagram
         +LightProbeVolumeComponent()
         +LightProbeVolumeComponent(Component component)
         +register_type(ComponentRegistry& registry) bool$
-        +settings() LightProbeVolumeSettings
+
         +get_settings(LightProbeVolumeSettings& output) bool
         +set_settings(const LightProbeVolumeSettings& settings) bool
         +restore_data(const ComponentDataT& data) bool
-        +resource() shared_ptr~const Resource~
+        +resource() ResourceHandle
     }
     class LightProbeVolumeSettings {
         <<generated>>
@@ -297,4 +297,4 @@ classDiagram
 
 验证围绕功能：Debug/Release 受影响构建及 CTest；验证多个局部光源遮挡、透明排序、离屏角色平面倒影、SSR 命中/缺失回退、烘焙颜色反弹、动态对象穿过探针体积、取消与切场景释放。实际画面首先在 macOS/Metal 检查；其他后端离线 Shader 编译不等于真机已通过。不开展无关模块优化或压力测试。
 
-本页组件均为可复制值句柄，生成设置唯一存于 `ComponentStorage<Data>` 的 ECS 列；`settings()` 返回独立值，`get_settings(output)` 明确返回失败。Runtime 为 ECS 中的领域运行列，资源引用、请求和缓存归该列或所属 System；句柄不拥有这些数据。Runtime 定义与可变访问仅供所属模块内部实现使用，公开组件不提供 `runtime()`；原生系统的 ECS 列借用仅在当前结构稳定阶段有效，不能跨结构修改留存。类型注册、失效身份与查询规则见 [ECS 场景](ecs-scene.md)。
+本页组件均为可复制值句柄，生成设置唯一存于 `ComponentStorage<Data>` 的 ECS 列；`get_settings(output)` 返回独立值并明确报告失败，失败输出安全默认值；不保留吞掉失败的 settings() 包装。Runtime 为 ECS 中的领域运行列，资源引用、请求和缓存归该列或所属 System；句柄不拥有这些数据。Runtime 定义与可变访问仅供所属模块内部实现使用，公开组件不提供 `runtime()`；原生系统的 ECS 列借用仅在当前结构稳定阶段有效，不能跨结构修改留存。类型注册、失效身份与查询规则见 [ECS 场景](ecs-scene.md)。

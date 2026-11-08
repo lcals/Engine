@@ -1,3 +1,4 @@
+#include "../../../support/render_fixture.hpp"
 #include "editor/asset_pipeline/asset_pipeline_system.hpp"
 #include "plugins/editor/asset_import/font_importer.hpp"
 #include "plugins/editor/asset_import/ui_importer.hpp"
@@ -542,16 +543,17 @@ export default class extends Gameplay {
 struct Systems
 {
     engine::MountList mounts;
-    engine::ResourceSystem resources;
     engine::ThreadSystem threads;
+    test_support::ResourceServices services{&threads};
+    engine::ResourceSystem& resources = services.core;
     engine::TaskSystem tasks{threads, {"Editor", 4, engine::TaskPriority::low}};
     engine::editor::AssetPipelineSystem pipeline{tasks};
     engine::WindowSystem window;
-    engine::WorldSystem world;
-    engine::FontSystem fonts;
+    engine::WorldSystem world{&services.loader};
+    engine::FontSystem fonts{&services.loader};
     engine::UiSystem ui{window, world, fonts};
     engine::RenderSystem renderer{window, &world, &fonts, &ui};
-    engine::plugins::script::ScriptSystem script{&world, &renderer, &ui};
+    engine::plugins::script::ScriptSystem script{&services.loader, &world, &renderer, &ui};
 
     ~Systems()
     {
@@ -561,7 +563,7 @@ struct Systems
         renderer.shutdown();
         world.shutdown();
         window.shutdown();
-        resources.shutdown();
+        services.shutdown();
         pipeline.shutdown();
         tasks.shutdown();
         threads.shutdown();
@@ -643,7 +645,7 @@ struct Systems
                 return false;
             }
         }
-        return expect(resources.initialize(config) && resources.update_catalog(catalog, mounts),
+        return expect(services.initialize(config) && services.publish_and_load(catalog, mounts),
                       resources.last_error()) &&
                expect(window.initialize(config) && world.initialize(config) &&
                           fonts.initialize(config) && ui.initialize(config) &&
@@ -668,7 +670,7 @@ struct Systems
             }
             if (window.can_render())
             {
-                if (!expect(renderer.render(), "render real UI frame"))
+                if (!expect(test_support::render_frame(renderer), "render real UI frame"))
                 {
                     return false;
                 }
@@ -684,10 +686,11 @@ struct Systems
 
     bool start(std::string_view name)
     {
-        return expect(test_support::start_script(script, resources, mounts,
+        return expect(test_support::start_script(script, services, mounts,
                                                  "scripts/" + std::string(name) + ".js"),
                       script.status().last_error) &&
-               expect(renderer.prepare_scene(), "prepare scene after gameplay initialization") &&
+               expect(test_support::prepare_render(renderer),
+                      "prepare scene after gameplay initialization") &&
                frames();
     }
 
@@ -960,8 +963,8 @@ bool mvc_case(Systems& systems, const fs::path& project)
     }
     for (int cycle = 0; cycle < 2; ++cycle)
     {
-        if (!click(systems) || !expect(systems.script.prepare_gameplay(
-                                           systems.resources.catalog(),
+        if (!click(systems) || !expect(test_support::prepare_script(
+                                           systems.script, systems.services,
                                            {{"content", project / "cache"}}, "scripts/mvc.js"),
                                        "prepare a replacement V8 context with queued old input"))
         {
@@ -971,7 +974,7 @@ bool mvc_case(Systems& systems, const fs::path& project)
         if (!expect(systems.world.scene() == nullptr && systems.ui.document_count() == 0,
                     "stopping releases the script scene and document") ||
             !expect(systems.script.start_prepared_gameplay(), systems.script.status().last_error) ||
-            !expect(systems.renderer.prepare_scene(), "prepare restarted UI") ||
+            !expect(test_support::prepare_render(systems.renderer), "prepare restarted UI") ||
             !systems.frames() || !systems.tick() || !systems.label_is("0:0:") || !click(systems) ||
             !systems.tick() || !systems.label_is("1:0:"))
         {
@@ -1026,9 +1029,9 @@ bool persistent_documents(Systems& systems, const fs::path& project)
     }
     systems.stop();
     if (!systems.start("persistent") || !click(systems) || !systems.tick() ||
-        !expect(systems.script.prepare_gameplay(systems.resources.catalog(),
-                                                {{"content", project / "cache"}},
-                                                "scripts/persistent.js"),
+        !expect(test_support::prepare_script(systems.script, systems.services,
+                                             {{"content", project / "cache"}},
+                                             "scripts/persistent.js"),
                 "prepare a new Run while persistent UI is live"))
     {
         return false;
@@ -1041,7 +1044,8 @@ bool persistent_documents(Systems& systems, const fs::path& project)
     }
     systems.stop();
     if (!expect(systems.world.scenes().empty() && !systems.ui.is_valid(old_element) &&
-                    systems.script.start_prepared_gameplay() && systems.renderer.prepare_scene(),
+                    systems.script.start_prepared_gameplay() &&
+                    test_support::prepare_render(systems.renderer),
                 "Run replacement destroys persistent objects before creating new ones") ||
         !systems.frames() || !systems.tick() || !click(systems) || !systems.tick())
     {
@@ -1177,9 +1181,9 @@ bool independent_documents(Systems& systems)
 
 bool missing_ui(Systems& systems)
 {
-    engine::plugins::script::ScriptSystem script(&systems.world);
+    engine::plugins::script::ScriptSystem script(&systems.services.loader, &systems.world);
     if (!expect(script.initialize({}) &&
-                    test_support::start_script(script, systems.resources, systems.mounts,
+                    test_support::start_script(script, systems.services, systems.mounts,
                                                "scripts/no-ui.js") &&
                     script.tick(delta_time) && script.status().running,
                 "UI script API safely rejects View binding without an injected UiSystem"))

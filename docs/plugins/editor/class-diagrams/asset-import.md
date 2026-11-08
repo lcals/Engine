@@ -4,6 +4,8 @@
 
 本页维护本轮已确认的插件合并边界：五种源格式导入实现统一归 `editor/asset_import`，CMake 目标为 `engine_asset_import`（别名 `engine::asset_import`），命名空间为 `engine::plugins::asset_import`。不增加导入 System、Manager、注册门面或第二套接口；通用契约仍属于编辑器基础层。
 
+**2026-11-07 已实现：** FBX 在发布 Skeleton / Animation 子资源前调用编辑器基础层的[采样准备函数](../../../editor/class-diagrams/extension-tools.md)，写入[当前离线采样产物](../../../runtime/class-diagrams/model-resources.md#离线采样产物)。保持现有 AssetImporter 方法和虚拟子资源身份；失败不发布半成品，Schema / 工具指纹使受影响缓存重建。当前 USD 导入器仍明确拒绝带骨骼或动画的源数据，本批不增加该功能；后续支持时采用同一明确入口。其他源格式后续采用同一明确入口，不把动画生成流程加入资源加载核心。
+
 规划入口：[影片原始资源导入（待实现）](movie-importer.md)拟在同一插件内增加 MovieImporter，沿用现有 AssetImporter 和宿主显式登记；不改变本页当前五种实现及方法定义。既有 `discover()` 的后台调度、异步进度、取消与规划公开工具函数另见[资源导入批次规划](../../../editor/class-diagrams/asset-import-jobs.md)，不将 `src/editor` 私有 helper 当成插件现有公开能力。
 
 ```mermaid

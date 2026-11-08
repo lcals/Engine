@@ -1,8 +1,8 @@
-# 影片资源（设计契约，尚未实现）
+# 影片资源
 
 [类图索引](../../class-diagrams/index.md) · [播放器](movie-player.md) · [导入器](../../plugins/editor/class-diagrams/movie-importer.md) · [资源解码器](resource-codecs.md) · [资源目录](resource-catalog.md)
 
-本页定义规划中的资源与单项校验契约。Movie 按现有资源类型登记，新增 `AssetKind::movie`；它不是项目启动配置、场景组件或媒体管理系统。唯一持久模型拟放入 `include/schemas/runtime/movie.fbs`，生成 C++ 与其他语言结构；本轮只设计，不创建 schema 或实现。
+本页定义影片资源与单项校验契约。Movie 按现有资源类型登记，新增 `AssetKind::movie`；它不是项目启动配置、场景组件或媒体管理系统。唯一持久模型位于 `include/schemas/runtime/movie.fbs`，生成 C++ 与其他语言结构。
 
 ## 运行编码选择
 
@@ -99,42 +99,42 @@ classDiagram
 
 ## 校验与加载
 
+**本节资源承载与处理器接口已按确认契约实现；上述持久模型与影片格式约束不变。**
+
 ```mermaid
 classDiagram
     class MovieResourceCodec {
-        <<final planned>>
-        +decode(const ResourceCatalog& catalog, ByteView payload, Resource& output) bool
-        +validate_dependencies(const ResourceCatalog& catalog, const Resource& resource, span~const ResourcePtr~ dependencies) bool
+        <<final>>
     }
     class ResourceCodec
-    class ResourceCatalog
+    class AssetEntryT
     class Resource
-    class ByteView
-    class ResourcePtr
+    class MovieResource
+    class ResourceValue
     class MovieDataT
     class AudioClipDataT
     MovieResourceCodec --|> ResourceCodec
-    MovieResourceCodec ..> ResourceCatalog : 查询声明依赖和kind
-    MovieResourceCodec ..> ByteView : 本次调用借用实体
-    MovieResourceCodec ..> Resource : 成功后保存已验证字节
-    MovieResourceCodec ..> ResourcePtr : 借用加载器提供的依赖
-    MovieResourceCodec ..> MovieDataT : 唯一生成模型校验
+    MovieResourceCodec ..> AssetEntryT : 本项独立元数据
+    MovieResourceCodec ..> MovieResource : 创建规范候选
+    MovieResource ..> ResourceValue : 类型特化别名
+    MovieResource ..> MovieDataT : 直接持有唯一生成模型
+    MovieResourceCodec ..> Resource : 只读依赖视图
     MovieResourceCodec ..> AudioClipDataT : 音频依赖校验
 ```
 
-`MovieResourceCodec` 属于 `engine`，沿用 `ResourceCodec::store(Resource&, ByteView)` 和 `Resource::bytes()`，不扩一份手写 `Resource::movie_` 模型。它只处理单项结构与已提供依赖，不读取原素材、不装配播放器，也不加载依赖树；静态登记遵守现有 `find_resource_codec()` 契约。
+完整方法继承并 override [ResourceCodec 契约](resource-codecs.md#最小扩展接口)，不重复定义另一组签名。MovieResource 是 ResourceValue<MovieDataT, AssetKind::movie> 的特化别名，不复制持久字段。decode 创建独占候选，validate_data 校验本项，validate_dependencies 校验提供的 AudioClip；不使用集中 store 或 Resource::bytes 旁路。
 
-两个方法均为 `const override` 并标注 `[[nodiscard]]`，析构为 `noexcept override`；失败不发布半成品，输出遵守现有 ResourceCodec 的安全空状态契约。
+处理器不读取原素材、不加载依赖、不创建播放器。宿主以 add<MovieResourceCodec>() 登记；状态通过返回值和错误文本表达，失败输出安全空值。
 
-校验包括 FlatBuffers 结构、版本、编码标识、载荷大小、非零有理数分母、尺寸/帧率/时长范围和算术溢出。`audio_guid` 必须存在于目录、kind 为 audio，并与本项声明及加载器提供的依赖一致；PCM 数据仍由原 AudioResourceCodec 校验。首次解码还需核对真实视频描述与声明，不信任仅靠扩展名或元信息。
+校验包括 FlatBuffers 结构、版本、编码标识、载荷大小、非零有理数分母、尺寸/帧率/时长范围和算术溢出。audio_guid 必须与本项声明及提供的 audio 类型依赖一致；PCM 数据由 AudioResourceCodec 校验。首次视频解码还需核对真实描述与声明，不能仅信任扩展名或元信息。
 
-首版限定 SDR 8 位、无透明通道、方形像素、正向画面，最高 1920×1080、60fps；具体帧率由导入参数给出。时间轴从零开始，导入时统一旋转、像素宽高比、源 VFR、edit-list 和音轨起点；输出采用固定帧率。音频按该时间轴裁切/补静音到影片时长，误差不超过一个音频采样。HDR 源或其他不支持情况明确报告，不能运行时猜测或静默丢失含义。
+首版限定 SDR 8 位、无透明通道、方形像素、正向画面，最高 1920×1080、60fps；帧率由导入参数给出。时间轴从零开始，导入统一旋转、像素宽高比、VFR、edit-list 和音轨起点，输出固定帧率；音频按同一时间轴裁切/补静音，时长误差不超过一个采样。HDR 或不支持的输入明确失败。
 
-依赖校验使用 AudioClip 的实际采样率和样本帧数验证上述一采样容差，不只比较浮点元信息；视频的帧数、帧率、timebase 与声明时长必须自洽。合法采样舍入在片尾的时钟处理见[播放器](movie-player.md#解码simd-与任务生命周期)，超过容差的音视频组合直接失败。
+依赖校验按 AudioClip 实际采样率和样本帧数检查一采样容差，视频帧数、帧率、timebase 与声明时长必须自洽。片尾时钟行为见[播放器](movie-player.md#解码simd-与任务生命周期)。
 
-影片实体沿用当前不超过 64MiB 的整项读取与校验；播放前只准备所选影片及其真实依赖。ResourceGraph 插件继续负责共享和依赖闭包，播放器持有已接受请求的资源快照。目录换代不替换正在播放的载荷，新播放使用新的目录。超限输入报告失败，本期不把长影片流式范围读取画成已存在能力。
+加载由业务显式请求，默认资源插件组织完整必要闭包。MoviePlayer 只接受已加载 Movie 句柄，并通过 retain_dependency 获取同代音轨；不调用 find/begin_load 补读。旧 ready 闭包允许继续播放，当前目录的新加载使用新代际。
 
-快照在 preparing 中完整建立：Movie 与可选 AudioClip 必须来自请求记录的同一目录代次，加载期间换代则失败。现有 ResourceLoad 只交付根资源；播放器通过注入加载器的 `find()` 或显式第二次 `begin_load()` 取得同代 AudioClip 引用，并核对两项 Resource::generation 与依赖后才起播。该过程不新增核心依赖树加载能力，也不借用插件私有 Bundle；具体控制契约见[播放器](movie-player.md#解码simd-与任务生命周期)。
+本设计继续整项资源读取，单项大小上限由资源读取配置给出，超限明确失败；没有把长影片流式读取描述为已有能力。
 
 ## 音频体积与选型边界
 

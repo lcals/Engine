@@ -1,4 +1,5 @@
 #include "plugins/editor/modeling/modeling_source_io.hpp"
+#include "editor/file_text.hpp"
 
 #include "plugins/editor/modeling/editable_mesh.hpp"
 #include "runtime/resource/resource_system.hpp"
@@ -78,7 +79,7 @@ bool save_source(const fs::path& path, const schema::EditableMeshDataT& source,
                  const schema::MeshDataT& mesh, std::string& error)
 {
     std::vector<std::uint8_t> bytes;
-    if (!EditableMesh::serialize(source, bytes, error))
+    if (!mesh::serialize(source, bytes, error))
     {
         return false;
     }
@@ -160,7 +161,7 @@ bool load_source(const fs::path& path, schema::EditableMeshDataT& source, std::s
     std::error_code ec;
     const auto size = fs::file_size(path, ec);
     std::string text;
-    if (ec || size > maximum_source_size || !ResourceSystem::read_text(path, text) ||
+    if (ec || size > maximum_source_size || !engine::editor::file_detail::read_text(path, text) ||
         text.size() > maximum_source_size)
     {
         error = "Cannot read model source or it exceeds 64 MiB";
@@ -200,7 +201,7 @@ bool load_source(const fs::path& path, schema::EditableMeshDataT& source, std::s
         }
         bytes.push_back(static_cast<std::uint8_t>((high << 4) | low));
     }
-    return EditableMesh::deserialize(bytes, source, error);
+    return mesh::deserialize(bytes, source, error);
 }
 
 } // namespace engine::plugins::modeling::detail

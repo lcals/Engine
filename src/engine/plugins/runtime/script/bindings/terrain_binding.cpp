@@ -1,6 +1,7 @@
 #if defined(ENGINE_HAS_TERRAIN_PLUGIN) && ENGINE_HAS_TERRAIN_PLUGIN
 
 #include "plugins/runtime/script/bindings/terrain_binding.hpp"
+#include "plugins/runtime/script/bindings/binding_helpers.hpp"
 
 #include "plugins/runtime/script/bindings/binding_context.hpp"
 #include "plugins/runtime/terrain/terrain_component.hpp"
@@ -67,15 +68,6 @@ componentTypes.set(TerrainComponent, { add: native.TerrainAdd, kind: native.Terr
 Object.freeze(TerrainComponent.prototype);
 Object.freeze(TerrainComponent);
 )js";
-
-terrain::TerrainComponent component(const Arguments& arguments, int count)
-{
-    arguments.set_return(false);
-    auto node = BindingContext::node(arguments);
-    return node.valid() && arguments.count() == count
-               ? node.get_component<terrain::TerrainComponent>()
-               : terrain::TerrainComponent{};
-}
 
 bool status(const std::filesystem::path& path, std::filesystem::file_status& output)
 {
@@ -158,16 +150,9 @@ bool slot_path(std::string_view slot, bool saving, std::filesystem::path& output
     return true;
 }
 
-void add(const Arguments& arguments)
-{
-    auto node = BindingContext::node(arguments);
-    arguments.set_return(arguments.count() == 2 && node.valid() &&
-                         node.add_component<terrain::TerrainComponent>().valid());
-}
-
 void sphere(const Arguments& arguments)
 {
-    auto value = component(arguments, 6);
+    auto value = binding_detail::component<terrain::TerrainComponent>(arguments, 6);
     double x = 0;
     double y = 0;
     double z = 0;
@@ -182,7 +167,7 @@ void sphere(const Arguments& arguments)
 
 void sphere_async(const Arguments& arguments)
 {
-    auto value = component(arguments, 6);
+    auto value = binding_detail::component<terrain::TerrainComponent>(arguments, 6);
     auto* context = BindingContext::current(arguments);
     auto* system = terrain::TerrainSystem::instance();
     double x = 0;
@@ -204,13 +189,13 @@ void sphere_async(const Arguments& arguments)
 
 void reset(const Arguments& arguments)
 {
-    auto value = component(arguments, 2);
+    auto value = binding_detail::component<terrain::TerrainComponent>(arguments, 2);
     arguments.set_return(value.valid() && value.reset());
 }
 
 void persistence(const Arguments& arguments)
 {
-    auto value = component(arguments, 3);
+    auto value = binding_detail::component<terrain::TerrainComponent>(arguments, 3);
     std::string slot;
     std::filesystem::path path;
     const bool saving = arguments.data() != 0;
@@ -224,13 +209,13 @@ void persistence(const Arguments& arguments)
 
 void ready(const Arguments& arguments)
 {
-    const auto value = component(arguments, 2);
+    const auto value = binding_detail::component<terrain::TerrainComponent>(arguments, 2);
     arguments.set_return(value.valid() && value.ready());
 }
 
 void collapse(const Arguments& arguments)
 {
-    auto value = component(arguments, 6);
+    auto value = binding_detail::component<terrain::TerrainComponent>(arguments, 6);
     float density = 0;
     if (value && arguments.is_uint32(2) && arguments.is_uint32(3) && arguments.is_uint32(4) &&
         BindingContext::scalar(arguments, 5, density))
@@ -243,7 +228,7 @@ void collapse(const Arguments& arguments)
 
 void retire(const Arguments& arguments)
 {
-    auto value = component(arguments, 4);
+    auto value = binding_detail::component<terrain::TerrainComponent>(arguments, 4);
     arguments.set_return({});
     double max_age_seconds = 0;
     std::uint32_t retired_count = 0;
@@ -256,7 +241,7 @@ void retire(const Arguments& arguments)
 
 void statistic(const Arguments& arguments)
 {
-    const auto value = component(arguments, 2);
+    const auto value = binding_detail::component<terrain::TerrainComponent>(arguments, 2);
     arguments.set_return({});
     if (!value)
     {
@@ -300,9 +285,9 @@ std::string_view TerrainBinding::source() const noexcept
 bool TerrainBinding::register_functions(vm::ScriptVm& vm) const
 {
     return vm.integer("TerrainKind", static_cast<int>(terrain::TerrainComponent::component_type)) &&
-           vm.function("TerrainAdd", add) && vm.function("TerrainDig", sphere, 0) &&
-           vm.function("TerrainFill", sphere, 1) && vm.function("TerrainReset", reset) &&
-           vm.function("TerrainDigAsync", sphere_async, 0) &&
+           vm.function("TerrainAdd", binding_detail::add_component<terrain::TerrainComponent>) &&
+           vm.function("TerrainDig", sphere, 0) && vm.function("TerrainFill", sphere, 1) &&
+           vm.function("TerrainReset", reset) && vm.function("TerrainDigAsync", sphere_async, 0) &&
            vm.function("TerrainFillAsync", sphere_async, 1) &&
            vm.function("TerrainCollapse", collapse) && vm.function("TerrainRetire", retire) &&
            vm.function("TerrainFragments", statistic, 5) &&

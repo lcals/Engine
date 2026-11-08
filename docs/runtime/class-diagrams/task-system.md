@@ -1,8 +1,10 @@
 # 运行时线程与任务系统
 
+ThreadSystem 管理进程并行预算，TaskSystem 提供独立任务域；文件、单项解析、资源图、影片与渲染分别借用任务域并共享 worker。 组合关系见[业务与模块任务](resource-consumers.md#各模块自己的任务)。任务域各自维护额度与生命周期。
+
 [类图索引](../../class-diagrams/index.md) · [资源管线](../../editor/class-diagrams/asset-pipeline-system.md)
 
-oneTBB 管理进程共享 worker，编辑器与运行时各有任务域。公开头仅依赖标准库和 System；旧 editor/task 实现下沉 runtime/task，不保留兼容别名。
+oneTBB 管理进程共享 worker，编辑器与运行时各有任务域。公开头仅依赖标准库和 System。
 
 ```mermaid
 classDiagram

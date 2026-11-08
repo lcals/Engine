@@ -1,4 +1,7 @@
 #include "editor/commands/components/component_edit.hpp"
+#include "editor/resource_access.hpp"
+#include "runtime/resource/types/model_resource.hpp"
+#include "runtime/resource/types/prefab_resource.hpp"
 
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/scene/camera.hpp"
@@ -18,7 +21,12 @@ bool snapshot(const Node& node, schema::NodeDataT& output)
     {
         return false;
     }
-    output.info = std::make_unique<schema::NodeInfoT>(node.info());
+    output.info = std::make_unique<schema::NodeInfoT>();
+    if (!node.build_info(*output.info))
+    {
+        output = {};
+        return false;
+    }
     std::vector<Component> components;
     if (!node.collect_components(components))
     {
@@ -56,20 +64,17 @@ public:
     bool apply(std::string& error) override
     {
         auto* scene = world_.scene();
-        auto* resources = ResourceSystem::instance();
-        if (!scene || scene->id() != scene_ || !resources)
+        auto* loader = world_.resource_loader();
+        if (!scene || scene->id() != scene_ || !loader)
         {
             error = "Model instance targets a stale scene";
             return false;
         }
-        for (const auto& version : versions_)
+        std::vector<ResourceReference> pins;
+        if (!resource_access::load_versions(loader, versions_, pins))
         {
-            const auto* current = resources->catalog().find(version.guid);
-            if (!current || *current != version)
-            {
-                error = "Model resources changed; the prepared edit is stale";
-                return false;
-            }
+            error = "Model resources changed; the prepared edit is stale";
+            return false;
         }
         std::vector<Node> nodes;
         if (!scene->collect_nodes(nodes))
@@ -136,7 +141,7 @@ public:
             }
             for (const auto& instance : instances)
             {
-                if (instance.root_id == root.info().properties->id)
+                if (instance.root_id == root.local_id())
                 {
                     prefab_snapshot_ = instance;
                 }
@@ -229,29 +234,6 @@ private:
     bool prefab_ = false;
 };
 
-bool versions(const ResourceCatalog& catalog, std::string_view root,
-              std::vector<schema::AssetEntryT>& output)
-{
-    std::set<std::string> visited;
-    std::vector<std::string> pending{std::string(root)};
-    while (!pending.empty())
-    {
-        auto guid = std::move(pending.back());
-        pending.pop_back();
-        if (!visited.insert(guid).second)
-        {
-            continue;
-        }
-        const auto* entry = catalog.find(guid);
-        if (!entry)
-        {
-            return false;
-        }
-        output.push_back(*entry);
-        pending.insert(pending.end(), entry->dependencies.begin(), entry->dependencies.end());
-    }
-    return true;
-}
 } // namespace
 
 bool prepare_hierarchy(WorldSystem& world, NodeAliases& aliases, const Json& arguments,
@@ -274,14 +256,11 @@ bool prepare_hierarchy(WorldSystem& world, NodeAliases& aliases, const Json& arg
         error = "Model instance name must contain 1..128 bytes";
         return false;
     }
-    auto* resources = ResourceSystem::instance();
-    Guid guid;
-    ResourcePtr model;
+    ResourceReference model;
     std::vector<schema::AssetEntryT> retained;
-    if (!resources || !ResourceSystem::path_to_guid(path, guid) ||
-        !resources->loader().load(guid, model) || !model ||
-        (prefab ? !model->prefab() : !model->model()) ||
-        !versions(resources->catalog(), guid, retained))
+    if (!resource_access::load(world.resource_loader(), path, model) ||
+        (prefab ? !model.data<PrefabResource>() : !model.data<ModelResource>()) ||
+        !resource_access::collect_versions(model, retained))
     {
         error = "Cannot resolve the model resource and its dependencies";
         return false;

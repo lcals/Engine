@@ -18,6 +18,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <new>
 
 namespace engine
@@ -152,6 +153,10 @@ bool RenderSystem::add_extension(RenderExtension& extension)
     }
     extensions_.push_back(&extension);
     extension.renderer_ = this;
+    if (preparation_ && preparation_->status == RenderPrepareStatus::ready)
+    {
+        preparation_->status = RenderPrepareStatus::preparing;
+    }
     return true;
 }
 
@@ -173,6 +178,10 @@ void RenderSystem::detach_extension(RenderExtension& extension) noexcept
 {
     std::erase(extensions_, &extension);
     extension.renderer_ = nullptr;
+    if (preparation_ && preparation_->status == RenderPrepareStatus::ready)
+    {
+        preparation_->status = RenderPrepareStatus::preparing;
+    }
 }
 
 void RenderSystem::release_extensions_scene() noexcept
@@ -187,6 +196,8 @@ void RenderSystem::release_extensions_scene() noexcept
 
 bool RenderSystem::on_initialize(const EngineConfig&)
 {
+    // 初始化前的非法准备请求不能把新的渲染生命周期永久留在 failed。
+    preparation_.reset();
     if (config_.cluster_tile_size < 16 || config_.cluster_tile_size > 256 ||
         config_.cluster_depth_slices == 0 || config_.cluster_depth_slices > 64 ||
         config_.maximum_lights == 0 || config_.maximum_lights > 4096 ||
@@ -204,7 +215,9 @@ bool RenderSystem::on_initialize(const EngineConfig&)
     }
     if (!windows_.is_initialized() || windows_.native_window() == nullptr ||
         (tasks_ != nullptr && !tasks_->is_initialized()) || config_.texture_batch_size == 0 ||
-        config_.texture_batch_size > 64 || config_.texture_staging_bytes == 0)
+        config_.texture_batch_size > 64 || config_.texture_staging_bytes == 0 ||
+        config_.prepare_items_per_step == 0 || config_.upload_bytes_per_step == 0 ||
+        !std::isfinite(config_.prepare_seconds_per_step) || config_.prepare_seconds_per_step <= 0)
     {
         SDL_LogError(SDL_LOG_CATEGORY_RENDER, "Renderer requires a ready window");
         return false;
@@ -502,6 +515,20 @@ bool RenderSystem::render(Camera camera)
     const bool drawn = draw_scene(camera, current_settings) &&
                        draw_diffuse_capture(current_settings) &&
                        (ui_ == nullptr || ui_->render(width_, height_));
+    if (scene_resources_)
+    {
+        // 在扩展/UI 返回后撤销所有借用，下一次结构修改和 GPU 资源回收前不留旧指针。
+        auto& frame = scene_resources_->frame_data;
+        frame.meshes.clear();
+        frame.lights.clear();
+        frame.probes.clear();
+        frame.world_epoch = 0;
+        for (auto& list : scene_resources_->draw_lists)
+        {
+            list.opaque.clear();
+            list.transparent.clear();
+        }
+    }
     if (!drawn && hdr_capture_status_ == SceneCaptureStatus::pending &&
         (!scene_resources_ || !scene_resources_->hdr_capture_pending))
     {
@@ -517,6 +544,7 @@ bool RenderSystem::render(Camera camera)
     }
     poll_diffuse_capture();
     poll_hdr_capture();
+    collect_preparation(false);
     ENGINE_PROFILE_FRAME();
 #if defined(ENGINE_ENABLE_TRACY)
     profile_renderer_stats();
@@ -540,6 +568,7 @@ bool RenderSystem::present_movie_frame(const MovieFrame& frame)
         return false;
     }
     frame_number_ = bgfx::frame();
+    collect_preparation(false);
     ENGINE_PROFILE_FRAME();
     return true;
 }
@@ -547,6 +576,7 @@ bool RenderSystem::present_movie_frame(const MovieFrame& frame)
 void RenderSystem::on_shutdown() noexcept
 {
     shutdown_renderer();
+    preparation_.reset();
     if (surface_ != nullptr)
     {
         surface_->shutdown();
@@ -557,6 +587,7 @@ void RenderSystem::on_shutdown() noexcept
 void RenderSystem::shutdown_renderer() noexcept
 {
     release_scene();
+    collect_preparation(true);
     invoking_extensions_ = true;
     for (auto* extension : extensions_)
     {

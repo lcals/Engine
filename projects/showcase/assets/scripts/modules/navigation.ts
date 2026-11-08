@@ -1,4 +1,4 @@
-import {
+import { Resources, ResourceHandle,
     Animator,
     Camera,
     Debug,
@@ -61,6 +61,7 @@ const colors = [
 
 /** Technical crowd example. Native agents own following, avoidance and root transforms. */
 export default class Game extends Gameplay {
+    private readonly resources: ResourceHandle[] = [];
     scene: Scene | null = null;
     private readonly model = new NavigationModel();
     private readonly actors: AgentView[] = [];
@@ -76,6 +77,12 @@ export default class Game extends Gameplay {
     private nextSample = 0;
 
     override OnInitialize(): boolean {
+        for (const path of ["scenes/navigation.scene", "prefabs/characters/player.prefab", "materials/character.material", "models/locomotions.fbx/animations/walk"]) {
+            const resource = Resources.Load(path);
+            if (!resource) { Debug.LogError(`Cannot load ${path}: ${Resources.lastError}`); return false; }
+            this.resources.push(resource);
+        }
+
         this.scene = Scene.Load("scenes/navigation.scene");
         const scene = this.scene;
         const view = scene?.FindNode("Navigation UI")?.GetComponent(UiComponent);
@@ -437,6 +444,10 @@ export default class Game extends Gameplay {
     }
 
     override OnShutdown(): void {
+        for (const resource of this.resources.splice(0)) {
+            if (!Resources.Release(resource)) Debug.LogError("Cannot release showcase resource");
+        }
+
         this.model.ready = false;
         this.model.pending = null;
         this.controller?.Unbind();

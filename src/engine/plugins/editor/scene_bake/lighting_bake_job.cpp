@@ -1,4 +1,8 @@
 #include "plugins/editor/scene_bake/lighting_bake_job.hpp"
+#include "editor/resource_access.hpp"
+#include "runtime/resource/types/material_resource.hpp"
+#include "runtime/resource/types/mesh_resource.hpp"
+#include "runtime/world/world_system.hpp"
 
 #include "runtime/render/render_system.hpp"
 #include "runtime/render/scene_capture.hpp"
@@ -13,7 +17,6 @@
 #include <bx/allocator.h>
 #include <bx/math.h>
 #include <bx/readerwriter.h>
-#include <bx/math.h>
 #include <xatlas.h>
 #define LIGHTMAPPER_IMPLEMENTATION
 #include <lightmapper.h>
@@ -98,23 +101,17 @@ bool texture(std::span<const float> rgba, std::uint16_t size, schema::TextureDat
         }
         half[i] = bx::halfFromFloat(rgba[i]);
     }
-    bx::DefaultAllocator allocator;
-    bx::MemoryBlock block(&allocator);
-    bx::MemoryWriter writer(&block);
-    bx::Error error;
-    const auto written = bimg::imageWriteKtx(&writer, bimg::TextureFormat::RGBA16F, false, size,
-                                             size, 0, 1, 1, false, half.data(), &error);
-    if (!error.isOk() || written <= 0)
-    {
-        return false;
-    }
-    const auto* bytes = static_cast<const std::uint8_t*>(block.more(0));
+    const auto* bytes = reinterpret_cast<const std::uint8_t*>(half.data());
+    const auto byte_count = half.size() * sizeof(half.front());
+    output = {};
+    output.schema_version = 2;
     output.path = "bake/lightmap.ktx";
     output.width = output.height = size;
     output.srgb = false;
-    output.encoding = schema::TextureEncoding::ktx;
+    output.encoding = schema::TextureEncoding::native;
     output.format = schema::TextureFormat::rgba16f;
-    output.data.assign(bytes, bytes + written);
+    output.data.assign(bytes, bytes + byte_count);
+    output.subresources.emplace_back(0, 0, 0, byte_count);
     return true;
 }
 
@@ -278,7 +275,7 @@ bool LightingBakeJob::start(const schema::SceneDataT& scene, const Scene& active
     }
     for (const auto& node : active_nodes)
     {
-        s.runtime_ids.emplace(node.info().properties->id, node.id());
+        s.runtime_ids.emplace(node.local_id(), node.id());
     }
     for (const auto& node : scene.nodes)
     {
@@ -286,7 +283,7 @@ bool LightingBakeJob::start(const schema::SceneDataT& scene, const Scene& active
                                               : s.runtime_ids.end();
         const auto active =
             found == s.runtime_ids.end() ? Node{} : active_scene.find_node(found->second);
-        if (!active || active.info().parent_id != node->info->parent_id)
+        if (!active || active.parent().local_id() != node->info->parent_id)
         {
             error = "Saved scene identities no longer match the active preview";
             return false;
@@ -348,11 +345,14 @@ bool LightingBakeJob::start(const schema::SceneDataT& scene, const Scene& active
         {
             continue;
         }
-        ResourcePtr resource;
+        engine::ResourceReference resource;
         BakedMeshLighting item;
         item.node_id = node->info->properties->id;
-        if (dynamic || !s.resources.loader().load(mesh->mesh_guid, resource) || !resource ||
-            !resource->mesh() || !resource->mesh()->skin.empty() ||
+        if (dynamic ||
+            !editor::resource_access::load(active_scene.world().resource_loader(), mesh->mesh_guid,
+                                           resource) ||
+            !resource || !resource.data<MeshResource>() ||
+            !resource.data<MeshResource>()->skin.empty() ||
             !world_matrix(item.node_id, item.transform))
         {
             error = "Static lighting requires fixed, imported, unskinned mesh geometry";
@@ -366,16 +366,18 @@ bool LightingBakeJob::start(const schema::SceneDataT& scene, const Scene& active
             {
                 continue;
             }
-            ResourcePtr material;
-            if (!s.resources.loader().load(guid, material) || !material || !material->material() ||
-                material->material()->shader_path != "builtin://shaders/pbr" ||
-                material->material()->blend_mode != schema::BlendMode::opaque)
+            engine::ResourceReference material;
+            if (!editor::resource_access::load(active_scene.world().resource_loader(), guid,
+                                               material) ||
+                !material || !material.data<MaterialResource>() ||
+                material.data<MaterialResource>()->shader_path != "builtin://shaders/pbr" ||
+                material.data<MaterialResource>()->blend_mode != schema::BlendMode::opaque)
             {
                 error = "Static bake contributors require opaque builtin PBR materials";
                 return false;
             }
         }
-        item.mesh = std::make_shared<schema::MeshDataT>(*resource->mesh());
+        item.mesh = std::make_shared<schema::MeshDataT>(*resource.data<MeshResource>());
         out.meshes.push_back(std::move(item));
     }
     if (!lights.empty() || out.meshes.size() > 4096 || settings.probes.size() > 64 ||
@@ -704,7 +706,10 @@ BakeProgress LightingBakeJob::tick(std::string& error)
     {
         s.request.indirect.push_back({s.runtime_ids[mesh.node_id], mesh.lightmap, mesh.mesh});
     }
-    if (!s.renderer.request_diffuse_capture(s.request))
+    RenderPrepareProgress preparation;
+    if (s.renderer.prepare_scene(RenderPrepareMode::synchronous, preparation) !=
+            RenderPrepareStatus::ready ||
+        !s.renderer.request_diffuse_capture(s.request))
     {
         error = "Renderer rejected the diffuse capture request";
         return s.progress = BakeProgress::failed;

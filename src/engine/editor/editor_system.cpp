@@ -1,4 +1,5 @@
 #include "editor/editor_system.hpp"
+#include "editor/file_text.hpp"
 
 #include "editor/commands/editor_command_channel.hpp"
 #include "editor/commands/editor_commands.hpp"
@@ -73,7 +74,7 @@ bool read_frame_rate(const fs::path& project_root, std::int32_t& target)
 {
     const auto path = project_root / "settings" / "editor-settings.toml";
     std::string source;
-    if (!ResourceSystem::read_text(path, source))
+    if (!engine::editor::file_detail::read_text(path, source))
     {
         LogSystem::write(LogLevel::error,
                          "Cannot read editor settings: " + PathUtils::to_utf8(path));
@@ -210,7 +211,7 @@ struct EditorSystem::State
     void restore_frame_rate_if_stopped() noexcept
     {
         const auto* status = gameplay.script_status();
-        if (status == nullptr || !status->running)
+        if (transition != "starting" && (status == nullptr || !status->running))
         {
             restore_frame_rate();
         }
@@ -263,9 +264,11 @@ struct EditorSystem::State
         const auto* current = gameplay.script_status();
         if (current != nullptr && current->running)
         {
-            return gameplay.start();
+            return true;
         }
-        if (!environment.refresh_resources(gameplay))
+        ResourceCatalog catalog;
+        if (!ResourceSystem::read_catalog(environment.builtin_path_, catalog) ||
+            !environment.apply_resources(catalog.data(), gameplay))
         {
             return false;
         }
@@ -276,7 +279,7 @@ struct EditorSystem::State
             restore_frame_rate();
             return false;
         }
-        if (!gameplay.start())
+        if (!gameplay.begin_prepare(catalog, {{"content", environment.builtin_path_}}))
         {
             restore_frame_rate();
             return false;
@@ -343,7 +346,8 @@ struct EditorSystem::State
 
     bool control_project(bool start, const Json& arguments, Json& result, std::string& error)
     {
-        if (!arguments.is_object() || !arguments.empty() || closed || !transition.empty())
+        if (!arguments.is_object() || !arguments.empty() || closed ||
+            (start && !transition.empty()))
         {
             error = "Project control requires an idle command channel and no arguments";
             return false;
@@ -359,7 +363,7 @@ struct EditorSystem::State
             return false;
         }
 #if ENGINE_HAS_ASSET_PIPELINE
-        // 保持资源锁覆盖目录刷新、启动及最终运行状态发布。
+        // 锁只覆盖目录刷新与快照捕获，分步准备不跨帧持锁。
         asset_pipeline::ProjectLock start_lock;
 #endif
         if (start)
@@ -405,7 +409,11 @@ struct EditorSystem::State
             }
             last_success = true;
         }
-        transition.clear();
+        if (!start || !last_success ||
+            gameplay.step_prepare(0, 0.002) == GameplayPrepareStatus::failed)
+        {
+            transition.clear();
+        }
         if (!publish(true))
         {
             last_success = false;
@@ -525,6 +533,21 @@ bool EditorSystem::on_tick(double)
 {
     if (state_ != nullptr)
     {
+        if (state_->transition == "starting")
+        {
+            const auto status = state_->gameplay.step_prepare(16, 0.002);
+            if (status != GameplayPrepareStatus::preparing)
+            {
+                state_->last_success =
+                    status == GameplayPrepareStatus::ready && state_->gameplay.activate_prepared();
+                if (!state_->last_success)
+                {
+                    state_->last_error = state_->gameplay.last_error();
+                    state_->gameplay.stop();
+                }
+                state_->transition.clear();
+            }
+        }
         state_->restore_frame_rate_if_stopped();
     }
     if (!environment_.is_initialized() || (state_ != nullptr && !state_->publish()))

@@ -1,12 +1,12 @@
 # 在活动玩法中执行临时 TypeScript
 
-状态：已评审，按本页契约实现。本页定义新增契约；现有生命周期见
+本页定义活动 Run 中执行临时 TypeScript 的契约；生命周期见
 [ScriptRuntime](../../../runtime/class-diagrams/script-runtime.md)、
 [GameplaySession](../../../runtime/class-diagrams/gameplay-session.md)、
 [ScriptSystem](script-system.md)、[ScriptVm](script-vm.md)及
 [编辑器命令](../../../editor/class-diagrams/editor-commands.md)。
 
-目标是由 MCP 直接提交一段 TS，在**当前运行的同一 VM、同一项目模块实例和同一
+MCP 直接提交一段 TS，在**当前运行的同一 VM、同一项目模块实例和同一
 Gameplay 实例**上查询或执行操作。项目不用登记命令名称，不另建脚本上下文。
 TS 编译留在编辑器工具端，运行时只接收 JavaScript 和 JSON；
 普通运行包无需 MCP、Node 或 TypeScript 编译器。
@@ -150,7 +150,7 @@ ScriptVm 只增加一个内部方法，失败原因沿用既有 `last_error()`�
 首版只允许导入 **当前 Run 已加载的模块**，运行导入显式使用相对 `.js` 路径。
 工具编译阶段核对 TS 解析后的发射路径与该逻辑路径相同；类型导入不要求 `.js` 后缀。
 原因是 Run 目前在预检时固定模块图，
-并在激活时取得对应 ResourcePtr；临时加载新模块会同时涉及目录一致性、
+并在激活时 retain 已加载的入口资源；临时加载新模块会同时涉及目录一致性、
 共享资源持有及新顶层副作用。该接口不绕过这些规则。
 未加载模块明确报告逻辑路径；需要用到的项目测试模块可由正常入口静态 import，
 经既有资源导入、预检和热重载加入 Run。
@@ -184,7 +184,7 @@ tsconfig 与引擎声明解析，增加单段源码编译模式。
 项目资源不重编译、不重新导入，不产生 GUID、meta 或 catalog 变更。
 
 MCP 工具属于独立工具进程，可以在那里调用随编辑器部署的 Node，
-复用现有 `run_process` 与工具路径函数。源码通过受控临时文件传入，
+复用[编辑器扩展工具](../../../editor/class-diagrams/extension-tools.md)的唯一 `run_import_tool` 与工具路径函数，显式检查返回状态。源码通过受控临时文件传入，
 不拼入 shell 命令；临时文件只放项目 cache 的本次请求目录，完成或失败后清理，
 不写 assets，不进入 Git。编译发生在向编辑器提交命令之前，不阻塞渲染帧。
 

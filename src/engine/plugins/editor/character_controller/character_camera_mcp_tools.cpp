@@ -1,6 +1,6 @@
 #include "plugins/editor/character_controller/character_camera_mcp_tools.hpp"
 
-#include "plugins/editor/mcp/component_mcp_tools.hpp"
+#include "plugins/editor/mcp/editor_tool_registration.hpp"
 
 namespace engine::plugins::character_controller
 {

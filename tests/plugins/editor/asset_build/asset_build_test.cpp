@@ -1,4 +1,5 @@
 #include "editor/asset_pipeline/asset_pipeline_system.hpp"
+#include "file_text.hpp"
 #include "plugins/editor/asset_build/asset_build_system.hpp"
 #include "runtime/engine_config.hpp"
 #include "runtime/resource/builtin_resources.hpp"
@@ -40,7 +41,7 @@ bool write(const std::filesystem::path& path, const std::string& text)
 std::string read(const std::filesystem::path& path)
 {
     std::string text;
-    if (!engine::ResourceSystem::read_text(path, text))
+    if (!test_support::read_text(path, text))
     {
         return {};
     }

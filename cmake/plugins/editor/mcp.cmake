@@ -13,6 +13,7 @@ function(engine_configure_mcp_plugin)
         src/engine/plugins/editor/mcp/project_lifecycle_tools.cpp
         platforms/android/editor/plugins/mcp/android_sync.cpp
         src/engine/plugins/editor/mcp/editor_mcp_tools.cpp
+        src/engine/plugins/editor/mcp/editor_tool_registration.cpp
         src/engine/plugins/editor/mcp/project_script_mcp_tools.cpp
         src/engine/plugins/editor/mcp/physics_mcp_tools.cpp
         src/engine/plugins/editor/mcp/audio_mcp_tools.cpp

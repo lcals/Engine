@@ -1,4 +1,5 @@
 #include "plugins/runtime/script/bindings/character_motor_binding.hpp"
+#include "plugins/runtime/script/bindings/binding_helpers.hpp"
 
 #include "plugins/runtime/script/bindings/binding_context.hpp"
 #include "runtime/scene/character_motor.hpp"
@@ -66,30 +67,20 @@ Object.freeze(CharacterMotor.prototype);
 Object.freeze(CharacterMotor);
 )js";
 
-CharacterMotor motor(const Arguments& arguments, int count)
-{
-    arguments.set_return(false);
-    auto node = BindingContext::node(arguments);
-    return node.valid() && arguments.count() == count ? node.get_component<CharacterMotor>()
-                                                      : CharacterMotor{};
-}
-
-void add(const Arguments& arguments)
-{
-    auto node = BindingContext::node(arguments);
-    arguments.set_return(arguments.count() == 2 && node.valid() &&
-                         node.add_component<CharacterMotor>().valid());
-}
-
 void capsule(const Arguments& arguments)
 {
-    auto value = motor(arguments, 4);
+    auto value = binding_detail::component<CharacterMotor>(arguments, 4);
     float radius = 0;
     float half_height = 0;
     if (value.valid() && BindingContext::scalar(arguments, 2, radius) &&
         BindingContext::scalar(arguments, 3, half_height))
     {
-        auto settings = value.settings();
+        CharacterMotor::Data settings{};
+        if (!value.get_settings(settings))
+        {
+            arguments.set_return(false);
+            return;
+        }
         settings.radius = radius;
         settings.half_height = half_height;
         arguments.set_return(value.set_settings(settings));
@@ -98,11 +89,16 @@ void capsule(const Arguments& arguments)
 
 void set_number(const Arguments& arguments, float schema::CharacterMotorDataT::* field)
 {
-    auto value = motor(arguments, 3);
+    auto value = binding_detail::component<CharacterMotor>(arguments, 3);
     float number = 0;
     if (value.valid() && BindingContext::scalar(arguments, 2, number))
     {
-        auto settings = value.settings();
+        CharacterMotor::Data settings{};
+        if (!value.get_settings(settings))
+        {
+            arguments.set_return(false);
+            return;
+        }
         settings.*field = number;
         arguments.set_return(value.set_settings(settings));
     }
@@ -135,7 +131,7 @@ void external_damping(const Arguments& arguments)
 
 void velocity(const Arguments& arguments)
 {
-    auto value = motor(arguments, 4);
+    auto value = binding_detail::component<CharacterMotor>(arguments, 4);
     double x = 0;
     double z = 0;
     if (value.valid() && BindingContext::number(arguments, 2, x) &&
@@ -147,7 +143,7 @@ void velocity(const Arguments& arguments)
 
 void get_velocity(const Arguments& arguments)
 {
-    const auto value = motor(arguments, 2);
+    const auto value = binding_detail::component<CharacterMotor>(arguments, 2);
     arguments.set_return({});
     if (!value)
     {
@@ -160,7 +156,7 @@ void get_velocity(const Arguments& arguments)
 
 void clear_input(const Arguments& arguments)
 {
-    auto value = motor(arguments, 2);
+    auto value = binding_detail::component<CharacterMotor>(arguments, 2);
     if (value.valid())
     {
         value.clear_input();
@@ -170,7 +166,7 @@ void clear_input(const Arguments& arguments)
 
 void add_velocity(const Arguments& arguments)
 {
-    auto value = motor(arguments, 5);
+    auto value = binding_detail::component<CharacterMotor>(arguments, 5);
     double x = 0;
     double y = 0;
     double z = 0;
@@ -183,7 +179,7 @@ void add_velocity(const Arguments& arguments)
 
 void jump(const Arguments& arguments)
 {
-    auto value = motor(arguments, 3);
+    auto value = binding_detail::component<CharacterMotor>(arguments, 3);
     float speed = 0;
     if (value.valid() && BindingContext::scalar(arguments, 2, speed))
     {
@@ -193,7 +189,7 @@ void jump(const Arguments& arguments)
 
 void grounded(const Arguments& arguments)
 {
-    const auto value = motor(arguments, 2);
+    const auto value = binding_detail::component<CharacterMotor>(arguments, 2);
     arguments.set_return(value.valid() && value.grounded());
 }
 
@@ -212,7 +208,8 @@ std::string_view CharacterMotorBinding::source() const noexcept
 bool CharacterMotorBinding::register_functions(vm::ScriptVm& vm) const
 {
     return vm.integer("CharacterMotorKind", static_cast<int>(CharacterMotor::component_type)) &&
-           vm.function("CharacterMotorAdd", add) && vm.function("CharacterMotorCapsule", capsule) &&
+           vm.function("CharacterMotorAdd", binding_detail::add_component<CharacterMotor>) &&
+           vm.function("CharacterMotorCapsule", capsule) &&
            vm.function("CharacterMotorSlope", slope) && vm.function("CharacterMotorStep", step) &&
            vm.function("CharacterMotorSnap", snap) &&
            vm.function("CharacterMotorGravity", gravity) &&

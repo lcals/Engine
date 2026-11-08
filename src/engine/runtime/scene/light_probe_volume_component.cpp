@@ -1,11 +1,13 @@
 #include "runtime/scene/light_probe_volume_component.hpp"
 
+#include "runtime/core/guid_map.hpp"
+#include "runtime/resource/types/light_probe_resource.hpp"
 #include "runtime/scene/light_probe_volume_component_runtime.hpp"
 
 #include "runtime/scene/ecs_storage.hpp"
 
-#include "runtime/resource/resource_system.hpp"
 #include "runtime/scene/node.hpp"
+#include "runtime/scene/resource_binding.hpp"
 #include "runtime/scene/transform.hpp"
 
 #include <array>
@@ -24,12 +26,6 @@ LightProbeVolumeComponent::Runtime* LightProbeVolumeComponent::runtime() const n
     return runtime_state<Runtime>();
 }
 
-LightProbeVolumeSettings LightProbeVolumeComponent::settings() const noexcept
-{
-    const auto* value = read_data<Data>();
-    return value ? *value : Data{};
-}
-
 bool LightProbeVolumeComponent::get_settings(Data& output) const noexcept
 {
     const auto* value = read_data<Data>();
@@ -43,13 +39,13 @@ bool LightProbeVolumeComponent::set_settings(const LightProbeVolumeSettings& set
     {
         return false;
     }
-    ResourcePtr replacement;
+    ResourceReference replacement;
     if (!settings.probes_guid.empty())
     {
-        auto* resources = ResourceSystem::instance();
+        auto* resources = node().world()->resource_loader();
         if (!resources || !GuidMap::valid_guid(settings.probes_guid) ||
-            !resources->loader().load(settings.probes_guid, replacement) ||
-            !replacement->light_probe())
+            !ecs_detail::acquire_resource(node(), settings.probes_guid, replacement) ||
+            !replacement.data<LightProbeResource>())
         {
             return false;
         }
@@ -60,13 +56,14 @@ bool LightProbeVolumeComponent::set_settings(const LightProbeVolumeSettings& set
     return true;
 }
 
-std::shared_ptr<const Resource> LightProbeVolumeComponent::resource() const noexcept
+ResourceHandle LightProbeVolumeComponent::resource() const noexcept
 {
     if (!valid())
     {
         return {};
     }
-    const auto* probes = runtime()->resource_ ? runtime()->resource_->light_probe() : nullptr;
+    const auto* probes =
+        runtime()->resource_ ? runtime()->resource_.data<LightProbeResource>() : nullptr;
     auto transform = node().get_component<Transform>();
     std::array<float, 16> matrix{};
     if (!probes || probes->baked_transform.size() != matrix.size() || !transform ||
@@ -81,7 +78,7 @@ std::shared_ptr<const Resource> LightProbeVolumeComponent::resource() const noex
             return {};
         }
     }
-    return runtime()->resource_;
+    return runtime()->resource_.handle();
 }
 
 bool LightProbeVolumeComponent::restore_data(const schema::ComponentDataT& data)

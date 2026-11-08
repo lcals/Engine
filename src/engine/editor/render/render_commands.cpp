@@ -67,7 +67,6 @@ Json settings_json(const RenderSettings& value)
                    {"ambientSkyColor", value.ambient_sky_color},
                    {"ambientEquatorColor", value.ambient_equator_color},
                    {"ambientGroundColor", value.ambient_ground_color},
-                   {"linearFog", value.fog_mode == FogMode::linear},
                    {"fogMode", fog_mode_name(value.fog_mode)},
                    {"fogColor", value.fog_color},
                    {"fogStart", value.fog_start},
@@ -149,13 +148,14 @@ bool resolve_sun_identity(Json& values, const WorldSystem& world, std::string& e
     const auto* scene = world.scene();
     const auto node = scene ? scene->find_node(id) : Node{};
     const auto light = node ? node.get_component<Light>() : Light{};
-    const auto info = node ? node.info() : schema::NodeInfoT{};
-    if (!light || light.settings().kind != schema::LightKind::directional || !info.properties)
+    LightSettings settings;
+    if (!light.get_settings(settings) || settings.kind != schema::LightKind::directional ||
+        node.local_id() == 0)
     {
         error = "Atmosphere sun must identify a directional Light in the current scene";
         return false;
     }
-    *value = std::to_string(info.properties->id);
+    *value = std::to_string(node.local_id());
     return true;
 }
 
@@ -251,18 +251,6 @@ bool read_settings(const Json& arguments, RenderSettings& settings, std::string&
                 return false;
             }
         }
-        else if (item.key() == "linearFog")
-        {
-            if (!item->is_boolean())
-            {
-                error = "linearFog must be boolean";
-                return false;
-            }
-            if (!arguments.contains("fogMode"))
-            {
-                settings.fog_mode = item->get<bool>() ? FogMode::linear : FogMode::none;
-            }
-        }
         else if (item.key() == "filmicTonemap" || item.key() == "directionalShadows" ||
                  item.key() == "ambientTricolor" || item.key() == "iblEnabled" ||
                  item.key() == "aoEnabled" || item.key() == "hdrEnabled" ||
@@ -343,12 +331,6 @@ bool read_settings(const Json& arguments, RenderSettings& settings, std::string&
                                                                 : settings.shadow_bias;
             value = item->get<float>();
         }
-    }
-    if (arguments.contains("fogMode") && arguments.contains("linearFog") &&
-        arguments["linearFog"].get<bool>() != (settings.fog_mode == FogMode::linear))
-    {
-        error = "linearFog and fogMode disagree";
-        return false;
     }
     return true;
 }
@@ -496,8 +478,9 @@ private:
             return false;
         }
         const auto transform = node.get_component<Transform>();
-        if (!transform || !transform.enabled() || !transform.visible() ||
-            transform.settings() != TransformSettings{})
+        TransformSettings pose;
+        if (!transform.get_settings(pose) || !transform.enabled() || !transform.visible() ||
+            pose != TransformSettings{})
         {
             return false;
         }
@@ -638,7 +621,12 @@ private:
             {
                 return false;
             }
-            auto settings = component.settings();
+            PostProcessSettings settings;
+            if (!component.get_settings(settings))
+            {
+                error = "Cannot read post-process settings";
+                return false;
+            }
             settings.exposure = after_.exposure;
             settings.filmic_tonemap = after_.filmic_tonemap;
             settings.hdr_enabled = after_.hdr_enabled;
@@ -671,8 +659,10 @@ private:
             for (const auto& node : nodes)
             {
                 auto light = node.get_component<Light>();
-                if (!light || !light.active() || !light.visible_in_hierarchy() ||
-                    light.settings().kind != schema::LightKind::directional)
+                LightSettings light_settings;
+                if (!light.get_settings(light_settings) || !light.active() ||
+                    !light.visible_in_hierarchy() ||
+                    light_settings.kind != schema::LightKind::directional)
                 {
                     continue;
                 }
@@ -680,7 +670,7 @@ private:
                 {
                     first = light;
                 }
-                if (light.settings().cast_shadows)
+                if (light_settings.cast_shadows)
                 {
                     if (caster.valid())
                     {
@@ -710,7 +700,12 @@ private:
             {
                 return false;
             }
-            auto settings = light.settings();
+            LightSettings settings;
+            if (!light.get_settings(settings))
+            {
+                error = "Cannot read light settings";
+                return false;
+            }
             settings.cast_shadows = after_.directional_shadows;
             settings.shadow_resolution = after_.shadow_resolution;
             settings.shadow_bias = after_.shadow_bias;
@@ -860,22 +855,23 @@ bool RenderCommands::register_commands(EditorCommands& commands, SceneCommands& 
                        for (const auto& node : nodes)
                        {
                            const auto light = node.get_component<Light>();
-                           if (!light || !light.active() || !light.visible_in_hierarchy() ||
-                               light.settings().kind != schema::LightKind::directional)
+                           LightSettings light_settings;
+                           if (!light.get_settings(light_settings) || !light.active() ||
+                               !light.visible_in_hierarchy() ||
+                               light_settings.kind != schema::LightKind::directional)
                            {
                                continue;
                            }
-                           if (!light.settings().cast_shadows)
+                           if (!light_settings.cast_shadows)
                            {
-                               resolved_after.shadow_resolution =
-                                   light.settings().shadow_resolution;
-                               resolved_after.shadow_bias = light.settings().shadow_bias;
-                               resolved_after.shadow_cascades = light.settings().shadow_cascades;
-                               resolved_after.shadow_distance = light.settings().shadow_distance;
+                               resolved_after.shadow_resolution = light_settings.shadow_resolution;
+                               resolved_after.shadow_bias = light_settings.shadow_bias;
+                               resolved_after.shadow_cascades = light_settings.shadow_cascades;
+                               resolved_after.shadow_distance = light_settings.shadow_distance;
                                resolved_after.shadow_split_lambda =
-                                   light.settings().shadow_split_lambda;
+                                   light_settings.shadow_split_lambda;
                                resolved_after.shadow_cascade_blend =
-                                   light.settings().shadow_cascade_blend;
+                                   light_settings.shadow_cascade_blend;
                            }
                            break;
                        }

@@ -19,7 +19,6 @@ public:
     using Runtime = CharacterCameraRuntime;
     static constexpr ComponentType component_type = ComponentType::CharacterCameraData;
     [[nodiscard]] static bool valid_settings(const schema::CharacterCameraDataT& settings) noexcept;
-    [[nodiscard]] schema::CharacterCameraDataT settings() const noexcept;
     [[nodiscard]] bool get_settings(Data& output) const noexcept;
     [[nodiscard]] bool set_settings(const schema::CharacterCameraDataT& settings) noexcept;
     [[nodiscard]] bool restore_data(const schema::ComponentDataT& data);

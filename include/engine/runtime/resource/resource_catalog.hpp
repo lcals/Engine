@@ -3,7 +3,7 @@
 #include "runtime/core/guid_map.hpp"
 #include "runtime/schema/asset_catalog_generated.h"
 
-#include <map>
+#include <memory>
 #include <string_view>
 
 namespace engine
@@ -20,9 +20,8 @@ public:
     [[nodiscard]] std::string_view revision() const noexcept;
 
 private:
-    GuidMap identities_;
-    schema::AssetCatalogDataT data_;
-    std::map<Guid, std::size_t, std::less<>> entries_;
+    struct CatalogSnapshot;
+    std::shared_ptr<const CatalogSnapshot> snapshot_;
 };
 
 } // namespace engine

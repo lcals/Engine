@@ -1,3 +1,4 @@
+#include "file_text.hpp"
 #include "resource_fixture.hpp"
 
 #include "runtime/app/runtime_settings.hpp"
@@ -28,7 +29,7 @@ int main(int argc, char* argv[])
     std::string text;
     std::string error;
     engine::RuntimeSettings settings;
-    if (argc < 2 || !engine::ResourceSystem::read_text(argv[1], text))
+    if (argc < 2 || !test_support::read_text(argv[1], text))
     {
         std::fprintf(stderr, "runtime settings: a complete fixture JSON path is required\n");
         return 1;
@@ -41,9 +42,9 @@ int main(int argc, char* argv[])
                     settings.engine.width == 1440 && settings.engine.height == 900 &&
                     settings.engine.target_frame_rate == 30 &&
                     settings.parallel.threads.worker_limit == 2 &&
-                    settings.parallel.loading.max_concurrency == 4 &&
+                    settings.parallel.file.max_concurrency == 4 &&
                     settings.parallel.resources.max_in_flight == 3 &&
-                    settings.parallel.render.texture_batch_size == 2,
+                    settings.parallel.rendering.texture_batch_size == 2,
                 "complete grouped settings supply the game, engine and runtime budgets"))
     {
         return 1;
@@ -77,7 +78,7 @@ int main(int argc, char* argv[])
         R"({"game":{"game_language":null}})",
         R"({"engine":{"height":null}})",
         R"({"parallel":{"runtime":{"max_pending":null}}})",
-        R"({"parallel":{"render":{"maximum_lights":null}}})",
+        R"({"parallel":{"rendering":{"maximum_lights":null}}})",
         R"({"parallel":{"completion_budget_seconds":null}})",
         R"({"game":{"game_language":42}})",
         R"({"game":{"startup_movie":42}})",
@@ -91,16 +92,19 @@ int main(int argc, char* argv[])
         R"({"parallel":{"scene_restore":{"max_seconds":0}}})",
         R"({"parallel":{"completion_budget_seconds":2}})",
         R"({"parallel":{"navigation_tile_threshold":1025}})",
-        R"({"parallel":{"render":{"texture_batch_size":65}}})",
-        R"({"parallel":{"render":{"cluster_tile_size":15}}})",
-        R"({"parallel":{"render":{"cluster_depth_slices":65}}})",
-        R"({"parallel":{"render":{"maximum_lights":4097}}})",
-        R"({"parallel":{"render":{"maximum_cluster_lights":0}}})",
-        R"({"parallel":{"render":{"shadow_atlas_size":3000}}})",
-        R"({"parallel":{"render":{"local_shadow_tile_size":768}}})",
-        R"({"parallel":{"render":{"shadow_atlas_size":512,"local_shadow_tile_size":1024}}})",
-        R"({"parallel":{"render":{"maximum_local_shadow_faces":25}}})",
-        R"({"parallel":{"render":{"maximum_planar_reflections":3}}})",
+        R"({"parallel":{"rendering":{"texture_batch_size":65}}})",
+        R"({"parallel":{"rendering":{"prepare_items_per_step":0}}})",
+        R"({"parallel":{"rendering":{"prepare_seconds_per_step":0}}})",
+        R"({"parallel":{"rendering":{"upload_bytes_per_step":0}}})",
+        R"({"parallel":{"rendering":{"cluster_tile_size":15}}})",
+        R"({"parallel":{"rendering":{"cluster_depth_slices":65}}})",
+        R"({"parallel":{"rendering":{"maximum_lights":4097}}})",
+        R"({"parallel":{"rendering":{"maximum_cluster_lights":0}}})",
+        R"({"parallel":{"rendering":{"shadow_atlas_size":3000}}})",
+        R"({"parallel":{"rendering":{"local_shadow_tile_size":768}}})",
+        R"({"parallel":{"rendering":{"shadow_atlas_size":512,"local_shadow_tile_size":1024}}})",
+        R"({"parallel":{"rendering":{"maximum_local_shadow_faces":25}}})",
+        R"({"parallel":{"rendering":{"maximum_planar_reflections":3}}})",
         R"({"engine":{"width":0}})",
         R"({"engine":{"window_title":""}})",
         R"({"engine":{"target_frame_rate":0}})",
@@ -131,14 +135,14 @@ int main(int argc, char* argv[])
         return 1;
     }
     candidate.merge_patch(Json::parse(
-        R"({"engine":{"target_frame_rate":-1},"parallel":{"navigation_tile_threshold":1024,"render":{"texture_batch_size":64,"maximum_local_shadow_faces":0,"maximum_planar_reflections":0}}})",
+        R"({"engine":{"target_frame_rate":-1},"parallel":{"navigation_tile_threshold":1024,"rendering":{"texture_batch_size":64,"maximum_local_shadow_faces":0,"maximum_planar_reflections":0}}})",
         nullptr, false));
     if (!expect(engine::decode_runtime_settings(candidate.dump(), settings, error) &&
                     settings.engine.target_frame_rate == -1 &&
                     settings.parallel.navigation_tile_threshold == 1024 &&
-                    settings.parallel.render.texture_batch_size == 64 &&
-                    settings.parallel.render.maximum_local_shadow_faces == 0 &&
-                    settings.parallel.render.maximum_planar_reflections == 0,
+                    settings.parallel.rendering.texture_batch_size == 64 &&
+                    settings.parallel.rendering.maximum_local_shadow_faces == 0 &&
+                    settings.parallel.rendering.maximum_planar_reflections == 0,
                 "explicit upper bounds and disabled optional captures are accepted"))
     {
         return 1;

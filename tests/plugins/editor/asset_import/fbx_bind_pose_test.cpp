@@ -62,6 +62,7 @@ bool converts(const ufbx_matrix& first, const ufbx_matrix& second, double unit)
         document.meshes.emplace(std::to_string(index), &nodes[index]);
     }
     engine::schema::SkeletonDataT output;
+    output.schema_version = 2;
     std::string error;
     const bool success = convert_skeleton(document, output, error);
     return success && error.empty() && output.joints.size() == 1;
@@ -130,6 +131,7 @@ bool motion_track_validation()
     skeleton.nodes.emplace("root/Joint", &joint);
     skeleton.joint_indices.emplace(&joint, 0);
     engine::schema::AnimationDataT animation;
+    animation.schema_version = 2;
     animation.duration = 1.0F;
     auto track = std::make_unique<engine::schema::AnimationTrackDataT>();
     track->translations = {{0.0F, {2.0, 3.0, 4.0}}, {1.0F, {5.0, 6.0, 7.0}}};
@@ -219,6 +221,7 @@ bool motion_rotation_axes()
         quaternion[animated_axis] = std::sin(angle * 0.5);
         const double w = std::cos(angle * 0.5);
         engine::schema::AnimationDataT original;
+        original.schema_version = 2;
         original.duration = 1.0F;
         auto track = std::make_unique<engine::schema::AnimationTrackDataT>();
         track->translations = {{0.0F, {2.0, 3.0, 4.0}}, {1.0F, {2.0, 3.0, 4.0}}};
@@ -256,11 +259,12 @@ bool motion_rotation_axes()
             inverse.w = w;
             const auto expected = selected ? ufbx_quat_rotate_vec3(inverse, input) : input;
             if (!expect(std::abs(std::abs(dot) - 1.0) < 0.000001 &&
-                            std::hypot(p.x() - expected.x, p.y() - expected.y,
-                                       p.z() - expected.z) < 0.000001 &&
+                            std::hypot(p.x() - expected.x, p.y() - expected.y, p.z() - expected.z) <
+                                0.000001 &&
                             baked.scales == original.tracks[0]->scales,
                         "XYZ extraction removes only the selected axis and keeps upstream "
-                        "translation recomposition: " + label))
+                        "translation recomposition: " +
+                            label))
             {
                 return false;
             }
@@ -407,6 +411,7 @@ bool animation_sample_boundaries(const ConvertedFbx& source)
     {
         stack.time_end = duration;
         engine::schema::AnimationDataT animation;
+        animation.schema_version = 2;
         std::string error;
         if (!expect(convert_animation(document, skeleton, stack, animation, error), error))
         {
@@ -444,6 +449,7 @@ bool animation_sample_boundaries(const ConvertedFbx& source)
     }
     stack.time_end = std::numeric_limits<double>::denorm_min();
     engine::schema::AnimationDataT invalid;
+    invalid.schema_version = 2;
     std::string error;
     return expect(!convert_animation(document, skeleton, stack, invalid, error) && !error.empty(),
                   "duration that cannot advance a float timestamp is rejected");
@@ -546,6 +552,7 @@ bool coordinate_settings()
             }
         }
         engine::schema::AnimationDataT mismatched;
+        mismatched.schema_version = 2;
         std::string error;
         if (!expect(!convert_animation(adjusted.animation_document, baseline.model_document,
                                        *adjusted.animation_document.animations.begin()->second,
@@ -646,10 +653,9 @@ bool imported_tangent_frames()
             const auto tangent = ufbx_get_vertex_vec3(&source.vertex_tangent, corner);
             const auto bitangent = ufbx_get_vertex_vec3(&source.vertex_bitangent, corner);
             const auto normal = ufbx_get_vertex_vec3(&source.vertex_normal, corner);
-            const double orientation =
-                (normal.y * tangent.z - normal.z * tangent.y) * bitangent.x +
-                (normal.z * tangent.x - normal.x * tangent.z) * bitangent.y +
-                (normal.x * tangent.y - normal.y * tangent.x) * bitangent.z;
+            const double orientation = (normal.y * tangent.z - normal.z * tangent.y) * bitangent.x +
+                                       (normal.z * tangent.x - normal.x * tangent.z) * bitangent.y +
+                                       (normal.x * tangent.y - normal.y * tangent.x) * bitangent.z;
             const auto& actual = converted.tangents[entry->second];
             const double sign = orientation < 0 ? -1.0 : 1.0;
             if (!expect(std::abs(actual.x() - tangent.x) < 1e-5 &&
@@ -694,9 +700,8 @@ bool generated_tangent_frames()
         result.z = z;
         return result;
     };
-    std::array<ufbx_vec3, 7> positions{vec3(0, 0, 0), vec3(1, 0, 0), vec3(1, 1, 0),
-                                       vec3(0, 1, 0), vec3(2, 0, 0), vec3(3, 0, 0),
-                                       vec3(2, 1, 0)};
+    std::array<ufbx_vec3, 7> positions{vec3(0, 0, 0), vec3(1, 0, 0), vec3(1, 1, 0), vec3(0, 1, 0),
+                                       vec3(2, 0, 0), vec3(3, 0, 0), vec3(2, 1, 0)};
     std::array<ufbx_vec3, 7> normals{};
     normals.fill(vec3(0, 0, 1));
     std::array<ufbx_vec2, 7> uv{vec2(0, 0), vec2(1, 1), vec2(0, 1), vec2(1, 0),
@@ -833,21 +838,20 @@ bool generated_tangent_frames()
     const auto snapshot = [](const engine::schema::MeshDataT& data)
     {
         flatbuffers::FlatBufferBuilder builder;
-        engine::schema::FinishMeshDataBuffer(
-            builder, engine::schema::MeshData::Pack(builder, &data));
+        engine::schema::FinishMeshDataBuffer(builder,
+                                             engine::schema::MeshData::Pack(builder, &data));
         return std::vector<std::uint8_t>(builder.GetBufferPointer(),
                                          builder.GetBufferPointer() + builder.GetSize());
     };
     const auto valid_snapshot = snapshot(output);
-    if (!expect(convert_mesh(document, node, output, error) &&
-                    snapshot(output) == valid_snapshot,
+    if (!expect(convert_mesh(document, node, output, error) && snapshot(output) == valid_snapshot,
                 "reusing an output replaces the mesh rather than appending old corners"))
     {
         return false;
     }
-    for (const double invalid : {std::numeric_limits<double>::quiet_NaN(),
-                                 std::numeric_limits<double>::infinity(),
-                                 std::numeric_limits<double>::max()})
+    for (const double invalid :
+         {std::numeric_limits<double>::quiet_NaN(), std::numeric_limits<double>::infinity(),
+          std::numeric_limits<double>::max()})
     {
         const auto original_position = positions.back();
         positions.back().x = invalid;
@@ -918,8 +922,9 @@ bool generated_tangent_frames()
 
 int main()
 {
-    return unit_independent_bind_comparison() && coordinate_settings() && imported_tangent_frames() &&
-                   generated_tangent_frames() && motion_track_validation() && motion_rotation_axes()
+    return unit_independent_bind_comparison() && coordinate_settings() &&
+                   imported_tangent_frames() && generated_tangent_frames() &&
+                   motion_track_validation() && motion_rotation_axes()
                ? 0
                : 1;
 }

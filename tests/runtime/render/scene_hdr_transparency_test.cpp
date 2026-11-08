@@ -1,4 +1,7 @@
+#include "../../support/render_fixture.hpp"
 #include "resource_fixture.hpp"
+#include "resource_services.hpp"
+#include "scene_snapshot.hpp"
 
 #include "runtime/engine_config.hpp"
 #include "runtime/render/render_system.hpp"
@@ -37,8 +40,8 @@ engine::schema::MeshDataT quad()
 {
     engine::schema::MeshDataT mesh;
     mesh.path = "meshes/hdr-transparent-quad";
-    mesh.vertices = {{-1, -1, 0, 0, 0, 1}, {1, -1, 0, 0, 0, 1},
-                     {1, 1, 0, 0, 0, 1}, {-1, 1, 0, 0, 0, 1}};
+    mesh.vertices = {
+        {-1, -1, 0, 0, 0, 1}, {1, -1, 0, 0, 0, 1}, {1, 1, 0, 0, 0, 1}, {-1, 1, 0, 0, 0, 1}};
     mesh.indices = {0, 1, 2, 0, 2, 3};
     mesh.texcoords = {{0, 1}, {1, 1}, {1, 0}, {0, 0}};
     mesh.tangents.assign(4, {1, 0, 0, 1});
@@ -47,7 +50,7 @@ engine::schema::MeshDataT quad()
 
 bool frame(engine::WindowSystem& window, engine::RenderSystem& renderer)
 {
-    return window.tick(1.0 / 60.0) && window.can_render() && renderer.render();
+    return window.tick(1.0 / 60.0) && window.can_render() && test_support::render_frame(renderer);
 }
 
 bool capture(engine::WindowSystem& window, engine::RenderSystem& renderer,
@@ -97,8 +100,8 @@ Color over(const Color& foreground, const Color& background, double alpha)
     return result;
 }
 
-bool check_pixels(const engine::SceneCaptureImage& image, const Color& reference,
-                  const char* label, double reference_weight = 1.0)
+bool check_pixels(const engine::SceneCaptureImage& image, const Color& reference, const char* label,
+                  double reference_weight = 1.0)
 {
     double max_error = 0.0;
     double sum_error = 0.0;
@@ -150,13 +153,15 @@ bool test()
     engine::EngineConfig config;
     config.window_title = "Scene HDR transparency";
     config.width = config.height = 128;
-    engine::ResourceSystem resources;
-    engine::WorldSystem world;
+    test_support::ResourceServices services;
+    engine::ResourceSystem& resources = services.core;
+    engine::WorldSystem world{&services.loader};
     engine::WindowSystem window;
     engine::RenderSystem renderer(window, &world);
     test_support::ResourceFixture fixture;
-    if (!resources.initialize(config) || !world.initialize(config) || !window.initialize(config) ||
-        !renderer.initialize(config) || !fixture.publish(resources))
+    if (!(services.initialize(config) && services.prepare_builtins()) ||
+        !world.initialize(config) || !window.initialize(config) || !renderer.initialize(config) ||
+        !(fixture.publish(resources) && services.prepare_builtins()))
     {
         return expect(false, "initialize renderer");
     }
@@ -172,9 +177,9 @@ bool test()
     lens.orthographic_size = 1;
     engine::TransformSettings camera_pose;
     camera_pose.position = {0, 0, 3};
-    auto lighting = light.settings();
+    auto lighting = test_support::read_settings(light);
     lighting.intensity = 8;
-    auto post_settings = post.settings();
+    auto post_settings = test_support::read_settings(post);
     post_settings.hdr_enabled = true;
     post_settings.bloom_enabled = true;
     post_settings.bloom_threshold = 0.2F;
@@ -212,8 +217,7 @@ bool test()
         materials[i] = mesh.material();
         if (!materials[i].set_type("builtin://materials/default-pbr") ||
             !materials[i].set_v4("baseColor", {colors[i][0], colors[i][1], colors[i][2], 1}) ||
-            !materials[i].set_float("metallic", 0) ||
-            !materials[i].set_float("roughness", 1) ||
+            !materials[i].set_float("metallic", 0) || !materials[i].set_float("roughness", 1) ||
             !materials[i].set_float("normalScale", 0))
         {
             return expect(false, "configure PBR materials");
@@ -246,10 +250,10 @@ bool test()
         !nodes[0].set_enabled(false) || !nodes[1].set_enabled(true) ||
         !capture(window, renderer, image) || !check_pixels(image, back, "opaque back") ||
         !nodes[2].set_enabled(true) || !nodes[0].set_enabled(true) ||
-        !materials[0].set_v4("baseColor", {front_color[0], front_color[1], front_color[2],
-                                          front_alpha}) ||
-        !materials[1].set_v4("baseColor", {back_color[0], back_color[1], back_color[2],
-                                          back_alpha}))
+        !materials[0].set_v4("baseColor",
+                             {front_color[0], front_color[1], front_color[2], front_alpha}) ||
+        !materials[1].set_v4("baseColor",
+                             {back_color[0], back_color[1], back_color[2], back_alpha}))
     {
         return false;
     }
@@ -258,14 +262,15 @@ bool test()
     {
         return false;
     }
-    for (const auto mode : {engine::schema::BlendMode::alpha_blend,
-                            engine::schema::BlendMode::premultiplied})
+    for (const auto mode :
+         {engine::schema::BlendMode::alpha_blend, engine::schema::BlendMode::premultiplied})
     {
         if (!materials[0].set_blend_mode(mode) || !materials[1].set_blend_mode(mode) ||
             !capture(window, renderer, image) ||
-            !check_pixels(image, expected, mode == engine::schema::BlendMode::alpha_blend
-                                               ? "straight alpha sorted composite"
-                                               : "premultiplied sorted composite"))
+            !check_pixels(image, expected,
+                          mode == engine::schema::BlendMode::alpha_blend
+                              ? "straight alpha sorted composite"
+                              : "premultiplied sorted composite"))
         {
             return false;
         }
@@ -275,14 +280,14 @@ bool test()
     // is still blended as ordinary linear color.
     if (!nodes[1].set_enabled(false) ||
         !materials[0].set_type("builtin://materials/default-unlit") ||
-        !materials[0].set_v4("baseColor", {front_color[0], front_color[1], front_color[2],
-                                          front_alpha}))
+        !materials[0].set_v4("baseColor",
+                             {front_color[0], front_color[1], front_color[2], front_alpha}))
     {
         return false;
     }
     const auto unlit_over_lit = over(front_color, background, front_alpha);
-    for (const auto mode : {engine::schema::BlendMode::alpha_blend,
-                            engine::schema::BlendMode::premultiplied})
+    for (const auto mode :
+         {engine::schema::BlendMode::alpha_blend, engine::schema::BlendMode::premultiplied})
     {
         if (!materials[0].set_blend_mode(mode) || !capture(window, renderer, image) ||
             !check_pixels(image, unlit_over_lit,

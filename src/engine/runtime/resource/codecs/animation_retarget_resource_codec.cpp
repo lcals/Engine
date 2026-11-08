@@ -1,14 +1,14 @@
 #include "runtime/resource/codecs/animation_retarget_resource_codec.hpp"
+#include "runtime/resource/codecs/resource_decode.hpp"
 
 #include "runtime/core/guid_map.hpp"
 #include "runtime/resource/codecs/animation_retarget_validation.hpp"
 #include "runtime/resource/codecs/model_value_utils.hpp"
-
-#include <flatbuffers/verifier.h>
+#include "runtime/resource/types/skeleton_resource.hpp"
+#include <set>
 
 #include <algorithm>
 #include <cmath>
-#include <set>
 #include <utility>
 
 namespace engine
@@ -73,41 +73,54 @@ bool AnimationRetargetResourceCodec::validate(const schema::AnimationRetargetPro
     return joint_path(data.source_hips_path) && joint_path(data.target_hips_path) && hips_mapping;
 }
 
-bool AnimationRetargetResourceCodec::decode(const ResourceCatalog& catalog, ByteView payload,
-                                            Resource& output) const
+schema::AssetKind AnimationRetargetResourceCodec::kind() const noexcept
 {
-    if (payload.empty() || payload.size() > 4U * 1024U * 1024U)
+    return schema::AssetKind::animation_retarget_profile;
+}
+
+bool AnimationRetargetResourceCodec::decode(const schema::AssetEntryT& entry, ByteView payload,
+                                            std::unique_ptr<Resource>& output,
+                                            std::string& error) const
+{
+    const auto validate = [](ByteView payload, std::string& error)
     {
+        return resource_decode_detail::verify_flatbuffer(
+            payload, schema::VerifyAnimationRetargetProfileDataBuffer,
+            "Invalid AnimationRetarget FlatBuffer", error);
+    };
+    return resource_decode_detail::decode_flatbuffer<ResourceType>(
+        entry, payload, 4U * 1024U * 1024U, validate, [](const std::uint8_t* bytes)
+        { return schema::UnPackAnimationRetargetProfileData(bytes); }, output, error);
+}
+
+bool AnimationRetargetResourceCodec::validate_data(const Resource& resource,
+                                                   std::string& error) const
+{
+    const auto* data = resource_detail::data<ResourceType>(&resource);
+    if (!data || !(data->path == resource.info().path && validate(*data) &&
+                   resource.info().dependencies.size() ==
+                       (data->source_skeleton_guid == data->target_skeleton_guid ? 1U : 2U) &&
+                   declares(resource, data->source_skeleton_guid) &&
+                   declares(resource, data->target_skeleton_guid)))
+    {
+        error = "Invalid AnimationRetarget data or declared dependencies";
         return false;
     }
-    const auto* bytes = reinterpret_cast<const std::uint8_t*>(payload.data());
-    flatbuffers::Verifier verifier(bytes, payload.size());
-    if (!schema::VerifyAnimationRetargetProfileDataBuffer(verifier))
-    {
-        return false;
-    }
-    auto data = schema::UnPackAnimationRetargetProfileData(bytes);
-    const auto dependency_count =
-        data->source_skeleton_guid == data->target_skeleton_guid ? 1U : 2U;
-    if (data->path != output.info().path || !validate(*data) ||
-        output.info().dependencies.size() != dependency_count ||
-        !declares(catalog, output, data->source_skeleton_guid, schema::AssetKind::skeleton) ||
-        !declares(catalog, output, data->target_skeleton_guid, schema::AssetKind::skeleton))
-    {
-        return false;
-    }
-    store(output, std::move(data));
+    error.clear();
     return true;
 }
 
-bool AnimationRetargetResourceCodec::validate_dependencies(
-    const ResourceCatalog&, const Resource& resource,
-    std::span<const ResourcePtr> dependencies) const
+bool AnimationRetargetResourceCodec::validate_dependencies(const Resource& resource,
+                                                           ResourceView dependencies,
+                                                           std::string& error) const
 {
-    const auto* data = resource.retarget_profile();
+    const auto* data = resource_detail::data<AnimationRetargetResource>(&resource);
     const auto* source = data ? dependency(dependencies, data->source_skeleton_guid) : nullptr;
     const auto* target = data ? dependency(dependencies, data->target_skeleton_guid) : nullptr;
-    return source && source->skeleton() && target && target->skeleton() &&
-           retarget_resource_detail::binding_shape(*data, *source->skeleton(), *target->skeleton());
+    return source && resource_detail::data<SkeletonResource>(source) && target &&
+           resource_detail::data<SkeletonResource>(target) &&
+           retarget_resource_detail::binding_shape(
+               *data, *resource_detail::data<SkeletonResource>(source),
+               *resource_detail::data<SkeletonResource>(target));
 }
 } // namespace engine

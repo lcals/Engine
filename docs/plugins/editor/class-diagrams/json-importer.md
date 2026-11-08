@@ -49,7 +49,7 @@ classDiagram
 
 ## 运行时与构建边界
 
-运行时将 `json` 显式登记到现有 [BinaryResourceCodec](../../../runtime/class-diagrams/resource-codecs.md)，通过 [Resource.bytes()](../../../runtime/class-diagrams/resource.md) 保存原始载荷；不增加 JsonResource、JsonCodec、JSON System 或 Manager。JSON 内容只在脚本门面读取时解析，核心资源层不链接 nlohmann/json。
+运行时显式登记独立 [JsonResourceCodec](../../../runtime/class-diagrams/resource-codecs.md)，将载荷解码到通用 ResourceValue 承载的 JsonResource；处理器通过私有 nlohmann/json 依赖检查完整 JSON 语法，脚本门面再转换为 VM 对象。业务先通过 Resources.Load 获取句柄，再由 Json.ParseResource 读取，结束后 Resources.Release。
 
 JSON 实现依赖编辑器基础的 `AssetImporter`，私有复用仓库已选的 `nlohmann_json::nlohmann_json`；通用管线仍不依赖具体插件。统一 `cmake/plugins/editor/asset_import.cmake` 管理五种导入器的源码与离线依赖，目标为 `engine_asset_import`（`engine::asset_import`）。插件默认随资源管线选择，也可整体关闭；关闭时不创建目标或宿主装配分支。运行包只包含资源载荷和运行时绑定，不包含导入插件。
 

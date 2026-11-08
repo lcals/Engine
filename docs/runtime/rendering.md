@@ -41,7 +41,7 @@ Frame/View uniform 使用 bgfx API 167 正式频率接口，不提供假效果�
 的 LUT 与散射积分，输出线性 HDR 后由引擎统一曝光和显示映射。它不会自动生成动态 IBL。
 Hex-Tiling 通过内置不透明 PBR 的 `hexTilingEnabled`、`hexTilingRotation`、`hexTilingContrast` 具名参数开启；
 共用颜色、法线、ORM 的坐标、梯度和混合权重，默认关闭。完整契约、来源和限制见
-[上游能力接入](upstream-rendering-features.md)、[静态 LOD](../editor/static-model-lod.md)及
+[固定来源与适配边界](rendering-sources.md)、[静态 LOD](../editor/static-model-lod.md)及
 [大气与 Hex](atmosphere-hex.md)。实际平台和图像验收见[测试文档](../testing.md)。
 
 CSM、AO、HDR、Bloom 和 IBL 在各平台使用同一套通道与 Shader 源码，经 `shaderc` 编译到对应后端。平台实现负责后端与表面适配，效果中的必要能力检查依据实际访问契约处理，例如 AO 在 Metal 上的纹理访问判据。能力不足时明确返回失败，不静默丢弃已开启的效果。共用实现不代表已经完成全平台实测；具体执行范围见[验证记录](../testing.md)。
@@ -54,7 +54,9 @@ CSM、AO、HDR、Bloom 和 IBL 在各平台使用同一套通道与 Shader 源�
 
 灯的颜色及 `intensity` 在线性空间参与计算，目前强度是引擎相对量，尚未标定为 lux 或 candela。方向光没有距离衰减；点光和聚光以 `max(d², 0.01)` 作距离平方分母，并乘范围淡出 `clamp(1 - d/range, 0, 1)²`；聚光另外在内外锥夹角余弦之间执行平滑过渡。该范围淡出是有界光源的实时近似；设置数值不能直接当作其他 DCC 中同名物理单位的等价数值。
 
-调用方可向 `prepare_scene(camera)` 和 `render(camera)` 显式提交借用镜头，替代本次绘制使用的活动相机。该镜头可以属于调用方独立场景，渲染器不持有它、不改写项目场景数据；未传入时继续使用项目活动镜头。编辑器预览使用独立的隐藏镜头，后处理仍读取项目场景活动相机的 `PostProcessComponent`，不将预览视角保存到场景。
+调用方可向 `prepare_scene(mode, progress, max_seconds, camera)` 和 `render(camera)` 显式提交借用镜头，替代本次绘制使用的活动相机。该镜头可以属于调用方独立场景，渲染器不持有它、不改写项目场景数据；未传入时继续使用项目活动镜头。编辑器预览使用独立的隐藏镜头，后处理仍读取项目场景活动相机的 `PostProcessComponent`，不将预览视角保存到场景。
+
+交互式宿主调用 `prepare_scene(RenderPrepareMode::incremental, progress)`，在 `preparing` 时继续加载画面，`ready` 后再 `render`；失败读取 `preparation_error()` 并显式清理。独立工具选择 `synchronous`，此时 `max_seconds` 必须为 0。`preparation_status(progress)` 只查询，`render` 不代替准备。分步预算和完成边界见[类图](class-diagrams/render-system.md#大场景分批准备)。
 
 节点世界矩阵为列主序，局部 -Z 表示相机朝向和方向光传播方向。相机提供透视视场角或正交竖直半高及近远裁剪面，窗口像素尺寸决定宽高比；视图基忽略缩放大小，避免非均匀缩放扭曲镜头。模型法线使用世界矩阵逆转置；负缩放按行列式切换剔除方向。窗口缩放更新交换链和投影。
 
@@ -134,7 +136,7 @@ Tracy、CPU/GPU 统计及采集工具统一见[性能采样](performance.md)；�
 
 可选三色环境光按世界法线 Y 在天空、赤道与地面颜色间插值，再乘环境强度。常量/三色环境光与 IBL 独立，可同时贡献照明；调试曝光时需一并检查二者，避免重复补光使画面发灰。`fog_mode` 可选 none、linear、exponential、exponential_squared。线性雾在透视相机下使用片元到相机的世界距离，在正交相机下使用前向深度，从 `fog_start` 到 `fog_end` 混合线性雾色；指数雾与平方指数雾使用相机前向深度减近裁面后的非负距离 d，透过率分别为 `exp(-fog_density*d)` 与 `exp(-(fog_density*d)^2)`，随后进行输出处理。fog_density 为非负有限值，0 表示没有衰减。三色环境和雾默认关闭，颜色参数为线性 0..1；这些值属于环境组件，不含具体资源来源的特殊分支。
 
-脚本 `EnvironmentComponent.SetAmbientTricolor(sky, equator, ground, intensity)` 接受三个线性 `[r,g,b]` 数组；`SetAmbient()` 切回单色环境光。`EnvironmentComponent.SetLinearFog(enabled, r, g, b, start, end)` 要求 `0 <= start < end`；`EnvironmentComponent.SetExponentialFog(enabled, r, g, b, density, squared=false)` 在 `squared=true` 时使用平方指数雾。MCP `set_render_settings` 对应字段为 `ambientTricolor`、`ambientSkyColor`、`ambientEquatorColor`、`ambientGroundColor`、`fogMode`、`fogColor`、`fogStart`、`fogEnd`、`fogDensity`，并保留 `linearFog` 兼容入口。
+脚本 `EnvironmentComponent.SetAmbientTricolor(sky, equator, ground, intensity)` 接受三个线性 `[r,g,b]` 数组；`SetAmbient()` 切回单色环境光。`EnvironmentComponent.SetLinearFog(enabled, r, g, b, start, end)` 要求 `0 <= start < end`；`EnvironmentComponent.SetExponentialFog(enabled, r, g, b, density, squared=false)` 在 `squared=true` 时使用平方指数雾。MCP `set_render_settings` 对应字段为 `ambientTricolor`、`ambientSkyColor`、`ambientEquatorColor`、`ambientGroundColor`、`fogMode`、`fogColor`、`fogStart`、`fogEnd`、`fogDensity`；雾模式只通过 `fogMode` 表达。
 
 项目初值保存到 `.scene`。脚本通过 `Node.GetComponent` / `AddComponent` 访问[渲染组件接口](../plugins/runtime/class-diagrams/render-script-api.md)，并检查各方法返回值；脚本修改不自动写入磁盘。`Render` 静态门面提供视口尺寸、VSync、MSAA 与最大各向异性等显示设备设置，不再写入场景效果。每个组件独立校验，一次无效提交保留该组件原有设置。编辑器 MCP `set_render_settings` 可按需创建环境节点和相机后处理组件，修改进入撤销历史及未保存状态，再由 `save_scene` 落盘。曝光、AO、HDR 与 Bloom 修改要求已有活动相机，开启阴影要求已有方向光。脚本清屏色为 `0xRRGGBBAA` 无符号整数，MCP 对应参数为归一化 `[r,g,b,a]` 数组，通道顺序相同。
 
@@ -257,7 +259,7 @@ Bloom 与 HDR 的依赖严格校验，不自动开启或关闭另一项。MCP �
 
 当前 IBL 沿用 Ant 的 GGX / split-sum 方案，使用三份独立资源：RGBA16F 漫反射立方图、包含完整粗糙度 mip 链的 RGBA16F 预滤波反射立方图，以及 RG16F BRDF LUT。漫反射图按世界法线采样，预滤波图按反射方向及粗糙度 mip 采样，LUT 以 N·V 和粗糙度为坐标，为材质反射率提供积分系数。它们占用纹理槽 12..14，AO 使用 11，阴影使用 15；项目资源 sampler 仅使用 0..4。
 
-环境组件通过 `ibl_irradiance`、`ibl_prefilter`、`ibl_lut` 保存 GUID，`ibl_enabled`（默认 false）和 `ibl_intensity`（范围 0..1000）控制使用。三项全空表示尚未烘焙，开启开关也不产生 IBL；存在引用时必须三项齐全且格式正确，加载失败明确返回失败，不回退旧场景资源。运行时只消费已生成的线性 KTX1 纹理，资源代际变化时重新加载。
+环境组件通过 `ibl_irradiance`、`ibl_prefilter`、`ibl_lut` 保存 GUID，`ibl_enabled`（默认 false）和 `ibl_intensity`（范围 0..1000）控制使用。三项全空表示尚未烘焙，开启开关也不产生 IBL；存在引用时必须三项齐全且格式正确，加载失败明确返回失败，不回退旧场景资源。KTX1 只保留为编辑器源文件，导入生成当前 TextureData 的 native 半浮点范围；运行时按已加载资源代际准备 GPU 对象。
 
 来源需要区分：Ant 提供余弦重要性采样、GGX 预过滤与 split-sum LUT 的数学实现，bgfx 提供跨平台计算、纹理与回读接口；bgfx `18-ibl` 本身消费两张预生成 DDS 立方图，没有这里的独立 BRDF LUT 或 GPU 烘焙流程。来源和改动见 [Ant 烘焙许可](../../third_party/notices/ant-scene-bake.md)。当前按场景保存三张图，后续再将与场景无关的 LUT 改为全局共享资源，尚未实施。
 
@@ -281,7 +283,7 @@ Android 在 Surface 暂停或销毁前由宿主请求关闭渲染器并等待确
 
 渲染扩展沿用 bgfx 官方示例和已有资源契约；多阶段效果需要明确输入、输出和依赖后再引入渲染图。DCC 视觉制作以 Blender 为基准，USD 转换和材质效果以引擎实际支持范围为准。
 
-普通图片由编辑器依据 `.meta` 调用 BasisU 生成 GUID 缓存，半浮点 KTX1 由 `texture_ktx` 导入器保留线性 HDR 数据。运行时验证 mip 和格式，BasisU 按缓存的格式请求选择设备支持的转码目标，半浮点纹理验证设备能力后直接上传；纹理共享引用跟随材质、环境及 GPU 对象释放。配置与使用说明见[资源管线](../editor/asset-pipeline.md)。
+普通图片依据 `.meta` 的 `storage` 生成 GUID 缓存：默认 basis 保留压缩载荷，显式 native 在编辑器转为目标平台数据。半浮点 KTX1 由 `texture_ktx` 导入器生成 native 范围并保留线性 HDR 数据。运行时验证 mip、face、格式和设备能力，basis 按选定格式逐 mip 转码，native 按可上传区块提交；纹理共享引用跟随材质、环境及 GPU 对象释放。配置与使用说明见[资源管线](../editor/asset-pipeline.md)。
 
 ## GPU 蒙皮与共享几何
 

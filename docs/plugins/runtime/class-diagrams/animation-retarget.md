@@ -1,8 +1,8 @@
-# 动画重定向插件（接口已确认）
+# 动画重定向插件
 
 [核心资源与执行契约](../../../runtime/class-diagrams/animation-retargeting.md) · [动画系统](../../../runtime/class-diagrams/animation-system.md) · [插件选择](../../plugins.md)
 
-本页定义已确认的 `runtime/animation_retarget` 可选插件的最小实现边界。运行实现和正式资源导入已接入，功能验收记录见测试文档。源码与头文件分别归 `src/engine/plugins/runtime/animation_retarget/`、`include/engine/plugins/runtime/animation_retarget/`；CMake 清单归 `cmake/plugins/runtime/animation_retarget.cmake`。
+本页定义 `runtime/animation_retarget` 可选插件的最小实现边界。源码与头文件分别归 `src/engine/plugins/runtime/animation_retarget/`、`include/engine/plugins/runtime/animation_retarget/`；CMake 清单归 `cmake/plugins/runtime/animation_retarget.cmake`。
 
 ```mermaid
 classDiagram

@@ -1,6 +1,8 @@
 #include "plugins/editor/destruction/destruction_mcp_tools.hpp"
 
-#include "plugins/editor/mcp/component_mcp_tools.hpp"
+#include "plugins/editor/mcp/editor_mcp_tools.hpp"
+#include "plugins/editor/mcp/editor_tool_registration.hpp"
+#include "plugins/editor/mcp/mcp_system.hpp"
 
 namespace engine::plugins::destruction
 {

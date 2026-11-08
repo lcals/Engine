@@ -2,7 +2,7 @@
 
 本文件记录已接入渲染扩展的固定来源、资源绑定及正确性边界；当前公共参数和操作见[渲染模块](rendering.md)，实际平台结果与限制集中见[验证记录](../testing.md)。
 公开契约与拥有关系以所属类图为准；实现继续使用现有 RenderSystem、组件、资源管线和编辑器烘焙插件。
-目标包含 Forward+、局部光阴影、SSR、镜像相机平面反射、透明与折射、静态间接光及动态物体光照探针。
+适配范围包含 Forward+、局部光阴影、SSR、镜像相机平面反射、透明与折射、静态间接光及动态物体光照探针。
 
 ## 固定来源与许可
 
@@ -23,7 +23,7 @@
 引用目录中的文件名本身不是版本证据；实际采用文件需与上述固定 commit 对照。
 商业、付费或私有参考不作为可提交实现来源；私有项目及资源继续保持忽略。
 
-网页核查同时对照 [GPUOpen SSSR 技术说明](https://gpuopen.com/manuals/fidelityfx_sdk/techniques/stochastic-screen-space-reflections/)、[bgfx 官方样例目录](https://bkaradzic.github.io/bgfx/examples.html)、[Three.js Reflector 文档](https://threejs.org/docs/pages/Reflector.html) 和 [lightmapper 上游说明](https://github.com/ands/lightmapper)。GPUOpen SDK 的现成接入针对 DirectX 12/Vulkan，Three.js 对象依赖其 WebGLRenderer，原始 lightmapper 依赖 OpenGL；本轮复用其算法并适配 bgfx，不能把这些上游的可运行示例当成本引擎 Metal 已支持的证据。
+适配依据包括 [GPUOpen SSSR 技术说明](https://gpuopen.com/manuals/fidelityfx_sdk/techniques/stochastic-screen-space-reflections/)、[bgfx 官方样例目录](https://bkaradzic.github.io/bgfx/examples.html)、[Three.js Reflector 文档](https://threejs.org/docs/pages/Reflector.html) 和 [lightmapper 上游说明](https://github.com/ands/lightmapper)。GPUOpen SDK 的现成接入针对 DirectX 12/Vulkan，Three.js 对象依赖其 WebGLRenderer，原始 lightmapper 依赖 OpenGL；引擎复用其算法并适配 bgfx，不能把这些上游的可运行示例当成本引擎 Metal 已支持的证据。
 
 ## 现有系统与接入位置
 
@@ -33,7 +33,7 @@
 `SurfacePass` 输出共享可采样深度与材质表面数据，`AmbientOcclusionPass` 和 SSR 消费同一输入。
 新效果需要明确读取与写入的 GPU 资源，不能仅增加设置开关或 Shader 参数后声称完成。
 
-## 一次性升级 Shader 绑定契约
+## Shader 绑定契约
 
 以下是**已接入的新契约**，替换原来材质可占用 0..10 的约定。
 引擎内置、公开范例及本地私有项目 Shader 同步迁移；旧绑定明确报错，不能偷偷覆盖原槽位。
@@ -112,12 +112,12 @@ Forward+ 将现有逐像素遍历全部光源改为消费相机集群索引；�
 xatlas 负责 UV，lightmapper 负责参考采样和积分；现有 bgfx 编辑器烘焙负责提交场景、读取结果与发布。
 lightmapper 的原实现依赖 OpenGL，必须适配到项目固定图形后端，不能把新 OpenGL 上下文作为隐藏依赖。
 静态表面光照和探针都消费场景几何及灯光；环境贴图卷积不能替代真正的场景间接光烘焙。
-探针先在 CPU 对每个 MeshRenderer 插值 SH9，再以 uniform 提交，避免本轮再增加探针纹理或 buffer 槽。
+探针在 CPU 对每个 MeshRenderer 插值 SH9，再以 uniform 提交。
 需统一 SH 系数排列、基函数、余弦卷积与颜色空间，禁止 CPU 和 Shader 采用不同约定。
 破坏、移动或移除的静态结构会使烘焙结果失效，适用范围及失效策略必须明确，不能声称动态 GI。
 烘焙输出走场景资源子目录、唯一 meta、GUID 缓存和依赖发布，运行时仅消费编译资源。
 
-## GPU 生命周期和迁移验证
+## GPU 生命周期
 
 流程为：蒙皮；各镜像分别提交其阴影、分簇、捕获；主镜头阴影与分簇；共享深度与表面数据、不透明 HDR、SSR、透明与水、HDR/Bloom、UI。atlas 按完整视图组的 GPU 顺序复用，灯与分簇 buffer 保留各组独立内容。
 各通道由 SceneGpuResources 独占，只在调用期间借用场景及输入纹理，不保留跨帧组件指针。

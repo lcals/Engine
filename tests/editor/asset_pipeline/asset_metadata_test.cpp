@@ -2,6 +2,7 @@
 #include "editor/asset_pipeline/asset_metadata.hpp"
 #include "editor/asset_pipeline/asset_pipeline_system.hpp"
 #include "editor/asset_pipeline/project_lock.hpp"
+#include "file_text.hpp"
 #include "runtime/engine_config.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/task/task_system.hpp"
@@ -67,8 +68,7 @@ bool source_creation_cases(const fs::path& root)
         }
     }
     // ensure_asset_guid 自行取得资源锁，验证前释放创建操作持有的锁。
-    if (!expect(engine::ResourceSystem::read_text(destination, content) &&
-                    content == "terrain source" &&
+    if (!expect(test_support::read_text(destination, content) && content == "terrain source" &&
                     ensure_asset_guid(root, destination, "terrain", checked_guid, error) &&
                     checked_guid == guid,
                 "publish source with matching importer and GUID", error))
@@ -87,8 +87,7 @@ bool source_creation_cases(const fs::path& root)
     if (!write_text(source_only, "original source", error) ||
         !expect(!create_source_with_meta(source_only, "replacement", "terrain", guid, error) &&
                     guid.empty() && !fs::exists(source_meta, code) && !code &&
-                    engine::ResourceSystem::read_text(source_only, content) &&
-                    content == "original source",
+                    test_support::read_text(source_only, content) && content == "original source",
                 "source conflict preserves original without creating metadata", error))
     {
         return false;
@@ -100,8 +99,7 @@ bool source_creation_cases(const fs::path& root)
         !expect(
             !create_source_with_meta(meta_only_source, "replacement", "destruction", guid, error) &&
                 guid.empty() && !fs::exists(meta_only_source, code) && !code &&
-                engine::ResourceSystem::read_text(meta_only, content) &&
-                content == "original metadata",
+                test_support::read_text(meta_only, content) && content == "original metadata",
             "metadata conflict preserves original without creating a source", error))
     {
         return false;
@@ -204,7 +202,7 @@ int main()
     const auto duplicate = project.root / "assets/b.txt";
     std::string metadata;
     if (!write_text(duplicate, "two", error) ||
-        !ResourceSystem::read_text(source.string() + ".meta", metadata) ||
+        !test_support::read_text(source.string() + ".meta", metadata) ||
         !write_text(duplicate.string() + ".meta", metadata, error) ||
         !expect(!ensure_asset_guid(project.root, duplicate, "source", second, error) &&
                     second.empty(),

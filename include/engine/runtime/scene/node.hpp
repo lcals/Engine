@@ -26,7 +26,7 @@ public:
 
     [[nodiscard]] std::uint64_t id() const noexcept;
     [[nodiscard]] std::string name() const;
-    [[nodiscard]] schema::NodeInfoT info() const;
+    [[nodiscard]] std::uint64_t local_id() const noexcept;
     [[nodiscard]] bool build_info(schema::NodeInfoT& output) const;
     [[nodiscard]] bool enabled() const noexcept;
     [[nodiscard]] bool set_enabled(bool value) noexcept;

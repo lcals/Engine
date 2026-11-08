@@ -1,11 +1,12 @@
 #include "runtime/scene/audio_source.hpp"
 
+#include "runtime/resource/types/audio_resource.hpp"
 #include "runtime/scene/audio_source_runtime.hpp"
 
 #include "runtime/scene/ecs_storage.hpp"
 
 #include "runtime/core/guid_map.hpp"
-#include "runtime/resource/resource_system.hpp"
+#include "runtime/scene/resource_binding.hpp"
 
 #include <cmath>
 #include <limits>
@@ -33,12 +34,6 @@ bool AudioSource::valid_settings(const schema::AudioSourceDataT& settings) noexc
            std::isfinite(settings.max_distance) && settings.max_distance > settings.min_distance;
 }
 
-schema::AudioSourceDataT AudioSource::settings() const noexcept
-{
-    const auto* value = read_data<Data>();
-    return value ? *value : Data{};
-}
-
 bool AudioSource::get_settings(Data& output) const noexcept
 {
     const auto* value = read_data<Data>();
@@ -48,6 +43,11 @@ bool AudioSource::get_settings(Data& output) const noexcept
 
 bool AudioSource::set_settings(const schema::AudioSourceDataT& settings)
 {
+    return apply_settings(settings, {});
+}
+
+bool AudioSource::apply_settings(const Data& settings, ResourceReference prepared)
+{
     if (!writable())
     {
         return false;
@@ -56,21 +56,31 @@ bool AudioSource::set_settings(const schema::AudioSourceDataT& settings)
     {
         return false;
     }
-    const bool changed_clip = settings.clip_guid != this->settings().clip_guid;
-    ResourcePtr replacement = runtime()->clip_;
+    const auto* current = read_data<Data>();
+    if (!current)
+    {
+        return false;
+    }
+    const bool changed_clip = settings.clip_guid != current->clip_guid;
+    ResourceReference replacement;
+    if (runtime()->clip_ && !replacement.retain(runtime()->clip_))
+    {
+        return false;
+    }
     if (changed_clip)
     {
         if (runtime()->revision_ == std::numeric_limits<std::uint64_t>::max())
         {
             return false;
         }
-        replacement.reset();
+        replacement = std::move(prepared);
         if (!settings.clip_guid.empty())
         {
-            auto* resources = ResourceSystem::instance();
+            auto* resources = node().world()->resource_loader();
             if (resources == nullptr ||
-                !resources->loader().load(settings.clip_guid, replacement) || !replacement ||
-                replacement->audio() == nullptr)
+                (!replacement &&
+                 !ecs_detail::acquire_resource(node(), settings.clip_guid, replacement)) ||
+                !replacement || replacement.data<AudioResource>() == nullptr)
             {
                 return false;
             }
@@ -115,16 +125,25 @@ bool AudioSource::set_clip(std::string_view path)
     {
         return false;
     }
-    schema::AudioSourceDataT replacement(settings());
+    ResourceReference prepared;
+    Data replacement;
+    if (!get_settings(replacement))
+    {
+        return false;
+    }
     if (path.empty())
     {
         replacement.clip_guid.clear();
     }
-    else if (!ResourceSystem::path_to_guid(path, replacement.clip_guid))
+    else if (!ecs_detail::acquire_resource(node(), path, prepared))
     {
         return false;
     }
-    return set_settings(replacement);
+    if (prepared)
+    {
+        replacement.clip_guid = prepared->info().guid;
+    }
+    return apply_settings(replacement, std::move(prepared));
 }
 
 std::string_view AudioSource::clip_path() const noexcept
@@ -142,7 +161,7 @@ const schema::AudioClipDataT* AudioSource::clip_data() const noexcept
     {
         return {};
     }
-    return runtime()->clip_ ? runtime()->clip_->audio() : nullptr;
+    return runtime()->clip_ ? runtime()->clip_.data<AudioResource>() : nullptr;
 }
 
 bool AudioSource::play() noexcept

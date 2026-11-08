@@ -1,8 +1,9 @@
 # 影片脚本接口与 Run 生命周期
 
-> **规划 / 待实现，与当前代码区分。** 本页描述拟新增的 MovieBinding 和 TS 门面；
-> 当前源码及 `include/engine.d.ts` 尚未提供影片绑定。现有 ScriptBinding 的方法签名已经核对，
-> 不在本轮修改代码、绑定注册表或类型声明。
+**资源接入迁移说明：本页记录当前脚本绑定，include/engine.d.ts 尚未修改。目标要求脚本显式加载资源，再把本 Run 的已加载资源身份传给 Movie.Play，不能在绑定或播放器里补读路径；Run 结束分别清理播放和资源获取。统一规则见[业务与模块任务](../../../runtime/class-diagrams/resource-consumers.md)，实施前同步本页脚本外观及声明。**
+
+MovieBinding 与 `include/engine.d.ts` 已提供本页影片门面；绑定复用同一 MoviePlayer，
+每个 Run 只拥有自身请求的停止及释放责任。
 
 [类图索引](../../../class-diagrams/index.md) · [既有绑定接口](script-bindings.md) ·
 [当前脚本系统](script-system.md) · [播放器契约](../../../runtime/class-diagrams/movie-player.md) ·
@@ -59,13 +60,13 @@ MovieBinding 位于计划中的 `engine::plugins::script::bindings`，继承真�
 
 MovieBinding 不拥有 MoviePlayer、World 或音频设备，也不处理 VM 特有句柄。Run 只拥有自己的
 播放句柄记录；MoviePlayer、媒体共享引用和声部的所有权以[播放器](../../../runtime/class-diagrams/movie-player.md)
-及[音频规划](../../../runtime/class-diagrams/movie-audio.md)为准。核心不 include 或链接 MovieBinding。
+及[音频契约](../../../runtime/class-diagrams/movie-audio.md)为准。核心不 include 或链接 MovieBinding。
 
 Host 不拥有片头或 Run 的播放句柄。它在帧循环内通过原生 current_handle 查询当前唯一请求，
 再取得状态和帧用于单次全屏呈现；因此 MovieBinding.Play 不需要另向 Host 登记句柄或创建
 第二个播放器。这个查询只供宿主呈现，不是句柄所有权转移，不向 TS 门面开放。
 
-## TypeScript 门面规划
+## TypeScript 门面
 
 ```mermaid
 classDiagram
@@ -118,10 +119,9 @@ classDiagram
   片头、Native 或其他 Run 的请求；调用者只能操作自己持有且在本 Run 登记的句柄。
   Native 启动句柄不能从脚本猜测并接管。
 
-## 宿主注入规划
+## 宿主注入
 
-以下为**拟修改签名**，并非当前代码。当前工厂真实参数顺序截至 AnimationSystem&，在末尾
-追加一个可空 MoviePlayer*；不得按旧文字误将 WindowSystem 当作当前最后一个参数。
+工厂末尾为可空 MoviePlayer*，完整公开契约统一见[运行宿主](../../../runtime/class-diagrams/runtime-host.md)。
 
 ```cpp
 using ScriptRuntimeFactory = std::unique_ptr<ScriptRuntime> (*)(
@@ -217,13 +217,13 @@ Stop / skipped 都是 cancelled，播放或资源错误是 failed，业务必须
 恢复时提交。它不通过对 preparing 调用 SetPaused 来模拟冻结，也不在恢复时擅自解除业务
 原先的 paused；恢复 delta 不包含后台墙钟，详见[启动预算与暂停](../../../runtime/class-diagrams/movie-startup.md#主线程与后台预算)。
 
-本轮不增加影片 Promise、完成回调或事件总线。今后确需完成通知时，须先复制终态并交给已有
+影片接口不提供 Promise、完成回调或事件总线。今后确需完成通知时，须先复制终态并交给已有
 Run 队列，在下次安全点且 Run 身份仍有效时执行；不能从视频任务、音频回调、Player::update
 或析构中直接进入 VM。不得为通知另建线程池或让异步闭包持有 ScriptVm / Run 裸指针。
 
 ## Run 停止与释放
 
-规划增加 BindingContext 的电影专用清理安全点 `cancel_movies() noexcept -> void`：只遍历
+BindingContext 的影片专用清理安全点 `cancel_movies() noexcept -> void`：只遍历
 本 Run 记录，先停止 preparing / playing / paused 请求，再 release 所有记录；completed / failed
 等终态直接 release，清理幂等，不能触碰其他 Run 或 Native 的句柄。它与记录集合都属于插件内部，
 不成为核心的 Run 注册接口。
@@ -235,4 +235,4 @@ Run 析构也必须在 VM reset 前调用这个幂等安全点，不能仅依赖
 
 release 失败仍按原生句柄有效性及状态处理，不把失败当作他人句柄重新接管。正常 Host 关闭
 须先收尾全部 Run，再销毁 MoviePlayer，之后才关闭 AudioSystem、资源及任务域；完整的窗口 /
-GPU / 世界解除借用顺序见[启动规划](../../../runtime/class-diagrams/movie-startup.md#完成取消失败与关闭)。
+GPU / 世界解除借用顺序见[启动契约](../../../runtime/class-diagrams/movie-startup.md#完成取消失败与关闭)。

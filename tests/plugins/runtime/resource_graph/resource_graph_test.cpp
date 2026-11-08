@@ -1,26 +1,23 @@
-#include "resource_fixture.hpp"
-
 #include "plugins/runtime/resource_graph/resource_graph_system.hpp"
 #include "runtime/engine_config.hpp"
-#include "runtime/resource/builtin_resources.hpp"
+#include "runtime/resource/codecs/source_resource_codec.hpp"
 #include "runtime/resource/resource_system.hpp"
+#include "runtime/resource/types/json_resource.hpp"
 #include "runtime/task/task_system.hpp"
 #include "runtime/task/thread_system.hpp"
 
 #include <array>
+#include <atomic>
 #include <chrono>
-#include <cstddef>
 #include <cstdio>
+#include <filesystem>
 #include <fstream>
-#include <memory>
-#include <string>
 #include <thread>
-#include <vector>
 
 namespace
 {
-
 using namespace engine;
+using engine::plugins::resource_graph::ResourceGraphSystem;
 
 bool expect(bool value, const char* message)
 {
@@ -31,607 +28,425 @@ bool expect(bool value, const char* message)
     return value;
 }
 
-std::string guid(std::size_t index)
+std::string guid(unsigned index)
 {
-    std::array<char, 37> output{};
-    std::snprintf(output.data(), output.size(), "20000000-0000-4000-8000-%012zu", index);
-    return output.data();
+    std::array<char, 37> value{};
+    std::snprintf(value.data(), value.size(), "20000000-0000-4000-8000-%012u", index);
+    return value.data();
 }
 
-bool write(const std::filesystem::path& path, ByteView bytes)
+// The graph is format-independent. This fixture codec permits source DAGs and counts decoding;
+// the production SourceResourceCodec separately rejects source dependencies.
+class CountingCodec final : public ResourceCodec
 {
-    std::ofstream file(path, std::ios::binary);
-    file.write(reinterpret_cast<const char*>(bytes.data()),
-               static_cast<std::streamsize>(bytes.size()));
-    file.close();
-    return static_cast<bool>(file);
-}
-
-bool put_source(test_support::ResourceFixture& fixture, std::size_t index, std::byte value,
-                const std::vector<std::string>& dependencies = {}, bool store = true)
-{
-    auto entry = std::make_unique<schema::AssetEntryT>();
-    entry->guid = guid(index);
-    entry->path = "data/" + std::to_string(index);
-    entry->kind = schema::AssetKind::source;
-    entry->dependencies = dependencies;
-    ByteBuffer bytes;
-    const std::array payload{value};
-    if (!ResourceSystem::encode_resource(entry->guid, entry->kind, payload, bytes,
-                                         entry->header_size))
+public:
+    using ResourceType = SourceResource;
+    static inline std::atomic<unsigned> decodes{0};
+    schema::AssetKind kind() const noexcept override
     {
-        return false;
+        return schema::AssetKind::source;
     }
-    std::uint64_t hash = 14695981039346656037ULL;
-    for (const auto byte : bytes)
+    bool decode(const schema::AssetEntryT& entry, ByteView bytes, std::unique_ptr<Resource>& output,
+                std::string&) const override
     {
-        hash = (hash ^ std::to_integer<std::uint8_t>(byte)) * 1099511628211ULL;
+        ++decodes;
+        output = std::make_unique<ResourceType>(entry, ByteBuffer(bytes.begin(), bytes.end()));
+        return true;
     }
-    std::array<char, 17> digest{};
-    std::snprintf(digest.data(), digest.size(), "%016llx", static_cast<unsigned long long>(hash));
-    entry->content_hash = digest.data();
-    entry->content_size = bytes.size();
-    entry->location = std::make_unique<schema::FileLocationT>();
-    entry->location->mount = "content";
-    entry->location->path = "gen/" + entry->guid;
-    entry->location->length = bytes.size();
-    if (store && !write(fixture.root / entry->location->path, bytes))
+    bool validate_data(const Resource& resource, std::string&) const override
     {
-        return false;
+        return resource_detail::cast<ResourceType>(&resource) != nullptr;
     }
-    for (auto& existing : fixture.catalog.entries)
+    bool validate_dependencies(const Resource&, ResourceView values, std::string&) const override
     {
-        if (existing->guid == entry->guid)
+        for (const auto* value : values)
         {
-            existing = std::move(entry);
-            return true;
+            if (!resource_detail::cast<ResourceType>(value))
+            {
+                return false;
+            }
         }
+        return true;
     }
-    fixture.catalog.entries.push_back(std::move(entry));
-    return true;
-}
+};
 
-bool test_shared_graph_and_generations()
+struct Fixture
 {
+    ThreadSystem threads{{2}};
+    TaskSystem files{threads, {"GraphFiles", 1}};
+    TaskSystem decoding{threads, {"GraphDecoding", 1}};
+    TaskSystem planning{threads, {"GraphPlanning", 1}};
     ResourceSystem resources;
-    engine::plugins::resource_graph::ResourceGraphSystem graph(resources);
-    EngineConfig config;
-    ResourcePtr output;
-    if (!expect(&resources.loader() == &resources && !graph.initialize(config) &&
-                    !graph.load(guid(4), output) && !output,
-                "uninitialized graph fails without replacing the default single-item loader") ||
-        !resources.initialize(config) || !graph.initialize(config))
-    {
-        return false;
-    }
-    resources.set_loader(&graph);
-    test_support::ResourceFixture fixture;
-    if (!put_source(fixture, 1, std::byte{42}, {}, false) ||
-        !put_source(fixture, 2, std::byte{2}, {guid(1)}, false) ||
-        !put_source(fixture, 3, std::byte{3}, {guid(1)}, false) ||
-        !put_source(fixture, 4, std::byte{4}, {guid(2), guid(3)}) || !fixture.publish(resources))
-    {
-        return false;
-    }
-    if (!expect(resources.load(guid(4), output) && output->bytes()[0] == std::byte{4} &&
-                    !resources.find(guid(4)),
-                "core reads only the requested entity even when dependency files are absent") ||
-        !expect(!resources.loader().load(guid(4), output) && !output && !graph.find(guid(4)) &&
-                    !graph.find(guid(1)),
-                "graph load fails and publishes no partial closure") ||
-        !put_source(fixture, 1, std::byte{42}) ||
-        !put_source(fixture, 2, std::byte{2}, {guid(1)}) ||
-        !put_source(fixture, 3, std::byte{3}, {guid(1)}))
-    {
-        return false;
-    }
-    ResourcePtr shared;
-    ResourcePtr leaf;
-    if (!expect(graph.load(guid(4), output) && graph.load(guid(4), shared) && shared == output &&
-                    graph.load(guid(1), leaf) && leaf == graph.find(guid(1)),
-                "plugin shares live roots and a diamond's common dependency"))
-    {
-        return false;
-    }
-    std::weak_ptr<const Resource> weak_root = output;
-    std::weak_ptr<const Resource> weak_parent = graph.find(guid(2));
-    std::weak_ptr<const Resource> weak_leaf = leaf;
-    output.reset();
-    shared.reset();
-    if (!expect(weak_root.expired() && weak_parent.expired() && !weak_leaf.expired(),
-                "releasing root retires users while separately held dependency survives"))
-    {
-        return false;
-    }
-    leaf.reset();
-    if (!expect(weak_leaf.expired() && !graph.find(guid(1)),
-                "weak graph index retains no resource after the final owner releases") ||
-        !graph.load(guid(4), output))
-    {
-        return false;
-    }
-    auto old_leaf = graph.find(guid(1));
-    const auto old_generation = output->generation();
-    if (!put_source(fixture, 1, std::byte{43}) || !fixture.publish(resources) ||
-        !expect(resources.generation() != old_generation && !graph.find(guid(4)) &&
-                    !graph.find(guid(1)) && output->generation() == old_generation &&
-                    old_leaf->bytes()[0] == std::byte{42},
-                "directory replacement isolates old objects and invalidates current lookups") ||
-        !expect(graph.load(guid(4), shared) && shared != output &&
-                    shared->generation() == resources.generation() &&
-                    graph.find(guid(1)) != old_leaf &&
-                    graph.find(guid(1))->bytes()[0] == std::byte{43},
-                "same GUID in a new generation never reuses old entity data"))
-    {
-        return false;
-    }
-    const auto current_generation = resources.generation();
-    auto invalid = fixture.catalog;
-    invalid.schema_version = 0;
-    if (!expect(!resources.update_catalog(invalid, {{"content", fixture.root}}) &&
-                    resources.generation() == current_generation && graph.find(guid(4)) == shared,
-                "invalid directory replacement preserves current catalog and graph") ||
-        !expect(!resources.validate_dependencies(
-                    *output, std::array{graph.find(guid(2)), graph.find(guid(3))}),
-                "cross-generation dependency validation rejects mixed entities"))
-    {
-        return false;
-    }
-    std::weak_ptr<const Resource> old_dependency = old_leaf;
-    old_leaf.reset();
-    if (!expect(!old_dependency.expired(), "old root retains its full old dependency closure"))
-    {
-        return false;
-    }
-    output.reset();
-    if (!expect(old_dependency.expired() && graph.find(guid(1)),
-                "old generation releases independently from new-generation objects"))
-    {
-        return false;
-    }
-    graph.shutdown();
-    return expect(&resources.loader() == &resources && !graph.find(guid(4)) &&
-                      shared->bytes()[0] == std::byte{4},
-                  "plugin shutdown restores core loader and leaves external resource data valid");
-}
+    ResourceGraphSystem graph{resources, planning, {}};
+    std::filesystem::path root;
+    schema::AssetCatalogDataT catalog;
 
-bool test_cross_entity_validation()
-{
-    ResourceSystem resources;
-    engine::plugins::resource_graph::ResourceGraphSystem graph(resources);
-    EngineConfig config;
-    if (!resources.initialize(config) || !graph.initialize(config))
+    bool initialize()
     {
-        return false;
-    }
-    resources.set_loader(&graph);
-    test_support::ResourceFixture fixture;
-    auto shader = *ResourceSystem::find_shader("builtin://shaders/pbr");
-    shader.path = "invalid-pair.shader";
-    schema::MaterialDataT material;
-    material.type_path = "invalid-pair.material";
-    material.shader_path = shader.path;
-    auto parameter = std::make_unique<schema::MaterialParameterT>();
-    parameter->name = "notDeclaredByShader";
-    schema::FloatValueT value;
-    value.value = 0.5F;
-    parameter->value.Set(std::move(value));
-    material.parameters.push_back(std::move(parameter));
-    if (!fixture.add(shader) || !fixture.add(material) || !fixture.publish(resources))
-    {
-        return false;
-    }
-    ResourcePtr single;
-    ResourcePtr loaded;
-    const auto& shader_guid = fixture.catalog.entries[0]->guid;
-    const auto& material_guid = fixture.catalog.entries[1]->guid;
-    return expect(resources.load(material_guid, single) && single->material(),
-                  "single-item parse does not recursively fetch another entity") &&
-           expect(!graph.load(material_guid, loaded) && !loaded && !graph.find(shader_guid) &&
-                      !graph.find(material_guid),
-                  "graph retains material/shader semantic checks and rolls back failed closure");
-}
-
-bool test_step_progress_and_ownership()
-{
-    ResourceSystem resources;
-    engine::plugins::resource_graph::ResourceGraphSystem graph(resources);
-    if (!resources.initialize({}) || !graph.initialize({}))
-    {
-        return false;
-    }
-    resources.set_loader(&graph);
-    test_support::ResourceFixture fixture;
-    if (!put_source(fixture, 1, std::byte{1}, {}, false) ||
-        !put_source(fixture, 2, std::byte{2}, {guid(1)}, false) ||
-        !put_source(fixture, 3, std::byte{3}, {guid(1)}, false) ||
-        !put_source(fixture, 4, std::byte{4}, {guid(2), guid(3)}, false) ||
-        !fixture.publish(resources))
-    {
-        return false;
-    }
-    std::unique_ptr<ResourceLoad> operation;
-    ResourceLoadProgress progress;
-    if (!expect(graph.begin_load(guid(4), operation) && operation &&
-                    operation->step(0, progress) == ResourceLoadStatus::loading &&
-                    progress.completed == 0 && progress.total == 4 && !operation->resource(),
-                "begin and zero budget count a unique diamond without reading missing entities") ||
-        !expect(operation->step(1, progress) == ResourceLoadStatus::failed &&
-                    progress.completed == 0 && progress.total == 4 && !operation->resource() &&
-                    !graph.find(guid(1)) && !graph.find(guid(4)),
-                "entity failure retains exact counters and publishes no partial closure") ||
-        !put_source(fixture, 1, std::byte{1}) || !put_source(fixture, 2, std::byte{2}, {guid(1)}) ||
-        !put_source(fixture, 3, std::byte{3}, {guid(1)}) ||
-        !put_source(fixture, 4, std::byte{4}, {guid(2), guid(3)}))
-    {
-        return false;
-    }
-    ResourcePtr leaf;
-    if (!graph.load(guid(1), leaf) || !graph.begin_load(guid(4), operation) ||
-        !expect(operation->step(2, progress) == ResourceLoadStatus::loading &&
-                    progress.completed == 2 && progress.total == 4 && graph.find(guid(1)) == leaf &&
-                    !graph.find(guid(2)) && !graph.find(guid(4)) && !operation->resource(),
-                "budget counts a cached leaf and private parent while withholding candidates"))
-    {
-        return false;
-    }
-    operation.reset();
-    if (!expect(graph.find(guid(1)) == leaf && !graph.find(guid(2)),
-                "cancelling releases only task candidates and preserves another owner's leaf") ||
-        !graph.begin_load(guid(4), operation) ||
-        !expect(operation->step(2, progress) == ResourceLoadStatus::loading &&
-                    progress.completed == 2,
-                "the next operation starts with independent progress"))
-    {
-        return false;
-    }
-    ResourcePtr published_parent;
-    if (!graph.load(guid(2), published_parent) ||
-        !expect(operation->step(1, progress) == ResourceLoadStatus::loading &&
-                    progress.completed == 3 && !graph.find(guid(3)),
-                "one complete resource consumes one step budget") ||
-        !expect(operation->step(1, progress) == ResourceLoadStatus::ready &&
-                    progress.completed == 4 && progress.total == 4 && operation->resource() &&
-                    graph.find(guid(2)) == published_parent && graph.find(guid(1)) == leaf &&
-                    operation->last_error().empty(),
-                "ready publishes the closure and reuses a parent published between steps"))
-    {
-        return false;
-    }
-    auto root = operation->resource();
-    std::weak_ptr<const Resource> weak_parent = published_parent;
-    std::weak_ptr<const Resource> weak_leaf = leaf;
-    operation.reset();
-    published_parent.reset();
-    leaf.reset();
-    if (!expect(!weak_parent.expired() && !weak_leaf.expired() && graph.find(guid(4)) == root,
-                "copied ready root owns the canonical parent and its full dependency closure"))
-    {
-        return false;
-    }
-    root.reset();
-    return expect(weak_parent.expired() && weak_leaf.expired() && !graph.find(guid(4)),
-                  "the final ready owner releases the entire closure without a strong cache");
-}
-
-bool test_step_terminal_and_generation_rules()
-{
-    ResourceSystem resources;
-    engine::plugins::resource_graph::ResourceGraphSystem graph(resources);
-    if (!resources.initialize({}) || !graph.initialize({}))
-    {
-        return false;
-    }
-    resources.set_loader(&graph);
-    test_support::ResourceFixture fixture;
-    if (!put_source(fixture, 1, std::byte{1}) ||
-        !put_source(fixture, 2, std::byte{2}, {guid(1)}, false) || !fixture.publish(resources))
-    {
-        return false;
-    }
-    std::unique_ptr<ResourceLoad> operation;
-    ResourceLoadProgress progress;
-    if (!graph.begin_load(guid(2), operation) ||
-        !expect(operation->step(1, progress) == ResourceLoadStatus::loading &&
-                    progress.completed == 1 && progress.total == 2,
-                "a successful child is counted before a later parent failure") ||
-        !expect(operation->step(1, progress) == ResourceLoadStatus::failed &&
-                    progress.completed == 1 && !operation->resource() &&
-                    !operation->last_error().empty() && !graph.find(guid(1)),
-                "failed parent releases unpublished dependencies without losing completed count"))
-    {
-        return false;
-    }
-    const std::string error(operation->last_error());
-    ResourcePtr unused;
-    if (!expect(!graph.load(guid(999), unused) &&
-                    operation->step(20, progress) == ResourceLoadStatus::failed &&
-                    progress.completed == 1 && progress.total == 2 &&
-                    operation->last_error() == error,
-                "failed terminal snapshot owns its error independently from later loader calls") ||
-        !put_source(fixture, 2, std::byte{2}, {guid(1)}) || !graph.begin_load(guid(2), operation) ||
-        operation->step(1, progress) != ResourceLoadStatus::loading ||
-        !put_source(fixture, 1, std::byte{3}) || !fixture.publish(resources) ||
-        !expect(operation->step(0, progress) == ResourceLoadStatus::failed &&
-                    progress.completed == 1 && progress.total == 2 && !operation->resource() &&
-                    !graph.find(guid(1)),
-                "zero budget detects a loading generation change and releases candidates") ||
-        !graph.begin_load(guid(2), operation) ||
-        operation->step(2, progress) != ResourceLoadStatus::ready)
-    {
-        return false;
-    }
-    const auto old_root = operation->resource();
-    const auto old_generation = old_root->generation();
-    if (!put_source(fixture, 1, std::byte{4}) || !fixture.publish(resources) ||
-        !expect(operation->step(0, progress) == ResourceLoadStatus::ready &&
-                    progress.completed == 2 && progress.total == 2 &&
-                    operation->resource() == old_root &&
-                    operation->resource()->generation() == old_generation &&
-                    operation->last_error().empty() && !graph.find(guid(2)),
-                "ready remains an old-generation snapshot and never republishes stale objects"))
-    {
-        return false;
-    }
-    ResourcePtr replacement;
-    if (!graph.load(guid(2), replacement) ||
-        !expect(replacement != old_root && replacement->generation() == resources.generation() &&
-                    graph.find(guid(1))->bytes()[0] == std::byte{4} &&
-                    operation->step(10, progress) == ResourceLoadStatus::ready &&
-                    graph.find(guid(2)) == replacement,
-                "repeating an old ready operation cannot overwrite new-generation cache entries") ||
-        !graph.begin_load(guid(2), operation))
-    {
-        return false;
-    }
-    resources.set_loader(nullptr);
-    if (!expect(operation->step(0, progress) == ResourceLoadStatus::failed &&
-                    progress.completed == 0 && progress.total == 2,
-                "changing the selected loader fails an unadvanced operation without entity IO"))
-    {
-        return false;
-    }
-    resources.set_loader(&graph);
-    if (!graph.begin_load(guid(2), operation))
-    {
-        return false;
-    }
-    return expect(!resources.begin_load(guid(2), operation) && !operation,
-                  "default single-item loader reports unsupported steps and clears old output");
-}
-
-bool test_deep_graph_cleanup()
-{
-    ResourceSystem resources;
-    engine::plugins::resource_graph::ResourceGraphSystem graph(resources);
-    EngineConfig config;
-    if (!resources.initialize(config) || !graph.initialize(config))
-    {
-        return false;
-    }
-    test_support::ResourceFixture fixture;
-    constexpr std::size_t count = 4096;
-    for (std::size_t index = 1; index <= count; ++index)
-    {
-        if (!put_source(fixture, index, std::byte{7},
-                        index == 1 ? std::vector<std::string>{}
-                                   : std::vector<std::string>{guid(index - 1)}))
+        std::error_code error;
+        root = std::filesystem::temp_directory_path(error) /
+               ("engine-resource-graph-" +
+                std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+        if (error || !std::filesystem::create_directory(root, error) || error ||
+            !threads.initialize({}) || !files.initialize({}) || !decoding.initialize({}) ||
+            !planning.initialize({}) || !resources.add<CountingCodec>() ||
+            !resources.initialize({}) || !resources.configure_async(files, decoding, {}) ||
+            !graph.initialize({}))
         {
             return false;
         }
+        catalog = resources.catalog().data();
+        return true;
     }
-    ResourcePtr root;
-    if (!fixture.publish(resources) || !graph.load(guid(count), root))
+    ~Fixture()
     {
-        return false;
+        graph.shutdown();
+        resources.shutdown();
+        std::error_code error;
+        if (!root.empty())
+        {
+            std::filesystem::remove_all(root, error);
+        }
     }
-    std::weak_ptr<const Resource> leaf = graph.find(guid(1));
-    root.reset();
-    if (!expect(leaf.expired() && !graph.find(guid(count)),
-                "4096-resource dependency chain releases without recursive C++ destruction"))
+    bool add(unsigned index, std::vector<std::string> dependencies = {})
     {
-        return false;
+        auto entry = std::make_unique<schema::AssetEntryT>();
+        entry->guid = guid(index);
+        entry->path = "data/" + std::to_string(index);
+        entry->kind = schema::AssetKind::source;
+        entry->dependencies = std::move(dependencies);
+        ByteBuffer entity;
+        const std::array payload{static_cast<std::byte>(index)};
+        if (!ResourceSystem::encode_resource(entry->guid, entry->kind, payload, entity,
+                                             entry->header_size))
+        {
+            return false;
+        }
+        std::ofstream file(root / std::to_string(index), std::ios::binary);
+        file.write(reinterpret_cast<const char*>(entity.data()),
+                   static_cast<std::streamsize>(entity.size()));
+        file.close();
+        if (!file)
+        {
+            return false;
+        }
+        std::uint64_t hash = 0;
+        if (!VirtualFileSystem::hash_file(root / std::to_string(index), hash, entry->content_size))
+        {
+            return false;
+        }
+        std::array<char, 17> digest{};
+        std::snprintf(digest.data(), digest.size(), "%016llx",
+                      static_cast<unsigned long long>(hash));
+        entry->content_hash = digest.data();
+        entry->location = std::make_unique<schema::FileLocationT>();
+        entry->location->mount = "content";
+        entry->location->path = std::to_string(index);
+        entry->location->length = entry->content_size;
+        catalog.entries.push_back(std::move(entry));
+        return true;
     }
-    const std::array corrupt{std::byte{0}};
-    if (!write(fixture.root / "gen" / guid(count), corrupt))
+    bool publish()
     {
-        return false;
+        catalog.revision += "-next";
+        return resources.update_catalog(catalog, {{"content", root}});
     }
-    return expect(!graph.load(guid(count), root) && !root && !graph.find(guid(1)) &&
-                      !graph.find(guid(count - 1)),
-                  "deep terminal failure releases the whole newly loaded closure");
-}
-
-bool test_external_builtin_lookup()
-{
-    ResourceSystem resources;
-    engine::plugins::resource_graph::ResourceGraphSystem graph(resources);
-    if (!resources.initialize({}) || !graph.initialize({}))
-    {
-        return false;
-    }
-    resources.set_loader(&graph);
-    constexpr auto identity = "00000000-0000-4000-8000-000000000005";
-    constexpr auto path = "builtin://meshes/cube";
-    const auto* original = ResourceSystem::find_mesh(path);
-    const auto* info = builtin_resource_info(identity);
-    if (!original || !info || original->vertices.empty())
-    {
-        return false;
-    }
-    auto mesh = *original;
-    const auto vertex = mesh.vertices.front();
-    mesh.vertices.front() = {vertex.x() + 3.0F, vertex.y(),  vertex.z(),
-                             vertex.nx(),       vertex.ny(), vertex.nz()};
-    flatbuffers::FlatBufferBuilder builder;
-    schema::FinishMeshDataBuffer(builder, schema::MeshData::Pack(builder, &mesh));
-    auto entry = std::make_unique<schema::AssetEntryT>(*info);
-    ByteBuffer entity;
-    const ByteView payload{reinterpret_cast<const std::byte*>(builder.GetBufferPointer()),
-                           builder.GetSize()};
-    if (!ResourceSystem::encode_resource(identity, entry->kind, payload, entity,
-                                         entry->header_size))
-    {
-        return false;
-    }
-    std::uint64_t hash = 14695981039346656037ULL;
-    for (const auto byte : entity)
-    {
-        hash = (hash ^ std::to_integer<std::uint8_t>(byte)) * 1099511628211ULL;
-    }
-    std::array<char, 17> digest{};
-    std::snprintf(digest.data(), digest.size(), "%016llx", static_cast<unsigned long long>(hash));
-    entry->content_hash = digest.data();
-    entry->content_size = entity.size();
-    entry->location = std::make_unique<schema::FileLocationT>();
-    entry->location->mount = "content";
-    entry->location->path = "gen/" + entry->guid;
-    entry->location->length = entity.size();
-    test_support::ResourceFixture fixture;
-    fixture.catalog.entries.push_back(std::move(entry));
-    ResourcePtr loaded;
-    if (!write(fixture.root / "gen" / identity, entity) || !fixture.publish(resources) ||
-        !expect(!ResourceSystem::find_mesh(path) && graph.load(identity, loaded) && loaded &&
-                    loaded->mesh() && loaded->mesh()->vertices.front().x() == vertex.x() + 3.0F &&
-                    ResourceSystem::find_mesh(path) == loaded->mesh(),
-                "builtin lookups use the current loader's external resource instead of bootstrap"))
-    {
-        return false;
-    }
-    entity.back() ^= std::byte{1};
-    ResourcePtr replacement;
-    return expect(write(fixture.root / "gen" / identity, entity) && fixture.publish(resources) &&
-                      !ResourceSystem::find_mesh(path) && !graph.load(identity, replacement) &&
-                      !replacement && !ResourceSystem::find_mesh(path) &&
-                      loaded->mesh()->vertices.front().x() == vertex.x() + 3.0F,
-                  "corrupt new builtin generations cannot expose stale or compiled definitions");
-}
-
-bool test_async_graph_loading()
-{
-    ThreadSystem threads({2});
-    TaskSystem tasks(threads, {"ResourceTest", 2});
-    ResourceSystem resources;
-    engine::plugins::resource_graph::ResourceGraphSystem graph(resources);
-    if (!threads.initialize({}) || !tasks.initialize({}) || !resources.initialize({}) ||
-        !graph.initialize({}))
-    {
-        return false;
-    }
-    resources.set_loader(&graph);
-    test_support::ResourceFixture fixture;
-    if (!put_source(fixture, 1, std::byte{1}) || !put_source(fixture, 2, std::byte{2}, {guid(1)}) ||
-        !put_source(fixture, 3, std::byte{3}, {guid(1)}) ||
-        !put_source(fixture, 4, std::byte{4}, {guid(2), guid(3)}) || !fixture.publish(resources) ||
-        !resources.configure_async(tasks, {2, 1024 * 1024, 1}))
-    {
-        return false;
-    }
-    auto pump = [&](ResourceLoad& operation)
+    bool pump(ResourceLoad& operation)
     {
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
         ResourceLoadProgress progress;
-        while (std::chrono::steady_clock::now() < deadline)
+        while (operation.status(progress) == ResourceLoadStatus::loading &&
+               std::chrono::steady_clock::now() < deadline)
         {
-            (void)tasks.dispatch_completions(8, 0.01);
-            const auto status = operation.step(8, progress);
-            if (status != ResourceLoadStatus::loading)
+            if (!resources.tick(0) || !graph.tick(0))
             {
-                return status;
+                return false;
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
-        return ResourceLoadStatus::loading;
-    };
-    std::unique_ptr<ResourceLoad> operation;
-    ResourceLoadProgress progress;
-    if (!resources.begin_load(guid(4), operation))
-    {
-        return false;
+        if (operation.status(progress) == ResourceLoadStatus::failed)
+        {
+            std::fprintf(stderr, "async error: %.*s\n",
+                         static_cast<int>(operation.last_error().size()),
+                         operation.last_error().data());
+        }
+        return operation.status(progress) == ResourceLoadStatus::ready;
     }
-    resources.set_loader(nullptr);
-    const bool loader_changed =
-        expect(operation->step(0, progress) == ResourceLoadStatus::failed && !operation->resource(),
-               "core single-item operations reject a changed selected loader before I/O");
-    operation.reset();
-    resources.set_loader(&graph);
-    if (!loader_changed)
-    {
-        return false;
-    }
-    if (!graph.begin_load(guid(4), operation) ||
-        !expect(operation->step(8, progress) == ResourceLoadStatus::loading &&
-                    !operation->resource() && !graph.find(guid(1)),
-                "async graph submits reads without publishing incomplete dependencies") ||
-        !expect(pump(*operation) == ResourceLoadStatus::ready &&
-                    operation->resource()->bytes()[0] == std::byte{4} && graph.find(guid(1)),
-                "async graph finishes under a two-request budget with a one-callback budget"))
-    {
-        return false;
-    }
-    ResourcePtr synchronous;
-    if (!expect(graph.load(guid(4), synchronous) && synchronous == operation->resource(),
-                "explicit synchronous load shares completed asynchronous roots"))
-    {
-        return false;
-    }
-    operation.reset();
-    synchronous.reset();
-    if (!graph.begin_load(guid(4), operation) ||
-        operation->step(8, progress) != ResourceLoadStatus::loading)
-    {
-        return false;
-    }
-    operation.reset(); // 已提交读取取消；无等待，结果由文件队列回收。
-    if (!graph.begin_load(guid(4), operation) ||
-        !expect(pump(*operation) == ResourceLoadStatus::ready,
-                "cancellation returns in-flight capacity without publishing abandoned roots"))
-    {
-        return false;
-    }
-    operation.reset();
-    if (!graph.begin_load(guid(4), operation) ||
-        operation->step(8, progress) != ResourceLoadStatus::loading ||
-        !put_source(fixture, 1, std::byte{9}) || !fixture.publish(resources) ||
-        !expect(operation->step(0, progress) == ResourceLoadStatus::failed &&
-                    !operation->resource() && !graph.find(guid(4)),
-                "catalog replacement rejects old reads before publication") ||
-        !graph.begin_load(guid(4), operation) ||
-        !expect(pump(*operation) == ResourceLoadStatus::ready &&
-                    graph.find(guid(1))->bytes()[0] == std::byte{9},
-                "new reads use the replacement catalog and mount snapshot"))
-    {
-        return false;
-    }
-    operation.reset();
-    resources.shutdown_async();
-    if (!resources.configure_async(tasks, {1, 1, 1}) || !resources.begin_load(guid(4), operation) ||
-        !expect(operation->step(1, progress) == ResourceLoadStatus::failed,
-                "an entity exceeding the byte budget fails instead of stalling forever"))
-    {
-        return false;
-    }
-    operation.reset();
-    resources.shutdown_async();
-    if (!resources.configure_async(tasks) || !resources.begin_load(guid(4), operation) ||
-        operation->step(1, progress) != ResourceLoadStatus::loading)
-    {
-        return false;
-    }
-    resources.shutdown_async();
-    return expect(operation->step(0, progress) == ResourceLoadStatus::failed &&
-                      !resources.async_enabled() && graph.load(guid(4), synchronous),
-                  "shutdown invalidates pending operations and leaves synchronous APIs usable");
+};
+
+std::unique_ptr<Resource> memory(unsigned index, std::vector<std::string> dependencies = {})
+{
+    schema::AssetEntryT info;
+    info.guid = guid(index);
+    info.path = "memory/" + std::to_string(index);
+    info.kind = schema::AssetKind::source;
+    info.dependencies = std::move(dependencies);
+    return std::make_unique<SourceResource>(std::move(info), ByteBuffer{std::byte{42}});
 }
 
+bool sync_lifetime()
+{
+    Fixture f;
+    if (!f.initialize() || !f.add(1) || !f.add(2, {guid(1)}) || !f.add(3, {guid(1)}) ||
+        !f.add(4, {guid(2), guid(3)}) || !f.publish())
+    {
+        return false;
+    }
+    CountingCodec::decodes = 0;
+    ResourceHandle a, b, child, invalid;
+    const Resource* value = nullptr;
+    if (!expect(!f.graph.acquire_loaded("data/4", a) &&
+                    f.graph.error() == ResourceError::not_loaded && CountingCodec::decodes == 0,
+                "acquire_loaded does not load an existing catalog entry") ||
+        !expect(!f.graph.acquire_loaded("unknown", a) &&
+                    f.graph.error() == ResourceError::not_found,
+                "unknown and unloaded resources have distinct errors") ||
+        !f.graph.load("data/4", a) || !f.graph.load(guid(4), b) ||
+        !expect(a.id != b.id && CountingCodec::decodes == 4,
+                "one immutable record per closure resource") ||
+        !f.graph.retain_dependency(a, "data/1", child) ||
+        !expect(!f.graph.retain_dependency(a, "data/4", invalid) &&
+                    f.graph.error() == ResourceError::not_found,
+                "dependency lookup excludes the owner"))
+    {
+        return false;
+    }
+    const SourceResource* source = nullptr;
+    const JsonResource* wrong = nullptr;
+    const auto copied = a;
+    if (!expect(f.graph.get(a, source) == ResourceError::none &&
+                    source->data()[0] == std::byte{4} &&
+                    f.graph.get(a, wrong) == ResourceError::type_mismatch && !wrong,
+                "typed access validates the canonical payload") ||
+        !f.graph.release(a) || !f.graph.release(a) ||
+        !expect(f.graph.get(copied, value) == ResourceError::invalid_handle && !value &&
+                    f.graph.get(b, value) == ResourceError::none,
+                "copied handle is not an independent acquisition") ||
+        !f.graph.release(b) ||
+        !expect(
+            !f.graph.acquire_loaded(guid(4), invalid) &&
+                f.graph.error() == ResourceError::not_loaded &&
+                f.graph.get(child, value) == ResourceError::none,
+            "last root release unloads the root but preserves independent dependency ownership") ||
+        !f.graph.release(child))
+    {
+        return false;
+    }
+    std::error_code error;
+    std::filesystem::remove(f.root / "1", error);
+    if (!expect(!error && !f.graph.load(guid(4), a) && f.graph.error() == ResourceError::io_failed,
+                "last release evicts the complete closure") ||
+        !expect(!f.graph.acquire_loaded(guid(2), a), "failed load rolls back unpublished records"))
+    {
+        return false;
+    }
+    auto duplicate = copied;
+    return expect(!f.graph.release(duplicate) && duplicate.id == 0 && duplicate.owner == 0 &&
+                      f.graph.get({}, value) == ResourceError::not_loaded,
+                  "stale release is harmless and clears the caller's copy");
+}
+
+bool asynchronous_lifetime()
+{
+    Fixture f;
+    if (!f.initialize() || !f.add(1) || !f.add(2, {guid(1)}) || !f.add(3, {guid(1)}) ||
+        !f.publish())
+    {
+        return false;
+    }
+    CountingCodec::decodes = 0;
+    std::unique_ptr<ResourceLoad> first, second, other;
+    ResourceLoadProgress progress;
+    ResourceHandle rejected, handle, retained;
+    if (!f.graph.begin_load(guid(2), first) || !f.graph.begin_load(guid(2), second) ||
+        !f.graph.begin_load(guid(3), other) ||
+        !expect(
+            first->status(progress) == ResourceLoadStatus::loading && !first->take(rejected) &&
+                CountingCodec::decodes == 0 && !f.graph.load(guid(2), rejected) &&
+                f.graph.error() == ResourceError::busy,
+            "queries do not advance work and synchronous loads cannot wait on pending records") ||
+        !expect(!f.graph.acquire_loaded(guid(2), rejected) &&
+                    f.graph.error() == ResourceError::not_ready,
+                "in-flight is distinct from unloaded") ||
+        !first->cancel() || !first->cancel() || !f.pump(*second) || !f.pump(*other) ||
+        !expect(
+            CountingCodec::decodes == 3 && second->status(progress) == ResourceLoadStatus::ready &&
+                progress.completed == 2 && progress.total == 2,
+            "cancelling one waiter preserves shared work and progress counts unique resources") ||
+        !second->take(handle) || !f.graph.retain(handle, retained) ||
+        !expect(!second->take(rejected) && !second->cancel(), "take transfers exactly once") ||
+        !f.graph.release(handle) || !other->cancel() || !f.graph.release(retained))
+    {
+        return false;
+    }
+    return expect(!f.graph.acquire_loaded(guid(1), rejected),
+                  "cancelled and released results do not leak dependency pins");
+}
+
+bool generations_and_memory()
+{
+    Fixture f;
+    if (!f.initialize())
+    {
+        return false;
+    }
+    auto leaf = memory(1);
+    ResourceHandle old_leaf, old_root, current, borrowed;
+    if (!f.graph.load_memory(leaf, {}, old_leaf) || leaf)
+    {
+        return false;
+    }
+    auto root = memory(2, {guid(1)});
+    if (!f.graph.load_memory(root, std::span(&old_leaf, 1), old_root) || root ||
+        !f.graph.release(old_leaf))
+    {
+        return false;
+    }
+    auto conflict = memory(2);
+    if (!expect(!f.graph.load_memory(conflict, {}, current) && conflict &&
+                    f.graph.error() == ResourceError::identity_conflict,
+                "conflicting memory publication preserves the candidate"))
+    {
+        return false;
+    }
+    std::unique_ptr<ResourceLoad> pending, ready;
+    auto candidate = memory(3);
+    if (!f.graph.begin_load_memory(candidate, {}, pending) || candidate ||
+        !f.graph.begin_load(guid(2), ready) || !f.publish() || !f.graph.tick(0))
+    {
+        return false;
+    }
+    ResourceLoadProgress progress;
+    if (!expect(pending->status(progress) == ResourceLoadStatus::failed &&
+                    pending->error() == ResourceError::generation_changed &&
+                    ready->status(progress) == ResourceLoadStatus::ready,
+                "generation changes fail pending requests and preserve completed ones") ||
+        !f.graph.retain_dependency(old_root, "memory/1", borrowed))
+    {
+        return false;
+    }
+    const Resource* old_data = nullptr;
+    if (f.graph.get(borrowed, old_data) != ResourceError::none)
+    {
+        return false;
+    }
+    const auto old_generation = old_data->generation();
+    candidate = memory(1);
+    if (!f.graph.load_memory(candidate, {}, current))
+    {
+        return false;
+    }
+    const Resource* new_data = nullptr;
+    if (!expect(f.graph.get(current, new_data) == ResourceError::none && new_data != old_data &&
+                    new_data->generation() != old_generation,
+                "old closures never resolve against new-generation records"))
+    {
+        return false;
+    }
+    candidate = memory(4, {guid(1)});
+    ResourceHandle rejected;
+    if (!expect(!f.graph.load_memory(candidate, std::span(&borrowed, 1), rejected) && candidate &&
+                    f.graph.error() == ResourceError::generation_changed,
+                "new memory resources cannot combine old-generation dependencies"))
+    {
+        return false;
+    }
+    const auto copied = current;
+    f.graph.shutdown();
+    if (!expect(ready->status(progress) == ResourceLoadStatus::cancelled && ready->cancel() &&
+                    !ready->take(rejected) &&
+                    f.graph.get(copied, new_data) == ResourceError::invalid_handle,
+                "shutdown cancels unclaimed results and invalidates all acquisitions") ||
+        !f.graph.initialize({}))
+    {
+        return false;
+    }
+    candidate = memory(1);
+    current = {};
+    if (!f.graph.load_memory(candidate, {}, current))
+    {
+        return false;
+    }
+    return expect(f.graph.get(copied, new_data) == ResourceError::invalid_handle &&
+                      f.graph.release(current),
+                  "reinitialization never revives a stale acquisition");
+}
+
+bool ownership_and_budgets()
+{
+    Fixture f;
+    if (!f.initialize() || !f.add(1) || !f.publish())
+    {
+        return false;
+    }
+    ResourceGraphSystem other(f.resources, f.planning, {});
+    if (!other.initialize({}))
+    {
+        return false;
+    }
+    ResourceHandle handle, second;
+    if (!f.graph.load(guid(1), handle))
+    {
+        return false;
+    }
+    const Resource* value = nullptr;
+    auto foreign = handle;
+    if (!expect(other.get(handle, value) == ResourceError::invalid_handle &&
+                    !other.release(foreign) && f.graph.get(handle, value) == ResourceError::none,
+                "provider identities prevent cross-loader releases") ||
+        !expect(!f.graph.retain(handle, handle) &&
+                    f.graph.get(handle, value) == ResourceError::none,
+                "nonempty outputs never overwrite existing ownership") ||
+        !f.graph.release(handle))
+    {
+        return false;
+    }
+    ResourceGraphSystem small(f.resources, f.planning, {2, 16, 0.002});
+    std::vector<std::string> dependencies{guid(1)};
+    for (unsigned index = 2; index <= 1101; ++index)
+    {
+        if (!f.add(index))
+        {
+            return false;
+        }
+        dependencies.push_back(guid(index));
+    }
+    if (!small.initialize({}) || !f.add(1102, std::move(dependencies)) || !f.publish())
+    {
+        return false;
+    }
+    std::unique_ptr<ResourceLoad> operation;
+    if (!small.begin_load(guid(1102), operation))
+    {
+        return false;
+    }
+    ResourceLoadProgress progress;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (operation->status(progress) == ResourceLoadStatus::loading &&
+           std::chrono::steady_clock::now() < deadline)
+    {
+        if (!f.resources.tick(0) || !small.tick(0))
+        {
+            return false;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    ResourceHandle result, dependency;
+    return expect(operation->status(progress) == ResourceLoadStatus::ready &&
+                      progress.completed == 1102 && progress.total == 1102 &&
+                      operation->take(result) &&
+                      small.retain_dependency(result, "data/1101", dependency) &&
+                      small.release(result) && small.release(dependency),
+                  "closures above 1024 resources advance through the bounded read window");
+}
 } // namespace
 
 int main()
 {
-    return test_shared_graph_and_generations() && test_cross_entity_validation() &&
-                   test_step_progress_and_ownership() &&
-                   test_step_terminal_and_generation_rules() && test_deep_graph_cleanup() &&
-                   test_external_builtin_lookup() && test_async_graph_loading()
+    return expect(sync_lifetime(), "sync_lifetime") &&
+                   expect(asynchronous_lifetime(), "asynchronous_lifetime") &&
+                   expect(generations_and_memory(), "generations_and_memory") &&
+                   expect(ownership_and_budgets(), "ownership_and_budgets")
                ? 0
                : 1;
 }

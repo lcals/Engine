@@ -41,10 +41,36 @@ enum class ScreenshotStatus
     failed
 };
 
+enum class RenderPrepareMode
+{
+    synchronous,
+    incremental
+};
+
+enum class RenderPrepareStatus
+{
+    idle,
+    preparing,
+    ready,
+    failed
+};
+
+struct RenderPrepareProgress
+{
+    std::uint64_t generation = 0;
+    std::uint32_t resources_total = 0;
+    std::uint32_t resources_ready = 0;
+    std::uint64_t staging_bytes = 0;
+    bool discovery_complete = false;
+};
+
 struct RenderConfig
 {
     std::size_t texture_batch_size = 4;
     std::size_t texture_staging_bytes = 64 * 1024 * 1024;
+    std::uint32_t prepare_items_per_step = 64;
+    double prepare_seconds_per_step = 0.002;
+    std::uint64_t upload_bytes_per_step = 8 * 1024 * 1024;
     std::uint16_t cluster_tile_size = 64;
     std::uint16_t cluster_depth_slices = 24;
     std::uint32_t maximum_lights = 256;
@@ -76,7 +102,12 @@ public:
     [[nodiscard]] bool remove_extension(RenderExtension& extension) noexcept;
 
     // camera 仅在本次调用借用，可属于调用方独立场景；空值采用世界的活动镜头。
-    [[nodiscard]] bool prepare_scene(Camera camera = {});
+    [[nodiscard]] RenderPrepareStatus prepare_scene(RenderPrepareMode mode,
+                                                    RenderPrepareProgress& output,
+                                                    double max_seconds = 0, Camera camera = {});
+    [[nodiscard]] RenderPrepareStatus
+    preparation_status(RenderPrepareProgress& output) const noexcept;
+    [[nodiscard]] std::string_view preparation_error() const noexcept;
     [[nodiscard]] bool request_diffuse_capture(const SceneCaptureRequest& request);
     [[nodiscard]] SceneCaptureStatus diffuse_capture_status() const noexcept;
     [[nodiscard]] bool take_diffuse_capture(SceneCaptureImage& output);
@@ -87,7 +118,6 @@ public:
     [[nodiscard]] bool take_hdr_capture(SceneCaptureImage& output);
     void cancel_hdr_capture() noexcept;
     void release_scene() noexcept;
-    [[nodiscard]] bool scene_prepared() const noexcept;
     [[nodiscard]] std::uint32_t gpu_resource_count() const noexcept;
     // 通用 GPU 生命周期与提交进度；帧号为当前图形设备的 bgfx 提交帧号。
     [[nodiscard]] bool gpu_ready() const noexcept;
@@ -144,6 +174,7 @@ private:
     [[nodiscard]] bool capture_unchanged() const;
     [[nodiscard]] bool draw_diffuse_capture(const RenderSettings& settings);
     void release_draw_resources() noexcept;
+    void collect_preparation(bool wait) noexcept;
     [[nodiscard]] bool draw_scene(Camera camera, const RenderSettings& settings);
     [[nodiscard]] bool draw_debug_overlay(Camera camera, const float* view,
                                           const float* projection);
@@ -151,6 +182,7 @@ private:
     void clear_debug_lines() noexcept;
 
     struct SceneGpuResources;
+    struct RenderPreparation;
     struct RendererCallbacks;
 
     WindowSystem& windows_;
@@ -161,6 +193,7 @@ private:
     TaskSystem* tasks_ = nullptr;
     RenderConfig config_;
     std::unique_ptr<SceneGpuResources> scene_resources_;
+    std::unique_ptr<RenderPreparation> preparation_;
     std::unique_ptr<RendererCallbacks> callbacks_;
     std::uint32_t idle_clear_color_ = 0x181818ff;
     std::unique_ptr<render_detail::RenderSurface> surface_;

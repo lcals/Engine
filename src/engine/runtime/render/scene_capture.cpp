@@ -1,6 +1,7 @@
 #include "runtime/render/render_constants.hpp"
 #include "runtime/render/render_math.hpp"
 #include "runtime/render/scene_gpu_resources.hpp"
+#include "runtime/resource/codecs/texture_resource_codec.hpp"
 #include "runtime/resource/resource.hpp"
 #include "runtime/scene/ecs_scene.hpp"
 #include "runtime/scene/ecs_storage.hpp"
@@ -34,6 +35,11 @@ bool RenderSystem::request_hdr_capture()
     }
     hdr_capture_scene_id_ = scene->id();
     hdr_capture_status_ = SceneCaptureStatus::pending;
+    if (preparation_)
+    {
+        preparation_->target_description.clear();
+        preparation_->status = RenderPrepareStatus::preparing;
+    }
     return true;
 }
 
@@ -56,6 +62,11 @@ void RenderSystem::cancel_hdr_capture() noexcept
     if (scene_resources_ && !scene_resources_->hdr_capture_pending)
     {
         scene_resources_->hdr_capture_pixels.clear();
+        if (bgfx::isValid(scene_resources_->hdr_capture_readback))
+        {
+            bgfx::destroy(scene_resources_->hdr_capture_readback);
+            scene_resources_->hdr_capture_readback = BGFX_INVALID_HANDLE;
+        }
     }
 }
 
@@ -73,27 +84,13 @@ void RenderSystem::submit_hdr_capture()
         return;
     }
     auto& resources = *scene_resources_;
-    const auto* caps = bgfx::getCaps();
-    constexpr auto readback_flags = BGFX_TEXTURE_BLIT_DST | BGFX_TEXTURE_READ_BACK;
     const auto source = resources.hdr_post_process.scene_color();
-    if (!caps || !bgfx::isValid(source) || width_ == 0 || height_ == 0 || width_ > UINT16_MAX ||
-        height_ > UINT16_MAX ||
-        !bgfx::isTextureValid(0, false, 1, bgfx::TextureFormat::RGBA16F, readback_flags))
+    if (!bgfx::isValid(source) || !bgfx::isValid(resources.hdr_capture_readback) ||
+        resources.hdr_capture_width != width_ || resources.hdr_capture_height != height_)
     {
         hdr_capture_status_ = SceneCaptureStatus::failed;
         return;
     }
-    resources.hdr_capture_width = static_cast<std::uint16_t>(width_);
-    resources.hdr_capture_height = static_cast<std::uint16_t>(height_);
-    resources.hdr_capture_readback =
-        bgfx::createTexture2D(resources.hdr_capture_width, resources.hdr_capture_height, false, 1,
-                              bgfx::TextureFormat::RGBA16F, readback_flags);
-    if (!bgfx::isValid(resources.hdr_capture_readback))
-    {
-        hdr_capture_status_ = SceneCaptureStatus::failed;
-        return;
-    }
-    resources.hdr_capture_pixels.resize(static_cast<std::size_t>(width_) * height_ * 4);
     // bgfx resolves multisample attachments when the drawing view ends. The
     // capture view follows transparent/extension and final display resolve;
     // display resolve samples but does not modify this linear scene texture.
@@ -173,14 +170,19 @@ void append_value(std::vector<std::uint8_t>& bytes, const auto& value)
     bytes.insert(bytes.end(), begin, begin + sizeof(value));
 }
 
-void append_component(std::vector<std::uint8_t>& bytes, const Component& component)
+bool append_component(std::vector<std::uint8_t>& bytes, const Component& component)
 {
     flatbuffers::FlatBufferBuilder builder;
-    const auto data = component.data();
+    schema::ComponentDataT data;
+    if (!component.get_data(data))
+    {
+        return false;
+    }
     builder.Finish(schema::CreateComponentData(builder, &data));
     append_value(bytes, builder.GetSize());
     bytes.insert(bytes.end(), builder.GetBufferPointer(),
                  builder.GetBufferPointer() + builder.GetSize());
+    return true;
 }
 
 bool capture_snapshot(const WorldSystem& world, const SceneCaptureRequest& request,
@@ -217,7 +219,10 @@ bool capture_snapshot(const WorldSystem& world, const SceneCaptureRequest& reque
         {
             return false;
         }
-        append_component(output, renderer);
+        if (!append_component(output, renderer))
+        {
+            return false;
+        }
         append_value(output, renderer.instance_id());
         append_value(output, renderer.mesh_revision());
         append_value(output, renderer.deformation_revision());
@@ -275,8 +280,10 @@ bool capture_snapshot(const WorldSystem& world, const SceneCaptureRequest& reque
                 {
                     return false;
                 }
-                append_value(output, reinterpret_cast<std::uintptr_t>(
-                                         material.texture(sampler->name).get()));
+                const auto handle = material.texture(sampler->name);
+                append_value(output, handle.owner);
+                append_value(output, handle.id);
+                append_value(output, handle.generation);
             }
         }
     }
@@ -291,9 +298,13 @@ bool capture_snapshot(const WorldSystem& world, const SceneCaptureRequest& reque
         {
             return false;
         }
-        append_component(output, light);
+        if (!append_component(output, light))
+        {
+            return false;
+        }
     }
     std::uint64_t atmosphere_sun_id = 0;
+    bool complete = true;
     auto environments =
         flecs::world(world.native_world())
             .query_builder<const ecs_detail::ComponentStorage<EnvironmentComponent::Data>,
@@ -306,14 +317,22 @@ bool capture_snapshot(const WorldSystem& world, const SceneCaptureRequest& reque
             if (state.scene == world.scene() && state.active && state.visible_in_hierarchy &&
                 stored.state.flags.enabled && stored.state.flags.visible)
             {
-                append_component(
-                    output, world.find_node(entity.id()).get_component<EnvironmentComponent>());
+                if (!append_component(
+                        output, world.find_node(entity.id()).get_component<EnvironmentComponent>()))
+                {
+                    complete = false;
+                    return;
+                }
                 if (stored.data.atmosphere_enabled)
                 {
                     atmosphere_sun_id = stored.data.atmosphere_sun_node_id;
                 }
             }
         });
+    if (!complete)
+    {
+        return false;
+    }
     if (atmosphere_sun_id != 0)
     {
         bool found_sun = false;
@@ -338,7 +357,7 @@ bool capture_snapshot(const WorldSystem& world, const SceneCaptureRequest& reque
                             append_node(entity.id());
                 if (found_sun)
                 {
-                    append_component(output, light);
+                    found_sun = append_component(output, light);
                 }
             });
         if (!found_sun)
@@ -373,14 +392,14 @@ bool RenderSystem::draw_diffuse_capture(const RenderSettings& rendering)
         return fail();
     }
     auto& resources = *scene_resources_;
+    if (resources.frame_data.world_epoch == 0 &&
+        !resources.collect_frame(*world_, resources.frame_data))
+    {
+        return fail();
+    }
     if (capture_status_ == SceneCaptureStatus::pending && !resources.capture_pending)
     {
         auto& request = capture_request_;
-        if (!resources.prepare_capture(request))
-        {
-            resources.release_capture();
-            return fail();
-        }
         float capture_world[16];
         bx::mtxInverse(capture_world, request.view.data());
         render_detail::SceneDrawView draw;
@@ -400,8 +419,9 @@ bool RenderSystem::draw_diffuse_capture(const RenderSettings& rendering)
             return fail();
         }
         render_detail::ShadowFrame capture_shadow;
-        if (!resources.prepare_lighting(*world_, rendering, config_, draw, lens, capture_shadow, 3,
-                                        render_detail::capture_shadow_view, &request))
+        if (!resources.prepare_lighting(resources.frame_data, rendering, config_, draw, lens,
+                                        capture_shadow, 3, render_detail::capture_shadow_view,
+                                        &request))
         {
             return fail();
         }
@@ -413,8 +433,10 @@ bool RenderSystem::draw_diffuse_capture(const RenderSettings& rendering)
         bgfx::setViewClear(draw.id, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, std::uint32_t{0x000000ff},
                            1.0F, std::uint8_t{0});
         bgfx::touch(draw.id);
-        if (!resources.draw_capture_sky(request, rendering) ||
-            !resources.draw_meshes(*world_, rendering, draw, render_detail::SceneDrawMode::capture))
+        if (!resources.collect_view(resources.frame_data, draw, resources.draw_lists[3]) ||
+            !resources.draw_capture_sky(request, rendering) ||
+            !resources.draw_meshes(resources.frame_data, resources.draw_lists[3], rendering, draw,
+                                   render_detail::SceneDrawMode::capture))
         {
             return fail();
         }
@@ -478,6 +500,11 @@ bool RenderSystem::request_diffuse_capture(const SceneCaptureRequest& request)
     capture_request_ = request;
     capture_snapshot_ = std::move(snapshot);
     capture_status_ = SceneCaptureStatus::pending;
+    if (preparation_)
+    {
+        preparation_->target_description.clear();
+        preparation_->status = RenderPrepareStatus::preparing;
+    }
     if (scene_resources_)
     {
         scene_resources_->capture_cancelled = false;
@@ -643,21 +670,35 @@ bool RenderSystem::SceneGpuResources::prepare_capture(const SceneCaptureRequest&
     for (const auto& item : request.indirect)
     {
         const auto& image = *item.image;
-        if (image.encoding != schema::TextureEncoding::ktx || image.srgb || image.cube_map ||
+        if (!TextureResourceCodec::validate(image) ||
+            image.encoding != schema::TextureEncoding::native || image.srgb || image.cube_map ||
             image.format != schema::TextureFormat::rgba16f || image.data.empty() ||
             image.data.size() > UINT32_MAX)
         {
             return false;
         }
-        bgfx::TextureInfo info;
-        const auto texture = bgfx::createTexture(
-            bgfx::copy(image.data.data(), static_cast<std::uint32_t>(image.data.size())),
-            BGFX_SAMPLER_UVW_CLAMP, 0, &info);
+        const auto texture = bgfx::createTexture2D(
+            static_cast<std::uint16_t>(image.width), static_cast<std::uint16_t>(image.height),
+            image.mip_count > 1, 1, bgfx::TextureFormat::RGBA16F, BGFX_SAMPLER_UVW_CLAMP);
         capture_lightmaps.push_back(texture);
-        if (!bgfx::isValid(texture) || info.width != image.width || info.height != image.height ||
-            info.format != bgfx::TextureFormat::RGBA16F)
+        if (!bgfx::isValid(texture))
         {
             return false;
+        }
+        for (const auto& part : image.subresources)
+        {
+            if (part.face() != 0 || part.mip() >= image.mip_count ||
+                part.offset() > image.data.size() ||
+                part.size() > image.data.size() - part.offset())
+            {
+                return false;
+            }
+            bgfx::updateTexture2D(
+                texture, 0, static_cast<std::uint8_t>(part.mip()), 0, 0,
+                static_cast<std::uint16_t>(std::max(1U, image.width >> part.mip())),
+                static_cast<std::uint16_t>(std::max(1U, image.height >> part.mip())),
+                bgfx::copy(image.data.data() + part.offset(),
+                           static_cast<std::uint32_t>(part.size())));
         }
         std::unique_ptr<render_detail::GpuGeometry> geometry;
         if (item.mesh)
@@ -769,7 +810,8 @@ bool RenderSystem::SceneGpuResources::draw_capture_sky(const SceneCaptureRequest
     float view_projection[16], inverse[16];
     bx::mtxMul(view_projection, request.view.data(), request.projection.data());
     bx::mtxInverse(inverse, view_projection);
-    const bool ibl_ready = settings.ibl_enabled && bgfx::isValid(ibl_textures[1].handle);
+    const bool ibl_ready =
+        settings.ibl_enabled && ibl_textures[1] && bgfx::isValid(ibl_textures[1]->handle);
     const float ibl[]{ibl_ready ? 1.0F : 0.0F, settings.ibl_intensity, 0, 0};
     const float mode[]{1, bgfx::getCaps()->homogeneousDepth ? -1.0F : 0.0F,
                        bgfx::getCaps()->originBottomLeft ? 1.0F : 0.0F, 0};
@@ -789,7 +831,7 @@ bool RenderSystem::SceneGpuResources::draw_capture_sky(const SceneCaptureRequest
     bgfx::setViewUniform(render_detail::capture_view, ambient_equator, equator);
     bgfx::setViewUniform(render_detail::capture_view, ambient_ground, ground);
     bgfx::setTexture(13, ibl_prefilter_sampler,
-                     ibl_ready ? ibl_textures[1].handle : ibl_cube_fallback);
+                     ibl_ready ? ibl_textures[1]->handle : ibl_cube_fallback);
     bgfx::setVertexBuffer(0, capture_fullscreen);
     bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A);
     bgfx::submit(render_detail::capture_view, capture_sky_program);

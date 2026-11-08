@@ -1,5 +1,8 @@
 #pragma once
 
+#include "runtime/resource/resource_reference.hpp"
+#include "runtime/resource/types/texture_resource.hpp"
+
 #include "runtime/render/resources/gpu_vertex.hpp"
 #include "runtime/schema/mesh_generated.h"
 
@@ -46,7 +49,7 @@ struct GpuGeometry
                   std::span<const schema::Vec4> tangents, std::vector<GpuVertex>& packed,
                   std::array<float, 3>& minimum, std::array<float, 3>& maximum);
 
-    std::shared_ptr<const Resource> resource;
+    ResourceReference resource;
     bgfx::VertexBufferHandle vertices = BGFX_INVALID_HANDLE;
     bgfx::IndexBufferHandle indices = BGFX_INVALID_HANDLE;
     bgfx::VertexBufferHandle influences = BGFX_INVALID_HANDLE;

@@ -1,6 +1,7 @@
 #include "editor/editor_environment.hpp"
 #include "editor/editor_system.hpp"
 #include "editor/project/project_system.hpp"
+#include "resource_services.hpp"
 #include "runtime/app/app.hpp"
 #include "runtime/engine_config.hpp"
 #include "runtime/gameplay/gameplay_session.hpp"
@@ -65,12 +66,13 @@ std::string read(const fs::path& path)
 
 bool resource_submission(engine::editor::EditorEnvironment& environment, const fs::path& root)
 {
-    engine::ResourceSystem resources;
+    test_support::ResourceServices services{};
+    engine::ResourceSystem& resources = services.core;
     engine::WindowSystem window;
-    engine::WorldSystem world;
+    engine::WorldSystem world(&services.loader);
     engine::RenderSystem renderer(window, &world);
-    engine::GameplaySession gameplay(world, renderer, nullptr);
-    if (!expect(resources.initialize({}), "initialize resource submission services"))
+    engine::GameplaySession gameplay(resources, world, renderer, nullptr);
+    if (!expect(services.initialize({}), "initialize resource submission services"))
     {
         return false;
     }

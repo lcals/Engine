@@ -59,10 +59,10 @@ def test(editor, mcp, root, temporary):
     project = prepare_project(root, temporary)
     # 场景由真实脚本加载；去掉示例逐帧旋转，使查询值只受编辑命令改变。
     (project / "assets/scripts/game.ts").write_text(
-        "import { Gameplay, Scene } from 'engine';\n"
+        "import { Gameplay, Scene, Resources } from 'engine';\n"
         "export default class Game extends Gameplay {\n"
         "    override OnInitialize(): boolean {\n"
-        "        return Scene.Load('scenes/main.scene') !== null;\n"
+        "        const resource = Resources.Load('scenes/main.scene'); if (!resource) return false; const scene = Scene.Load('scenes/main.scene'); Resources.Release(resource); return scene !== null;\n"
         "    }\n"
         "}\n",
         encoding="utf-8",

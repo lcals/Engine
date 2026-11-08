@@ -1,4 +1,5 @@
 #include "resource_fixture.hpp"
+#include "resource_services.hpp"
 #include "scene_snapshot.hpp"
 
 #include "editor/commands/editor_commands.hpp"
@@ -92,8 +93,9 @@ bool add_clip(test_support::ResourceFixture& fixture)
 struct Fixture
 {
     test_support::ResourceFixture files;
-    engine::ResourceSystem resources;
-    engine::WorldSystem world;
+    test_support::ResourceServices services;
+    engine::ResourceSystem& resources = services.core;
+    engine::WorldSystem world{&services.loader};
     engine::editor::SceneCommands module{world};
     engine::editor::EditorCommands commands{[this]()
                                             { return world.scene() ? world.scene()->id() : 0; }};
@@ -103,8 +105,10 @@ struct Fixture
     bool initialize()
     {
         const engine::EngineConfig config;
-        return !files.root.empty() && resources.initialize(config) && world.initialize(config) &&
-               add_clip(files) && files.publish(resources) &&
+        return !files.root.empty() &&
+               (services.initialize(config) && services.prepare_builtins()) &&
+               world.initialize(config) && add_clip(files) &&
+               (files.publish(resources) && services.prepare_builtins()) &&
                world.create_scene("Physics and audio commands") &&
                module.register_commands(commands);
     }
@@ -157,7 +161,8 @@ bool component_roundtrip(Fixture& fixture, engine::Node& node, std::string_view 
         return false;
     }
     component = node.get_component<T>();
-    if (!expect(component && component.data() == saved, "redo restores complete generated data"))
+    if (!expect(component && test_support::read_data(component) == saved,
+                "redo restores complete generated data"))
     {
         return false;
     }
@@ -168,7 +173,8 @@ bool component_roundtrip(Fixture& fixture, engine::Node& node, std::string_view 
         arguments.update(fields);
         if (!expect(!fixture.execute(set_name, arguments) && fixture.result.is_null() &&
                         !fixture.error.empty() && node.get_component<T>() == component &&
-                        component.data() == saved && fixture.commands.undo_count() == history,
+                        test_support::read_data(component) == saved &&
+                        fixture.commands.undo_count() == history,
                     "invalid edit preserves component identity, data and history"))
         {
             return false;
@@ -179,7 +185,8 @@ bool component_roundtrip(Fixture& fixture, engine::Node& node, std::string_view 
     if (!expect(fixture.execute(set_name, arguments) && !component.enabled(),
                 "enabled flag is editable") ||
         !expect(fixture.execute("undo", fixture.scene_identity()) &&
-                    node.get_component<T>() == component && component.data() == saved,
+                    node.get_component<T>() == component &&
+                    test_support::read_data(component) == saved,
                 "undo updates existing component without replacing it") ||
         !expect(fixture.execute("redo", fixture.scene_identity()) && !component.enabled(),
                 "redo applies enabled flag") ||
@@ -446,11 +453,12 @@ bool transactions_and_impulses()
         }
     }
     auto collider = node.get_component<engine::Collider>();
-    auto changed = collider.settings();
+    auto changed = test_support::read_settings(collider);
     changed.friction = 0.25F;
     if (!expect(collider.set_settings(changed) &&
                     !fixture.execute("undo", fixture.scene_identity()) &&
-                    collider.settings().friction == 0.25F && fixture.commands.undo_count() == 1,
+                    test_support::read_settings(collider).friction == 0.25F &&
+                    fixture.commands.undo_count() == 1,
                 "stale first edit blocks batch undo without overwriting external change"))
     {
         return false;
@@ -458,7 +466,7 @@ bool transactions_and_impulses()
     for (std::size_t index = 1; index < types.size(); ++index)
     {
         const auto component = node.get_component(types[index]);
-        if (!expect(component && component.data() == snapshots[index],
+        if (!expect(component && test_support::read_data(component) == snapshots[index],
                     "failed undo restores members already reverted in reverse order"))
         {
             return false;
@@ -485,7 +493,8 @@ bool transactions_and_impulses()
     auto impulse = identity;
     impulse["impulse"] = {0, 4, 0};
     if (!expect(body && fixture.execute("add_impulse", impulse) && fixture.result["accepted"] &&
-                    body.data() == snapshots[1] && fixture.commands.undo_count() == 1,
+                    test_support::read_data(body) == snapshots[1] &&
+                    fixture.commands.undo_count() == 1,
                 "impulse is a transient request, not a persisted property or undo record"))
     {
         return false;
@@ -512,7 +521,8 @@ bool transactions_and_impulses()
         return false;
     }
     impulse["impulse"] = {0, 10000000, 0};
-    if (!expect(!fixture.execute("add_impulse", impulse) && body.data() == snapshots[1],
+    if (!expect(!fixture.execute("add_impulse", impulse) &&
+                    test_support::read_data(body) == snapshots[1],
                 "oversized impulse cannot change persisted state"))
     {
         return false;
@@ -522,7 +532,8 @@ bool transactions_and_impulses()
     batch = {{"commands", Json::array({{{"command", "set_audio_listener"}, {"arguments", listener}},
                                        {{"command", "add_impulse"}, {"arguments", impulse}}})}};
     return expect(!fixture.execute("batch", batch) &&
-                      node.get_component<engine::AudioListener>().data() == snapshots[3] &&
+                      test_support::read_data(node.get_component<engine::AudioListener>()) ==
+                          snapshots[3] &&
                       fixture.commands.undo_count() == 1,
                   "batch rejects irreversible impulse and reverts preceding edits");
 }

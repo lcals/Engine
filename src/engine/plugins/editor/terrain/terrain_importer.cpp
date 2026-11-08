@@ -1,4 +1,5 @@
 #include "plugins/editor/terrain/terrain_importer.hpp"
+#include "editor/file_text.hpp"
 
 #include "editor/asset_pipeline/asset_io.hpp"
 #include "editor/asset_pipeline/importer_utils.hpp"
@@ -22,7 +23,8 @@ bool source(const std::filesystem::path& path, schema::TerrainGeneratorDataT& se
     std::error_code filesystem_error;
     const auto size = std::filesystem::file_size(path, filesystem_error);
     std::string text;
-    if (filesystem_error || size > 1024U * 1024U || !ResourceSystem::read_text(path, text))
+    if (filesystem_error || size > 1024U * 1024U ||
+        !engine::editor::file_detail::read_text(path, text))
     {
         error = "cannot read terrain source, or source exceeds 1 MiB";
         return false;

@@ -11,10 +11,10 @@ classDiagram
     class ScriptRuntime {
         <<abstract>>
         +~ScriptRuntime()
-        +prepare_gameplay(const ResourceCatalog& catalog, const MountList& mounts, string_view entry, string_view revision) bool
+        +prepare_gameplay(const ResourceHandle& entry, string_view revision) bool
         +start_prepared_gameplay() bool
         +stop_gameplay() void
-        +execute_project_script(const ProjectScriptRequest& request, string& result_json, string& error) bool*
+        +execute_project_script(const ResourceHandle& script, const ProjectScriptRequest& request, string& result_json, string& error) bool*
         +status() const ScriptStatus&
     }
     class ScriptStatus {
@@ -25,8 +25,7 @@ classDiagram
         +string last_error
     }
     class System
-    class ResourceCatalog
-    class ResourceMount
+    class ResourceHandle
     class GameplaySession
     class RuntimeHost
     class WorldSystem
@@ -34,8 +33,7 @@ classDiagram
     WorldSystem *-- ScriptRuntime : 独占可选子系统
     GameplaySession --> ScriptRuntime : 可空借用执行契约
     RuntimeHost ..> ScriptRuntime : 调用宿主工厂并转移给世界
-    ScriptRuntime ..> ResourceCatalog : 候选目录输入
-    ScriptRuntime ..> ResourceMount : 候选挂载输入
+    ScriptRuntime ..> ResourceHandle : 已加载入口及项目脚本输入
     ScriptRuntime ..> ScriptStatus : 借用状态输出
 ```
 

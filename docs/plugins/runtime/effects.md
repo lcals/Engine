@@ -2,7 +2,7 @@
 
 `runtime/effects` 提供独立 `EffectSystem` 和场景节点上的 `EffectComponent`。系统管理模拟时间、共享特效资源与每个实例的播放句柄，组件保存资源、速度、循环和自动播放设置。核心 `RenderSystem` 只提供通用 `RenderExtension` 绘制和释放接口；特效在场景几何之后、HDR/Bloom 之前绘制，使用当前场景镜头及深度附件。Effekseer、efkbgfx 类型不进入核心或插件公开头。
 
-`editor/effects` 提供 `.efkefc` 导入、组件 TOML 编解码、可撤销属性编辑和六个 MCP 工具：`set_effect`、`get_effect`、`play_effect`、`pause_effect`、`stop_effect`、`get_effect_state`。工具使用已有场景与节点身份参数；`set_effect` 的 `effect` 参数为逻辑资源路径，空字符串清除引用。依赖的 `.efkmodel` 保留官方模型字节，贴图继续走标准图片导入与 meta 参数。
+`editor/effects` 提供 `.efkefc` 导入、组件 TOML 编解码、可撤销属性编辑和五个 MCP 工具：`set_effect`、`get_effect`、`play_effect`、`pause_effect`、`stop_effect`。工具使用已有场景与节点身份参数；`set_effect` 的 `effect` 参数为逻辑资源路径，空字符串清除引用。依赖的 `.efkmodel` 保留官方模型字节，贴图继续走标准图片导入与 meta 参数。
 
 默认清单选入这两个插件；显式选择时将 `effects` 分别加入 `ENGINE_RUNTIME_PLUGINS`、`ENGINE_EDITOR_PLUGINS`。编辑器插件声明依赖运行时插件；两边都未选时不创建特效或 SDK 目标。依赖固定为 Effekseer 1808 和 efkbgfx 子模块，初始化方式为：
 

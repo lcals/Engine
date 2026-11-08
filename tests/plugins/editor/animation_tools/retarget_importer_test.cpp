@@ -1,4 +1,7 @@
+#include "editor/asset_pipeline/animation_sampling.hpp"
+#include "file_text.hpp"
 #include "resource_fixture.hpp"
+#include "runtime/resource/virtual_file_system.hpp"
 
 #include "editor/asset_pipeline/asset_pipeline_system.hpp"
 #include "plugins/editor/animation_tools/retarget_importer.hpp"
@@ -40,7 +43,7 @@ bool write(const fs::path& path, std::string_view text)
 std::string read(const fs::path& path)
 {
     std::string result;
-    return engine::ResourceSystem::read_text(path, result) ? result : std::string{};
+    return test_support::read_text(path, result) ? result : std::string{};
 }
 
 // Public, self-authored skeleton input keeps this importer test independent of FBX assets.
@@ -63,7 +66,7 @@ public:
                  std::string&) const override
     {
         engine::ByteBuffer bytes;
-        return engine::ResourceSystem::read_binary(asset.source, bytes) &&
+        return engine::VirtualFileSystem::read_file(asset.source, bytes) &&
                write(context.output / asset.guid,
                      {reinterpret_cast<const char*>(bytes.data()), bytes.size()});
     }
@@ -72,11 +75,17 @@ public:
 bool skeleton_source(const fs::path& root, const char* filename, const char* guid, const char* name)
 {
     schema::SkeletonDataT data;
+    data.schema_version = 2;
     data.path = filename;
     auto joint = std::make_unique<schema::JointDataT>();
     joint->name = name;
     joint->inverse_bind = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
     data.joints.push_back(std::move(joint));
+    std::string sampling_error;
+    if (!engine::editor::asset_pipeline::prepare_skeleton_sampling(data, sampling_error))
+    {
+        return false;
+    }
     flatbuffers::FlatBufferBuilder builder;
     schema::FinishSkeletonDataBuffer(builder, schema::SkeletonData::Pack(builder, &data));
     return write(root / "assets" / filename,
@@ -129,7 +138,8 @@ bool exercise()
     std::unique_ptr<io::AssetImporter> retarget =
         std::make_unique<engine::plugins::animation_tools::RetargetImporter>();
     const auto source = fixture.root / "assets/test.retarget";
-    if (!expect(threads.initialize({}) && tasks.initialize({}) && resources.initialize({}) &&
+    if (!expect(threads.initialize({}) && tasks.initialize({}) &&
+                    test_support::register_resource_codecs(resources) && resources.initialize({}) &&
                     pipeline.initialize({}) && pipeline.add_importer(skeleton) &&
                     pipeline.add_importer(retarget) &&
                     skeleton_source(fixture.root, "source.skeleton", source_guid, "Source") &&
@@ -151,18 +161,22 @@ bool exercise()
     }
     const auto guid = (*entry)->guid;
     const auto metadata = read(source.string() + ".meta");
-    engine::ResourcePtr original;
-    if (!expect(metadata.find("animation_retarget_profile") != std::string::npos &&
-                    metadata.find(guid) != std::string::npos &&
-                    resources.update_catalog(pipeline.catalog(),
-                                             {{"content", fixture.root / "cache"}}) &&
-                    resources.load(guid, original) && original && original->retarget_profile() &&
-                    original->retarget_profile()->source_reference_pose.size() == 1 &&
-                    original->retarget_profile()->hips_translation_scale == 1 &&
-                    pipeline.build_assets(fixture.root) && pipeline.last_build().imported == 0 &&
-                    pipeline.last_build().reused == 3,
-                "unique meta and GUID entity load; unchanged profiles use incremental cache",
-                pipeline.last_error()))
+    std::unique_ptr<engine::Resource> original;
+    if (!expect(
+            metadata.find("animation_retarget_profile") != std::string::npos &&
+                metadata.find(guid) != std::string::npos &&
+                resources.update_catalog(pipeline.catalog(),
+                                         {{"content", fixture.root / "cache"}}) &&
+                resources.read(guid, original) && original &&
+                engine::resource_detail::data<engine::AnimationRetargetResource>(original.get()) &&
+                engine::resource_detail::data<engine::AnimationRetargetResource>(original.get())
+                        ->source_reference_pose.size() == 1 &&
+                engine::resource_detail::data<engine::AnimationRetargetResource>(original.get())
+                        ->hips_translation_scale == 1 &&
+                pipeline.build_assets(fixture.root) && pipeline.last_build().imported == 0 &&
+                pipeline.last_build().reused == 3,
+            "unique meta and GUID entity load; unchanged profiles use incremental cache",
+            pipeline.last_error()))
     {
         return false;
     }
@@ -176,11 +190,15 @@ bool exercise()
     {
         return false;
     }
-    engine::ResourcePtr changed;
-    if (!expect(resources.load(guid, changed) && changed && changed->retarget_profile() &&
-                    changed->retarget_profile()->hips_translation_scale == 2 &&
-                    original->retarget_profile()->hips_translation_scale == 1,
-                "a new resource generation never mutates an older immutable profile"))
+    std::unique_ptr<engine::Resource> changed;
+    if (!expect(
+            resources.read(guid, changed) && changed &&
+                engine::resource_detail::data<engine::AnimationRetargetResource>(changed.get()) &&
+                engine::resource_detail::data<engine::AnimationRetargetResource>(changed.get())
+                        ->hips_translation_scale == 2 &&
+                engine::resource_detail::data<engine::AnimationRetargetResource>(original.get())
+                        ->hips_translation_scale == 1,
+            "a new resource generation never mutates an older immutable profile"))
     {
         return false;
     }

@@ -28,6 +28,6 @@ python3 projects/showcase/tests/ecs_many_objects_test.py \
   --count 10000
 ```
 
-脚本通过真实 UI 输入进入场景、隐藏、停用、换父级、删除重建、整组回收并返回菜单，再次进入确认整局状态清零。自动保存一张真实画面截图。`execute_project_script` 只读取当前 Gameplay 的 `Inspect()` 状态，`get_scene` 独立检查真实实体数量；不替换 Flecs、渲染或脚本宿主。每次操作必须完成新一轮逐实体检查，不能以旧的 `PASS` 状态蒙混通过。
+脚本通过真实 UI 输入进入场景、隐藏、停用、换父级、删除重建、整组回收并返回菜单，再次进入确认整局状态清零。自动保存一张真实画面截图。`execute_project_script` 只读取当前 Gameplay 的 `Inspect()` 状态，`get_scene` 独立检查真实实体数量；不替换 Flecs、渲染或脚本宿主。每次操作重新检查实体状态，旧结果不代表新一轮完成。
 
-回执及 JSON 结果保存在项目 `cache/ecs-many-objects/`，不进入 Git。脚本不关闭已有编辑器，也不自动触发 CI。实际完成的运行及平台结果记录在根 `docs/testing.md`：macOS Metal Release 的 1,000／10,000 完整交互已通过；50,000 档位本轮在等待上限内仍未创建完成，不能视为已验收。
+回执及 JSON 结果保存在项目 `cache/ecs-many-objects/`，不进入 Git。脚本不关闭已有编辑器，也不自动触发 CI。历史 macOS Metal Release 验证覆盖 1,000／10,000 个对象的完整交互；50,000 档位未在等待上限内完成创建，尚无通过结论。这些记录不代表当前构建或其他平台已验证。

@@ -1,4 +1,5 @@
 #include "plugins/runtime/script/bindings/rigid_body_binding.hpp"
+#include "plugins/runtime/script/bindings/binding_helpers.hpp"
 
 #include "plugins/runtime/script/bindings/binding_context.hpp"
 #include "runtime/scene/node.hpp"
@@ -37,30 +38,20 @@ Object.freeze(RigidBody.prototype);
 Object.freeze(RigidBody);
 )js";
 
-RigidBody body(const Arguments& arguments, int count)
-{
-    arguments.set_return(false);
-    auto node = BindingContext::node(arguments);
-    return node.valid() && arguments.count() == count ? node.get_component<RigidBody>()
-                                                      : RigidBody{};
-}
-
-void add(const Arguments& arguments)
-{
-    auto node = BindingContext::node(arguments);
-    arguments.set_return(arguments.count() == 2 && node.valid() &&
-                         node.add_component<RigidBody>().valid());
-}
-
 void motion(const Arguments& arguments)
 {
-    auto value = body(arguments, 3);
+    auto value = binding_detail::component<RigidBody>(arguments, 3);
     std::string name;
     if (!value || !BindingContext::text(arguments, 2, name))
     {
         return;
     }
-    auto settings = value.settings();
+    RigidBody::Data settings{};
+    if (!value.get_settings(settings))
+    {
+        arguments.set_return(false);
+        return;
+    }
     if (name == "static")
     {
         settings.motion = schema::BodyMotion::static_body;
@@ -82,11 +73,16 @@ void motion(const Arguments& arguments)
 
 void mass(const Arguments& arguments)
 {
-    auto value = body(arguments, 3);
+    auto value = binding_detail::component<RigidBody>(arguments, 3);
     float number = 0.0F;
     if (value.valid() && BindingContext::scalar(arguments, 2, number))
     {
-        auto settings = value.settings();
+        RigidBody::Data settings{};
+        if (!value.get_settings(settings))
+        {
+            arguments.set_return(false);
+            return;
+        }
         settings.mass = number;
         arguments.set_return(value.set_settings(settings));
     }
@@ -94,7 +90,7 @@ void mass(const Arguments& arguments)
 
 void set_vector(const Arguments& arguments, bool impulse)
 {
-    auto value = body(arguments, 5);
+    auto value = binding_detail::component<RigidBody>(arguments, 5);
     double x = 0.0;
     double y = 0.0;
     double z = 0.0;
@@ -119,7 +115,7 @@ void impulse(const Arguments& arguments)
 
 void get_velocity(const Arguments& arguments)
 {
-    const auto value = body(arguments, 2);
+    const auto value = binding_detail::component<RigidBody>(arguments, 2);
     arguments.set_return({});
     if (!value)
     {
@@ -144,8 +140,9 @@ std::string_view RigidBodyBinding::source() const noexcept
 bool RigidBodyBinding::register_functions(vm::ScriptVm& vm) const
 {
     return vm.integer("RigidBodyKind", static_cast<int>(RigidBody::component_type)) &&
-           vm.function("RigidBodyAdd", add) && vm.function("RigidBodyMotion", motion) &&
-           vm.function("RigidBodyMass", mass) && vm.function("RigidBodyVelocity", velocity) &&
+           vm.function("RigidBodyAdd", binding_detail::add_component<RigidBody>) &&
+           vm.function("RigidBodyMotion", motion) && vm.function("RigidBodyMass", mass) &&
+           vm.function("RigidBodyVelocity", velocity) &&
            vm.function("RigidBodyGetVelocity", get_velocity) &&
            vm.function("RigidBodyImpulse", impulse);
 }

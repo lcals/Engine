@@ -62,9 +62,71 @@ bool source_texture(const schema::TextureDataT& data, bgfx::TextureHandle& outpu
 {
     const auto flags = (data.cube_map ? clamp_sampler : BGFX_SAMPLER_V_CLAMP) |
                        (data.srgb ? BGFX_TEXTURE_SRGB : 0);
-    if (data.encoding == schema::TextureEncoding::ktx)
+    if (!TextureResourceCodec::validate(data))
     {
-        output = bgfx::createTexture(bgfx::copy(data.data.data(), data.data.size()), flags);
+        error = "Invalid current-version IBL input texture";
+        return false;
+    }
+    if (data.encoding == schema::TextureEncoding::native)
+    {
+        bgfx::TextureFormat::Enum format;
+        switch (data.format)
+        {
+        case schema::TextureFormat::rgba8:
+            format = bgfx::TextureFormat::RGBA8;
+            break;
+        case schema::TextureFormat::rgba16f:
+            format = bgfx::TextureFormat::RGBA16F;
+            break;
+        case schema::TextureFormat::rg16f:
+            format = bgfx::TextureFormat::RG16F;
+            break;
+        case schema::TextureFormat::bc7:
+            format = bgfx::TextureFormat::BC7;
+            break;
+        case schema::TextureFormat::astc4x4:
+            format = bgfx::TextureFormat::ASTC4x4;
+            break;
+        case schema::TextureFormat::etc2:
+            format = bgfx::TextureFormat::ETC2A;
+            break;
+        default:
+            error = "Unsupported native IBL input format";
+            return false;
+        }
+        if (!bgfx::isTextureValid(0, data.cube_map, 1, format, flags))
+        {
+            error = "GPU does not support the native IBL input format";
+            return false;
+        }
+        output = data.cube_map ? bgfx::createTextureCube(static_cast<std::uint16_t>(data.width),
+                                                         data.mip_count > 1, 1, format, flags)
+                               : bgfx::createTexture2D(static_cast<std::uint16_t>(data.width),
+                                                       static_cast<std::uint16_t>(data.height),
+                                                       data.mip_count > 1, 1, format, flags);
+        if (!bgfx::isValid(output))
+        {
+            error = "Cannot allocate the native IBL input texture";
+            return false;
+        }
+        for (const auto& part : data.subresources)
+        {
+            const auto width = static_cast<std::uint16_t>(std::max(1U, data.width >> part.mip()));
+            const auto height = static_cast<std::uint16_t>(std::max(1U, data.height >> part.mip()));
+            const auto* memory = bgfx::copy(data.data.data() + part.offset(),
+                                            static_cast<std::uint32_t>(part.size()));
+            if (data.cube_map)
+            {
+                bgfx::updateTextureCube(output, 0, static_cast<std::uint8_t>(part.face()),
+                                        static_cast<std::uint8_t>(part.mip()), 0, 0, width, height,
+                                        memory);
+            }
+            else
+            {
+                bgfx::updateTexture2D(output, 0, static_cast<std::uint8_t>(part.mip()), 0, 0, width,
+                                      height, memory);
+            }
+        }
     }
     else
     {
@@ -91,7 +153,6 @@ bool source_texture(const schema::TextureDataT& data, bgfx::TextureHandle& outpu
                 return false;
             }
         }
-        std::size_t offset = 0;
         for (std::uint8_t mip = 0; mip < data.mip_count; ++mip)
         {
             const auto width = static_cast<std::uint16_t>(std::max(1U, data.width >> mip));
@@ -106,17 +167,6 @@ bool source_texture(const schema::TextureDataT& data, bgfx::TextureHandle& outpu
                     error = "Cannot decode an IBL input mip level";
                     return false;
                 }
-            }
-            else if (data.encoding != schema::TextureEncoding::rgba8 ||
-                     offset + bytes > data.data.size())
-            {
-                error = "Unsupported IBL input texture encoding";
-                return false;
-            }
-            else
-            {
-                std::memcpy(pixels.data(), data.data.data() + offset, bytes);
-                offset += bytes;
             }
             bgfx::updateTexture2D(output, 0, mip, 0, 0, width, height,
                                   bgfx::copy(pixels.data(), pixels.size()));

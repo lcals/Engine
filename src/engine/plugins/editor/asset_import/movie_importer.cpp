@@ -107,19 +107,19 @@ bool run(const std::vector<std::string>& args, std::string& output, std::string&
 {
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(seconds);
     const auto result = run_import_tool(
-        args,
+        args, output, error,
         [&]
         {
             return (cancel_requested && cancel_requested()) ||
                    std::chrono::steady_clock::now() >= deadline;
         },
-        1024U * 1024U, output, error);
+        1024U * 1024U);
     if (result == ImportToolStatus::cancelled)
     {
         error = cancel_requested && cancel_requested() ? "movie import cancelled"
                                                        : "movie tool exceeded its time limit";
     }
-    if (result != ImportToolStatus::success && !output.empty())
+    if (result == ImportToolStatus::cancelled && !output.empty())
     {
         error += ": " + output;
     }
@@ -176,6 +176,39 @@ bool probe(const std::filesystem::path& source, Probe& info, std::string& error,
             error = "movie dimensions must be even and at most 1920x1080";
             return false;
         }
+        double sample_aspect = 1.0;
+        if (stream.contains("sample_aspect_ratio"))
+        {
+            if (!stream["sample_aspect_ratio"].is_string())
+            {
+                error = "movie sample aspect ratio is invalid";
+                return false;
+            }
+            const auto ratio = stream["sample_aspect_ratio"].get<std::string>();
+            // ffprobe 用 N/A 或 0:1 表示未指定，按方形像素处理。
+            if (ratio != "N/A" && ratio != "0:1")
+            {
+                const auto separator = ratio.find(':');
+                std::uint32_t numerator = 0;
+                std::uint32_t denominator = 0;
+                if (separator == std::string::npos)
+                {
+                    error = "movie sample aspect ratio is invalid";
+                    return false;
+                }
+                const auto* middle = ratio.data() + separator;
+                const auto* end = ratio.data() + ratio.size();
+                const auto left = std::from_chars(ratio.data(), middle, numerator);
+                const auto right = std::from_chars(middle + 1, end, denominator);
+                if (left.ec != std::errc{} || left.ptr != middle || right.ec != std::errc{} ||
+                    right.ptr != end || numerator == 0 || denominator == 0)
+                {
+                    error = "movie sample aspect ratio is invalid";
+                    return false;
+                }
+                sample_aspect = static_cast<double>(numerator) / denominator;
+            }
+        }
         if (stream.contains("side_data_list") && stream["side_data_list"].is_array())
         {
             for (const auto& side : stream["side_data_list"])
@@ -193,6 +226,7 @@ bool probe(const std::filesystem::path& source, Probe& info, std::string& error,
                 if (rotation == 90 || rotation == -90 || rotation == 270 || rotation == -270)
                 {
                     std::swap(info.width, info.height);
+                    sample_aspect = 1.0 / sample_aspect;
                 }
                 else if (rotation != 0 && rotation != 180 && rotation != -180)
                 {
@@ -201,11 +235,18 @@ bool probe(const std::filesystem::path& source, Probe& info, std::string& error,
                 }
             }
         }
-        if (info.width > 1920 || info.height > 1080)
+        const double display_width = info.width * sample_aspect;
+        const double scale = std::min({1.0, 1920.0 / display_width, 1080.0 / info.height});
+        const double width = std::floor(display_width * scale / 2.0 + 0.5) * 2.0;
+        const double height = std::floor(info.height * scale / 2.0 + 0.5) * 2.0;
+        if (!std::isfinite(width) || !std::isfinite(height) || width < 2 || height < 2 ||
+            width > 1920 || height > 1080)
         {
-            error = "rotated movie dimensions exceed 1920x1080";
+            error = "movie display aspect cannot be represented within 1920x1080";
             return false;
         }
+        info.width = static_cast<std::uint32_t>(width);
+        info.height = static_cast<std::uint32_t>(height);
         for (const char* key : {"color_primaries", "color_transfer", "color_space"})
         {
             if (stream.contains(key) && stream[key].is_string())
@@ -332,8 +373,8 @@ bool MovieImporter::inspect_batch(const ImportContext& context, std::string& fin
     {
         return false;
     }
-    fingerprint +=
-        ":movie-1:vp9-ivf-30fps:" + video_hash + ":" + probe_hash + video_version + probe_version;
+    fingerprint += ":movie-2:vp9-ivf-30fps-square-pixels:" + video_hash + ":" + probe_hash +
+                   video_version + probe_version;
     return true;
 }
 bool MovieImporter::scan_dependencies(ImportAsset& asset, const ImportContext& context,
@@ -421,8 +462,10 @@ bool MovieImporter::convert(const ImportAsset& asset, const ImportContext& conte
                      "0:v:0",
                      "-an",
                      "-vf",
-                     "fps=30:start_time=0,tpad=stop_mode=clone:stop_duration=1,scale="
-                     "in_color_matrix=bt709:out_color_matrix=bt709:out_range=tv,format=yuv420p",
+                     "fps=30:start_time=0,tpad=stop_mode=clone:stop_duration=1,scale=" +
+                         std::to_string(info.width) + ":" + std::to_string(info.height) +
+                         ":in_color_matrix=bt709:out_color_matrix=bt709:out_range=tv,"
+                         "setsar=1,format=yuv420p",
                      "-frames:v",
                      std::to_string(info.frames),
                      "-c:v",

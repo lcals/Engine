@@ -64,7 +64,7 @@ int main(int argc, char* argv[])
                     settings.engine.window_title == "Configured game" &&
                     settings.engine.width == 1600 && settings.engine.target_frame_rate == 30 &&
                     settings.parallel.threads.worker_limit == 3 &&
-                    settings.parallel.render.texture_batch_size == 2 &&
+                    settings.parallel.rendering.texture_batch_size == 2 &&
                     settings.game_language == "zh-CN" &&
                     settings.startup_movie == "movies/mobile.movie",
                 "editor aggregates complete TOML modules and validates the runtime contract"))

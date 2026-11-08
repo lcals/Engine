@@ -38,7 +38,7 @@ class TerrainComponent {
         +TerrainComponent(Component component)
         +register_type(ComponentRegistry& registry) bool$
 +valid_settings(const TerrainDataT& settings) bool$
-+settings() TerrainDataT
+
 +get_settings(TerrainDataT& output) bool
 +set_settings(const TerrainDataT& settings) bool
 +restore_data(const ComponentDataT& data) bool
@@ -138,4 +138,4 @@ TerrainSystem ..> TerrainComponent : prepares and commits
 
 常驻地形保留原 Scene 中的源组件、体积、revision、瞬态 MeshRenderer/Collider 与在途候选；发布仍校验原 Scene、Node、组件生命周期与 revision。独立根土块不自动继承源节点常驻标记：未被调用方单独保留的土块在卸载时删除，插件清理其记录，源体积与显示/碰撞继续有效。发生过塌方的存档限制保持不变。
 
-本页组件均为可复制值句柄，生成设置唯一存于 `ComponentStorage<Data>` 的 ECS 列；`settings()` 返回独立值，`get_settings(output)` 明确返回失败。Runtime 为 ECS 中的领域运行列，资源引用、请求和缓存归该列或所属 System；句柄不拥有这些数据。Runtime 定义与可变访问仅供所属模块内部实现使用，公开组件不提供 `runtime()`；原生系统的 ECS 列借用仅在当前结构稳定阶段有效，不能跨结构修改留存。类型注册、失效身份与查询规则见 [ECS 场景](../../../runtime/class-diagrams/ecs-scene.md)。
+本页组件均为可复制值句柄，生成设置唯一存于 `ComponentStorage<Data>` 的 ECS 列；`get_settings(output)` 返回独立值并明确报告失败，失败输出安全默认值；不保留吞掉失败的 settings() 包装。Runtime 为 ECS 中的领域运行列，资源引用、请求和缓存归该列或所属 System；句柄不拥有这些数据。Runtime 定义与可变访问仅供所属模块内部实现使用，公开组件不提供 `runtime()`；原生系统的 ECS 列借用仅在当前结构稳定阶段有效，不能跨结构修改留存。类型注册、失效身份与查询规则见 [ECS 场景](../../../runtime/class-diagrams/ecs-scene.md)。

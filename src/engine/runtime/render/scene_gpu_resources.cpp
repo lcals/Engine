@@ -3,8 +3,8 @@
 #include "runtime/scene/ecs_storage.hpp"
 
 #include "runtime/render/render_constants.hpp"
-#include "runtime/resource/resource_system.hpp"
 #include "runtime/scene/environment_component.hpp"
+#include "runtime/scene/environment_component_runtime.hpp"
 #include "runtime/scene/scene.hpp"
 
 #include <SDL3/SDL.h>
@@ -140,28 +140,21 @@ bool RenderSystem::SceneGpuResources::initialize()
 
 void RenderSystem::SceneGpuResources::release() noexcept
 {
+    frame_data = {};
+    draw_lists = {};
     view_stats.clear();
     selected_lods.clear();
     selected_lod_revisions.clear();
     frame_time_stamp = UINT32_MAX;
     atmosphere.release();
     debug_draw.release();
-    for (auto& program : programs)
-    {
-        program.release();
-    }
     for (auto& mesh : meshes)
     {
         mesh.release();
     }
-    for (auto& texture : textures)
-    {
-        texture.release();
-    }
-    for (auto& texture : ibl_textures)
-    {
-        texture.release();
-    }
+    programs.clear();
+    textures.clear();
+    ibl_textures.fill(nullptr);
     release_capture();
     if (bgfx::isValid(hdr_capture_readback))
     {
@@ -271,6 +264,7 @@ void RenderSystem::SceneGpuResources::release() noexcept
     ao_sampler = BGFX_INVALID_HANDLE;
     programs.clear();
     meshes.clear();
+    mesh_index.clear();
     geometries.clear();
     skinning.release();
     textures.clear();
@@ -347,34 +341,23 @@ std::uint32_t RenderSystem::SceneGpuResources::resource_count() const noexcept
             count += mesh->resource_count();
         }
     }
-    for (const auto& texture : ibl_textures)
+    for (const auto& mesh : meshes)
     {
-        count += static_cast<std::uint32_t>(bgfx::isValid(texture.handle));
-    }
-    for (auto iterator = meshes.begin(); iterator != meshes.end(); ++iterator)
-    {
-        const auto& mesh = *iterator;
         count += static_cast<std::uint32_t>(bgfx::isValid(mesh.deformed_vertices)) +
                  static_cast<std::uint32_t>(bgfx::isValid(mesh.palette));
-        bool first = true;
-        for (auto previous = meshes.begin(); previous != iterator; ++previous)
+    }
+    for (const auto& [source, cached] : geometries)
+    {
+        if (const auto geometry = cached.lock())
         {
-            if (previous->geometry == mesh.geometry)
-            {
-                first = false;
-                break;
-            }
-        }
-        if (first && mesh.geometry)
-        {
-            count += mesh.geometry->resource_count();
+            count += geometry->resource_count();
         }
     }
-    for (const auto& texture : textures)
+    for (const auto& [source, texture] : textures)
     {
         count += static_cast<std::uint32_t>(bgfx::isValid(texture.handle));
     }
-    for (const auto& program : programs)
+    for (const auto& [source, program] : programs)
     {
         count += static_cast<std::uint32_t>(bgfx::isValid(program.vertex_shader)) +
                  static_cast<std::uint32_t>(bgfx::isValid(program.fragment_shader)) +
@@ -396,10 +379,12 @@ std::uint32_t RenderSystem::SceneGpuResources::resource_count() const noexcept
     return count;
 }
 
-bool RenderSystem::SceneGpuResources::prepare_ibl(const Scene* scene, std::size_t staging_bytes)
+bool RenderSystem::SceneGpuResources::collect_ibl(const Scene* scene,
+                                                  RenderPreparation& preparation)
 {
     EnvironmentSettings snapshot;
     const EnvironmentSettings* environment = nullptr;
+    std::array<ResourceHandle, 3> sources{};
     if (scene)
     {
         if (!scene->world().refresh_scene_state())
@@ -409,75 +394,61 @@ bool RenderSystem::SceneGpuResources::prepare_ibl(const Scene* scene, std::size_
         auto query =
             flecs::world(scene->world().native_world())
                 .query_builder<const ecs_detail::ComponentStorage<EnvironmentComponent::Data>,
-                               const ecs_detail::NodeRuntime>()
+                               const EnvironmentRuntime, const ecs_detail::NodeRuntime>()
                 .with<ecs_detail::Published>()
                 .build();
         query.each(
-            [&](const auto& stored, const ecs_detail::NodeRuntime& state)
+            [&](const auto& stored, const EnvironmentRuntime& runtime,
+                const ecs_detail::NodeRuntime& state)
             {
                 if (state.scene == scene && state.active && state.visible_in_hierarchy &&
                     stored.state.flags.enabled && stored.state.flags.visible)
                 {
                     snapshot = stored.data;
                     environment = &snapshot;
+                    for (std::size_t index = 0; index < sources.size(); ++index)
+                    {
+                        sources[index] = runtime.ibl[index].handle();
+                    }
                 }
             });
     }
-    if (environment == nullptr || environment->ibl_irradiance_guid.empty())
+    auto* loader = scene ? scene->world().resource_loader() : nullptr;
+    for (std::size_t index = 0; index < sources.size(); ++index)
     {
-        for (auto& texture : ibl_textures)
+        const TextureResource* source = nullptr;
+        if (environment && !environment->ibl_irradiance_guid.empty())
         {
-            texture.release();
-        }
-        ibl_generation = 0;
-        return true;
-    }
-    auto* resources = ResourceSystem::instance();
-    if (resources == nullptr)
-    {
-        return false;
-    }
-    const std::array guids = {&environment->ibl_irradiance_guid, &environment->ibl_prefilter_guid,
-                              &environment->ibl_lut_guid};
-    bool changed = ibl_generation != resources->generation();
-    for (std::size_t index = 0; index < guids.size(); ++index)
-    {
-        changed = changed || !ibl_textures[index].resource ||
-                  ibl_textures[index].resource->info().guid != *guids[index];
-    }
-    if (!changed)
-    {
-        return true;
-    }
-    std::array<render_detail::GpuTexture, 3> candidate;
-    for (std::size_t index = 0; index < guids.size(); ++index)
-    {
-        ResourcePtr source;
-        const bool loaded = resources->loader().load(*guids[index], source);
-        const auto* texture = source ? source->texture() : nullptr;
-        const bool cube = index < 2;
-        const auto format = cube ? schema::TextureFormat::rgba16f : schema::TextureFormat::rg16f;
-        render_detail::PreparedTexture prepared;
-        if (!loaded || texture == nullptr || texture->cube_map != cube || texture->srgb ||
-            texture->format != format ||
-            !prepared.describe(source, *bgfx::getCaps(), staging_bytes) || !prepared.prepare() ||
-            !candidate[index].create(prepared))
-        {
-            for (auto& item : candidate)
+            const bool cube = index < 2;
+            const auto format =
+                cube ? schema::TextureFormat::rgba16f : schema::TextureFormat::rg16f;
+            if (!loader || loader->get(sources[index], source) != ResourceError::none ||
+                source->data().cube_map != cube || source->data().srgb ||
+                source->data().format != format ||
+                !preparation.request_texture(loader, sources[index]))
             {
-                item.release();
+                return false;
             }
-            SDL_LogError(SDL_LOG_CATEGORY_RENDER, "Invalid IBL texture resource: %s",
-                         guids[index]->c_str());
-            return false;
         }
+        auto& previous = preparation.ibl_sources[index];
+        if (previous != source)
+        {
+            if (previous)
+            {
+                if (--preparation.texture_users[previous] == 0)
+                {
+                    preparation.unused_textures.insert(previous);
+                }
+            }
+            if (source)
+            {
+                ++preparation.texture_users[source];
+                preparation.unused_textures.erase(source);
+            }
+            previous = source;
+        }
+        ibl_textures[index] = nullptr;
     }
-    for (std::size_t index = 0; index < candidate.size(); ++index)
-    {
-        ibl_textures[index].release();
-        ibl_textures[index] = std::move(candidate[index]);
-    }
-    ibl_generation = resources->generation();
     return true;
 }
 

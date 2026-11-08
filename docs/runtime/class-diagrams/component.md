@@ -4,6 +4,28 @@
 
 本页定义 Component 基类及变换、相机、灯光、网格组件；[物理组件](physics-components.md)与[音频组件](audio-components.md)独立维护，同样采用非虚 Component 值句柄，真实状态存入 ECS 列。
 
+## 组件实现精简目标
+
+**状态：组件读取接口已收敛为单一版本。** Transform、Camera、Light 及其他具备设置数据的组件只提供 `get_settings(output)`，通过受保护的 `read_data<Data>()` 完成身份检查和数据复制。无效句柄返回 false 并重置输出；调用方必须检查状态，不再提供吞掉失败的按值包装。
+
+```mermaid
+sequenceDiagram
+    participant Caller as 调用方
+    participant Typed as 具体组件值句柄
+    participant Base as Component既有身份访问
+    participant Ecs as 世界中的生成Data列
+    Caller->>Typed: get_settings(output)
+    Typed->>Base: read_data(Data)
+    Base->>Ecs: 核对世界代次 实体及组件实例
+    Ecs-->>Base: 当前阶段只读借用或空
+    Base-->>Typed: 数据借用或空
+    Typed-->>Caller: bool及独立设置输出
+```
+
+`get_data(output)` 生成原始存储快照，`build_data(output)` 生成领域保存快照，例如组装材质绑定、拒绝未导出的瞬时几何；两者均返回 bool，失败输出为空。快照与恢复复用类型登记表及受保护的 restore_flags；公共流程只处理身份、生成数据与标志。类型自己的校验、资源获取、提交副作用、Camera 隐藏列表以及动画/音频运行状态仍由该类型处理，不把它们移入 Component 的类型分支。恢复保持失败原子性，运行列不变成第二份持久模型。领域运行列继续保持内部访问，不引入新的组件模板基类或虚函数。
+
+## 值句柄与公开方法
+
 ```mermaid
 classDiagram
     class Component {
@@ -21,7 +43,7 @@ classDiagram
         +visible_in_hierarchy() bool
         +transient() bool
         +set_transient(bool transient) bool
-        +data() ComponentDataT
+        +get_data(ComponentDataT& output) bool
         +build_data(ComponentDataT& output) bool
         +restore_data(const ComponentDataT& data) bool
         +remap_node_references(ComponentDataT& data, span~const NodeIdMappingT~ mapping) bool
@@ -32,7 +54,7 @@ classDiagram
         +Transform()
         +Transform(Component component)
         +register_type(ComponentRegistry& registry) bool$
-        +settings() TransformSettings
+
         +get_settings(TransformSettings& output) bool
         +set_settings(const TransformSettings& settings) bool
         +world_matrix(float#42; output) bool
@@ -42,7 +64,7 @@ classDiagram
         +Camera()
         +Camera(Component component)
         +register_type(ComponentRegistry& registry) bool$
-        +settings() CameraSettings
+
         +get_settings(CameraSettings& output) bool
         +set_settings(const CameraSettings& settings) bool
         +screen_point_to_ray(const Vec2& point, const Vec2& viewport_size, Vec3& origin, Vec3& direction) bool
@@ -56,7 +78,7 @@ classDiagram
         +Light()
         +Light(Component component)
         +register_type(ComponentRegistry& registry) bool$
-        +settings() LightSettings
+
         +get_settings(LightSettings& output) bool
         +set_settings(const LightSettings& settings) bool
     }
@@ -72,7 +94,7 @@ classDiagram
         +set_material_count(size_t count) bool
         +set_mesh_data(const MeshDataT& data) bool
         +mesh_data() const MeshDataT#42;
-        +mesh_resource() shared_ptr~const Resource~
+        +mesh_resource() ResourceHandle
         +mesh_revision() uint64_t
         +cast_shadows() bool
         +set_cast_shadows(bool value) void
@@ -84,7 +106,7 @@ classDiagram
         +set_bake_static(bool enabled) bool
         +lightmap_path() string_view
         +set_lightmap(string_view path) bool
-        +lightmap_resource() shared_ptr~const Resource~
+        +lightmap_resource() ResourceHandle
         +set_deformation(span~const MeshVertex~ vertices, span~const Vec4~ tangents) bool
         +set_skinning_palette(span~const array_float_16~ transforms, span~const array_float_16~ normal_transforms) bool
         +skinning_palette() span~const array_float_16~

@@ -4,6 +4,7 @@
 #include "runtime/animation/animation_events.hpp"
 #include "runtime/movie/movie_player.hpp"
 #include "runtime/resource/resource_load.hpp"
+#include "runtime/resource/resource_reference.hpp"
 #include "runtime/schema/input_generated.h"
 #include "runtime/storage/key_value_store.hpp"
 #include "runtime/window/window_system.hpp"
@@ -40,8 +41,9 @@ using Arguments = vm::Arguments;
 class BindingContext final
 {
 public:
-    explicit BindingContext(WorldSystem* world, RenderSystem* renderer = nullptr,
-                            UiSystem* ui = nullptr, PhysicsSystem* physics = nullptr,
+    explicit BindingContext(ResourceLoader* resources, WorldSystem* world,
+                            RenderSystem* renderer = nullptr, UiSystem* ui = nullptr,
+                            PhysicsSystem* physics = nullptr,
                             NavigationSystem* navigation = nullptr, InputSystem* input = nullptr,
                             WindowSystem* window = nullptr, MoviePlayer* movies = nullptr) noexcept;
     ~BindingContext() noexcept;
@@ -59,6 +61,22 @@ public:
     [[nodiscard]] bool remember_movie(MoviePlaybackHandle handle) noexcept;
     [[nodiscard]] bool owns_movie(MoviePlaybackHandle handle) const noexcept;
     void forget_movie(MoviePlaybackHandle handle) noexcept;
+    [[nodiscard]] ResourceLoader* resources() const noexcept
+    {
+        return resources_;
+    }
+    [[nodiscard]] std::uint64_t load_resource(std::string_view path);
+    [[nodiscard]] std::uint64_t retain_resource(std::uint64_t token);
+    [[nodiscard]] bool release_resource(std::uint64_t token);
+    [[nodiscard]] ResourceHandle resource_handle(std::uint64_t token) const noexcept;
+    [[nodiscard]] std::uint64_t begin_resource_load(std::string_view path);
+    [[nodiscard]] ResourceLoad* resource_request(std::uint64_t token) const noexcept;
+    [[nodiscard]] std::uint64_t take_resource(std::uint64_t token);
+    [[nodiscard]] bool cancel_resource_load(std::uint64_t token);
+    [[nodiscard]] std::string_view resource_error() const noexcept
+    {
+        return resource_error_;
+    }
     [[nodiscard]] WorldSystem* world() const noexcept;
     [[nodiscard]] RenderSystem* renderer() const noexcept;
     [[nodiscard]] UiSystem* ui() const noexcept;
@@ -120,6 +138,11 @@ private:
     std::uint64_t async_sequence_ = 0;
     std::vector<AnimationEvent> animation_events_;
     std::size_t animation_event_cursor_ = 0;
+    ResourceLoader* resources_ = nullptr;
+    std::map<std::uint64_t, ResourceReference> resource_handles_;
+    std::map<std::uint64_t, std::unique_ptr<ResourceLoad>> resource_requests_;
+    std::uint64_t resource_sequence_ = 0;
+    std::string resource_error_;
     WorldSystem* world_ = nullptr;
     RenderSystem* renderer_ = nullptr;
     UiSystem* ui_ = nullptr;
@@ -132,12 +155,9 @@ private:
     MoviePlaybackHandle movie_handle_{};
     MouseMode previous_mouse_mode_ = MouseMode::normal;
     bool restore_mouse_mode_ = false;
-    std::unique_ptr<ResourceLoad> scene_load_;
-    ResourceSystem* scene_load_resources_ = nullptr;
-    ResourceLoader* scene_load_loader_ = nullptr;
+    ResourceReference scene_load_;
     ResourceLoadProgress scene_load_progress_;
     ResourceLoadStatus scene_load_status_ = ResourceLoadStatus::loading;
-    std::uint64_t scene_load_generation_ = 0;
     std::uint64_t scene_restore_request_ = 0;
     std::string scene_load_path_;
     std::string scene_load_error_;

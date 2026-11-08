@@ -1,6 +1,7 @@
 #if defined(ENGINE_HAS_EFFECTS_PLUGIN) && ENGINE_HAS_EFFECTS_PLUGIN
 
 #include "plugins/runtime/script/bindings/effect_binding.hpp"
+#include "plugins/runtime/script/bindings/binding_helpers.hpp"
 
 #include "plugins/runtime/effects/effect_component.hpp"
 #include "plugins/runtime/script/bindings/binding_context.hpp"
@@ -27,22 +28,9 @@ Object.freeze(EffectComponent.prototype);
 Object.freeze(EffectComponent);
 )js";
 
-effects::EffectComponent component(const Arguments& arguments, int count)
-{
-    arguments.set_return(false);
-    auto node = BindingContext::node(arguments);
-    return node && arguments.count() == count ? node.get_component<effects::EffectComponent>()
-                                              : effects::EffectComponent{};
-}
-void add(const Arguments& arguments)
-{
-    auto node = BindingContext::node(arguments);
-    arguments.set_return(arguments.count() == 2 && node &&
-                         node.add_component<effects::EffectComponent>().valid());
-}
 void resource(const Arguments& arguments)
 {
-    auto value = component(arguments, 3);
+    auto value = binding_detail::component<effects::EffectComponent>(arguments, 3);
     std::string path;
     if (value && BindingContext::text(arguments, 2, path))
     {
@@ -51,10 +39,15 @@ void resource(const Arguments& arguments)
 }
 void boolean_setting(const Arguments& arguments)
 {
-    auto value = component(arguments, 3);
+    auto value = binding_detail::component<effects::EffectComponent>(arguments, 3);
     if (value && arguments.is_boolean(2))
     {
-        auto settings = value.settings();
+        effects::EffectComponent::Data settings{};
+        if (!value.get_settings(settings))
+        {
+            arguments.set_return(false);
+            return;
+        }
         if (arguments.data() == 0)
         {
             settings.loop = arguments.boolean(2);
@@ -68,18 +61,23 @@ void boolean_setting(const Arguments& arguments)
 }
 void speed(const Arguments& arguments)
 {
-    auto value = component(arguments, 3);
+    auto value = binding_detail::component<effects::EffectComponent>(arguments, 3);
     float speed = 0;
     if (value && BindingContext::scalar(arguments, 2, speed))
     {
-        auto settings = value.settings();
+        effects::EffectComponent::Data settings{};
+        if (!value.get_settings(settings))
+        {
+            arguments.set_return(false);
+            return;
+        }
         settings.speed = speed;
         arguments.set_return(value.set_settings(settings));
     }
 }
 void playback(const Arguments& arguments)
 {
-    auto value = component(arguments, 2);
+    auto value = binding_detail::component<effects::EffectComponent>(arguments, 2);
     if (!value)
     {
         return;
@@ -113,7 +111,8 @@ std::string_view EffectBinding::source() const noexcept
 bool EffectBinding::register_functions(vm::ScriptVm& vm) const
 {
     return vm.integer("EffectKind", static_cast<int>(effects::EffectComponent::component_type)) &&
-           vm.function("EffectAdd", add) && vm.function("EffectResource", resource) &&
+           vm.function("EffectAdd", binding_detail::add_component<effects::EffectComponent>) &&
+           vm.function("EffectResource", resource) &&
            vm.function("EffectLoop", boolean_setting, 0) &&
            vm.function("EffectAwake", boolean_setting, 1) && vm.function("EffectSpeed", speed) &&
            vm.function("EffectPlay", playback, 0) && vm.function("EffectPause", playback, 1) &&

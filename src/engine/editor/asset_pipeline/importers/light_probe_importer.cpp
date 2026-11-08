@@ -1,4 +1,5 @@
 #include "editor/asset_pipeline/importers/light_probe_importer.hpp"
+#include "runtime/resource/virtual_file_system.hpp"
 
 #include "editor/asset_pipeline/asset_io.hpp"
 #include "editor/asset_pipeline/importer_utils.hpp"
@@ -31,7 +32,7 @@ bool LightProbeImporter::convert(const ImportAsset& asset, const ImportContext& 
                                  std::string& error) const
 {
     ByteBuffer bytes;
-    if (!ResourceSystem::read_binary(asset.source, bytes) || bytes.empty() ||
+    if (!VirtualFileSystem::read_file(asset.source, bytes) || bytes.empty() ||
         bytes.size() > 32U * 1024U * 1024U)
     {
         error = "Cannot read a bounded light probe source";

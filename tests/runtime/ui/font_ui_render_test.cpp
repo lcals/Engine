@@ -1,4 +1,9 @@
+#include "../../support/render_fixture.hpp"
+#include "file_text.hpp"
+#include "resource_services.hpp"
+#include "runtime/resource/virtual_file_system.hpp"
 #include "scene_snapshot.hpp"
+#include "tracked_resource_loader.hpp"
 
 #include "editor/asset_pipeline/asset_pipeline_system.hpp"
 #include "plugins/editor/asset_import/font_importer.hpp"
@@ -114,8 +119,7 @@ bool prepare_custom_shader(const fs::path& directory)
     for (std::size_t index = 0; index < names.size(); ++index)
     {
         std::string source;
-        if (!engine::ResourceSystem::read_text(fs::path(ENGINE_FONT_TEST_SHADER_DIR) / names[index],
-                                               source))
+        if (!test_support::read_text(fs::path(ENGINE_FONT_TEST_SHADER_DIR) / names[index], source))
         {
             return false;
         }
@@ -169,8 +173,7 @@ bool prepare_images(const fs::path& project)
     const auto markup = project / "assets/ui/launcher.rml";
     std::string settings;
     std::string document;
-    if (!engine::ResourceSystem::read_text(meta, settings) ||
-        !engine::ResourceSystem::read_text(markup, document))
+    if (!test_support::read_text(meta, settings) || !test_support::read_text(markup, document))
     {
         return false;
     }
@@ -318,16 +321,51 @@ GpuCounts gpu_counts()
 
 struct Systems
 {
-    engine::ResourceSystem resources;
     engine::ThreadSystem threads;
+    test_support::ResourceServices services{&threads};
+    engine::ResourceSystem& resources = services.core;
+    test_support::TrackedResourceLoader tracked{services.loader};
     engine::TaskSystem tasks{threads, {"Editor", 4, engine::TaskPriority::low}};
     engine::editor::AssetPipelineSystem pipeline{tasks};
     engine::WindowSystem window;
-    engine::WorldSystem world;
-    engine::FontSystem fonts;
+    engine::WorldSystem world{&tracked};
+    engine::FontSystem fonts{&tracked};
     engine::UiSystem ui{window, world, fonts};
     engine::RenderSystem renderer{window, &world, &fonts, &ui};
 
+    engine::Scene* load_scene(std::string_view path)
+    {
+        engine::ResourceHandle handle;
+        if (!tracked.load(path, handle))
+        {
+            return nullptr;
+        }
+        engine::ResourceReference resource;
+        if (!resource.adopt(&tracked, handle))
+        {
+            return nullptr;
+        }
+        return world.load_scene(path);
+    }
+    bool bind(engine::UiComponent component, std::string_view path)
+    {
+        if (path.empty())
+        {
+            return component.set_document(path);
+        }
+        engine::ResourceHandle handle;
+        if (!tracked.load(path, handle))
+        {
+            return false;
+        }
+        engine::ResourceReference resource;
+        return resource.adopt(&tracked, handle) && component.set_document(path);
+    }
+    const engine::schema::UiDocumentDataT* document(engine::UiComponent component)
+    {
+        return engine::resource_detail::data<engine::UiResource>(
+            test_support::get_resource(tracked, component.document()));
+    }
     ~Systems()
     {
         // GPU consumers close before bgfx; resources and the native window outlive them.
@@ -336,7 +374,7 @@ struct Systems
         renderer.shutdown();
         world.shutdown();
         window.shutdown();
-        resources.shutdown();
+        services.shutdown();
         pipeline.shutdown();
         tasks.shutdown();
         threads.shutdown();
@@ -358,10 +396,11 @@ struct Systems
                expect(pipeline.add_importer(font) && pipeline.add_importer(document),
                       "register font and UI importer plugins") &&
                expect(pipeline.build_assets(project), pipeline.last_error()) &&
-               expect(resources.initialize(config), "initialize resource core") &&
+               expect(services.initialize(config), "initialize resource core") &&
                expect(
                    resources.update_catalog(pipeline.catalog(), {{"content", project / "cache"}}),
                    resources.last_error()) &&
+               services.prepare_builtins() &&
                expect(window.initialize(config), "initialize native window") &&
                expect(world.initialize(config), "initialize scene world") &&
                expect(fonts.initialize(config), "initialize independent font system") &&
@@ -382,7 +421,8 @@ struct Systems
             }
             if (window.can_render())
             {
-                if (!expect(renderer.render(), "render a real frame with font/UI consumers"))
+                if (!expect(test_support::render_frame(renderer),
+                            "render a real frame with font/UI consumers"))
                 {
                     return false;
                 }
@@ -432,60 +472,16 @@ struct Systems
                                                   std::byte{26},  std::byte{10}};
         return expect(renderer.screenshot_status() == engine::ScreenshotStatus::complete,
                       "GPU screenshot completed") &&
-               expect(engine::ResourceSystem::read_binary(path, bytes) && bytes.size() > 128 &&
+               expect(engine::VirtualFileSystem::read_file(path, bytes) && bytes.size() > 128 &&
                           std::equal(png.begin(), png.end(), bytes.begin()),
                       "GPU callback wrote a PNG image");
     }
 };
 
-class TrackedLoader final : public engine::ResourceLoader
-{
-public:
-    explicit TrackedLoader(engine::ResourceSystem& resources) : resources_(resources)
-    {
-        resources_.set_loader(this);
-    }
-    ~TrackedLoader() noexcept override
-    {
-        resources_.set_loader(nullptr);
-    }
-    bool load(std::string_view guid, engine::ResourcePtr& output) override
-    {
-        if (!resources_.load(guid, output))
-        {
-            return false;
-        }
-        loaded_.push_back(output);
-        return true;
-    }
-    engine::ResourcePtr find(std::string_view guid) const noexcept override
-    {
-        return resources_.find(guid);
-    }
-    const std::string& last_error() const noexcept override
-    {
-        return resources_.last_error();
-    }
-    std::size_t live(std::string_view guid, std::uint64_t generation) const
-    {
-        return std::count_if(loaded_.begin(), loaded_.end(),
-                             [&](const auto& weak)
-                             {
-                                 const auto resource = weak.lock();
-                                 return resource && resource->info().guid == guid &&
-                                        resource->generation() == generation;
-                             });
-    }
-
-private:
-    engine::ResourceSystem& resources_;
-    std::vector<std::weak_ptr<const engine::Resource>> loaded_;
-};
-
 bool document_generations(Systems& systems, const fs::path& project, const GpuCounts& idle)
 {
-    TrackedLoader tracked(systems.resources);
-    auto* scene = systems.world.load_scene("scenes/launcher.scene");
+    auto& tracked = systems.tracked;
+    auto* scene = systems.load_scene("scenes/launcher.scene");
     if (!expect(scene != nullptr, "load the first view for document generation isolation"))
     {
         return false;
@@ -495,7 +491,7 @@ bool document_generations(Systems& systems, const fs::path& project, const GpuCo
     auto stable =
         stable_node ? stable_node.add_component<engine::UiComponent>() : engine::UiComponent{};
     engine::UiElementHandle stable_button;
-    if (!expect(original && stable && stable.set_document("ui/launcher.rml"),
+    if (!expect(original && stable && systems.bind(stable, "ui/launcher.rml"),
                 "two independent views share a document generation") ||
         !systems.frames() ||
         !expect(systems.ui.find_element(stable_node.id(), "scene-cube", stable_button) &&
@@ -541,7 +537,7 @@ bool document_generations(Systems& systems, const fs::path& project, const GpuCo
         return false;
     }
     const auto old_generation = systems.resources.generation();
-    const auto font_guid = original.document()->ui()->fonts.front()->font_guid;
+    const auto font_guid = systems.document(original)->fonts.front()->font_guid;
     const auto before = gpu_counts();
     if (!expect(tracked.live(red_texture_guid, old_generation) > 0 &&
                     tracked.live(font_guid, old_generation) > 0,
@@ -551,7 +547,7 @@ bool document_generations(Systems& systems, const fs::path& project, const GpuCo
     }
     std::string shader_source;
     const auto fragment = project / "assets/shaders/fs_font.sc";
-    if (!expect(engine::ResourceSystem::read_text(fragment, shader_source),
+    if (!expect(test_support::read_text(fragment, shader_source),
                 "read the authored font shader for a same-GUID revision"))
     {
         return false;
@@ -574,7 +570,8 @@ bool document_generations(Systems& systems, const fs::path& project, const GpuCo
         !expect(systems.resources.update_catalog(systems.pipeline.catalog(),
                                                  {{"content", project / "cache"}}),
                 systems.resources.last_error()) ||
-        !expect(original.set_document("") && original.set_document("ui/launcher.rml"),
+        !systems.services.prepare_builtins() ||
+        !expect(systems.bind(original, "") && systems.bind(original, "ui/launcher.rml"),
                 "replace one view with the newly published document generation") ||
         !systems.frames())
     {
@@ -583,9 +580,11 @@ bool document_generations(Systems& systems, const fs::path& project, const GpuCo
     std::string text;
     const auto after = gpu_counts();
     const auto new_generation = systems.resources.generation();
-    if (!expect(new_generation != old_generation &&
-                    original.document()->generation() == new_generation &&
-                    stable.document()->generation() == old_generation &&
+    const auto* original_document = test_support::get_resource(tracked, original.document());
+    const auto* stable_document = test_support::get_resource(tracked, stable.document());
+    if (!expect(new_generation != old_generation && original_document && stable_document &&
+                    original_document->generation() == new_generation &&
+                    stable_document->generation() == old_generation &&
                     systems.ui.is_valid(stable_button) && systems.ui.text(stable_button, text) &&
                     text == "Persistent View",
                 "the unchanged view retains its old document, handle and edited text") ||
@@ -709,13 +708,13 @@ bool custom_shader_scenes(Systems& systems, const fs::path& project, const fs::p
 {
     const auto meta = project / "assets/ui/launcher.rml.meta";
     std::string text;
-    if (!expect(engine::ResourceSystem::read_text(meta, text), "read temporary UI metadata"))
+    if (!expect(test_support::read_text(meta, text), "read temporary UI metadata"))
     {
         return false;
     }
     const auto markup_path = project / "assets/ui/launcher.rml";
     std::string markup;
-    if (!expect(engine::ResourceSystem::read_text(markup_path, markup), "read temporary UI markup"))
+    if (!expect(test_support::read_text(markup_path, markup), "read temporary UI markup"))
     {
         return false;
     }
@@ -735,33 +734,37 @@ bool custom_shader_scenes(Systems& systems, const fs::path& project, const fs::p
         !expect(systems.pipeline.build_assets(project), systems.pipeline.last_error()) ||
         !expect(systems.resources.update_catalog(systems.pipeline.catalog(),
                                                  {{"content", project / "cache"}}),
-                systems.resources.last_error()))
+                systems.resources.last_error()) ||
+        !systems.services.prepare_builtins())
     {
         return false;
     }
     engine::Guid guid;
-    engine::ResourcePtr shader;
-    if (!expect(engine::ResourceSystem::path_to_guid(custom_shader, guid) &&
-                    systems.resources.load(guid, shader) && shader->shader() != nullptr,
+    std::unique_ptr<engine::Resource> shader;
+    if (!expect(systems.resources.catalog().identities().path_to_guid(custom_shader, guid) &&
+                    test_support::read_resource(systems.resources, guid, shader) &&
+                    engine::resource_detail::data<engine::ShaderResource>(shader.get()) != nullptr,
                 "project shader is compiled and loaded through the normal resource pipeline") ||
-        !expect(shader->shader()->fragment_code !=
-                    engine::ResourceSystem::find_shader("builtin://shaders/font")->fragment_code,
-                "project font fragment shader contains visibly different code"))
+        !expect(
+            engine::resource_detail::data<engine::ShaderResource>(shader.get())->fragment_code !=
+                systems.services.loaded<engine::ShaderResource>("builtin://shaders/font")
+                    ->fragment_code,
+            "project font fragment shader contains visibly different code"))
     {
         return false;
     }
-    auto* scene = systems.world.load_scene("scenes/launcher.scene");
+    auto* scene = systems.load_scene("scenes/launcher.scene");
     if (!expect(scene != nullptr, "load UI with project font shader"))
     {
         return false;
     }
     auto component = single_ui_component(*scene);
-    if (!expect(component && component.document() && component.document()->ui(),
+    if (!expect(component && systems.document(component),
                 "launcher has one UI component with an imported document"))
     {
         return false;
     }
-    const auto& bindings = component.document()->ui()->fonts;
+    const auto& bindings = systems.document(component)->fonts;
     if (!expect(bindings.size() == 3 && bindings[0]->family == "body" &&
                     bindings[1]->family == "heading" && bindings[2]->family == "accent" &&
                     bindings[0]->font_guid == bindings[2]->font_guid &&
@@ -778,7 +781,11 @@ bool custom_shader_scenes(Systems& systems, const fs::path& project, const fs::p
     {
         return false;
     }
-    scene = systems.world.load_scene("scenes/font-gallery.scene");
+    if (!systems.services.load(custom_shader))
+    {
+        return false;
+    }
+    scene = systems.load_scene("scenes/font-gallery.scene");
     if (!expect(scene != nullptr, "load 3D font gallery for project shader"))
     {
         return false;
@@ -787,7 +794,7 @@ bool custom_shader_scenes(Systems& systems, const fs::path& project, const fs::p
     {
         if (auto component = node.get_component<engine::TextComponent>())
         {
-            auto settings = component.settings();
+            auto settings = test_support::read_settings(component);
             settings.shader_path = custom_shader;
             if (!expect(component.set_settings(settings), "3D text accepts a project font shader"))
             {
@@ -813,9 +820,9 @@ bool custom_shader_scenes(Systems& systems, const fs::path& project, const fs::p
     if (!expect(post_process && post_process.set_settings(sdr),
                 "change exposure with HDR disabled") ||
         !systems.frames() || !systems.screenshot(screenshots, "font-gallery-sdr-exposure.png") ||
-        !expect(engine::ResourceSystem::read_binary(screenshots / "font-gallery-custom-shader.png",
-                                                    font_before) &&
-                    engine::ResourceSystem::read_binary(
+        !expect(engine::VirtualFileSystem::read_file(screenshots / "font-gallery-custom-shader.png",
+                                                     font_before) &&
+                    engine::VirtualFileSystem::read_file(
                         screenshots / "font-gallery-sdr-exposure.png", font_after) &&
                     font_before == font_after,
                 "HDR-disabled 3D font pixels remain exact across exposure and tone-map changes"))
@@ -853,8 +860,8 @@ bool custom_shader_scenes(Systems& systems, const fs::path& project, const fs::p
         sdr.filmic_tonemap = true;
         if (!post_process.set_settings(sdr) || !systems.frames() ||
             !systems.screenshot(screenshots, after.c_str()) ||
-            !expect(engine::ResourceSystem::read_binary(screenshots / before, font_before) &&
-                        engine::ResourceSystem::read_binary(screenshots / after, font_after) &&
+            !expect(engine::VirtualFileSystem::read_file(screenshots / before, font_before) &&
+                        engine::VirtualFileSystem::read_file(screenshots / after, font_after) &&
                         font_before == font_after,
                     "transparent unlit and font pixels remain exact with HDR disabled"))
         {
@@ -875,7 +882,7 @@ bool custom_shader_scenes(Systems& systems, const fs::path& project, const fs::p
     hdr.bloom_intensity = 0.25F;
     engine::UiElementHandle input;
     if (!expect(post_process && post_process.set_settings(hdr) && overlay &&
-                    overlay.set_document("ui/lower.rml"),
+                    systems.bind(overlay, "ui/lower.rml"),
                 "enable HDR and Bloom on the active camera with a small overlay document") ||
         !systems.frames() ||
         !expect(systems.ui.document_count() == 1 && systems.fonts.gpu_resource_count() > 0 &&
@@ -991,7 +998,7 @@ bool retain_pointer_capture(Systems& systems, std::uint64_t node_id)
 
 bool multiple_documents(Systems& systems, const fs::path& screenshots, const GpuCounts& idle)
 {
-    auto* scene = systems.world.load_scene("scenes/multiple-documents.scene");
+    auto* scene = systems.load_scene("scenes/multiple-documents.scene");
     if (!expect(scene != nullptr && test_support::scene_nodes(*scene).size() == 2,
                 "two independent documents belong to two ordinary nodes") ||
         !systems.frames() ||
@@ -999,16 +1006,12 @@ bool multiple_documents(Systems& systems, const fs::path& screenshots, const Gpu
     {
         return false;
     }
-    const auto& lower = test_support::scene_nodes(*scene)[0]
-                            .get_component<engine::UiComponent>()
-                            .document()
-                            ->ui()
-                            ->fonts.front();
-    const auto& upper = test_support::scene_nodes(*scene)[1]
-                            .get_component<engine::UiComponent>()
-                            .document()
-                            ->ui()
-                            ->fonts.front();
+    const auto& lower =
+        systems.document(test_support::scene_nodes(*scene)[0].get_component<engine::UiComponent>())
+            ->fonts.front();
+    const auto& upper =
+        systems.document(test_support::scene_nodes(*scene)[1].get_component<engine::UiComponent>())
+            ->fonts.front();
     if (!expect(lower->family == upper->family && lower->font_guid != upper->font_guid &&
                     lower->shader_path != upper->shader_path,
                 "the same family alias has separate font and shader bindings per document") ||
@@ -1033,7 +1036,7 @@ bool multiple_documents(Systems& systems, const fs::path& screenshots, const Gpu
 
 bool persistent_font_resources(Systems& systems, const GpuCounts& idle)
 {
-    auto* scene = systems.world.load_scene("scenes/launcher.scene");
+    auto* scene = systems.load_scene("scenes/launcher.scene");
     auto component = scene ? single_ui_component(*scene) : engine::UiComponent{};
     if (!expect(component && component.node().set_persistent(true), "retain a UI root") ||
         !systems.frames())
@@ -1087,7 +1090,7 @@ bool run(Systems& systems, const fs::path& project, const fs::path& screenshots)
     SDL_Window* const original_window = systems.window.native_window();
     for (int cycle = 0; cycle < 3; ++cycle)
     {
-        auto* scene = systems.world.load_scene("scenes/launcher.scene");
+        auto* scene = systems.load_scene("scenes/launcher.scene");
         auto component = scene ? single_ui_component(*scene) : engine::UiComponent{};
         if (!expect(component.valid(),
                     "launcher has exactly one ordinary Node with a UI component") ||
@@ -1098,7 +1101,7 @@ bool run(Systems& systems, const fs::path& project, const fs::path& screenshots)
         }
         const auto node_count = test_support::scene_nodes(*scene).size();
         const auto ui_node_id = component.node().id();
-        if (!expect(component.document() != nullptr,
+        if (!expect(component.document().id != 0,
                     "normal Node owns UiComponent and a generated UI resource") ||
             !systems.frames() ||
             !expect(systems.ui.document_count() == 1 && systems.fonts.gpu_resource_count() > 0,
@@ -1160,7 +1163,7 @@ bool run(Systems& systems, const fs::path& project, const fs::path& screenshots)
         {
             return false;
         }
-        scene = systems.world.load_scene("scenes/font-gallery.scene");
+        scene = systems.load_scene("scenes/font-gallery.scene");
         const auto gallery_nodes =
             scene ? test_support::scene_nodes(*scene) : std::vector<engine::Node>{};
         if (!expect(

@@ -53,6 +53,8 @@ def prepare_minimal_project(root, project):
     for filename in ("editor-import.toml", "editor-settings.toml", "runtime-game.toml",
                      "runtime-engine.toml", "runtime-parallel.toml"):
         shutil.copy2(source / "settings" / filename, project / "settings" / filename)
+    game_settings = project / "settings/runtime-game.toml"
+    game_settings.write_text('[common]\ngame_language = "en"\nstartup_movie = ""\n', encoding="utf-8")
     (project / "settings/typescript").mkdir()
     for filename in ("package.json", "package-lock.json", "tsconfig.json"):
         shutil.copy2(source / "settings/typescript" / filename,

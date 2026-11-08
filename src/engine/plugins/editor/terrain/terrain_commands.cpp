@@ -1,6 +1,9 @@
 #include "plugins/editor/terrain/terrain_commands.hpp"
+#include "editor/resource_access.hpp"
+#include "plugins/runtime/terrain/terrain_resource.hpp"
+#include "runtime/resource/virtual_file_system.hpp"
 
-#include "editor/commands/components/component_edit.hpp"
+#include "editor/commands/component_commands.hpp"
 #include "editor/commands/scene_commands.hpp"
 #include "plugins/editor/terrain/terrain_files.hpp"
 #include "plugins/editor/terrain/terrain_settings_edit.hpp"
@@ -8,6 +11,7 @@
 #include "plugins/runtime/terrain/terrain_component.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/schema/terrain_state_generated.h"
+#include "runtime/world/world_system.hpp"
 
 #include <flatbuffers/flatbuffers.h>
 #include <flatbuffers/verifier.h>
@@ -23,7 +27,8 @@ namespace
 using Json = nlohmann::json;
 constexpr std::uintmax_t maximum_state_bytes = 32U * 1024U * 1024U;
 
-bool resource(const Json& input, schema::AssetKind kind, Guid& output, std::string& error)
+bool resource(ResourceLoader* loader, const Json& input, schema::AssetKind kind, Guid& output,
+              std::string& error)
 {
     if (!input.is_string())
     {
@@ -36,17 +41,13 @@ bool resource(const Json& input, schema::AssetKind kind, Guid& output, std::stri
         output.clear();
         return true;
     }
-    const auto* resources = ResourceSystem::instance();
-    Guid guid;
-    const auto* entry = resources != nullptr && ResourceSystem::path_to_guid(path, guid)
-                            ? resources->catalog().find(guid)
-                            : nullptr;
-    if (entry == nullptr || entry->kind != kind)
+    engine::ResourceReference resource;
+    if (!editor::resource_access::load(loader, path, resource) || resource->kind() != kind)
     {
         error = "Terrain resource path is missing or has the wrong resource type";
         return false;
     }
-    output = std::move(guid);
+    output = resource->info().guid;
     return true;
 }
 
@@ -69,16 +70,19 @@ bool color(const Json& input, schema::Color& output)
     return true;
 }
 
-bool read_settings(const Json& arguments, schema::TerrainDataT& value, std::string& error)
+bool read_settings(ResourceLoader* loader, const Json& arguments, schema::TerrainDataT& value,
+                   std::string& error)
 {
     if (!editor::components::fields(
             arguments,
             {"enabled", "terrain", "material", "collision", "surfaceColor", "wallColor", "uvScale"},
             error) ||
         (arguments.contains("terrain") &&
-         !resource(arguments["terrain"], schema::AssetKind::terrain, value.terrain_guid, error)) ||
+         !resource(loader, arguments["terrain"], schema::AssetKind::terrain, value.terrain_guid,
+                   error)) ||
         (arguments.contains("material") &&
-         !resource(arguments["material"], schema::AssetKind::material, value.material_guid, error)))
+         !resource(loader, arguments["material"], schema::AssetKind::material, value.material_guid,
+                   error)))
     {
         return false;
     }
@@ -105,17 +109,17 @@ bool read_settings(const Json& arguments, schema::TerrainDataT& value, std::stri
     return true;
 }
 
-Json settings_json(const schema::TerrainDataT& value)
+Json settings_json(ResourceLoader* loader, const schema::TerrainDataT& value)
 {
     std::string terrain;
     std::string material;
     if (!value.terrain_guid.empty())
     {
-        static_cast<void>(ResourceSystem::guid_to_path(value.terrain_guid, terrain));
+        static_cast<void>(editor::resource_access::path(loader, value.terrain_guid, terrain));
     }
     if (!value.material_guid.empty())
     {
-        static_cast<void>(ResourceSystem::guid_to_path(value.material_guid, material));
+        static_cast<void>(editor::resource_access::path(loader, value.material_guid, material));
     }
     return {{"terrain", terrain},
             {"terrainGuid", value.terrain_guid},
@@ -131,7 +135,12 @@ Json settings_json(const schema::TerrainDataT& value)
 
 Json component_json(const TerrainComponent& component)
 {
-    auto result = settings_json(component.settings());
+    schema::TerrainDataT settings;
+    if (!component.get_settings(settings))
+    {
+        return nullptr;
+    }
+    auto result = settings_json(component.node().scene()->world().resource_loader(), settings);
     result["enabled"] = component.enabled();
     result["ready"] = component.ready();
     result["revision"] = component.revision();
@@ -221,46 +230,29 @@ ByteBuffer pack_state(const schema::TerrainStateDataT& state)
     return ByteBuffer(bytes.begin(), bytes.end());
 }
 
-bool reset_state(schema::TerrainStateDataT& state, std::string& error)
+bool reset_state(ResourceLoader* loader, schema::TerrainStateDataT& state, std::string& error)
 {
-    auto* resources = ResourceSystem::instance();
-    ResourcePtr resource;
-    if (resources == nullptr || !resources->loader().load(state.base_guid, resource) || !resource ||
-        resource->info().kind != schema::AssetKind::terrain ||
-        resource->info().content_hash != state.base_hash)
+    engine::ResourceReference resource;
+    if (!editor::resource_access::load(loader, state.base_guid, resource) ||
+        !resource.data<TerrainResource>() || resource->info().content_hash != state.base_hash)
     {
         error = "Cannot load the original terrain resource version";
         return false;
     }
-    const auto bytes = resource->bytes();
-    flatbuffers::Verifier verifier(reinterpret_cast<const std::uint8_t*>(bytes.data()),
-                                   bytes.size());
-    if (!schema::VerifyTerrainAssetDataBuffer(verifier))
-    {
-        error = "Original terrain resource has invalid FlatBuffers data";
-        return false;
-    }
-    auto volume = std::unique_ptr<schema::TerrainAssetDataT>(
-        schema::GetTerrainAssetData(bytes.data())->UnPack());
-    if (!TerrainVolume::validate(*volume, error))
-    {
-        return false;
-    }
-    state.volume = std::move(volume);
+    state.volume = std::make_unique<schema::TerrainAssetDataT>(*resource.data<TerrainResource>());
     return true;
 }
 
-bool settings_state(const schema::TerrainDataT& settings, const ByteBuffer& previous,
-                    ByteBuffer& output, std::string& error)
+bool settings_state(ResourceLoader* loader, const schema::TerrainDataT& settings,
+                    const ByteBuffer& previous, ByteBuffer& output, std::string& error)
 {
     output.clear();
     if (settings.terrain_guid.empty())
     {
         return true;
     }
-    auto* resources = ResourceSystem::instance();
-    ResourcePtr base;
-    if (resources == nullptr || !resources->loader().load(settings.terrain_guid, base) || !base ||
+    engine::ResourceReference base;
+    if (!editor::resource_access::load(loader, settings.terrain_guid, base) || !base ||
         base->info().kind != schema::AssetKind::terrain)
     {
         error = "Cannot prepare the original terrain resource";
@@ -283,7 +275,7 @@ bool settings_state(const schema::TerrainDataT& settings, const ByteBuffer& prev
     schema::TerrainStateDataT state;
     state.base_guid = settings.terrain_guid;
     state.base_hash = base->info().content_hash;
-    if (!reset_state(state, error))
+    if (!reset_state(loader, state, error))
     {
         return false;
     }
@@ -368,7 +360,8 @@ bool state_edit(WorldSystem& world, editor::SceneCommands& scene_commands,
         ByteBuffer loaded;
         std::unique_ptr<schema::TerrainStateDataT> replacement;
         if (filesystem_error || size > maximum_state_bytes ||
-            !ResourceSystem::read_binary(path, loaded) || !unpack_state(loaded, replacement, error))
+            !VirtualFileSystem::read_file(path, loaded) ||
+            !unpack_state(loaded, replacement, error))
         {
             if (error.empty())
             {
@@ -384,7 +377,7 @@ bool state_edit(WorldSystem& world, editor::SceneCommands& scene_commands,
         }
         state = std::move(replacement);
     }
-    else if (!reset_state(*state, error))
+    else if (!reset_state(world.resource_loader(), *state, error))
     {
         return false;
     }
@@ -440,8 +433,13 @@ bool register_terrain_commands(WorldSystem& world, editor::SceneCommands& scene_
                         return false;
                     }
                 }
-                auto value = component.valid() ? component.settings() : schema::TerrainDataT{};
-                if (!read_settings(arguments, value, error))
+                schema::TerrainDataT value;
+                if (component && !component.get_settings(value))
+                {
+                    error = "Cannot read component settings";
+                    return false;
+                }
+                if (!read_settings(world.resource_loader(), arguments, value, error))
                 {
                     return false;
                 }
@@ -464,12 +462,13 @@ bool register_terrain_commands(WorldSystem& world, editor::SceneCommands& scene_
                     error = "Cannot resolve stable terrain node identity";
                     return false;
                 }
-                result = settings_json(value);
+                result = settings_json(world.resource_loader(), value);
                 result["enabled"] = after.flags->enabled;
                 result["sceneId"] = std::to_string(node.scene()->id());
                 result["nodeId"] = std::to_string(node.id());
                 ByteBuffer after_state;
-                if (!settings_state(value, before_state, after_state, error))
+                if (!settings_state(world.resource_loader(), value, before_state, after_state,
+                                    error))
                 {
                     return false;
                 }

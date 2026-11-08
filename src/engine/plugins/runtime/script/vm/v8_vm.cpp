@@ -1,7 +1,7 @@
 #include "plugins/runtime/script/vm/script_vm.hpp"
 
 #include "runtime/app/app.hpp"
-#include "runtime/resource/resource_system.hpp"
+#include "runtime/resource/virtual_file_system.hpp"
 #include "runtime/utils/path_utils.hpp"
 
 #include <SDL3/SDL.h>
@@ -24,6 +24,21 @@ namespace engine::plugins::script::vm
 {
 namespace
 {
+bool read_file_text(const std::filesystem::path& path, std::string& output)
+{
+    output.clear();
+    ByteBuffer bytes;
+    if (!VirtualFileSystem::read_file(path, bytes))
+    {
+        return false;
+    }
+    if (!bytes.empty())
+    {
+        output.assign(reinterpret_cast<const char*>(bytes.data()), bytes.size());
+    }
+    return true;
+}
+
 namespace fs = std::filesystem;
 
 #if defined(SDL_PLATFORM_ANDROID) && ENGINE_V8_HAS_I18N
@@ -78,7 +93,7 @@ namespace fs = std::filesystem;
     std::error_code error;
     const auto status = fs::symlink_status(target, error);
     std::string previous;
-    if (!error && fs::is_regular_file(status) && ResourceSystem::read_text(target, previous) &&
+    if (!error && fs::is_regular_file(status) && read_file_text(target, previous) &&
         previous == bytes)
     {
         return true;
@@ -115,7 +130,7 @@ namespace fs = std::filesystem;
     }
     std::vector<std::byte> bytes;
     fs::path directory;
-    if (!ResourceSystem::read_binary(PathUtils::from_utf8("apk:/assets/v8/icudtl.dat"), bytes) ||
+    if (!VirtualFileSystem::read_file(PathUtils::from_utf8("apk:/assets/v8/icudtl.dat"), bytes) ||
         bytes.empty() || !prepare_directory(App::cache_path(), "v8", directory) ||
         !cache_file(directory, "icudtl.dat",
                     std::string_view(reinterpret_cast<const char*>(bytes.data()), bytes.size())))

@@ -22,10 +22,10 @@ from plugins.editor.mcp.script_tooling_test import require, resource_payload
 def test(editor, mcp, root, temporary):
     project = prepare_project(root, temporary)
     (project / "assets/scripts/game.ts").write_text(
-        "import { Gameplay, Scene } from 'engine';\n"
+        "import { Gameplay, Scene, Resources } from 'engine';\n"
         "export default class Game extends Gameplay {\n"
         "  override OnInitialize(): boolean {\n"
-        "    return Scene.Load('scenes/main.scene') !== null;\n"
+        "    const resource = Resources.Load('scenes/main.scene'); if (!resource) return false; const scene = Scene.Load('scenes/main.scene'); Resources.Release(resource); return scene !== null;\n"
         "  }\n}\n",
         encoding="utf-8",
     )

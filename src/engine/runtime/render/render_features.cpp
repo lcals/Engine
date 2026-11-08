@@ -75,7 +75,8 @@ RenderFeatureState RenderSystem::feature_state(RenderFeature feature) const noex
     if (feature == RenderFeature::frustum_culling)
     {
         const auto camera = world_ && world_->scene() ? world_->scene()->active_camera() : Camera{};
-        result.requested = camera && camera.settings().frustum_culling_enabled;
+        CameraSettings settings;
+        result.requested = camera.get_settings(settings) && settings.frustum_culling_enabled;
     }
     else if (feature == RenderFeature::static_instancing || feature == RenderFeature::static_lod)
     {

@@ -12,12 +12,12 @@ classDiagram
     ScriptSystem ..> ProjectScriptRequest : 同步调用期间借用
     class ScriptSystem {
         <<final>>
-        +ScriptSystem(WorldSystem#42; world, RenderSystem#42; renderer, UiSystem#42; ui, PhysicsSystem#42; physics, NavigationSystem#42; navigation, InputSystem#42; input, WindowSystem#42; window, AnimationSystem#42; animation)
+        +ScriptSystem(ResourceLoader#42; resources, WorldSystem#42; world, RenderSystem#42; renderer, UiSystem#42; ui, PhysicsSystem#42; physics, NavigationSystem#42; navigation, InputSystem#42; input, WindowSystem#42; window, AnimationSystem#42; animation, MoviePlayer#42; movies)
         +~ScriptSystem()
-        +prepare_gameplay(const ResourceCatalog& catalog, const MountList& mounts, string_view entry, string_view revision) bool
+        +prepare_gameplay(const ResourceHandle& entry, string_view revision) bool
         +start_prepared_gameplay() bool
         +stop_gameplay() void
-        +execute_project_script(const ProjectScriptRequest& request, string& result_json, string& error) bool
+        +execute_project_script(const ResourceHandle& script, const ProjectScriptRequest& request, string& result_json, string& error) bool
         +status() const ScriptStatus&
         #on_initialize(const EngineConfig& config) bool
         #on_tick(double delta_time) bool
@@ -85,7 +85,7 @@ classDiagram
 - `prepare_gameplay()` 接收调用方提供的目录和挂载，入口默认 `scripts/game.js`，修订默认目录修订。只沿静态 import 图读取候选 JS、编译和链接，不执行模块或用户回调、不更新核心目录、不停止旧玩法。失败保留旧运行。
 - 宿主预检成功后停止旧玩法及 GPU、更新资源目录，再调用 `start_prepared_gameplay()`。启动核对活动资源与预检脚本的内容及模块身份，取得共享引用，然后执行模块并创建入口。执行失败停止本次玩法，不承诺撤销外部副作用。
 - 所有调用方使用同一候选预检与启动路径；测试夹具同样先预检、停止旧玩法、提交目录，再启动候选，不保留仅供测试的直接启动接口或活动目录读取分支。
-- 每个 Run 独占 ScriptVm 环境、模块缓存、任务队列、Gameplay、BindingContext 以及实际加载脚本的 ResourcePtr；目录只复制元数据，脚本实体按 import 读取。只接受相对导入与虚拟 `engine` 模块，不支持 Node.js、动态 import 或顶层 await；传递依赖和循环依赖同样执行预检。
+- 每个 Run 独占 ScriptVm 环境、模块缓存、任务队列、Gameplay、BindingContext 以及已加载脚本入口的独立获取；模块表只借用该入口完整闭包中的不可变脚本，import 不读取文件。只接受相对导入与虚拟 `engine` 模块，不支持 Node.js、动态 import 或顶层 await；传递依赖和循环依赖同样执行预检。
 - 生命周期 `OnInitialize/Update/OnShutdown` 同步调用；初始化必须返回 true。回调结束后排空该 Run 的普通 Promise jobs，同次 checkpoint 内已处理的拒绝不误停；未处理拒绝、异步生命周期或动态 import 均报告失败。Update 失败停止玩法但仍执行 OnShutdown，Engine 帧仍返回成功。C++ 不使用异常。
 - 停止先在场景仍有效时调用 OnShutdown 并清理绑定订阅，再释放虚拟机与任务队列，随后按 Scene ID 精确销毁属于此 Run 的所有场景（包括常驻内容）及脚本引用。部分初始化、重复停止和关闭均安全；候选 Run 不拥有已发布场景，不清理其他运行者的场景。
 - 原生包装通过 Run 的 BindingContext 活性、Scene generation、Node id 和调用阶段检查有效性；模块顶层、构造及预检阶段不能修改场景。Time.deltaTime 仅在 Update 有效。

@@ -1,4 +1,5 @@
 #include "plugins/editor/destruction/destruction_settings_edit.hpp"
+#include "editor/resource_access.hpp"
 
 #include "plugins/runtime/destruction/destruction_component.hpp"
 #include "plugins/runtime/destruction/destruction_system.hpp"
@@ -84,6 +85,20 @@ bool DestructionSettingsEdit::replace(const std::optional<schema::ComponentDataT
         *revision_ = 0;
         return true;
     }
+    engine::ResourceReference source, material;
+    const auto* data = replacement->payload.AsDestructionData();
+    if (!data ||
+        (!data->destruction_guid.empty() &&
+         (!editor::resource_access::load(world_.resource_loader(), data->destruction_guid,
+                                         source) ||
+          !editor::resource_access::load(
+              world_.resource_loader(),
+              data->material_guid.empty() ? "builtin://materials/default-pbr" : data->material_guid,
+              material))))
+    {
+        error = "Cannot prepare destruction settings resources";
+        return false;
+    }
     const bool created = !component;
     if (created)
     {
@@ -95,7 +110,7 @@ bool DestructionSettingsEdit::replace(const std::optional<schema::ComponentDataT
         return false;
     }
     bool success = component.restore_data(*replacement) && system->synchronize(node);
-    if (success && !component.settings().destruction_guid.empty() && !component.ready())
+    if (success && !data->destruction_guid.empty() && !component.ready())
     {
         // An explicit edit also captures initially disabled objects. Generated visuals and
         // colliders keep the component's disabled state; the host's lazy policy is unchanged.

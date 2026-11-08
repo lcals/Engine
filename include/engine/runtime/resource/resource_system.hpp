@@ -1,67 +1,75 @@
 #pragma once
 
-#include "runtime/resource/resource.hpp"
 #include "runtime/resource/resource_catalog.hpp"
-#include "runtime/resource/resource_loader.hpp"
+#include "runtime/resource/resource_codec.hpp"
+#include "runtime/resource/resource_read.hpp"
 #include "runtime/resource/virtual_file_system.hpp"
 #include "runtime/schema/resource_header_generated.h"
 #include "runtime/system/system.hpp"
 
-#include <cstdint>
+#include <map>
 #include <memory>
 #include <string>
-#include <string_view>
+#include <type_traits>
 
 namespace engine
 {
-
 class TaskSystem;
 
-struct ResourceAsyncConfig
+struct ResourceReadConfig
 {
-    std::size_t max_in_flight = 4;
+    FileAsyncConfig files;
+    std::uint32_t max_in_flight = 4;
     std::uint64_t max_in_flight_bytes = 64U * 1024U * 1024U;
-    std::size_t completion_budget = 16;
+    std::uint32_t completion_budget = 16;
 };
 
-class ResourceSystem final : public System, public ResourceLoader
+class ResourceSystem final : public System
 {
 public:
     ResourceSystem() noexcept;
     ~ResourceSystem() noexcept override;
 
-    // 单宿主借用；仅在成功初始化后到关闭前有效。
-    [[nodiscard]] static ResourceSystem* instance() noexcept;
+    template <typename TCodec> [[nodiscard]] bool add()
+    {
+        static_assert(std::is_base_of_v<ResourceCodec, TCodec>);
+        using Value = typename TCodec::ResourceType;
+        static_assert(
+            std::is_same_v<Value, ResourceValue<typename Value::Data, Value::asset_kind>>);
+        if (is_initialized())
+        {
+            return fail(ResourceError::busy, "Resource codecs are frozen while initialized");
+        }
+        auto codec = std::make_unique<TCodec>();
+        if (codec->kind() != Value::asset_kind || codecs_.contains(codec->kind()))
+        {
+            return fail(ResourceError::identity_conflict,
+                        "Duplicate or incompatible resource codec");
+        }
+        codecs_.emplace(codec->kind(), std::move(codec));
+        error_ = ResourceError::none;
+        last_error_.clear();
+        return true;
+    }
+
     [[nodiscard]] bool update_catalog(const schema::AssetCatalogDataT& data,
                                       const MountList& mounts);
     [[nodiscard]] const ResourceCatalog& catalog() const noexcept;
     [[nodiscard]] std::uint64_t generation() const noexcept;
-    // 借用的 loader 须存活到恢复 nullptr；默认本系统仅提供单项加载。
-    void set_loader(ResourceLoader* loader) noexcept;
-    [[nodiscard]] ResourceLoader& loader() noexcept;
-    [[nodiscard]] bool read_header(std::string_view guid, schema::ResourceHeaderDataT& output);
-    // 单项读取和格式校验；不递归、不缓存、不拥有依赖。
-    [[nodiscard]] bool load(std::string_view guid, ResourcePtr& output) override;
-    // 所属线程配置和派发；借用 tasks，先关闭异步读取再关闭任务域。
-    [[nodiscard]] bool configure_async(TaskSystem& tasks, const ResourceAsyncConfig& config = {});
-    void shutdown_async() noexcept;
-    [[nodiscard]] bool async_enabled() const noexcept;
-    [[nodiscard]] bool begin_load(std::string_view guid,
-                                  std::unique_ptr<ResourceLoad>& output) override;
-    void poll_async();
-    [[nodiscard]] ResourcePtr find(std::string_view guid) const noexcept override;
-    // 调用方提供已加载的直接引用，验证跨实体契约；不读取或保留这些引用。
-    [[nodiscard]] bool validate_dependencies(const Resource& resource,
-                                             std::span<const ResourcePtr> dependencies) const;
-    [[nodiscard]] const std::string& last_error() const noexcept override;
+    [[nodiscard]] bool configure_async(TaskSystem& file_tasks, TaskSystem& read_tasks,
+                                       const ResourceReadConfig& config);
+    [[nodiscard]] bool read(std::string_view guid, std::unique_ptr<Resource>& output);
+    [[nodiscard]] bool begin_read(std::string_view guid, std::unique_ptr<ResourceRead>& output);
+    [[nodiscard]] bool validate_memory(Resource& candidate);
+    [[nodiscard]] bool begin_read_memory(std::unique_ptr<Resource>& candidate,
+                                         std::unique_ptr<ResourceRead>& output);
+    [[nodiscard]] bool validate_dependencies(const Resource& resource, ResourceView dependencies,
+                                             ResourceError& error, std::string& message) const;
+    [[nodiscard]] ResourceError error() const noexcept;
+    [[nodiscard]] std::string_view last_error() const noexcept;
 
-    // 文件工具无需系统初始化；APK 路径要求宿主 SDL Android 环境就绪。
-    [[nodiscard]] static bool read_binary(const std::filesystem::path& path, ByteBuffer& output);
-    [[nodiscard]] static bool read_text(const std::filesystem::path& path, std::string& output);
-    // 只读 catalog.bin 并验证元数据，不访问实体文件。
     [[nodiscard]] static bool read_catalog(const std::filesystem::path& root,
                                            ResourceCatalog& output);
-    // 单实体工具不建立对象或加载依赖，供导入复用和调用方预检候选资源。
     [[nodiscard]] static bool read_resource(const ResourceCatalog& catalog, const MountList& mounts,
                                             std::string_view guid, ByteBuffer& payload);
     [[nodiscard]] static bool decode_resource(const schema::AssetEntryT& entry, ByteView entity,
@@ -69,21 +77,7 @@ public:
     [[nodiscard]] static bool encode_resource(std::string_view guid, schema::AssetKind kind,
                                               ByteView payload, ByteBuffer& output,
                                               std::uint32_t& header_size);
-
-    [[nodiscard]] static bool path_to_guid(std::string_view path, Guid& output);
-    [[nodiscard]] static bool guid_to_path(std::string_view guid, std::string& output);
-    [[nodiscard]] static bool register_texture(const schema::TextureDataT& data);
-    [[nodiscard]] static const schema::TextureDataT* find_texture(std::string_view path) noexcept;
-    [[nodiscard]] static bool register_mesh(const schema::MeshDataT& data);
-    [[nodiscard]] static const schema::MeshDataT* find_mesh(std::string_view path) noexcept;
-
-    // 仅注册引擎编入的 builtin:// 定义；项目资源通过目录加载，不能常驻注册。
-    // 同一完整路径在 Shader 和材质之间唯一；内置材质不能引用项目 Shader。
-    [[nodiscard]] static bool register_shader(const schema::ShaderDataT& data);
-    [[nodiscard]] static bool register_material(const schema::MaterialDataT& data);
-    // 纯查询，不触发读取；项目借用仅在实际使用者持有 ResourcePtr 时有效。
-    [[nodiscard]] static const schema::ShaderDataT* find_shader(std::string_view path) noexcept;
-    [[nodiscard]] static const schema::MaterialDataT* find_material(std::string_view path) noexcept;
+    [[nodiscard]] bool read_header(std::string_view guid, schema::ResourceHeaderDataT& output);
 
 protected:
     [[nodiscard]] bool on_initialize(const EngineConfig& config) override;
@@ -91,18 +85,23 @@ protected:
     void on_shutdown() noexcept override;
 
 private:
-    struct AsyncState;
-    class AsyncLoad;
-    [[nodiscard]] static bool decode_loaded(const ResourceCatalog& catalog,
-                                            std::uint64_t generation, std::string_view guid,
-                                            ByteView entity, ResourcePtr& output);
+    struct ReadState;
+    [[nodiscard]] const ResourceCodec* codec(schema::AssetKind kind) const noexcept;
+    [[nodiscard]] bool validate_memory_info(const Resource& resource);
+    [[nodiscard]] static bool decode_single(const schema::AssetEntryT& entry,
+                                            const ResourceCodec& codec, std::uint64_t generation,
+                                            ByteView entity, std::unique_ptr<Resource>& output,
+                                            std::string& message);
+    [[nodiscard]] bool fail(ResourceError error, std::string message);
+    void poll_reads();
+    void shutdown_reads() noexcept;
 
     ResourceCatalog catalog_;
     VirtualFileSystem files_;
-    ResourceLoader* loader_ = nullptr;
     std::uint64_t generation_ = 0;
+    std::map<schema::AssetKind, std::unique_ptr<ResourceCodec>> codecs_;
+    std::shared_ptr<ReadState> reads_;
+    ResourceError error_ = ResourceError::none;
     std::string last_error_;
-    std::shared_ptr<AsyncState> async_;
 };
-
 } // namespace engine

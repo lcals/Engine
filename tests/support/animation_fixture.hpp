@@ -1,6 +1,6 @@
-#pragma once
-
+#include "resource_services.hpp"
 #include "scene_snapshot.hpp"
+#pragma once
 
 #include "resource_fixture.hpp"
 
@@ -135,6 +135,7 @@ joint(const char* name, int parent, engine::Vec3 position, std::vector<float> in
 inline engine::schema::SkeletonDataT skeleton(bool source)
 {
     engine::schema::SkeletonDataT data;
+    data.schema_version = 2;
     data.path = source ? "skeletons/source.skeleton" : "skeletons/target.skeleton";
     data.joints.push_back(joint("root", -1, {}, translation(0, 0, 0)));
     // 两份骨架的 GUID 和索引不同；目标次序还特意不同于 ozz DFS。
@@ -167,6 +168,7 @@ track(std::uint32_t index, engine::Vec3 from, engine::Vec3 to, engine::Vec3 scal
 inline engine::schema::AnimationDataT clip(const char* path, bool scale, bool reflect)
 {
     engine::schema::AnimationDataT data;
+    data.schema_version = 2;
     data.path = path;
     data.name = "Animation test";
     data.skeleton_guid = source_guid;
@@ -254,12 +256,21 @@ inline engine::schema::ModelDataT model()
     result.path = model_path;
     auto parent = std::make_unique<engine::schema::ModelNodeDataT>();
     parent->name = "Assembly";
+    parent->source_key = "Assembly";
     result.nodes.push_back(std::move(parent));
     auto child = std::make_unique<engine::schema::ModelNodeDataT>();
     child->name = "Body";
+    child->source_key = "Assembly/Body";
     child->parent = 0;
     child->position = {0, 2, 0};
     child->mesh_guid = mesh_guid;
+    for (const auto& entry : engine::builtin_resource_catalog().entries)
+    {
+        if (entry->path == "builtin://materials/default-pbr")
+        {
+            child->material_guids.push_back(entry->guid);
+        }
+    }
     result.nodes.push_back(std::move(child));
     return result;
 }
@@ -279,34 +290,48 @@ inline bool add_model(test_support::ResourceFixture& files)
     flatbuffers::FlatBufferBuilder model_builder;
     engine::schema::FinishModelDataBuffer(
         model_builder, engine::schema::ModelData::Pack(model_builder, &model_data));
+    std::vector<std::string> dependencies{mesh_guid};
+    for (const auto& node : model_data.nodes)
+    {
+        dependencies.insert(dependencies.end(), node->material_guids.begin(),
+                            node->material_guids.end());
+    }
     return add(files, model_guid, model_path, engine::schema::AssetKind::model, model_builder,
-               {mesh_guid});
+               dependencies);
 }
 
 struct Fixture
 {
     test_support::ResourceFixture files;
-    engine::ResourceSystem resources;
-    engine::WorldSystem world;
+    test_support::ResourceServices services;
+    engine::ResourceSystem& resources = services.core;
+    engine::WorldSystem world{&services.loader};
     engine::AnimationSystem animation;
 
     explicit Fixture(engine::TaskSystem* tasks = nullptr,
-                     const engine::AnimationConfig& animation_config = {})
-        : animation(&world, tasks, animation_config)
+                     const engine::AnimationConfig& animation_config = {},
+                     engine::ThreadSystem* threads = nullptr)
+        : services(threads), animation(&world, tasks, animation_config)
     {
     }
 
     bool initialize()
     {
         const engine::EngineConfig config;
-        if (files.root.empty() || !resources.initialize(config) || !world.initialize(config) ||
+        if (files.root.empty() || !services.initialize(config) || !world.initialize(config) ||
             !animation.initialize(config) || !world.create_scene("Animation"))
         {
             return false;
         }
         for (bool source : {false, true})
         {
-            const auto data = skeleton(source);
+            auto data = skeleton(source);
+            std::string error;
+            if (!engine::editor::asset_pipeline::prepare_skeleton_sampling(data, error))
+            {
+                std::fprintf(stderr, "%s\n", error.c_str());
+                return false;
+            }
             flatbuffers::FlatBufferBuilder builder;
             engine::schema::FinishSkeletonDataBuffer(
                 builder, engine::schema::SkeletonData::Pack(builder, &data));
@@ -320,7 +345,14 @@ struct Fixture
         {
             const auto* path = index == 0 ? clip_path : index == 1 ? scale_path : reflected_path;
             const auto* guid = index == 0 ? clip_guid : index == 1 ? scale_guid : reflected_guid;
-            const auto data = clip(path, index != 0, index == 2);
+            auto data = clip(path, index != 0, index == 2);
+            std::string error;
+            if (!engine::editor::asset_pipeline::prepare_animation_sampling(data, skeleton(true),
+                                                                            error))
+            {
+                std::fprintf(stderr, "%s\n", error.c_str());
+                return false;
+            }
             flatbuffers::FlatBufferBuilder builder;
             engine::schema::FinishAnimationDataBuffer(
                 builder, engine::schema::AnimationData::Pack(builder, &data));
@@ -330,7 +362,7 @@ struct Fixture
                 return false;
             }
         }
-        return files.publish(resources);
+        return services.publish_and_load(files.catalog, {{"content", files.root}});
     }
 
     engine::Node create(bool auto_play = true)
@@ -342,7 +374,7 @@ struct Fixture
         {
             return {};
         }
-        auto settings = animator.settings();
+        auto settings = test_support::read_settings(animator);
         settings.animation_guid = clip_guid;
         settings.play_on_awake = auto_play;
         return animator.set_settings(settings) ? node : engine::Node{};

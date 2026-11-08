@@ -1,17 +1,21 @@
 #include "runtime/scene/mesh_renderer.hpp"
 
+#include "runtime/resource/types/mesh_resource.hpp"
+#include "runtime/resource/types/texture_resource.hpp"
 #include "runtime/scene/material_state.hpp"
 #include "runtime/scene/mesh_renderer_runtime.hpp"
 
 #include "runtime/scene/ecs_storage.hpp"
 
-#include "runtime/resource/resource_system.hpp"
 #include "runtime/scene/node.hpp"
+#include "runtime/scene/resource_binding.hpp"
 #include "runtime/scene/transform.hpp"
 #include "runtime/utils/mesh_utils.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
+#include <cstdio>
 #include <limits>
 #include <new>
 #include <string>
@@ -150,7 +154,7 @@ bool MeshRenderer::set_bake_static(bool enabled) noexcept
     return true;
 }
 
-std::shared_ptr<const Resource> MeshRenderer::lightmap_resource() const noexcept
+ResourceHandle MeshRenderer::lightmap_resource() const noexcept
 {
     if (!valid())
     {
@@ -167,16 +171,16 @@ std::shared_ptr<const Resource> MeshRenderer::lightmap_resource() const noexcept
         !runtime()->deformed_vertices_.empty() || !runtime()->skinning_palette_.empty() ||
         !transform || !transform.world_matrix(matrix.data()))
     {
-        return nullptr;
+        return {};
     }
     for (std::size_t index = 0; index < matrix.size(); ++index)
     {
         if (std::abs(matrix[index] - settings.lightmap_transform[index]) > 0.00001F)
         {
-            return nullptr;
+            return {};
         }
     }
-    return runtime()->lightmap_resource_;
+    return runtime()->lightmap_resource_.handle();
 }
 
 std::string_view MeshRenderer::lightmap_path() const noexcept
@@ -186,7 +190,8 @@ std::string_view MeshRenderer::lightmap_path() const noexcept
         return {};
     }
     const auto resource = lightmap_resource();
-    return resource ? std::string_view(resource->info().path) : std::string_view{};
+    return resource.id ? std::string_view(runtime()->lightmap_resource_->info().path)
+                       : std::string_view{};
 }
 
 bool MeshRenderer::set_lightmap(std::string_view path)
@@ -207,24 +212,22 @@ bool MeshRenderer::set_lightmap(std::string_view path)
     }
     const auto* mesh = mesh_data();
     auto transform = node().get_component<Transform>();
-    auto* resources = ResourceSystem::instance();
-    ResourcePtr replacement;
-    Guid guid;
+    ResourceReference replacement;
     std::array<float, 16> matrix{};
-    if (!resources || !runtime()->mesh_resource_ || !mesh || runtime()->skin_joint_count_ != 0 ||
+    if (!runtime()->mesh_resource_ || !mesh || runtime()->skin_joint_count_ != 0 ||
         !runtime()->deformed_vertices_.empty() || !runtime()->skinning_palette_.empty() ||
         mesh->lightmap_texcoords.size() != mesh->vertices.size() || !transform ||
-        !transform.world_matrix(matrix.data()) || !ResourceSystem::path_to_guid(path, guid) ||
-        !resources->loader().load(guid, replacement))
+        !transform.world_matrix(matrix.data()) ||
+        !ecs_detail::acquire_resource(node(), path, replacement))
     {
         return false;
     }
-    const auto* texture = replacement->texture();
+    const auto* texture = replacement.data<TextureResource>();
     if (!texture || texture->cube_map || texture->srgb)
     {
         return false;
     }
-    settings.lightmap_guid = std::move(guid);
+    settings.lightmap_guid = replacement->info().guid;
     settings.lightmap_mesh_hash = runtime()->mesh_resource_->info().content_hash;
     settings.lightmap_transform.assign(matrix.begin(), matrix.end());
     runtime()->lightmap_resource_ = std::move(replacement);
@@ -238,13 +241,18 @@ bool MeshRenderer::initialize()
     {
         return false;
     }
+    // 恢复流程随后按模板填入资源；候选根不必依赖未使用的默认立方体和材质。
+    if (ecs_detail::ResourceBindingScope::owner(*node().world()).id != 0)
+    {
+        return set_material_count(1);
+    }
     return set_mesh("builtin://meshes/cube") &&
            material().set_type("builtin://materials/default-pbr");
 }
 
 std::string_view MeshRenderer::mesh_path() const noexcept
 {
-    if (!valid())
+    if (!valid() || read_data<Data>()->mesh_guid.empty())
     {
         return {};
     }
@@ -259,27 +267,24 @@ bool MeshRenderer::set_mesh(std::string_view path)
     {
         return false;
     }
-    auto* resources = ResourceSystem::instance();
-    Guid guid;
-    ResourcePtr replacement;
+    ResourceReference replacement;
     std::uint32_t joint_count = 0;
     if (runtime()->mesh_revision_ == std::numeric_limits<std::uint64_t>::max() ||
-        resources == nullptr || !ResourceSystem::path_to_guid(path, guid) ||
-        !resources->loader().load(guid, replacement) || replacement->mesh() == nullptr ||
-        !MeshUtils::validate(*replacement->mesh()) ||
-        !skin_joint_count(*replacement->mesh(), joint_count) ||
-        !set_material_count(std::max(material_count(), required_materials(*replacement->mesh()))))
+        !ecs_detail::acquire_resource(node(), path, replacement) ||
+        replacement.data<MeshResource>() == nullptr ||
+        !skin_joint_count(*replacement.data<MeshResource>(), joint_count) ||
+        !set_material_count(
+            std::max(material_count(), required_materials(*replacement.data<MeshResource>()))))
     {
         return false;
     }
-    write_data<Data>()->mesh_guid = std::move(guid);
+    write_data<Data>()->mesh_guid = replacement->info().guid;
     runtime()->mesh_resource_ = std::move(replacement);
     runtime()->lightmap_resource_.reset();
     auto& settings = *write_data<Data>();
     settings.lightmap_guid.clear();
     settings.lightmap_mesh_hash.clear();
     settings.lightmap_transform.clear();
-    runtime()->dynamic_mesh_.reset();
     runtime()->skin_joint_count_ = joint_count;
     clear_deformation();
     ++runtime()->mesh_revision_;
@@ -299,13 +304,60 @@ bool MeshRenderer::set_mesh_data(const schema::MeshDataT& data)
     {
         return false;
     }
-    auto replacement = std::make_unique<schema::MeshDataT>(data);
+    auto* loader = node().world()->resource_loader();
+    if (!loader)
+    {
+        return false;
+    }
+    static std::atomic<std::uint64_t> sequence{0};
+    auto identity = sequence.load(std::memory_order_relaxed);
+    do
+    {
+        if (identity == std::numeric_limits<std::uint64_t>::max())
+        {
+            return false;
+        }
+    } while (!sequence.compare_exchange_weak(identity, identity + 1, std::memory_order_relaxed));
+    ++identity;
+    char guid[37]{};
+    std::snprintf(guid, sizeof(guid), "d5c321f0-7a8d-4cc4-%04x-%012llx",
+                  static_cast<unsigned int>(identity >> 48),
+                  static_cast<unsigned long long>(identity & 0x0000ffffffffffffULL));
+    schema::AssetEntryT entry;
+    entry.guid = guid;
+    entry.path = std::string("runtime/generated/mesh/") + guid;
+    entry.kind = schema::AssetKind::mesh;
+    auto payload = data;
+    payload.path = entry.path;
+    ResourceReference skeleton;
+    std::vector<ResourceHandle> dependencies;
+    if (!data.skeleton_guid.empty())
+    {
+        if (!ecs_detail::acquire_resource(node(), data.skeleton_guid, skeleton))
+        {
+            return false;
+        }
+        entry.dependencies.push_back(data.skeleton_guid);
+        dependencies.push_back(skeleton.handle());
+    }
+    std::unique_ptr<Resource> candidate =
+        std::make_unique<MeshResource>(std::move(entry), std::move(payload));
+    ResourceHandle loaded;
+    if (!loader->load_memory(candidate, dependencies, loaded))
+    {
+        return false;
+    }
+    ResourceReference replacement;
+    if (!replacement.adopt(loader, loaded))
+    {
+        (void)loader->release(loaded);
+        return false;
+    }
     if (!set_material_count(std::max(material_count(), required_materials(data))))
     {
         return false;
     }
-    runtime()->dynamic_mesh_ = std::move(replacement);
-    runtime()->mesh_resource_.reset();
+    runtime()->mesh_resource_ = std::move(replacement);
     runtime()->lightmap_resource_.reset();
     auto& settings = *write_data<Data>();
     settings.lightmap_guid.clear();
@@ -325,18 +377,16 @@ const schema::MeshDataT* MeshRenderer::mesh_data() const noexcept
     {
         return {};
     }
-    return runtime()->dynamic_mesh_    ? runtime()->dynamic_mesh_.get()
-           : runtime()->mesh_resource_ ? runtime()->mesh_resource_->mesh()
-                                       : nullptr;
+    return runtime()->mesh_resource_.data<MeshResource>();
 }
 
-std::shared_ptr<const Resource> MeshRenderer::mesh_resource() const noexcept
+ResourceHandle MeshRenderer::mesh_resource() const noexcept
 {
     if (!valid())
     {
         return {};
     }
-    return runtime()->mesh_resource_;
+    return runtime()->mesh_resource_.handle();
 }
 
 std::uint64_t MeshRenderer::mesh_revision() const noexcept
@@ -530,8 +580,9 @@ bool MeshRenderer::set_material_count(std::size_t count)
         {
             return false;
         }
-        MaterialState value;
-        if (!value.set_type("builtin://materials/default-pbr"))
+        MaterialState value(node());
+        if (ecs_detail::ResourceBindingScope::owner(*node().world()).id == 0 &&
+            !value.set_type("builtin://materials/default-pbr"))
         {
             return false;
         }
@@ -552,17 +603,18 @@ bool MeshRenderer::build_data(schema::ComponentDataT& output) const
 {
     output = {};
     schema::ComponentDataT snapshot;
-    if (!build_storage_data(snapshot))
+    if (!get_data(snapshot))
     {
         return false;
     }
     auto* settings = snapshot.payload.AsMeshRendererData();
-    if (settings->mesh_guid.empty() ||
-        !ResourceSystem::path_to_guid(material().type_path(), settings->material_guid))
+    const auto* first_material = material().state();
+    if (settings->mesh_guid.empty() || !first_material || !first_material->material_resource_)
     {
         return false;
     }
-    if (!lightmap_resource())
+    settings->material_guid = first_material->material_resource_->info().guid;
+    if (lightmap_resource().id == 0)
     {
         settings->lightmap_guid.clear();
         settings->lightmap_mesh_hash.clear();
@@ -571,12 +623,13 @@ bool MeshRenderer::build_data(schema::ComponentDataT& output) const
     settings->additional_material_guids.clear();
     for (std::size_t slot = 1; slot < material_count(); ++slot)
     {
-        std::string guid;
-        if (!ResourceSystem::path_to_guid(material(slot).type_path(), guid))
+        const auto* bound_material = material(slot).state();
+        if (!bound_material || !bound_material->material_resource_)
         {
             return false;
         }
-        settings->additional_material_guids.push_back(std::move(guid));
+        settings->additional_material_guids.push_back(
+            bound_material->material_resource_->info().guid);
     }
     output = std::move(snapshot);
     return true;
@@ -586,7 +639,7 @@ bool MeshRenderer::restore_data(const schema::ComponentDataT& data)
 {
     const auto* settings = data.payload.AsMeshRendererData();
     auto* current = runtime();
-    auto* resources = ResourceSystem::instance();
+    auto* resources = node().world()->resource_loader();
     if (!writable() || !data.flags || !settings || !current || !resources ||
         current->mesh_revision_ == std::numeric_limits<std::uint64_t>::max() ||
         settings->additional_material_guids.size() > 15)
@@ -594,11 +647,11 @@ bool MeshRenderer::restore_data(const schema::ComponentDataT& data)
         return false;
     }
     Runtime replacement;
-    if (!resources->loader().load(settings->mesh_guid, replacement.mesh_resource_) ||
-        !replacement.mesh_resource_ || !replacement.mesh_resource_->mesh() ||
-        !MeshUtils::validate(*replacement.mesh_resource_->mesh()) ||
-        !skin_joint_count(*replacement.mesh_resource_->mesh(), replacement.skin_joint_count_) ||
-        required_materials(*replacement.mesh_resource_->mesh()) >
+    if (!ecs_detail::acquire_resource(node(), settings->mesh_guid, replacement.mesh_resource_) ||
+        !replacement.mesh_resource_ || !replacement.mesh_resource_.data<MeshResource>() ||
+        !skin_joint_count(*replacement.mesh_resource_.data<MeshResource>(),
+                          replacement.skin_joint_count_) ||
+        required_materials(*replacement.mesh_resource_.data<MeshResource>()) >
             1 + settings->additional_material_guids.size())
     {
         return false;
@@ -613,8 +666,8 @@ bool MeshRenderer::restore_data(const schema::ComponentDataT& data)
         const auto& guid =
             slot == 0 ? settings->material_guid : settings->additional_material_guids[slot - 1];
         std::string path;
-        MaterialState value;
-        if (!ResourceSystem::guid_to_path(guid, path) || !value.set_type(path))
+        MaterialState value(node());
+        if (!ecs_detail::resource_path(node(), guid, path) || !value.set_type(path))
         {
             return false;
         }
@@ -623,11 +676,14 @@ bool MeshRenderer::restore_data(const schema::ComponentDataT& data)
     }
     if (!settings->lightmap_guid.empty())
     {
-        const auto* mesh = replacement.mesh_resource_->mesh();
-        if (!resources->loader().load(settings->lightmap_guid, replacement.lightmap_resource_) ||
-            !replacement.lightmap_resource_ || !replacement.lightmap_resource_->texture() ||
-            replacement.lightmap_resource_->texture()->cube_map ||
-            replacement.lightmap_resource_->texture()->srgb || replacement.skin_joint_count_ != 0 ||
+        const auto* mesh = replacement.mesh_resource_.data<MeshResource>();
+        if (!ecs_detail::acquire_resource(node(), settings->lightmap_guid,
+                                          replacement.lightmap_resource_) ||
+            !replacement.lightmap_resource_ ||
+            !replacement.lightmap_resource_.data<TextureResource>() ||
+            replacement.lightmap_resource_.data<TextureResource>()->cube_map ||
+            replacement.lightmap_resource_.data<TextureResource>()->srgb ||
+            replacement.skin_joint_count_ != 0 ||
             mesh->lightmap_texcoords.size() != mesh->vertices.size() ||
             settings->lightmap_mesh_hash.empty() || settings->lightmap_transform.size() != 16 ||
             !std::all_of(settings->lightmap_transform.begin(), settings->lightmap_transform.end(),

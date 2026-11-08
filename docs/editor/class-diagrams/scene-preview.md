@@ -2,6 +2,8 @@
 
 [类图索引](../../class-diagrams/index.md) · [编辑器命令](editor-commands.md)
 
+**2026-11-07 已实现接入：** 沿用现有预览生命周期，ECS 提交后由预览 tick 驱动 [RenderSystem incremental 准备](../../runtime/class-diagrams/render-system.md#大场景分批准备)，ready 前不报告预览绘制完成；preparing 不当作失败，也不在一次命令中循环等待。候选请求 / 预览停止使旧渲染准备失效，失败保留诊断。明确要求同步的离线工具选择 synchronous 模式，公开准备方法只在渲染图定义。新增状态暂存归预览私有运行数据，不增加公共 PreviewLoader。
+
 预览是编辑器调用方流程。项目场景仍由运行宿主的 WorldSystem 保存，独立镜头位于编辑器拥有的第二个 WorldSystem；镜头不会进入项目节点查询、保存或资源依赖。预览帧只处理窗口、编辑命令、源文件增量导入和渲染，不启动 Gameplay，不推进物理、动画或角色控制器。
 
 ```mermaid

@@ -1,6 +1,6 @@
 #include "runtime/app/runtime_settings.hpp"
 
-#include "runtime/resource/resource_system.hpp"
+#include "runtime/resource/virtual_file_system.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -116,9 +116,10 @@ bool domain(const Json& value, TaskConfig& output, std::string& error)
 bool apply_parallel(const Json& value, RuntimeParallelConfig& output, std::string& error)
 {
     if (!keys(value,
-              {"threads", "runtime", "background", "loading", "physics", "animation", "navigation",
-               "resources", "animation_sampling", "scene_restore", "render",
-               "navigation_tile_threshold", "completions_per_frame", "completion_budget_seconds"},
+              {"threads", "runtime", "background", "file", "resource_read", "resource_graph",
+               "movie", "physics", "animation", "navigation", "resources", "animation_sampling",
+               "scene_restore", "render", "rendering", "navigation_tile_threshold",
+               "completions_per_frame", "completion_budget_seconds"},
               error))
     {
         return false;
@@ -133,9 +134,16 @@ bool apply_parallel(const Json& value, RuntimeParallelConfig& output, std::strin
         }
     }
     const std::pair<const char*, TaskConfig*> domains[] = {
-        {"runtime", &output.runtime},     {"background", &output.background},
-        {"loading", &output.loading},     {"physics", &output.physics},
-        {"animation", &output.animation}, {"navigation", &output.navigation}};
+        {"runtime", &output.runtime},
+        {"background", &output.background},
+        {"file", &output.file},
+        {"resource_read", &output.resource_read},
+        {"resource_graph", &output.resource_graph},
+        {"movie", &output.movie},
+        {"render", &output.render},
+        {"physics", &output.physics},
+        {"animation", &output.animation},
+        {"navigation", &output.navigation}};
     for (const auto& [name, config] : domains)
     {
         if (!domain(value[name], *config, error))
@@ -146,8 +154,13 @@ bool apply_parallel(const Json& value, RuntimeParallelConfig& output, std::strin
     {
         const auto& resources = value["resources"];
         auto& config = output.resources;
-        if (!keys(resources, {"max_in_flight", "max_in_flight_bytes", "completion_budget"},
+        if (!keys(resources, {"files", "max_in_flight", "max_in_flight_bytes", "completion_budget"},
                   error) ||
+            !keys(resources["files"], {"max_in_flight", "max_in_flight_bytes"}, error) ||
+            !integer(resources["files"], "max_in_flight", config.files.max_in_flight, 1, 1024,
+                     error) ||
+            !integer(resources["files"], "max_in_flight_bytes", config.files.max_in_flight_bytes, 1,
+                     maximum_bytes, error) ||
             !integer(resources, "max_in_flight", config.max_in_flight, 1, 1024, error) ||
             !integer(resources, "max_in_flight_bytes", config.max_in_flight_bytes, 1, maximum_bytes,
                      error) ||
@@ -178,16 +191,22 @@ bool apply_parallel(const Json& value, RuntimeParallelConfig& output, std::strin
         }
     }
     {
-        const auto& render = value["render"];
-        auto& config = output.render;
+        const auto& render = value["rendering"];
+        auto& config = output.rendering;
         if (!keys(render,
-                  {"texture_batch_size", "texture_staging_bytes", "cluster_tile_size",
+                  {"texture_batch_size", "texture_staging_bytes", "prepare_items_per_step",
+                   "prepare_seconds_per_step", "upload_bytes_per_step", "cluster_tile_size",
                    "cluster_depth_slices", "maximum_lights", "maximum_cluster_lights",
                    "shadow_atlas_size", "local_shadow_tile_size", "maximum_local_shadow_faces",
                    "maximum_planar_reflections"},
                   error) ||
             !integer(render, "texture_batch_size", config.texture_batch_size, 1, 64, error) ||
             !integer(render, "texture_staging_bytes", config.texture_staging_bytes, 1,
+                     maximum_bytes, error) ||
+            !integer(render, "prepare_items_per_step", config.prepare_items_per_step, 1, 65536,
+                     error) ||
+            !seconds(render, "prepare_seconds_per_step", config.prepare_seconds_per_step, error) ||
+            !integer(render, "upload_bytes_per_step", config.upload_bytes_per_step, 1,
                      maximum_bytes, error) ||
             !integer(render, "cluster_tile_size", config.cluster_tile_size, 16, 256, error) ||
             !integer(render, "cluster_depth_slices", config.cluster_depth_slices, 1, 64, error) ||
@@ -319,12 +338,13 @@ bool decode_runtime_settings(std::string_view text, RuntimeSettings& output, std
 bool load_runtime_settings(const std::filesystem::path& path, RuntimeSettings& output,
                            std::string& error)
 {
-    std::string text;
-    if (!ResourceSystem::read_text(path, text))
+    ByteBuffer bytes;
+    if (!VirtualFileSystem::read_file(path, bytes) || bytes.size() > 65536)
     {
         error = "Cannot read runtime settings";
         return false;
     }
+    const std::string_view text(reinterpret_cast<const char*>(bytes.data()), bytes.size());
     return decode_runtime_settings(text, output, error);
 }
 

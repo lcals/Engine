@@ -101,3 +101,18 @@ TRS 与轴省略时采用 schema 的单位默认值；名称、骨链路径、�
 生成 Skeleton 的公共验证器统一校验精确骨路径、socket 名称唯一、两类 IK 名称共同唯一、单位方向、合法 TRS、祖先链和 soften/twist。`order` 同值允许，执行稳定次序由运行时契约定义。动作未找到、事件越界、零 ID 或 ID 重复在导入前失败；marker ID 范围为 `1..UINT32_MAX`。元数据变化参与导入快照检查及正常增量指纹，不能复用旧 marker/rig 产物。
 
 编辑器采用 **MCP + 配置文件** 的制作路线；窗口仅用于场景预览与实际运行。动画标记、骨骼挂点和 IK 通过上述命令及源 meta 制作，不增加编辑器面板或可视化时间线。
+
+## MCP 登记精简目标
+
+**状态：登记函数关系已按图实现。** 直接转发项复用[共用工具登记函数](editor-mcp-tools.md#共用工具登记目标)，动画源元数据事务和每类参数校验保持。
+
+```mermaid
+classDiagram
+    class register_animation_authoring_mcp_tools {
+        <<function>>
+    }
+    class mcp_functions {
+        <<namespace functions>>
+    }
+    register_animation_authoring_mcp_tools ..> mcp_functions : 共用登记与schema组装
+```

@@ -1,6 +1,7 @@
 #include "runtime/resource/codecs/font_resource_codec.hpp"
+#include "runtime/resource/codecs/resource_decode.hpp"
 
-#include <flatbuffers/verifier.h>
+#include <set>
 
 #include <algorithm>
 #include <array>
@@ -94,32 +95,53 @@ bool FontResourceCodec::validate(const schema::FontDataT& data) noexcept
     return true;
 }
 
-bool FontResourceCodec::decode(const ResourceCatalog&, ByteView payload, Resource& output) const
+schema::AssetKind FontResourceCodec::kind() const noexcept
 {
-    if (payload.empty() || payload.size() > 64U * 1024U * 1024U ||
-        !output.info().dependencies.empty())
+    return schema::AssetKind::font;
+}
+
+bool FontResourceCodec::decode(const schema::AssetEntryT& entry, ByteView payload,
+                               std::unique_ptr<Resource>& output, std::string& error) const
+{
+    const auto validate = [](ByteView payload, std::string& error)
     {
+        if (!resource_decode_detail::verify_flatbuffer(payload, schema::VerifyFontDataBuffer,
+                                                       "Invalid Font FlatBuffer", error))
+        {
+            return false;
+        }
+        const auto* bytes = reinterpret_cast<const std::uint8_t*>(payload.data());
+        const auto* encoded = schema::GetFontData(bytes);
+        if (encoded->glyphs()->size() > maximum_glyphs ||
+            encoded->curves()->size() > maximum_curves ||
+            (encoded->kerning() && encoded->kerning()->size() > maximum_kerning))
+        {
+            error = "Font payload limit exceeded";
+            return false;
+        }
+        return true;
+    };
+    return resource_decode_detail::decode_flatbuffer<ResourceType>(
+        entry, payload, 64U * 1024U * 1024U, validate,
+        [](const std::uint8_t* bytes) { return schema::UnPackFontData(bytes); }, output, error);
+}
+
+bool FontResourceCodec::validate_data(const Resource& resource, std::string& error) const
+{
+    const auto* data = resource_detail::data<ResourceType>(&resource);
+    if (!data || !(resource.info().dependencies.empty() && validate(*data)))
+    {
+        error = "Invalid Font data or declared dependencies";
         return false;
     }
-    const auto* bytes = reinterpret_cast<const std::uint8_t*>(payload.data());
-    flatbuffers::Verifier verifier(bytes, payload.size());
-    if (!schema::VerifyFontDataBuffer(verifier))
-    {
-        return false;
-    }
-    const auto* encoded = schema::GetFontData(bytes);
-    if (encoded->glyphs()->size() > maximum_glyphs || encoded->curves()->size() > maximum_curves ||
-        (encoded->kerning() != nullptr && encoded->kerning()->size() > maximum_kerning))
-    {
-        return false;
-    }
-    auto data = schema::UnPackFontData(bytes);
-    if (!validate(*data))
-    {
-        return false;
-    }
-    store(output, std::move(data));
+    error.clear();
     return true;
 }
 
+bool FontResourceCodec::validate_dependencies(const Resource& resource, ResourceView dependencies,
+                                              std::string& error) const
+{
+    error.clear();
+    return resource.info().dependencies.empty() && dependencies.empty();
+}
 } // namespace engine

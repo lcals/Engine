@@ -179,19 +179,21 @@ bool add_script(test_support::ResourceFixture& files)
 
 bool run(test_support::ResourceFixture& files)
 {
-    engine::ResourceSystem resources;
-    engine::WorldSystem world;
+    test_support::ResourceServices services;
+    auto& resources = services.core;
+    engine::WorldSystem world(&services.loader);
     engine::NavigationSystem navigation;
-    engine::plugins::script::ScriptSystem script(&world, nullptr, nullptr, nullptr, &navigation);
+    engine::plugins::script::ScriptSystem script(&services.loader, &world, nullptr, nullptr,
+                                                 nullptr, &navigation);
     engine::schema::MeshDataT floor;
     floor.path = "meshes/floor.mesh";
     floor.vertices = {
         {0, 0, 0, 0, 1, 0}, {24, 0, 0, 0, 1, 0}, {0, 0, 16, 0, 1, 0}, {24, 0, 16, 0, 1, 0}};
     floor.indices = {0, 2, 1, 1, 2, 3};
-    if (!expect(resources.initialize({}) && world.initialize({}) && navigation.initialize({}) &&
+    if (!expect(services.initialize({}) && world.initialize({}) && navigation.initialize({}) &&
                     script.initialize({}) && files.add(floor) && add_script(files) &&
                     files.publish(resources) &&
-                    test_support::start_script(script, resources, {{"content", files.root}},
+                    test_support::start_script(script, services, {{"content", files.root}},
                                                "scripts/game.js"),
                 "initialize actual script backend and explicitly submitted navigation", script))
     {

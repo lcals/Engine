@@ -2,6 +2,7 @@
 
 #include "editor/asset_pipeline/asset_io.hpp"
 #include "editor/asset_pipeline/editor_tools.hpp"
+#include "editor/asset_pipeline/import_tool.hpp"
 #include "plugins/editor/mcp/editor_mcp_tools.hpp"
 #include "plugins/editor/mcp/mcp_system.hpp"
 #include "plugins/editor/mcp/project_tool_utils.hpp"
@@ -80,11 +81,11 @@ bool execute(EditorMcpTools& editor, const fs::path& project, const McpTarget& t
     std::string compiled;
     const bool success =
         pipeline::write_text(input, request.dump(-1, ' ', false, Json::error_handler_t::replace),
-                              error) &&
-        pipeline::run_process(
-            {PathUtils::to_utf8(node), PathUtils::to_utf8(builder), "--project",
-             PathUtils::to_utf8(project), "--snippet", PathUtils::to_utf8(input)},
-            error, &compiled);
+                             error) &&
+        pipeline::run_import_tool({PathUtils::to_utf8(node), PathUtils::to_utf8(builder),
+                                   "--project", PathUtils::to_utf8(project), "--snippet",
+                                   PathUtils::to_utf8(input)},
+                                  compiled, error) == pipeline::ImportToolStatus::success;
     fs::remove_all(directory, code);
     if (!success || code)
     {

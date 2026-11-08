@@ -1,3 +1,5 @@
+#include "plugins/runtime/terrain/codecs/terrain_resource_codec.hpp"
+#include "resource_services.hpp"
 #include "scene_snapshot.hpp"
 
 #include "plugins/runtime/terrain/terrain_component.hpp"
@@ -184,17 +186,21 @@ bool add_terrain(test_support::ResourceFixture& fixture, const schema::TerrainAs
 bool runtime_contract()
 {
     const EngineConfig config;
-    ResourceSystem resources;
-    WorldSystem world;
+    test_support::ResourceServices services{};
+    auto& resources = services.core;
+    WorldSystem world{&services.loader};
     PhysicsSystem physics(&world);
     TerrainSystem terrain(world, physics);
     test_support::ResourceFixture fixture;
     schema::TerrainAssetDataT asset;
     std::string error;
-    if (!expect(resources.initialize(config) && world.initialize(config) &&
-                    physics.initialize(config) && terrain.initialize(config) &&
+    if (!expect((resources.add<engine::plugins::terrain::TerrainResourceCodec>() &&
+                 services.initialize(config)) &&
+                    world.initialize(config) && physics.initialize(config) &&
+                    terrain.initialize(config) &&
                     TerrainVolume::generate(generator(), asset, error) &&
-                    add_terrain(fixture, asset) && fixture.publish(resources),
+                    add_terrain(fixture, asset) &&
+                    services.publish_and_load(fixture.catalog, {{"content", fixture.root}}),
                 "initialize terrain plugin with real GUID resource loading"))
     {
         return false;
@@ -206,7 +212,7 @@ bool runtime_contract()
     {
         return false;
     }
-    auto settings = component.settings();
+    auto settings = test_support::read_settings(component);
     settings.terrain_guid = fixture.catalog.entries.front()->guid;
     if (!expect(component.set_settings(settings) && terrain.tick(0) && component.ready() &&
                     physics.tick(0) && physics.body_count() == 1,
@@ -224,6 +230,7 @@ bool runtime_contract()
     auto renderer = node.get_component<MeshRenderer>();
     auto collider = node.get_component<Collider>();
     schema::SceneDataT scene_data;
+    scene_data.schema_version = 2;
     if (!expect(renderer && collider && renderer.transient() && collider.transient() &&
                     collider.mesh_data() == nullptr &&
                     test_support::scene_nodes(*scene).size() == 1 &&
@@ -296,7 +303,7 @@ bool runtime_contract()
         return false;
     }
     auto transform = node.get_component<Transform>();
-    const auto original_pose = transform.settings();
+    const auto original_pose = test_support::read_settings(transform);
     auto invalid_pose = original_pose;
     invalid_pose.scale = {-1, 1, 1};
     const auto mesh_before = triangles(*renderer.mesh_data());
@@ -315,7 +322,7 @@ bool runtime_contract()
             component.set_settings(no_collision) && !collider.enabled() &&
                 physics.body_count() == 0 && cast(12, false) &&
                 transform.set_settings(invalid_pose) && !component.set_settings(settings) &&
-                component.settings() == no_collision && !collider.enabled() &&
+                test_support::read_settings(component) == no_collision && !collider.enabled() &&
                 physics.body_count() == 0 && transform.set_settings(original_pose) &&
                 component.set_settings(settings) && collider.enabled() && cast(12, true) &&
                 component.snapshot(after) && after == saved,
@@ -379,15 +386,16 @@ bool runtime_contract()
     terrain.shutdown();
     physics.shutdown();
     world.shutdown();
-    resources.shutdown();
+    services.shutdown();
     return true;
 }
 
 bool subsystem_contract()
 {
     const EngineConfig config;
-    ResourceSystem resources;
-    WorldSystem world;
+    test_support::ResourceServices services{};
+    auto& resources = services.core;
+    WorldSystem world{&services.loader};
     PhysicsSystem physics(&world);
     auto owned = std::make_unique<TerrainSystem>(world, physics);
     auto* terrain = owned.get();
@@ -396,10 +404,12 @@ bool subsystem_contract()
     schema::TerrainAssetDataT asset;
     std::string error;
     if (!expect(!terrain->synchronize() && world.add_subsystem(child) &&
-                    resources.initialize(config) && world.initialize(config) &&
-                    physics.initialize(config) &&
+                    (resources.add<engine::plugins::terrain::TerrainResourceCodec>() &&
+                     services.initialize(config)) &&
+                    world.initialize(config) && physics.initialize(config) &&
                     TerrainVolume::generate(generator(), asset, error) &&
-                    add_terrain(fixture, asset) && fixture.publish(resources),
+                    add_terrain(fixture, asset) &&
+                    services.publish_and_load(fixture.catalog, {{"content", fixture.root}}),
                 "host owns the terrain subsystem and initializes its shared dependencies"))
     {
         return false;
@@ -411,7 +421,7 @@ bool subsystem_contract()
     {
         return false;
     }
-    auto settings = component.settings();
+    auto settings = test_support::read_settings(component);
     settings.terrain_guid = fixture.catalog.entries.front()->guid;
     float fraction = 1;
     if (!expect(component.set_settings(settings) && !terrain->tick(0) && !component.ready() &&
@@ -432,7 +442,7 @@ bool subsystem_contract()
     world.shutdown();
     const bool stopped = !terrain->synchronize();
     physics.shutdown();
-    resources.shutdown();
+    services.shutdown();
     return expect(stopped, "explicit synchronization cannot run after subsystem shutdown");
 }
 
@@ -612,15 +622,18 @@ bool incremental_collapse_contract()
 bool collapse_runtime_contract()
 {
     const EngineConfig config;
-    ResourceSystem resources;
-    WorldSystem world;
+    test_support::ResourceServices services{};
+    auto& resources = services.core;
+    WorldSystem world{&services.loader};
     PhysicsSystem physics(&world);
     TerrainSystem terrain(world, physics);
     test_support::ResourceFixture fixture;
     const auto asset = collapse_asset(true);
-    if (!expect(resources.initialize(config) && world.initialize(config) &&
-                    physics.initialize(config) && terrain.initialize(config) &&
-                    add_terrain(fixture, asset) && fixture.publish(resources),
+    if (!expect((resources.add<engine::plugins::terrain::TerrainResourceCodec>() &&
+                 services.initialize(config)) &&
+                    world.initialize(config) && physics.initialize(config) &&
+                    terrain.initialize(config) && add_terrain(fixture, asset) &&
+                    services.publish_and_load(fixture.catalog, {{"content", fixture.root}}),
                 "initialize the collapse laboratory with a real terrain resource"))
     {
         return false;
@@ -632,7 +645,7 @@ bool collapse_runtime_contract()
     {
         return false;
     }
-    auto settings = component.settings();
+    auto settings = test_support::read_settings(component);
     settings.terrain_guid = fixture.catalog.entries.front()->guid;
     if (!expect(component.set_settings(settings) && terrain.tick(0) &&
                     component.collapse_detached(8, 16, 2, 100) && component.fragment_count() == 0 &&
@@ -674,7 +687,9 @@ bool collapse_runtime_contract()
         {
             fragment_id = item.id();
             auto body = item.get_component<RigidBody>();
-            if (!expect(body && body.settings().motion == schema::BodyMotion::dynamic &&
+            if (!expect(body &&
+                            test_support::read_settings(body).motion ==
+                                schema::BodyMotion::dynamic &&
                             item.get_component<MeshRenderer>() && item.get_component<Collider>() &&
                             !item.get_component<MeshRenderer>().visible_in_hierarchy() &&
                             item.get_component<Collider>().active(),
@@ -741,7 +756,8 @@ bool collapse_runtime_contract()
         return false;
     }
     const double initial_y =
-        scene->find_node(fragment_id).get_component<Transform>().settings().position.y();
+        test_support::read_settings(scene->find_node(fragment_id).get_component<Transform>())
+            .position.y();
     for (int step = 0; step < 20; ++step)
     {
         if (!physics.tick(1.0 / 60.0))
@@ -749,9 +765,10 @@ bool collapse_runtime_contract()
             return false;
         }
     }
-    if (!expect(scene->find_node(fragment_id).get_component<Transform>().settings().position.y() <
-                    initial_y - 0.1,
-                "detached soil actually falls under Jolt gravity") ||
+    if (!expect(
+            test_support::read_settings(scene->find_node(fragment_id).get_component<Transform>())
+                    .position.y() < initial_y - 0.1,
+            "detached soil actually falls under Jolt gravity") ||
         !expect(component.apply_sphere({3, 2, 3}, 1, false) &&
                     component.apply_sphere({3, 2, 3}, 1, true) && component.fragment_count() == 8 &&
                     !component.collapse_detached(8, 8, 2, 100) && component.fragment_count() == 8,
@@ -799,19 +816,22 @@ bool collapse_runtime_contract()
     terrain.shutdown();
     physics.shutdown();
     world.shutdown();
-    resources.shutdown();
+    services.shutdown();
     return true;
 }
 bool fragment_retirement_contract()
 {
-    ResourceSystem resources;
-    WorldSystem world;
+    test_support::ResourceServices services{};
+    auto& resources = services.core;
+    WorldSystem world{&services.loader};
     PhysicsSystem physics(&world);
     TerrainSystem terrain(world, physics);
     test_support::ResourceFixture fixture;
-    if (!expect(resources.initialize({}) && world.initialize({}) && physics.initialize({}) &&
-                    terrain.initialize({}) && add_terrain(fixture, collapse_asset(true)) &&
-                    fixture.publish(resources),
+    if (!expect((resources.add<engine::plugins::terrain::TerrainResourceCodec>() &&
+                 services.initialize({})) &&
+                    world.initialize({}) && physics.initialize({}) && terrain.initialize({}) &&
+                    add_terrain(fixture, collapse_asset(true)) &&
+                    services.publish_and_load(fixture.catalog, {{"content", fixture.root}}),
                 "initialize fragment retirement with a real terrain resource"))
     {
         return false;
@@ -827,7 +847,7 @@ bool fragment_retirement_contract()
     {
         return false;
     }
-    auto pose = second_node.get_component<Transform>().settings();
+    auto pose = test_support::read_settings(second_node.get_component<Transform>());
     pose.position = {30, 0, 0};
     schema::TerrainDataT description;
     description.terrain_guid = fixture.catalog.entries.front()->guid;
@@ -861,7 +881,7 @@ bool fragment_retirement_contract()
     auto source_mesh = first_node.get_component<MeshRenderer>().mesh_data();
     auto retained = scene->find_node(first_ids.back());
     auto retained_body = retained.get_component<RigidBody>();
-    const auto retained_pose = retained.get_component<Transform>().settings();
+    const auto retained_pose = test_support::read_settings(retained.get_component<Transform>());
     if (!retained_body.set_linear_velocity({1, 2, 3}))
     {
         return false;
@@ -885,7 +905,7 @@ bool fragment_retirement_contract()
                 first.retire_fragments(6, 0, retired) && retired == 2 &&
                 !scene->find_node(first_ids[0]) && !scene->find_node(first_ids[1]) &&
                 scene->find_node(first_ids.back()) == retained &&
-                retained.get_component<Transform>().settings() == retained_pose &&
+                test_support::read_settings(retained.get_component<Transform>()) == retained_pose &&
                 retained_body.linear_velocity() == Vec3(1, 2, 3) && first.fragment_count() == 6 &&
                 second.fragment_count() == 8 && physics.body_count() == 16 &&
                 !physics.is_object_valid(old_handle) && first.revision() == revision + 1 &&
@@ -965,10 +985,12 @@ bool fragment_retirement_contract()
 
 bool asynchronous_brush_contract()
 {
-    ResourceSystem resources;
-    WorldSystem world;
-    PhysicsSystem physics(&world);
     ThreadSystem threads({.worker_limit = 1});
+    test_support::ResourceServices services{&threads};
+    auto& resources = services.core;
+    WorldSystem world{&services.loader};
+    PhysicsSystem physics(&world);
+
     TaskSystem tasks(threads, {.name = "Terrain asynchronous tests", .max_concurrency = 1});
     TerrainSystem terrain(world, physics, &tasks, 2, 1);
     test_support::ResourceFixture fixture;
@@ -977,10 +999,13 @@ bool asynchronous_brush_contract()
     settings.cells_x = settings.cells_y = settings.cells_z = 16;
     settings.origin = {-8, -8, -8};
     std::string error;
-    if (!expect(resources.initialize({}) && world.initialize({}) && physics.initialize({}) &&
-                    threads.initialize({}) && tasks.initialize({}) && terrain.initialize({}) &&
-                    TerrainVolume::generate(settings, asset, error) &&
-                    add_terrain(fixture, asset) && fixture.publish(resources),
+    if (!expect((threads.initialize({}) &&
+                 (resources.add<engine::plugins::terrain::TerrainResourceCodec>() &&
+                  services.initialize({}))) &&
+                    world.initialize({}) && physics.initialize({}) && tasks.initialize({}) &&
+                    terrain.initialize({}) && TerrainVolume::generate(settings, asset, error) &&
+                    add_terrain(fixture, asset) &&
+                    services.publish_and_load(fixture.catalog, {{"content", fixture.root}}),
                 "initialize asynchronous terrain with a bounded shared worker"))
     {
         return false;
@@ -1125,10 +1150,12 @@ bool asynchronous_brush_contract()
 
 bool asynchronous_brush_fairness(std::size_t concurrency)
 {
-    ResourceSystem resources;
-    WorldSystem world;
-    PhysicsSystem physics(&world);
     ThreadSystem threads({.worker_limit = concurrency});
+    test_support::ResourceServices services{&threads};
+    auto& resources = services.core;
+    WorldSystem world{&services.loader};
+    PhysicsSystem physics(&world);
+
     TaskSystem tasks(threads, {.name = "Terrain fairness", .max_concurrency = concurrency});
     TerrainSystem terrain(world, physics, &tasks, 4, 1);
     test_support::ResourceFixture files;
@@ -1137,10 +1164,13 @@ bool asynchronous_brush_fairness(std::size_t concurrency)
     settings.cells_x = settings.cells_y = settings.cells_z = 16;
     settings.origin = {-8, -8, -8};
     std::string error;
-    if (!resources.initialize({}) || !world.initialize({}) || !physics.initialize({}) ||
-        !threads.initialize({}) || !tasks.initialize({}) || !terrain.initialize({}) ||
-        !TerrainVolume::generate(settings, asset, error) || !add_terrain(files, asset) ||
-        !files.publish(resources))
+    if (!(threads.initialize({}) &&
+          (resources.add<engine::plugins::terrain::TerrainResourceCodec>() &&
+           services.initialize({}))) ||
+        !world.initialize({}) || !physics.initialize({}) || !tasks.initialize({}) ||
+        !terrain.initialize({}) || !TerrainVolume::generate(settings, asset, error) ||
+        !add_terrain(files, asset) ||
+        !services.publish_and_load(files.catalog, {{"content", files.root}}))
     {
         return false;
     }
@@ -1197,16 +1227,21 @@ bool asynchronous_brush_fairness(std::size_t concurrency)
 
 bool persistent_terrain_contract()
 {
-    ResourceSystem resources;
-    WorldSystem world;
-    PhysicsSystem physics(&world);
     ThreadSystem threads({.worker_limit = 1});
+    test_support::ResourceServices services{&threads};
+    auto& resources = services.core;
+    WorldSystem world{&services.loader};
+    PhysicsSystem physics(&world);
+
     TaskSystem tasks(threads, {.name = "Persistent terrain", .max_concurrency = 1});
     TerrainSystem terrain(world, physics, &tasks);
     test_support::ResourceFixture fixture;
-    if (!resources.initialize({}) || !world.initialize({}) || !physics.initialize({}) ||
-        !threads.initialize({}) || !tasks.initialize({}) || !terrain.initialize({}) ||
-        !add_terrain(fixture, collapse_asset(true)) || !fixture.publish(resources))
+    if (!(threads.initialize({}) &&
+          (resources.add<engine::plugins::terrain::TerrainResourceCodec>() &&
+           services.initialize({}))) ||
+        !world.initialize({}) || !physics.initialize({}) || !tasks.initialize({}) ||
+        !terrain.initialize({}) || !add_terrain(fixture, collapse_asset(true)) ||
+        !services.publish_and_load(fixture.catalog, {{"content", fixture.root}}))
     {
         return false;
     }

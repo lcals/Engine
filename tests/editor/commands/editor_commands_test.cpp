@@ -3,7 +3,9 @@
 #include "editor/commands/editor_edit.hpp"
 #include "editor/commands/scene_commands.hpp"
 #include "editor/render/render_commands.hpp"
+#include "file_text.hpp"
 #include "resource_fixture.hpp"
+#include "resource_services.hpp"
 #include "runtime/engine_config.hpp"
 #include "runtime/render/render_system.hpp"
 #include "runtime/resource/resource_system.hpp"
@@ -20,6 +22,7 @@
 #include "runtime/window/window_system.hpp"
 #include "runtime/world/world_system.hpp"
 #include "scene_snapshot.hpp"
+#include "tracked_resource_loader.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -55,16 +58,30 @@ Json target(const engine::Node& node)
     return {{"sceneId", std::to_string(node.scene()->id())}, {"nodeId", std::to_string(node.id())}};
 }
 
-bool same_texture(const engine::ResourcePtr& first, const engine::ResourcePtr& second)
+const engine::Resource* resource(engine::ResourceLoader& loader, engine::ResourceHandle handle)
 {
-    return first && second && first->info() == second->info() &&
-           first->generation() == second->generation() && first->texture() && second->texture() &&
-           *first->texture() == *second->texture();
+    const engine::Resource* value = nullptr;
+    return loader.get(handle, value) == engine::ResourceError::none ? value : nullptr;
+}
+
+bool same_texture(engine::ResourceLoader& loader, engine::ResourceHandle first,
+                  engine::ResourceHandle second)
+{
+    const auto* a = resource(loader, first);
+    const auto* b = resource(loader, second);
+    return a && b && a->info() == b->info() && a->generation() == b->generation();
 }
 
 bool scene_render_settings_tests()
 {
-    engine::WorldSystem world;
+    test_support::ResourceServices services;
+    auto& resources = services.core;
+    test_support::TrackedResourceLoader loader(services.loader);
+    if (!services.initialize({}) || !services.prepare_builtins())
+    {
+        return false;
+    }
+    engine::WorldSystem world(&loader);
     engine::WindowSystem windows;
     engine::RenderSystem renderer(windows, &world);
     if (!world.initialize({}))
@@ -111,7 +128,7 @@ bool scene_render_settings_tests()
     {
         return false;
     }
-    auto shadow = second.settings();
+    auto shadow = test_support::read_settings(second);
     shadow.cast_shadows = true;
     shadow.shadow_resolution = 1024;
     shadow.shadow_bias = .004F;
@@ -144,20 +161,23 @@ bool scene_render_settings_tests()
                 camera_node.get_component<engine::PostProcessComponent>().valid() &&
                 renderer.settings().ambient_intensity == .7F && renderer.settings().ibl_enabled &&
                 renderer.settings().ibl_intensity == .5F && renderer.settings().exposure == 1.3F &&
-                !second.settings().cast_shadows && renderer.settings().ao_enabled &&
-                renderer.settings().ao_radius == 1.4F && renderer.settings().ao_strength == .8F &&
-                renderer.settings().ao_power == 2 && renderer.settings().ao_fade_start == 40 &&
-                renderer.settings().ao_fade_end == 140 && renderer.settings().hdr_enabled &&
-                renderer.settings().bloom_enabled && renderer.settings().bloom_threshold == 1.2F &&
+                !test_support::read_settings(second).cast_shadows &&
+                renderer.settings().ao_enabled && renderer.settings().ao_radius == 1.4F &&
+                renderer.settings().ao_strength == .8F && renderer.settings().ao_power == 2 &&
+                renderer.settings().ao_fade_start == 40 && renderer.settings().ao_fade_end == 140 &&
+                renderer.settings().hdr_enabled && renderer.settings().bloom_enabled &&
+                renderer.settings().bloom_threshold == 1.2F &&
                 renderer.settings().bloom_intensity == .3F &&
-                renderer.settings().bloom_radius == 2 && !first.settings().cast_shadows &&
-                result["shadowResolution"] == first.settings().shadow_resolution &&
-                result["shadowCascades"] == first.settings().shadow_cascades &&
-                result["shadowDistance"] == first.settings().shadow_distance &&
-                second.settings().shadow_cascades == 4 &&
-                second.settings().shadow_distance == 240.0F &&
-                second.settings().shadow_split_lambda == .5F &&
-                second.settings().shadow_cascade_blend == .15F &&
+                renderer.settings().bloom_radius == 2 &&
+                !test_support::read_settings(first).cast_shadows &&
+                result["shadowResolution"] ==
+                    test_support::read_settings(first).shadow_resolution &&
+                result["shadowCascades"] == test_support::read_settings(first).shadow_cascades &&
+                result["shadowDistance"] == test_support::read_settings(first).shadow_distance &&
+                test_support::read_settings(second).shadow_cascades == 4 &&
+                test_support::read_settings(second).shadow_distance == 240.0F &&
+                test_support::read_settings(second).shadow_split_lambda == .5F &&
+                test_support::read_settings(second).shadow_cascade_blend == .15F &&
                 commands.mutation_revision() > initial_revision,
             "scene edits create components, mark dirty and target the active shadow caster"))
     {
@@ -225,28 +245,33 @@ bool scene_render_settings_tests()
                 "scene snapshot contains the environment node") ||
         !expect(execute("undo", identity) && test_support::scene_nodes(*scene).size() == count &&
                     camera_node.get_component<engine::PostProcessComponent>().valid() == false &&
-                    second.settings().cast_shadows && second.settings().shadow_resolution == 1024 &&
-                    second.settings() == shadow && !first.settings().cast_shadows,
+                    test_support::read_settings(second).cast_shadows &&
+                    test_support::read_settings(second).shadow_resolution == 1024 &&
+                    test_support::read_settings(second) == shadow &&
+                    !test_support::read_settings(first).cast_shadows,
                 "undo removes created components and restores the exact second light") ||
         !expect(
             execute("redo", identity) && test_support::scene_nodes(*scene).size() == count + 1 &&
-                renderer.settings().exposure == 1.3F && !second.settings().cast_shadows &&
+                renderer.settings().exposure == 1.3F &&
+                !test_support::read_settings(second).cast_shadows &&
                 renderer.settings().hdr_enabled && renderer.settings().bloom_enabled &&
                 renderer.settings().bloom_threshold == 1.2F &&
                 renderer.settings().bloom_intensity == .3F &&
                 renderer.settings().bloom_radius == 2 && renderer.settings().ao_enabled &&
                 renderer.settings().ao_radius == 1.4F && renderer.settings().ao_strength == .8F &&
                 renderer.settings().ao_power == 2 && renderer.settings().ao_fade_start == 40 &&
-                renderer.settings().ao_fade_end == 140 && second.settings().shadow_cascades == 4 &&
-                second.settings().shadow_distance == 240.0F &&
-                second.settings().shadow_split_lambda == .5F &&
-                second.settings().shadow_cascade_blend == .15F,
+                renderer.settings().ao_fade_end == 140 &&
+                test_support::read_settings(second).shadow_cascades == 4 &&
+                test_support::read_settings(second).shadow_distance == 240.0F &&
+                test_support::read_settings(second).shadow_split_lambda == .5F &&
+                test_support::read_settings(second).shadow_cascade_blend == .15F,
             "redo recreates the environment with a new node identity") ||
         !expect(execute("undo", identity), "undo before checking rejected settings") ||
         !expect(!execute("set_render_settings", {{"ambientIntensity", .8}, {"exposure", 0}}) &&
                     test_support::scene_nodes(*scene).size() == count &&
                     camera_node.get_component<engine::PostProcessComponent>().valid() == false &&
-                    second.settings().cast_shadows && renderer.settings().ambient_intensity == 0,
+                    test_support::read_settings(second).cast_shadows &&
+                    renderer.settings().ambient_intensity == 0,
                 "invalid combined edits leave no partial nodes or components"))
     {
         return false;
@@ -282,7 +307,8 @@ bool scene_render_settings_tests()
                       {{"bloomRadius", .24}},
                       {{"bloomRadius", std::numeric_limits<double>::quiet_NaN()}}}))
     {
-        if (!expect(!execute("set_render_settings", invalid) && second.settings() == shadow &&
+        if (!expect(!execute("set_render_settings", invalid) &&
+                        test_support::read_settings(second) == shadow &&
                         commands.mutation_revision() == revision &&
                         test_support::scene_nodes(*scene).size() == count &&
                         camera_node.get_component<engine::PostProcessComponent>().valid() == false,
@@ -314,52 +340,17 @@ bool scene_render_settings_tests()
                   "undo restores both post-process flags");
 }
 
-class TrackedResourceLoader final : public engine::ResourceLoader
-{
-public:
-    explicit TrackedResourceLoader(engine::ResourceSystem& resources) : resources_(resources)
-    {
-        resources_.set_loader(this);
-    }
-    TrackedResourceLoader(const TrackedResourceLoader&) = delete;
-    TrackedResourceLoader& operator=(const TrackedResourceLoader&) = delete;
-    ~TrackedResourceLoader() noexcept override
-    {
-        resources_.set_loader(nullptr);
-    }
-    bool load(std::string_view guid, engine::ResourcePtr& output) override
-    {
-        if (!resources_.load(guid, output))
-        {
-            return false;
-        }
-        loaded_.emplace_back(output);
-        return true;
-    }
-    engine::ResourcePtr find(std::string_view) const noexcept override
-    {
-        return {};
-    }
-    const std::string& last_error() const noexcept override
-    {
-        return resources_.last_error();
-    }
-    bool released() const
-    {
-        return std::all_of(loaded_.begin(), loaded_.end(),
-                           [](const auto& resource) { return resource.expired(); });
-    }
-
-private:
-    engine::ResourceSystem& resources_;
-    std::vector<std::weak_ptr<const engine::Resource>> loaded_;
-};
-
 bool render_component_tests()
 {
     using namespace engine;
-    ResourceSystem resources;
-    WorldSystem world;
+    test_support::ResourceServices services;
+    auto& resources = services.core;
+    test_support::TrackedResourceLoader loader(services.loader);
+    if (!services.initialize({}) || !services.prepare_builtins())
+    {
+        return false;
+    }
+    engine::WorldSystem world(&loader);
     WindowSystem windows;
     RenderSystem renderer(windows, &world);
     test_support::ResourceFixture fixture;
@@ -369,9 +360,13 @@ bool render_component_tests()
     geometry.indices = {0, 2, 1};
     geometry.lightmap_texcoords = {{.1, .1}, {.9, .1}, {.1, .9}};
     schema::TextureDataT lightmap;
+    lightmap.schema_version = 2;
     lightmap.path = "lighting/test.texture";
     lightmap.width = lightmap.height = 1;
-    lightmap.encoding = schema::TextureEncoding::rgba8;
+    lightmap.encoding = schema::TextureEncoding::native;
+    lightmap.format = schema::TextureFormat::rgba8;
+    lightmap.subresources.emplace_back(
+        0, 0, 0, static_cast<std::uint64_t>(lightmap.width) * lightmap.height * 4);
     lightmap.srgb = false;
     lightmap.data = {128, 128, 128, 255};
     schema::LightProbeDataT probes;
@@ -383,12 +378,12 @@ bool render_component_tests()
     probes.coefficients.resize(72, Vec3(.1, .1, .1));
     probes.valid.resize(8, 1);
     probes.source_fingerprint = "lighting-command-test";
-    if (!resources.initialize({}) || !fixture.add(geometry) || !fixture.add(lightmap) ||
-        !fixture.add(probes) || !fixture.publish(resources) || !world.initialize({}))
+    if (!resources.is_initialized() || !fixture.add(geometry) || !fixture.add(lightmap) ||
+        !fixture.add(probes) || !(fixture.publish(resources) && services.prepare_builtins()) ||
+        !world.initialize({}))
     {
         return false;
     }
-    TrackedResourceLoader loader(resources);
     auto* scene = world.create_scene("Lighting commands");
     auto node = scene ? scene->create_node("Receiver") : engine::Node{};
     auto mesh = node ? node.add_component<MeshRenderer>() : MeshRenderer{};
@@ -440,7 +435,7 @@ bool render_component_tests()
     {
         return false;
     }
-    auto moved = transform.settings();
+    auto moved = test_support::read_settings(transform);
     moved.position = Vec3(1, 0, 0);
     if (!expect(transform.set_settings(moved) && execute("get_light_probe_volume", target(node)) &&
                     result["valid"] == false && result["resource"] == probes.path &&
@@ -455,9 +450,9 @@ bool render_component_tests()
         return false;
     }
     if (!expect(set("set_light_probe_volume", {{"resource", ""}}) &&
-                    !node.get_component<LightProbeVolumeComponent>().resource() &&
+                    !resource(loader, node.get_component<LightProbeVolumeComponent>().resource()) &&
                     execute("undo", identity) &&
-                    node.get_component<LightProbeVolumeComponent>().resource(),
+                    resource(loader, node.get_component<LightProbeVolumeComponent>().resource()),
                 "explicitly clearing a probe binding is reversible"))
     {
         return false;
@@ -479,31 +474,35 @@ bool render_component_tests()
     if (!expect(resources.update_catalog(catalog, {{"content", fixture.root}}) &&
                     !execute("undo", identity) &&
                     !node.get_component<LightProbeVolumeComponent>().enabled() &&
-                    fixture.publish(resources) && execute("undo", identity),
+                    (fixture.publish(resources) && services.prepare_builtins()) &&
+                    execute("undo", identity),
                 "probe undo refuses changed resource versions and succeeds after restoring the "
                 "catalog"))
     {
         return false;
     }
-    if (!expect(!set("set_mesh_lighting", {{"bakeStatic", true}, {"lightmap", lightmap.path}}) &&
-                    !mesh.bake_static() &&
-                    mesh.data().payload.AsMeshRendererData()->lightmap_guid.empty(),
-                "missing UV2 rejects the lightmap and rolls back bakeStatic"))
+    if (!expect(
+            !set("set_mesh_lighting", {{"bakeStatic", true}, {"lightmap", lightmap.path}}) &&
+                !mesh.bake_static() &&
+                test_support::read_data(mesh).payload.AsMeshRendererData()->lightmap_guid.empty(),
+            "missing UV2 rejects the lightmap and rolls back bakeStatic"))
     {
         return false;
     }
-    if (!mesh.set_mesh(geometry.path) || !mesh.material().set_float("roughness", .37F))
+    if (!services.load(geometry.path) || !mesh.set_mesh(geometry.path) ||
+        !mesh.material().set_float("roughness", .37F))
     {
         return false;
     }
     const auto mesh_revision = mesh.mesh_revision();
     if (!expect(set("set_mesh_lighting",
                     {{"castShadows", false}, {"bakeStatic", true}, {"lightmap", lightmap.path}}) &&
-                    mesh.lightmap_resource() && execute("get_mesh_lighting", target(node)) &&
+                    resource(loader, mesh.lightmap_resource()) &&
+                    execute("get_mesh_lighting", target(node)) &&
                     result["lightmap"] == lightmap.path && result["lightmapValid"] == true &&
                     result["bakeStatic"] == true && result["castShadows"] == false &&
-                    execute("undo", identity) && !mesh.lightmap_resource() && mesh.cast_shadows() &&
-                    !mesh.bake_static() && execute("redo", identity),
+                    execute("undo", identity) && !resource(loader, mesh.lightmap_resource()) &&
+                    mesh.cast_shadows() && !mesh.bake_static() && execute("redo", identity),
                 "valid UV2 receiver supports binding, query, undo and redo"))
     {
         return false;
@@ -513,7 +512,7 @@ bool render_component_tests()
             mesh.mesh_revision() == mesh_revision &&
                 mesh.material().get_float("roughness", roughness) && roughness == .37F &&
                 !set("set_mesh_lighting", {{"lightmap", "builtin://textures/white-srgb"}}) &&
-                mesh.lightmap_resource(),
+                resource(loader, mesh.lightmap_resource()),
             "lighting edits preserve mesh identity, material overrides and old binding on failure"))
     {
         return false;
@@ -540,7 +539,8 @@ bool render_component_tests()
         {"commands", Json::array({{{"command", "set_planar_reflection"}, {"arguments", planar}},
                                   {{"command", "set_mesh_lighting"}, {"arguments", invalid}}})}};
     if (!expect(!execute("batch", batch) &&
-                    node.get_component<PlanarReflectionComponent>().settings().clip_bias == .02F,
+                    test_support::read_settings(node.get_component<PlanarReflectionComponent>())
+                            .clip_bias == .02F,
                 "a later mesh failure rolls back the earlier component edit in the batch"))
     {
         return false;
@@ -592,7 +592,8 @@ bool render_component_tests()
     }
     const auto restored =
         test_support::scene_nodes(*scene).back().get_component<LightProbeVolumeComponent>();
-    if (!expect(restored && restored.resource() && restored.resource()->info().path == probes.path,
+    if (!expect(restored && resource(loader, restored.resource()) &&
+                    resource(loader, restored.resource())->info().path == probes.path,
                 "recreated node receives the original probe resource binding"))
     {
         return false;
@@ -605,9 +606,15 @@ bool render_component_tests()
 
 bool render_command_tests()
 {
-    engine::ResourceSystem resources;
-    engine::WorldSystem world;
-    if (!resources.initialize({}) || !world.initialize({}))
+    test_support::ResourceServices services;
+    auto& resources = services.core;
+    test_support::TrackedResourceLoader loader(services.loader);
+    if (!services.initialize({}) || !services.prepare_builtins())
+    {
+        return false;
+    }
+    engine::WorldSystem world(&loader);
+    if (!resources.is_initialized() || !world.initialize({}))
     {
         return false;
     }
@@ -634,11 +641,11 @@ bool render_command_tests()
     const Json identity = {{"sceneId", std::to_string(scene->id())}};
     auto args = target(node);
     args.update({{"projection", "orthographic"}, {"orthographicSize", 3}});
-    if (!expect(execute("set_camera", args) &&
-                    camera.settings().projection == engine::schema::Projection::orthographic,
+    if (!expect(execute("set_camera", args) && test_support::read_settings(camera).projection ==
+                                                   engine::schema::Projection::orthographic,
                 "camera projection editable") ||
-        !expect(execute("undo", identity) &&
-                    camera.settings().projection == engine::schema::Projection::perspective,
+        !expect(execute("undo", identity) && test_support::read_settings(camera).projection ==
+                                                 engine::schema::Projection::perspective,
                 "camera undo restores projection"))
     {
         return false;
@@ -651,13 +658,14 @@ bool render_command_tests()
                  {"castShadows", true},
                  {"shadowResolution", 512},
                  {"shadowBias", .005}});
-    if (!expect(execute("set_light", args) && light.settings().range == 7 &&
-                    light.settings().kind == engine::schema::LightKind::spot &&
-                    light.settings().cast_shadows && light.settings().shadow_resolution == 512 &&
-                    light.settings().shadow_bias == .005F,
+    if (!expect(execute("set_light", args) && test_support::read_settings(light).range == 7 &&
+                    test_support::read_settings(light).kind == engine::schema::LightKind::spot &&
+                    test_support::read_settings(light).cast_shadows &&
+                    test_support::read_settings(light).shadow_resolution == 512 &&
+                    test_support::read_settings(light).shadow_bias == .005F,
                 "spotlight editing") ||
-        !expect(execute("undo", identity) &&
-                    light.settings().kind == engine::schema::LightKind::directional,
+        !expect(execute("undo", identity) && test_support::read_settings(light).kind ==
+                                                 engine::schema::LightKind::directional,
                 "spotlight undo"))
     {
         return false;
@@ -667,8 +675,8 @@ bool render_command_tests()
     {
         args = target(node);
         args.update(invalid);
-        const auto before = light.settings();
-        if (!expect(!execute("set_light", args) && light.settings() == before,
+        const auto before = test_support::read_settings(light);
+        if (!expect(!execute("set_light", args) && test_support::read_settings(light) == before,
                     "invalid local shadow values preserve the whole light"))
         {
             return false;
@@ -689,27 +697,38 @@ bool render_command_tests()
     args = target(node);
     args.update(
         {{"slot", 1}, {"name", "baseColorTexture"}, {"path", "builtin://textures/white-linear"}});
-    const auto original = mesh.material(1).texture("baseColorTexture");
+    engine::ResourceReference original;
+    if (!original.retain(&loader, mesh.material(1).texture("baseColorTexture")))
+    {
+        return false;
+    }
     const auto untouched = mesh.material().texture("baseColorTexture");
     if (!expect(execute("set_material_texture", args) &&
-                    mesh.material(1).texture("baseColorTexture") &&
-                    mesh.material(1).texture("baseColorTexture")->info().path ==
+                    resource(loader, mesh.material(1).texture("baseColorTexture")) &&
+                    resource(loader, mesh.material(1).texture("baseColorTexture"))->info().path ==
                         "builtin://textures/white-linear" &&
-                    !same_texture(mesh.material(1).texture("baseColorTexture"), original) &&
-                    mesh.material().texture("baseColorTexture") == untouched,
+                    !same_texture(loader, mesh.material(1).texture("baseColorTexture"),
+                                  original.handle()) &&
+                    same_texture(loader, mesh.material().texture("baseColorTexture"), untouched),
                 "texture slot selection") ||
         !expect(execute("undo", identity) &&
-                    same_texture(mesh.material(1).texture("baseColorTexture"), original) &&
-                    mesh.material().texture("baseColorTexture") == untouched,
+                    same_texture(loader, mesh.material(1).texture("baseColorTexture"),
+                                 original.handle()) &&
+                    same_texture(loader, mesh.material().texture("baseColorTexture"), untouched),
                 "texture undo restores resource identity and data") ||
         !expect(execute("redo", identity), "texture redo"))
     {
         return false;
     }
     args["path"] = "missing.png";
-    const auto previous = mesh.material(1).texture("baseColorTexture");
+    engine::ResourceReference previous;
+    if (!previous.retain(&loader, mesh.material(1).texture("baseColorTexture")))
+    {
+        return false;
+    }
     if (!expect(!execute("set_material_texture", args) &&
-                    mesh.material(1).texture("baseColorTexture") == previous,
+                    same_texture(loader, mesh.material(1).texture("baseColorTexture"),
+                                 previous.handle()),
                 "failed texture assignment is atomic"))
     {
         return false;
@@ -738,8 +757,9 @@ bool render_command_tests()
                                     }()}},
                                   {{"command", "set_camera"}, {"arguments", bad_camera}}})}};
     if (!expect(!execute("batch", batch) &&
-                    same_texture(mesh.material(1).texture("baseColorTexture"), previous) &&
-                    mesh.material().texture("baseColorTexture") == untouched,
+                    same_texture(loader, mesh.material(1).texture("baseColorTexture"),
+                                 previous.handle()) &&
+                    same_texture(loader, mesh.material().texture("baseColorTexture"), untouched),
                 "batch rolls texture back when camera fails"))
     {
         return false;
@@ -754,7 +774,14 @@ bool render_command_tests()
 bool state_command_tests()
 {
     using namespace engine;
-    WorldSystem world;
+    test_support::ResourceServices services;
+    auto& resources = services.core;
+    test_support::TrackedResourceLoader loader(services.loader);
+    if (!services.initialize({}) || !services.prepare_builtins())
+    {
+        return false;
+    }
+    engine::WorldSystem world(&loader);
     if (!world.initialize({}))
     {
         return false;
@@ -785,7 +812,7 @@ bool state_command_tests()
     };
     const Json identity = {{"sceneId", std::to_string(scene->id())}};
     const auto instance = light.instance_id();
-    auto light_settings = light.settings();
+    auto light_settings = test_support::read_settings(light);
     light_settings.intensity = 2.5F;
     if (!light.set_settings(light_settings) ||
         !expect(set("set_component_state", child,
@@ -806,7 +833,7 @@ bool state_command_tests()
         !expect(execute("undo", identity) && child.active() && child.visible_in_hierarchy() &&
                     light.active() && !light.visible_in_hierarchy() && execute("undo", identity) &&
                     light.visible_in_hierarchy() && light.instance_id() == instance &&
-                    light.settings() == light_settings,
+                    test_support::read_settings(light) == light_settings,
                 "undo restores flags without recreating a component or its payload") ||
         !expect(execute("redo", identity) && execute("redo", identity) && !parent.enabled() &&
                     !parent.visible(),
@@ -895,9 +922,15 @@ bool state_command_tests()
 bool combined_component_history_tests()
 {
     using namespace engine;
-    ResourceSystem resources;
-    WorldSystem world;
-    if (!resources.initialize({}) || !world.initialize({}))
+    test_support::ResourceServices services;
+    auto& resources = services.core;
+    test_support::TrackedResourceLoader loader(services.loader);
+    if (!services.initialize({}) || !services.prepare_builtins())
+    {
+        return false;
+    }
+    engine::WorldSystem world(&loader);
+    if (!resources.is_initialized() || !world.initialize({}))
     {
         return false;
     }
@@ -915,7 +948,7 @@ bool combined_component_history_tests()
     {
         return false;
     }
-    const auto before_light = light.settings();
+    const auto before_light = test_support::read_settings(light);
     editor::SceneCommands module(world);
     editor::EditorCommands commands([&] { return world.scene() ? world.scene()->id() : 0; });
     if (!module.register_commands(commands))
@@ -936,7 +969,7 @@ bool combined_component_history_tests()
     const auto original = test_support::scene_nodes(*scene).back();
     const auto original_id = original.id();
     auto camera = original.get_component<Camera>();
-    const auto before_camera = camera.settings();
+    const auto before_camera = test_support::read_settings(camera);
     auto transform_args = target(original);
     transform_args["position"] = {2, 1, 3};
     auto camera_args = target(original);
@@ -955,9 +988,11 @@ bool combined_component_history_tests()
     {
         float roughness = 0;
         const auto current = node.get_component<Camera>();
-        return current && node.get_component<Transform>().settings().position.x() == 2 &&
-               current.settings().fov_degrees == 73 && current.settings().frustum_culling_enabled &&
-               light.settings().intensity == 6.5F &&
+        return current &&
+               test_support::read_settings(node.get_component<Transform>()).position.x() == 2 &&
+               test_support::read_settings(current).fov_degrees == 73 &&
+               test_support::read_settings(current).frustum_culling_enabled &&
+               test_support::read_settings(light).intensity == 6.5F &&
                mesh.material(1).get_float("roughness", roughness) && roughness == .75F;
     };
     if (!expect(execute("batch", batch) && applied(original) && commands.undo_count() == 2,
@@ -966,24 +1001,27 @@ bool combined_component_history_tests()
         return false;
     }
     if (!expect(mesh.material(1).set_float("roughness", .9F) && !execute("undo", identity) &&
-                    light.settings().intensity == 6.5F && camera.settings().fov_degrees == 73 &&
-                    original.get_component<Transform>().settings().position.x() == 2 &&
+                    test_support::read_settings(light).intensity == 6.5F &&
+                    test_support::read_settings(camera).fov_degrees == 73 &&
+                    test_support::read_settings(original.get_component<Transform>()).position.x() ==
+                        2 &&
                     commands.undo_count() == 2 && commands.redo_count() == 0,
                 "a stale material rejects mixed undo and restores the light already reverted"))
     {
         return false;
     }
-    auto unrelated_camera = camera.settings();
+    auto unrelated_camera = test_support::read_settings(camera);
     unrelated_camera.near_clip = .25F;
     float roughness = 0;
     if (!expect(mesh.material(1).set_float("roughness", .75F) &&
                     camera.set_settings(unrelated_camera) && execute("undo", identity) &&
-                    camera.settings().fov_degrees == before_camera.fov_degrees &&
-                    camera.settings().near_clip == .25F &&
-                    camera.settings().frustum_culling_enabled ==
+                    test_support::read_settings(camera).fov_degrees == before_camera.fov_degrees &&
+                    test_support::read_settings(camera).near_clip == .25F &&
+                    test_support::read_settings(camera).frustum_culling_enabled ==
                         before_camera.frustum_culling_enabled &&
-                    original.get_component<Transform>().settings().position.x() == 0 &&
-                    light.settings() == before_light &&
+                    test_support::read_settings(original.get_component<Transform>()).position.x() ==
+                        0 &&
+                    test_support::read_settings(light) == before_light &&
                     mesh.material(1).get_float("roughness", roughness) &&
                     roughness == before_roughness,
                 "mixed undo restores edited fields and preserves an unrelated camera field"))
@@ -1056,10 +1094,16 @@ bool combined_component_history_tests()
 
 bool command_tests()
 {
-    engine::ResourceSystem resources;
-    engine::WorldSystem world;
+    test_support::ResourceServices services;
+    auto& resources = services.core;
+    test_support::TrackedResourceLoader loader(services.loader);
+    if (!services.initialize({}) || !services.prepare_builtins())
+    {
+        return false;
+    }
+    engine::WorldSystem world(&loader);
     const engine::EngineConfig config;
-    if (!expect(resources.initialize(config) && world.initialize(config), "initialize systems"))
+    if (!expect(resources.is_initialized() && world.initialize(config), "initialize systems"))
     {
         return false;
     }
@@ -1097,31 +1141,35 @@ bool command_tests()
                     result["scene"]["nodes"][0]["nodeId"] == std::to_string(cube.id()) &&
                     result["scene"]["nodes"][0]["components"].size() == 2,
                 "query exposes complete string identities and component data") ||
-        !expect(execute("set_transform", position) && transform.settings().position.x() == 1 &&
+        !expect(execute("set_transform", position) &&
+                    test_support::read_settings(transform).position.x() == 1 &&
                     commands.undo_count() == 1,
                 "apply transform once") ||
-        !expect(execute("undo", identity) && transform.settings().position.x() == 0 &&
+        !expect(execute("undo", identity) &&
+                    test_support::read_settings(transform).position.x() == 0 &&
                     cube.get_component<engine::Transform>() == transform &&
                     scene->find_node(cube.id()) == cube,
                 "undo preserves node and component identities") ||
-        !expect(execute("redo", identity) && transform.settings().position.x() == 1,
+        !expect(execute("redo", identity) &&
+                    test_support::read_settings(transform).position.x() == 1,
                 "redo reapplies the same edit"))
     {
         return false;
     }
-    auto changed = transform.settings();
+    auto changed = test_support::read_settings(transform);
     changed.rotation.mutate_y(50);
     if (!expect(transform.set_settings(changed) && execute("undo", identity) &&
-                    transform.settings().rotation.y() == 50,
+                    test_support::read_settings(transform).rotation.y() == 50,
                 "undo preserves unrelated script changes") ||
         !expect(execute("redo", identity), "redo after unrelated field change"))
     {
         return false;
     }
-    changed = transform.settings();
+    changed = test_support::read_settings(transform);
     changed.position.mutate_x(99);
     if (!expect(transform.set_settings(changed) && !execute("undo", identity) &&
-                    transform.settings().position.x() == 99 && commands.undo_count() == 1,
+                    test_support::read_settings(transform).position.x() == 99 &&
+                    commands.undo_count() == 1,
                 "stale undo cannot overwrite a script change"))
     {
         return false;
@@ -1129,7 +1177,8 @@ bool command_tests()
     commands.clear_history();
     auto invalid = position;
     invalid["scale"] = {1, 0, 1};
-    if (!expect(!execute("set_transform", invalid) && transform.settings().position.x() == 99 &&
+    if (!expect(!execute("set_transform", invalid) &&
+                    test_support::read_settings(transform).position.x() == 99 &&
                     commands.undo_count() == 0,
                 "invalid setter leaves all fields unchanged"))
     {
@@ -1151,7 +1200,8 @@ bool command_tests()
     const Json failed_batch = {{"commands",
                                 {{{"command", "set_transform"}, {"arguments", position}},
                                  {{"command", "set_light"}, {"arguments", bad_light}}}}};
-    if (!expect(!execute("batch", failed_batch) && transform.settings().position.x() == 99 &&
+    if (!expect(!execute("batch", failed_batch) &&
+                    test_support::read_settings(transform).position.x() == 99 &&
                     commands.undo_count() == 0,
                 "failed batch rolls back earlier edits without creating history"))
     {
@@ -1162,40 +1212,44 @@ bool command_tests()
     const Json batch = {{"commands",
                          {{{"command", "set_transform"}, {"arguments", position}},
                           {{"command", "set_light"}, {"arguments", lighting}}}}};
-    const float old_light = light.settings().intensity;
+    const float old_light = test_support::read_settings(light).intensity;
     if (!expect(execute("batch", batch) && commands.undo_count() == 1 &&
-                    light.settings().intensity == 9,
+                    test_support::read_settings(light).intensity == 9,
                 "successful batch is one history item"))
     {
         return false;
     }
-    changed = transform.settings();
+    changed = test_support::read_settings(transform);
     changed.position.mutate_x(77);
     if (!expect(transform.set_settings(changed) && !execute("undo", identity) &&
-                    transform.settings().position.x() == 77 && light.settings().intensity == 9,
+                    test_support::read_settings(transform).position.x() == 77 &&
+                    test_support::read_settings(light).intensity == 9,
                 "stale batch undo restores any members it already reverted"))
     {
         return false;
     }
     changed.position = {1, 2, 3};
     if (!expect(transform.set_settings(changed) && execute("undo", identity) &&
-                    transform.settings().position.x() == 99 &&
-                    light.settings().intensity == old_light && commands.redo_count() == 1,
+                    test_support::read_settings(transform).position.x() == 99 &&
+                    test_support::read_settings(light).intensity == old_light &&
+                    commands.redo_count() == 1,
                 "one undo restores the whole batch"))
     {
         return false;
     }
-    auto external_light = light.settings();
+    auto external_light = test_support::read_settings(light);
     external_light.intensity = 14;
     if (!expect(light.set_settings(external_light) && !execute("redo", identity) &&
-                    transform.settings().position.x() == 99 && light.settings().intensity == 14,
+                    test_support::read_settings(transform).position.x() == 99 &&
+                    test_support::read_settings(light).intensity == 14,
                 "stale batch redo rolls back its earlier applied members"))
     {
         return false;
     }
     external_light.intensity = old_light;
     if (!expect(light.set_settings(external_light) && execute("redo", identity) &&
-                    transform.settings().position.x() == 1 && light.settings().intensity == 9,
+                    test_support::read_settings(transform).position.x() == 1 &&
+                    test_support::read_settings(light).intensity == 9,
                 "redo restores whole batch after target values match"))
     {
         return false;
@@ -1207,8 +1261,9 @@ bool command_tests()
                             {{{"command", "set_transform"}, {"arguments", position}},
                              {{"command", "set_transform"}, {"arguments", second_position}}}}};
     if (!expect(execute("batch", repeated) && execute("undo", identity) &&
-                    transform.settings().position.x() == 1 && execute("redo", identity) &&
-                    transform.settings().position.x() == 4,
+                    test_support::read_settings(transform).position.x() == 1 &&
+                    execute("redo", identity) &&
+                    test_support::read_settings(transform).position.x() == 4,
                 "batch records sequential changes to the same property"))
     {
         return false;
@@ -1306,8 +1361,7 @@ bool write(const fs::path& path, const Json& value)
 Json read(const fs::path& path)
 {
     std::string text;
-    return engine::ResourceSystem::read_text(path, text) ? Json::parse(text, nullptr, false)
-                                                         : Json();
+    return test_support::read_text(path, text) ? Json::parse(text, nullptr, false) : Json();
 }
 
 bool channel_tests(const fs::path& root)

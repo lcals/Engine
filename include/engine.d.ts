@@ -9,6 +9,30 @@ declare module "engine" {
         OnShutdown(): void;
     }
 
+    const resourceHandleIdentity: unique symbol;
+    /** An opaque acquisition owned by this Run. Copying a value does not retain it. */
+    export interface ResourceHandle { readonly [resourceHandleIdentity]: never; }
+    export type ResourceLoadStatus = "loading" | "ready" | "delivered" | "failed" | "cancelled";
+    export interface ResourceProgress { readonly completed: number; readonly total: number; }
+    export class ResourceRequest {
+        private constructor();
+        /** Pure queries; the host advances loading. */
+        Status(): ResourceLoadStatus;
+        Progress(): ResourceProgress;
+        Error(): string;
+        /** Transfers the ready acquisition once. */
+        Take(): ResourceHandle | null;
+        Cancel(): boolean;
+    }
+    export class Resources {
+        private constructor();
+        static Load(pathOrGuid: string): ResourceHandle | null;
+        static BeginLoad(pathOrGuid: string): ResourceRequest | null;
+        static Retain(handle: ResourceHandle): ResourceHandle | null;
+        static Release(handle: ResourceHandle): boolean;
+        static readonly lastError: string | null;
+    }
+
     export enum MovieState { preparing, playing, paused, completed, cancelled, failed }
     export enum MovieStopReason { none, stopped, skipped }
     export interface MoviePlaybackHandle {
@@ -25,7 +49,7 @@ declare module "engine" {
     /** Full-screen movie playback for active Run callbacks. */
     export class Movie {
         private constructor();
-        static Play(path: string): MoviePlaybackHandle | null;
+        static Play(resource: ResourceHandle): MoviePlaybackHandle | null;
         static SetPaused(handle: MoviePlaybackHandle, paused: boolean): boolean;
         static Stop(handle: MoviePlaybackHandle, reason?: MovieStopReason): boolean;
         static Status(handle: MoviePlaybackHandle): MoviePlaybackStatus | null;
@@ -85,7 +109,7 @@ declare module "engine" {
         private constructor();
         /** Active callbacks only; missing/wrong-kind/invalid resources return null.
          * JSON null also returns null. Validate the unknown result in project code. */
-        static Load(path: string): unknown;
+        static ParseResource(resource: ResourceHandle): unknown;
     }
 
     /** Per-run string storage. Methods require an active gameplay or component callback. */
@@ -385,13 +409,13 @@ declare module "engine" {
     export class Scene {
         private constructor();
         static Create(name: string): Scene | null;
-        /** Load a compiled scene from the active GUID resource catalog. */
+        /** Restore an already loaded scene; callers first use Resources.Load/BeginLoad. */
         static Load(path: string): Scene | null;
-        /** Begin one single-thread dependency load. Keeps the current scene/UI intact. */
+        /** Retain an already loaded root for staged restoration. Keeps the current scene/UI intact. */
         static BeginLoad(path: string): boolean;
-        /** Budget counts completed resources, not elapsed time; zero only queries. */
-        static StepLoad(resourceBudget: number): SceneLoadProgress | null;
-        /** Restore/commit a ready scene synchronously. Failure preserves the active scene. */
+        /** Advance ECS restoration by a node budget; zero only queries. Progress counts one candidate. */
+        static StepLoad(nodeBudget: number): SceneLoadProgress | null;
+        /** Publish the restored candidate. Failure preserves the active scene. */
         static CommitLoad(): Scene | null;
         /** Release this Run's pending load. Cannot interrupt a running step/commit. */
         static CancelLoad(): void;

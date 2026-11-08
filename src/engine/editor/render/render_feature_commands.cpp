@@ -218,11 +218,17 @@ bool register_render_feature_commands(RenderSystem& renderer, WorldSystem& world
                        const auto camera = scene->active_camera();
                        if (camera)
                        {
-                           result["camera"] = {{"sceneId", std::to_string(scene->id())},
-                                               {"nodeId", std::to_string(camera.node().id())},
-                                               {"scope", "component"},
-                                               {"frustumCullingEnabled",
-                                                camera.settings().frustum_culling_enabled}};
+                           CameraSettings camera_settings;
+                           if (!camera.get_settings(camera_settings))
+                           {
+                               error = "Cannot read camera settings";
+                               return false;
+                           }
+                           result["camera"] = {
+                               {"sceneId", std::to_string(scene->id())},
+                               {"nodeId", std::to_string(camera.node().id())},
+                               {"scope", "component"},
+                               {"frustumCullingEnabled", camera_settings.frustum_culling_enabled}};
                        }
                        render_detail::SceneRenderComponents selected;
                        if (!render_detail::scene_render_components(*world.scene(), selected))
@@ -232,7 +238,13 @@ bool register_render_feature_commands(RenderSystem& renderer, WorldSystem& world
                        }
                        if (const auto environment = selected.environment)
                        {
-                           const bool requested = environment.settings().atmosphere_enabled;
+                           EnvironmentSettings environment_settings;
+                           if (!environment.get_settings(environment_settings))
+                           {
+                               error = "Cannot read environment settings";
+                               return false;
+                           }
+                           const bool requested = environment_settings.atmosphere_enabled;
                            const bool supported =
                                renderer.gpu_ready() && render_detail::AtmospherePass::supported();
                            result["scene"] = {
@@ -263,11 +275,17 @@ bool register_render_feature_commands(RenderSystem& renderer, WorldSystem& world
                        }
                        if (const auto camera = node.get_component<Camera>())
                        {
-                           result["camera"] = {{"sceneId", arguments["sceneId"]},
-                                               {"nodeId", arguments["nodeId"]},
-                                               {"scope", "component"},
-                                               {"frustumCullingEnabled",
-                                                camera.settings().frustum_culling_enabled}};
+                           CameraSettings camera_settings;
+                           if (!camera.get_settings(camera_settings))
+                           {
+                               error = "Cannot read camera settings";
+                               return false;
+                           }
+                           result["camera"] = {
+                               {"sceneId", arguments["sceneId"]},
+                               {"nodeId", arguments["nodeId"]},
+                               {"scope", "component"},
+                               {"frustumCullingEnabled", camera_settings.frustum_culling_enabled}};
                        }
                        if (const auto mesh = node.get_component<MeshRenderer>())
                        {

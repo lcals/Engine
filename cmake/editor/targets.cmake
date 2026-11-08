@@ -130,6 +130,7 @@ if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
                 src/engine/editor/asset_pipeline/importers/audio_importer.cpp
                 src/engine/editor/asset_pipeline/importers/script_importer.cpp
                 src/engine/editor/asset_pipeline/importers/source_importer.cpp)
+    target_sources(engine_asset_pipeline PRIVATE src/engine/editor/asset_pipeline/animation_sampling.cpp)
     target_include_directories(engine_asset_pipeline PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
     if(APPLE AND NOT IOS)
         target_sources(engine_asset_pipeline PRIVATE platforms/macos/editor/tools.cpp)
@@ -139,13 +140,14 @@ if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
     target_link_libraries(
         engine_asset_pipeline
         PUBLIC engine::scene_data engine::task
-        PRIVATE engine_editor_lock
+        PRIVATE engine_editor_lock ozz_animation_offline ozz_animation
                 engine::app
                 engine::world
                 engine::resource
                 unofficial::sqlite3::sqlite3
                 efsw::efsw
                 basisu::basisu_encoder
+                bgfx::bimg
                 meshoptimizer::meshoptimizer
                 nlohmann_json::nlohmann_json
                 SDL3::SDL3)

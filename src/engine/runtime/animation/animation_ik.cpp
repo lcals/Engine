@@ -50,7 +50,12 @@ bool collect_ik_operations(Animator actor, const CompiledSkeleton& skeleton,
                            std::vector<IkOperation>& output)
 {
     output.clear();
-    if (!actor.settings().ik_enabled)
+    Animator::Data settings;
+    if (!actor.get_settings(settings))
+    {
+        return false;
+    }
+    if (!settings.ik_enabled)
     {
         return true;
     }
@@ -59,7 +64,7 @@ bool collect_ik_operations(Animator actor, const CompiledSkeleton& skeleton,
     {
         return false;
     }
-    const auto& data = *skeleton.resource->skeleton();
+    const auto& data = *skeleton.data;
     std::vector<Definition> resolved;
     if (!definitions(data, skeleton.readable_paths, resolved))
     {

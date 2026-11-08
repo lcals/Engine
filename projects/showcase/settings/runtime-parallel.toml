@@ -17,7 +17,31 @@ max_concurrency = 4
 priority = "low"
 max_pending = 128
 
-[common.loading]
+[common.file]
+max_concurrency = 4
+priority = "low"
+max_pending = 256
+
+
+[common.resource_read]
+max_concurrency = 4
+priority = "low"
+max_pending = 256
+
+
+[common.resource_graph]
+max_concurrency = 4
+priority = "low"
+max_pending = 256
+
+
+[common.movie]
+max_concurrency = 4
+priority = "low"
+max_pending = 256
+
+
+[common.render]
 max_concurrency = 4
 priority = "low"
 max_pending = 256
@@ -42,6 +66,10 @@ max_in_flight = 8
 max_in_flight_bytes = 134217728
 completion_budget = 32
 
+[common.resources.files]
+max_in_flight = 8
+max_in_flight_bytes = 134217728
+
 [common.animation_sampling]
 min_parallel_count = 8
 batch_size = 16
@@ -50,9 +78,12 @@ batch_size = 16
 nodes_per_step = 128
 max_seconds = 0.002
 
-[common.render]
+[common.rendering]
 texture_batch_size = 8
 texture_staging_bytes = 134217728
+prepare_items_per_step = 64
+prepare_seconds_per_step = 0.002
+upload_bytes_per_step = 8388608
 cluster_tile_size = 64
 cluster_depth_slices = 24
 maximum_lights = 256
@@ -75,7 +106,23 @@ max_concurrency = 3
 [platform.android.background]
 max_concurrency = 1
 
-[platform.android.loading]
+[platform.android.file]
+max_concurrency = 1
+
+
+[platform.android.resource_read]
+max_concurrency = 1
+
+
+[platform.android.resource_graph]
+max_concurrency = 1
+
+
+[platform.android.movie]
+max_concurrency = 1
+
+
+[platform.android.render]
 max_concurrency = 1
 
 [platform.android.physics]
@@ -92,13 +139,20 @@ max_in_flight = 2
 max_in_flight_bytes = 67108864
 completion_budget = 8
 
+[platform.android.resources.files]
+max_in_flight = 2
+max_in_flight_bytes = 67108864
+
 [platform.android.scene_restore]
 nodes_per_step = 32
 max_seconds = 0.001
 
-[platform.android.render]
+[platform.android.rendering]
 texture_batch_size = 2
 texture_staging_bytes = 67108864
+prepare_items_per_step = 64
+prepare_seconds_per_step = 0.002
+upload_bytes_per_step = 8388608
 cluster_tile_size = 96
 cluster_depth_slices = 16
 maximum_lights = 128
@@ -120,7 +174,23 @@ max_concurrency = 3
 [platform.ios.background]
 max_concurrency = 1
 
-[platform.ios.loading]
+[platform.ios.file]
+max_concurrency = 1
+
+
+[platform.ios.resource_read]
+max_concurrency = 1
+
+
+[platform.ios.resource_graph]
+max_concurrency = 1
+
+
+[platform.ios.movie]
+max_concurrency = 1
+
+
+[platform.ios.render]
 max_concurrency = 1
 
 [platform.ios.physics]
@@ -137,13 +207,20 @@ max_in_flight = 2
 max_in_flight_bytes = 67108864
 completion_budget = 8
 
+[platform.ios.resources.files]
+max_in_flight = 2
+max_in_flight_bytes = 67108864
+
 [platform.ios.scene_restore]
 nodes_per_step = 32
 max_seconds = 0.001
 
-[platform.ios.render]
+[platform.ios.rendering]
 texture_batch_size = 2
 texture_staging_bytes = 67108864
+prepare_items_per_step = 64
+prepare_seconds_per_step = 0.002
+upload_bytes_per_step = 8388608
 cluster_tile_size = 96
 cluster_depth_slices = 16
 maximum_lights = 128

@@ -10,8 +10,10 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <string_view>
 #include <utility>
 
@@ -24,7 +26,8 @@ GpuProgram::~GpuProgram() noexcept
 }
 
 GpuProgram::GpuProgram(GpuProgram&& other) noexcept
-    : path(std::move(other.path)), definition(std::move(other.definition)),
+    : path(std::move(other.path)), resource(std::move(other.resource)),
+      definition(std::move(other.definition)),
       vertex_shader(std::exchange(other.vertex_shader, bgfx::ShaderHandle{bgfx::kInvalidHandle})),
       fragment_shader(
           std::exchange(other.fragment_shader, bgfx::ShaderHandle{bgfx::kInvalidHandle})),
@@ -48,6 +51,7 @@ GpuProgram& GpuProgram::operator=(GpuProgram&& other) noexcept
     {
         release();
         path = std::move(other.path);
+        resource = std::move(other.resource);
         definition = std::move(other.definition);
         vertex_shader =
             std::exchange(other.vertex_shader, bgfx::ShaderHandle{bgfx::kInvalidHandle});
@@ -262,6 +266,7 @@ bool GpuProgram::create(const schema::ShaderDataT& shader)
 
 void GpuProgram::release() noexcept
 {
+    resource.reset();
     for (auto handle : {instanced_program, instanced_surface_program})
     {
         if (bgfx::isValid(handle))
@@ -320,15 +325,17 @@ void GpuProgram::release() noexcept
     samplers.clear();
 }
 
-bool GpuProgram::bind_material(const Material& material, const std::vector<GpuTexture>& textures,
-                               std::span<const bgfx::TextureHandle> frame_textures,
-                               bool max_anisotropy)
+bool GpuProgram::prepare_material(const Material& material, const TextureTable& textures,
+                                  MaterialBinding& output) const
 {
     const auto* shader = &definition;
-    for (auto& uniform : uniforms)
-    {
-        uniform.values.fill(0.0F);
-    }
+    output = {};
+    MaterialBinding binding;
+    binding.slot_identity = material.instance_id();
+    binding.program = this;
+    binding.cull = material.cull_mode();
+    binding.blend = material.blend_mode();
+    binding.values.resize(uniforms.size());
     for (const auto& parameter : shader->parameters)
     {
         std::array<double, 4> values{};
@@ -391,38 +398,162 @@ bool GpuProgram::bind_material(const Material& material, const std::vector<GpuTe
         }
         for (std::size_t index = 0; index < count; ++index)
         {
-            uniform->values[parameter->uniform_offset + index] = static_cast<float>(values[index]);
+            binding.values[uniform - uniforms.begin()][parameter->uniform_offset + index] =
+                static_cast<float>(values[index]);
         }
-    }
-    for (const auto& uniform : uniforms)
-    {
-        bgfx::setUniform(uniform.handle, uniform.values.data());
     }
     for (const auto& sampler : samplers)
     {
+        MaterialBinding::Sampler value;
+        value.source = sampler.source;
         if (sampler.source != schema::ShaderTextureSource::resource)
         {
-            const auto index = static_cast<std::size_t>(sampler.source) - 1;
-            if (index >= frame_textures.size() || !bgfx::isValid(frame_textures[index]))
+            binding.frame_textures = true;
+        }
+        else
+        {
+            const auto* texture = find_texture(textures, material.texture(sampler.name));
+            if (!texture || !texture->resource.data<TextureResource>() ||
+                texture->resource.data<TextureResource>()->cube_map)
             {
                 return false;
             }
-            bgfx::setTexture(sampler.stage, sampler.handle, frame_textures[index]);
-            continue;
+            value.texture = texture->handle.idx;
+            value.flags = texture->sampler_flags;
         }
-        const auto& resource = material.texture(sampler.name);
-        const auto texture =
-            std::find_if(textures.begin(), textures.end(),
-                         [&resource](const auto& item) { return item.resource == resource; });
-        if (!resource || resource->texture() == nullptr || resource->texture()->cube_map ||
-            texture == textures.end())
+        binding.samplers.push_back(value);
+    }
+    for (std::size_t index = 0; index < uniforms.size(); ++index)
+    {
+        if (uniforms[index].name == "u_material")
+        {
+            const float mode = binding.values[index][2];
+            binding.unlit = mode > .5F && mode < 1.5F;
+        }
+    }
+    // 阴影约定只在阴影使用时报告不支持，普通颜色绘制不受影响。
+    const auto parameter = [&](std::string_view name) -> const schema::ShaderParameterT*
+    {
+        const auto found = std::find_if(definition.parameters.begin(), definition.parameters.end(),
+                                        [&](const auto& value) { return value->name == name; });
+        return found == definition.parameters.end() ? nullptr : found->get();
+    };
+    const auto prepare_shadow = [&]()
+    {
+        if (const auto* cutoff = parameter("alphaCutoff"))
+        {
+            const auto* value = cutoff->default_value.AsFloatValue();
+            if (!value)
+            {
+                return false;
+            }
+            binding.shadow_alpha[0] = value->value;
+            if (cutoff->exposed && !material.get_float("alphaCutoff", binding.shadow_alpha[0]))
+            {
+                return false;
+            }
+        }
+        if (!std::isfinite(binding.shadow_alpha[0]) || binding.shadow_alpha[0] < 0 ||
+            binding.shadow_alpha[0] > 1)
         {
             return false;
         }
-        bgfx::setTexture(sampler.stage, sampler.handle, texture->handle,
-                         max_anisotropy ? texture->sampler_flags | BGFX_SAMPLER_MIN_ANISOTROPIC |
-                                              BGFX_SAMPLER_MAG_ANISOTROPIC
-                                        : UINT32_MAX);
+        if (binding.shadow_alpha[0] > 0)
+        {
+            const auto* color = parameter("baseColor");
+            if (!color || !color->default_value.AsVec4Value())
+            {
+                return false;
+            }
+            auto tint = color->default_value.AsVec4Value()->value;
+            const auto* texture = find_texture(textures, material.texture("baseColorTexture"));
+            if (!texture || (color->exposed && !material.get_v4("baseColor", tint)))
+            {
+                return false;
+            }
+            binding.shadow_alpha[1] = static_cast<float>(tint.w());
+            binding.shadow_texture = texture->handle;
+            if (const auto* uv = parameter("uvTransform"))
+            {
+                if (!uv->default_value.AsVec4Value())
+                {
+                    return false;
+                }
+                auto transform = uv->default_value.AsVec4Value()->value;
+                if (uv->exposed && !material.get_v4("uvTransform", transform))
+                {
+                    return false;
+                }
+                binding.shadow_uv = {
+                    static_cast<float>(transform.x()), static_cast<float>(transform.y()),
+                    static_cast<float>(transform.z()), static_cast<float>(transform.w())};
+            }
+        }
+        return true;
+    };
+    binding.shadow_valid = prepare_shadow();
+    const auto combine = [&](auto value)
+    {
+        binding.content_hash ^= std::hash<decltype(value)>{}(value) + 0x9e3779b9U +
+                                (binding.content_hash << 6) + (binding.content_hash >> 2);
+    };
+    combine(reinterpret_cast<std::uintptr_t>(this));
+    combine(static_cast<std::uint8_t>(binding.cull));
+    combine(static_cast<std::uint8_t>(binding.blend));
+    for (const auto& uniform : binding.values)
+    {
+        for (const auto value : uniform)
+        {
+            combine(value);
+        }
+    }
+    for (const auto& sampler : binding.samplers)
+    {
+        combine(static_cast<std::uint8_t>(sampler.source));
+        combine(sampler.texture);
+        combine(sampler.flags);
+    }
+    output = std::move(binding);
+    return true;
+}
+
+bool GpuProgram::bind_material(const MaterialBinding& material,
+                               std::span<const bgfx::TextureHandle> frame_textures,
+                               bool max_anisotropy) const
+{
+    if (material.program != this || material.values.size() != uniforms.size() ||
+        material.samplers.size() != samplers.size())
+    {
+        return false;
+    }
+    for (std::size_t index = 0; index < uniforms.size(); ++index)
+    {
+        bgfx::setUniform(uniforms[index].handle, material.values[index].data());
+    }
+    for (std::size_t index = 0; index < samplers.size(); ++index)
+    {
+        const auto& sampler = samplers[index];
+        const auto& value = material.samplers[index];
+        bgfx::TextureHandle texture{value.texture};
+        std::uint32_t flags = UINT32_MAX;
+        if (value.source != schema::ShaderTextureSource::resource)
+        {
+            const auto source = static_cast<std::size_t>(value.source) - 1;
+            if (source >= frame_textures.size())
+            {
+                return false;
+            }
+            texture = frame_textures[source];
+        }
+        else if (max_anisotropy)
+        {
+            flags = value.flags | BGFX_SAMPLER_MIN_ANISOTROPIC | BGFX_SAMPLER_MAG_ANISOTROPIC;
+        }
+        if (!bgfx::isValid(texture))
+        {
+            return false;
+        }
+        bgfx::setTexture(sampler.stage, sampler.handle, texture, flags);
     }
     return true;
 }

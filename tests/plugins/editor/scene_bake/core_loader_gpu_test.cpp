@@ -1,4 +1,7 @@
+#include "../../../support/render_fixture.hpp"
 #include "resource_fixture.hpp"
+#include "resource_services.hpp"
+#include "scene_snapshot.hpp"
 
 #include "plugins/editor/scene_bake/ibl_bake_job.hpp"
 #include "plugins/editor/scene_bake/lighting_bake_job.hpp"
@@ -44,11 +47,14 @@ engine::schema::TextureDataT color_texture(std::string path, std::uint32_t width
                                            std::uint32_t height, std::array<std::uint8_t, 4> color)
 {
     engine::schema::TextureDataT result;
+    result.schema_version = 2;
     result.path = std::move(path);
     result.width = width;
     result.height = height;
-    result.encoding = engine::schema::TextureEncoding::rgba8;
+    result.encoding = engine::schema::TextureEncoding::native;
     result.format = engine::schema::TextureFormat::rgba8;
+    result.subresources.emplace_back(0, 0, 0,
+                                     static_cast<std::uint64_t>(result.width) * result.height * 4);
     result.srgb = false;
     for (std::uint32_t index = 0; index < width * height; ++index)
     {
@@ -60,14 +66,12 @@ engine::schema::TextureDataT color_texture(std::string path, std::uint32_t width
 double mean_red(const engine::schema::TextureDataT& texture)
 {
     if (!engine::TextureResourceCodec::validate(texture) ||
-        texture.format != engine::schema::TextureFormat::rgba16f || texture.data.size() < 68)
+        texture.encoding != engine::schema::TextureEncoding::native ||
+        texture.format != engine::schema::TextureFormat::rgba16f || texture.subresources.empty())
     {
         return -1;
     }
-    // The codec checks the complete KTX layout. Inspect mip zero of its first face.
-    std::uint32_t metadata = 0;
-    std::memcpy(&metadata, texture.data.data() + 60, sizeof(metadata));
-    const std::size_t begin = 68 + metadata;
+    const std::size_t begin = texture.subresources.front().offset();
     const std::size_t pixels = std::size_t{texture.width} * texture.height;
     if (begin > texture.data.size() || pixels * 8 > texture.data.size() - begin)
     {
@@ -90,7 +94,7 @@ double mean_red(const engine::schema::TextureDataT& texture)
 
 bool frame(engine::WindowSystem& windows, engine::RenderSystem& renderer)
 {
-    return windows.tick(1.0 / 60.0) && windows.can_render() && renderer.render();
+    return windows.tick(1.0 / 60.0) && windows.can_render() && test_support::render_frame(renderer);
 }
 
 bool exercise()
@@ -100,8 +104,9 @@ bool exercise()
     config.window_title = "Scene bake with the core single-resource loader";
     engine::ThreadSystem threads;
     engine::TaskSystem tasks(threads);
-    engine::ResourceSystem resources;
-    engine::WorldSystem world;
+    test_support::ResourceServices services(&threads);
+    auto& resources = services.core;
+    engine::WorldSystem world(&services.loader);
     engine::WindowSystem windows;
     engine::RenderSystem renderer(windows, &world);
     test_support::ResourceFixture fixture;
@@ -129,11 +134,12 @@ bool exercise()
         }
     } guard{cleanup};
     if (!expect(threads.initialize(config) && tasks.initialize(config) &&
-                    resources.initialize(config) && world.initialize(config) &&
-                    windows.initialize(config) && renderer.initialize(config),
+                    (services.initialize(config) && services.prepare_builtins()) &&
+                    world.initialize(config) && windows.initialize(config) &&
+                    renderer.initialize(config),
                 "initialize real renderer and the core loader") ||
-        !expect(&resources.loader() == static_cast<engine::ResourceLoader*>(&resources),
-                "no optional loader is installed"))
+        !expect(world.resource_loader() == &services.loader,
+                "world borrows the explicitly injected resource loader"))
     {
         return false;
     }
@@ -154,20 +160,23 @@ bool exercise()
     albedo->texture_path = tint.path;
     material.textures.push_back(std::move(albedo));
     if (!expect(fixture.add(panorama) && fixture.add(tint) && fixture.add(geometry) &&
-                    fixture.add(material) && fixture.publish(resources),
-                "publish formal GUID resources and a filesystem mount", resources.last_error()))
+                    fixture.add(material) &&
+                    services.publish_and_load(fixture.catalog, {{"content", fixture.root}}),
+                "publish formal GUID resources and a filesystem mount",
+                std::string(resources.last_error())))
     {
         return false;
     }
-    engine::ResourcePtr source;
-    if (!expect(fixture.load(panorama.path, source) && source && source->texture() &&
-                    !resources.loader().find(source->info().guid),
+    engine::ResourceReference source;
+    if (!expect(services.load(panorama.path, source) && source &&
+                    source.data<engine::TextureResource>() && source.handle().id != 0,
                 "load an IBL input from its mounted entity without graph residency"))
     {
         return false;
     }
     std::string error;
-    if (!expect(ibl.start(*source->texture(), 16, 16, 32, error), "start GPU IBL bake", error))
+    if (!expect(ibl.start(*source.data<engine::TextureResource>(), 16, 16, 32, error),
+                "start GPU IBL bake", error))
     {
         return false;
     }
@@ -183,13 +192,23 @@ bool exercise()
         }
     }
     engine::schema::TextureDataT irradiance;
+    irradiance.schema_version = 2;
     irradiance.path = "baked/irradiance";
     irradiance.width = irradiance.height = 16;
     irradiance.cube_map = true;
     irradiance.srgb = false;
     irradiance.format = engine::schema::TextureFormat::rgba16f;
-    irradiance.encoding = engine::schema::TextureEncoding::ktx;
-    irradiance.data = ibl.outputs()[0];
+    irradiance.encoding = engine::schema::TextureEncoding::native;
+    const auto& ktx = ibl.outputs()[0];
+    if (ktx.size() < 68)
+    {
+        return false;
+    }
+    irradiance.data.assign(ktx.begin() + 68, ktx.end());
+    for (std::uint32_t face = 0; face < 6; ++face)
+    {
+        irradiance.subresources.emplace_back(0, face, face * 16 * 16 * 8, 16 * 16 * 8);
+    }
     const double ibl_mean = mean_red(irradiance);
     if (!expect(status == bake::BakeProgress::complete && ibl.completed() == ibl.total() &&
                     std::abs(ibl_mean - 1) < 0.01 && !ibl.outputs()[1].empty() &&
@@ -211,14 +230,14 @@ bool exercise()
     auto mesh = mesh_node.add_component<engine::MeshRenderer>();
     engine::TransformSettings eye;
     eye.position = {0, 0, 3};
-    auto ambient = environment.settings();
+    auto ambient = test_support::read_settings(environment);
     ambient.ambient_color = {1, 1, 1, 1};
     ambient.ambient_intensity = 1;
     if (!expect(camera && environment && mesh && scene->set_active_camera(camera) &&
                     camera_node.get_component<engine::Transform>().set_settings(eye) &&
                     environment.set_settings(ambient) && mesh.set_mesh(geometry.path) &&
                     mesh.material().set_type(material.type_path) && mesh.set_bake_static(true) &&
-                    mesh.material().texture("baseColorTexture") && frame(windows, renderer),
+                    mesh.material().texture("baseColorTexture").id != 0 && frame(windows, renderer),
                 "components retain mesh, material, shader and texture using single-item loads"))
     {
         return false;
@@ -287,9 +306,12 @@ bool exercise()
     if (!expect(
             baked.mesh && baked.mesh->lightmap_texcoords.size() == baked.mesh->vertices.size() &&
                 std::abs(lighting_mean - std::numbers::pi) < 0.03 && fixture.add(*baked.lightmap) &&
-                fixture.publish(resources) && fixture.load(baked.lightmap->path, source) &&
-                source && source->texture() && mean_red(*source->texture()) == lighting_mean,
-            "load the baked lightmap entity again without a graph", resources.last_error()))
+                services.publish_and_load(fixture.catalog, {{"content", fixture.root}}) &&
+                services.load(baked.lightmap->path, source) && source &&
+                source.data<engine::TextureResource>() &&
+                mean_red(*source.data<engine::TextureResource>()) == lighting_mean,
+            "load the baked lightmap entity again without a graph",
+            std::string(resources.last_error())))
     {
         return false;
     }

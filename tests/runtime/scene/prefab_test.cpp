@@ -1,7 +1,9 @@
 #include "resource_fixture.hpp"
+#include "resource_services.hpp"
 #include "scene_snapshot.hpp"
 
 #include "runtime/engine_config.hpp"
+#include "runtime/resource/codecs/prefab_resource_codec.hpp"
 #include "runtime/scene/camera.hpp"
 #include "runtime/scene/light.hpp"
 #include "runtime/scene/scene.hpp"
@@ -119,6 +121,7 @@ std::unique_ptr<schema::NodeDataT> node_data(std::uint64_t id, std::uint64_t par
 schema::PrefabDataT template_data()
 {
     schema::PrefabDataT data;
+    data.schema_version = 2;
     data.root_id = 9;
     // 故意让子节点先于根，并使用稀疏源身份。
     auto camera = node_data(20, 9, "Camera");
@@ -138,7 +141,7 @@ Node local_node(Scene& scene, std::uint64_t id)
 {
     for (const auto node : test_support::scene_nodes(scene))
     {
-        if (node.info().properties->id == id)
+        if (node.local_id() == id)
         {
             return node;
         }
@@ -161,12 +164,13 @@ Node mapped_node(Scene& scene, const schema::PrefabInstanceDataT& instance, std:
 struct Fixture
 {
     test_support::ResourceFixture files;
-    ResourceSystem resources;
-    WorldSystem world;
+    test_support::ResourceServices services;
+    engine::ResourceSystem& resources = services.core;
+    engine::WorldSystem world{&services.loader};
 
     bool initialize()
     {
-        return resources.initialize({}) && world.initialize({}) &&
+        return (services.initialize({}) && services.prepare_builtins()) && world.initialize({}) &&
                world.create_scene("Prefab scene") != nullptr;
     }
 };
@@ -175,7 +179,8 @@ bool round_trip_and_lifecycle()
 {
     Fixture fixture;
     if (!expect(fixture.initialize() && add_prefab(fixture.files, "unit.prefab", template_data()) &&
-                    fixture.files.publish(fixture.resources),
+                    fixture.services.publish_and_load(fixture.files.catalog,
+                                                      {{"content", fixture.files.root}}),
                 "publish an ordinary component subtree"))
     {
         return false;
@@ -203,7 +208,7 @@ bool round_trip_and_lifecycle()
     auto light_node = mapped_node(*scene, first_link, 7);
     if (!expect(camera_node && light_node && camera_node.parent() == first &&
                     light_node.parent() == first &&
-                    light_node.get_component<Light>().settings().intensity == 8 &&
+                    test_support::read_settings(light_node.get_component<Light>()).intensity == 8 &&
                     !light_node.get_component<Light>().visible() &&
                     first_link.overrides.size() == 1 &&
                     first_link.overrides[0]->fields == std::vector<std::string>{"name"} &&
@@ -213,11 +218,11 @@ bool round_trip_and_lifecycle()
         return false;
     }
     auto invalid = first_link;
-    invalid.node_mappings.back()->target_id = second.info().properties->id;
+    invalid.node_mappings.back()->target_id = second.local_id();
     if (!expect(!scene->set_prefab_instance(invalid) &&
                     test_support::prefab_instances(*scene)[0] == first_link,
                 "foreign subtree mapping is rejected without replacing existing metadata") ||
-        !expect(scene->remove_prefab_instance(first.info().properties->id) &&
+        !expect(scene->remove_prefab_instance(first.local_id()) &&
                     scene->find_node(first.id()) == first && scene->set_prefab_instance(first_link),
                 "unlinking and relinking only changes source metadata"))
     {
@@ -227,7 +232,7 @@ bool round_trip_and_lifecycle()
     {
         return false;
     }
-    const auto camera_local_id = camera_node.info().properties->id;
+    const auto camera_local_id = camera_node.local_id();
     schema::SceneDataT snapshot;
     if (!expect(second.set_parent(first) && !scene->build_data(snapshot) && second.set_parent({}),
                 "nested source links cannot silently enter a saved scene"))
@@ -236,20 +241,22 @@ bool round_trip_and_lifecycle()
     }
     if (!expect(scene->build_data(snapshot) && snapshot.prefab_instances.size() == 2 &&
                     add_scene(fixture.files, "saved.scene", snapshot) &&
-                    fixture.files.publish(fixture.resources),
+                    fixture.services.publish_and_load(fixture.files.catalog,
+                                                      {{"content", fixture.files.root}}),
                 "save expanded runtime data together with stable source links and overrides"))
     {
         return false;
     }
     std::erase_if(fixture.files.catalog.entries,
                   [](const auto& entry) { return entry->kind == schema::AssetKind::prefab; });
-    if (!fixture.files.publish(fixture.resources))
+    if (!fixture.services.publish_and_load(fixture.files.catalog,
+                                           {{"content", fixture.files.root}}))
     {
         return false;
     }
     scene = fixture.world.load_scene("saved.scene");
     if (!expect(scene && scene->active_camera() &&
-                    scene->active_camera().node().info().properties->id == camera_local_id &&
+                    scene->active_camera().node().local_id() == camera_local_id &&
                     test_support::prefab_instances(*scene).size() == 2 &&
                     test_support::prefab_instances(*scene)[1].root_id == first_link.root_id &&
                     test_support::prefab_instances(*scene)[1] == first_link,
@@ -283,7 +290,8 @@ bool explicit_removal_and_reserved_identities()
 {
     Fixture fixture;
     if (!fixture.initialize() || !add_prefab(fixture.files, "unit.prefab", template_data()) ||
-        !fixture.files.publish(fixture.resources))
+        !fixture.services.publish_and_load(fixture.files.catalog,
+                                           {{"content", fixture.files.root}}))
     {
         return false;
     }
@@ -318,7 +326,8 @@ bool explicit_removal_and_reserved_identities()
         return false;
     }
     if (!add_scene(fixture.files, "removed.scene", snapshot) ||
-        !fixture.files.publish(fixture.resources))
+        !fixture.services.publish_and_load(fixture.files.catalog,
+                                           {{"content", fixture.files.root}}))
     {
         return false;
     }
@@ -330,7 +339,7 @@ bool explicit_removal_and_reserved_identities()
         return false;
     }
     auto fresh = scene->create_node("Fresh");
-    if (!expect(fresh && fresh.info().properties->id > 9000,
+    if (!expect(fresh && fresh.local_id() > 9000,
                 "new nodes cannot reuse deleted template mapping identities"))
     {
         return false;
@@ -371,7 +380,8 @@ bool rollback_and_plugin_references()
     if (!fixture.initialize() || !add_prefab(fixture.files, "character.prefab", character) ||
         !add_prefab(fixture.files, "missing-plugin.prefab", missing_plugin) ||
         !add_prefab(fixture.files, "external.prefab", external) ||
-        !fixture.files.publish(fixture.resources))
+        !fixture.services.publish_and_load(fixture.files.catalog,
+                                           {{"content", fixture.files.root}}))
     {
         return false;
     }
@@ -412,17 +422,17 @@ bool rollback_and_plugin_references()
         const auto player = mapped_node(*scene, link, 9);
         const auto view = mapped_node(*scene, link, 20);
         if (!expect(player && view &&
-                        player.get_component<CharacterController>().settings().camera_node_id ==
-                            view.info().properties->id &&
-                        view.get_component<CharacterCamera>().settings().target_node_id ==
-                            player.info().properties->id,
+                        test_support::read_settings(player.get_component<CharacterController>())
+                                .camera_node_id == view.local_id() &&
+                        test_support::read_settings(view.get_component<CharacterCamera>())
+                                .target_node_id == player.local_id(),
                     "each instance remaps both directions of the plugin-owned camera binding"))
         {
             return false;
         }
         std::array<schema::NodeIdMappingT, 1> retired;
         retired[0].source_id = 9;
-        retired[0].target_id = player.info().properties->id;
+        retired[0].target_id = player.local_id();
         retired[0].retired = true;
         auto reference = *character.nodes[0]->components.back();
         const auto before = reference;
@@ -451,6 +461,15 @@ bool rollback_and_plugin_references()
 
 int main()
 {
+    auto old_format = template_data();
+    old_format.schema_version = 1;
+    if (!expect(!PrefabResourceCodec::validate(old_format) &&
+                    schema::PrefabDataT{}.schema_version == 0 &&
+                    schema::SceneDataT{}.schema_version == 0,
+                "old or unmarked scene and prefab layouts require reimport"))
+    {
+        return 1;
+    }
     return round_trip_and_lifecycle() && explicit_removal_and_reserved_identities() &&
                    rollback_and_plugin_references()
                ? 0

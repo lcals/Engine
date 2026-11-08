@@ -1,8 +1,9 @@
 #include "runtime/movie/movie_player.hpp"
 
 #include "runtime/audio/audio_system.hpp"
-#include "runtime/resource/resource_load.hpp"
-#include "runtime/resource/resource_system.hpp"
+#include "runtime/resource/resource_reference.hpp"
+#include "runtime/resource/types/audio_resource.hpp"
+#include "runtime/resource/types/movie_resource.hpp"
 #include "runtime/task/task_system.hpp"
 
 #include <vpx/vp8dx.h>
@@ -40,7 +41,9 @@ struct DecodedFrame
 
 struct Decoder
 {
-    explicit Decoder(ResourcePtr source) : resource(std::move(source)) {}
+    explicit Decoder(const schema::MovieDataT& source) : resource(source)
+    {
+    }
     ~Decoder() noexcept
     {
         if (initialized)
@@ -51,12 +54,10 @@ struct Decoder
     Decoder(const Decoder&) = delete;
     Decoder& operator=(const Decoder&) = delete;
 
-    bool decode()
+    bool decode(bool publish)
     {
-        const auto bytes = resource->bytes();
-        const auto* movie = schema::GetMovieData(bytes.data());
-        const auto* video = movie->video();
-        const auto* payload = video->payload();
+        const auto* video = resource.video.get();
+        const auto* payload = &video->payload;
         if (!initialized)
         {
             vpx_codec_dec_cfg_t config{};
@@ -68,7 +69,7 @@ struct Decoder
             }
             initialized = true;
         }
-        if (index >= video->frame_count() || offset > payload->size() ||
+        if (index >= video->frame_count || offset > payload->size() ||
             payload->size() - offset < 12)
         {
             error = "missing video frame";
@@ -85,8 +86,8 @@ struct Decoder
         offset += size;
         vpx_codec_iter_t iterator = nullptr;
         const vpx_image_t* image = vpx_codec_get_frame(&codec, &iterator);
-        if (!image || image->fmt != VPX_IMG_FMT_I420 || image->d_w != video->width() ||
-            image->d_h != video->height())
+        if (!image || image->fmt != VPX_IMG_FMT_I420 || image->d_w != video->width ||
+            image->d_h != video->height)
         {
             error = "unsupported VP9 output format or frame size";
             return false;
@@ -104,12 +105,17 @@ struct Decoder
                 error = "invalid VP9 output stride";
                 return false;
             }
+            if (!publish)
+            {
+                continue;
+            }
             auto& destination = frame.planes[plane];
             destination.resize(static_cast<std::size_t>(width) * height);
             for (std::uint32_t row = 0; row < height; ++row)
             {
                 std::memcpy(destination.data() + static_cast<std::size_t>(row) * width,
-                            image->planes[plane] + static_cast<std::size_t>(row) * image->stride[plane],
+                            image->planes[plane] +
+                                static_cast<std::size_t>(row) * image->stride[plane],
                             width);
             }
         }
@@ -118,23 +124,39 @@ struct Decoder
             error = "multiple output frames in a VP9 packet";
             return false;
         }
-        output = std::move(frame);
+        if (publish)
+        {
+            output = std::move(frame);
+        }
         return true;
     }
 
-    ResourcePtr resource;
+    bool decode_until(std::uint32_t target)
+    {
+        while (index <= target)
+        {
+            if (cancelled.load(std::memory_order_relaxed) || !decode(index == target))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    const schema::MovieDataT& resource;
     vpx_codec_ctx_t codec{};
     bool initialized = false;
     std::size_t offset = 32;
     std::uint32_t index = 0;
     DecodedFrame output;
     std::string error;
+    std::atomic<bool> cancelled{false};
 };
 } // namespace
 
 struct MoviePlayer::Impl
 {
-    Impl(ResourceSystem& resource_system, TaskSystem& task_system, AudioSystem& audio_system)
+    Impl(ResourceLoader& resource_system, TaskSystem& task_system, AudioSystem& audio_system)
         : resources(resource_system), tasks(task_system), audio(audio_system),
           generation(next_generation.fetch_add(1, std::memory_order_relaxed))
     {
@@ -155,13 +177,31 @@ struct MoviePlayer::Impl
             return;
         }
         AudioPlaybackStatus playback;
-        if (audio.playback(voice, playback) &&
-            (playback.state == AudioVoiceState::playing || playback.state == AudioVoiceState::paused))
+        if (audio.playback(voice, playback) && (playback.state == AudioVoiceState::playing ||
+                                                playback.state == AudioVoiceState::paused))
         {
             (void)audio.stop(voice);
         }
         (void)audio.release(voice);
         voice = {};
+    }
+    void cancel_decode() noexcept
+    {
+        if (decoder)
+        {
+            decoder->cancelled.store(true, std::memory_order_relaxed);
+        }
+        if (pending.valid())
+        {
+            retired.push_back({std::move(movie), std::move(decoder), std::move(pending)});
+        }
+        else
+        {
+            decoder.reset();
+        }
+        movie.reset();
+        clip.reset();
+        collect();
     }
     void fail(std::string message)
     {
@@ -172,15 +212,13 @@ struct MoviePlayer::Impl
         next = {};
         has_current = false;
         has_next = false;
-        load.reset();
-        audio_load.reset();
-        decoder.reset();
-        pending = {};
+        cancel_decode();
     }
-    bool schedule()
+    bool schedule(std::uint32_t target)
     {
         auto job = decoder;
-        pending = tasks.submit("decode movie frame", [job] { return job->decode(); });
+        pending =
+            tasks.submit("decode movie frame", [job, target] { return job->decode_until(target); });
         if (!pending.valid())
         {
             fail("cannot submit movie decode task");
@@ -188,19 +226,29 @@ struct MoviePlayer::Impl
         }
         return true;
     }
-    ResourceSystem& resources;
+    ResourceLoader& resources;
     TaskSystem& tasks;
     AudioSystem& audio;
     std::uint64_t generation = 0;
     std::uint64_t serial = 0;
-    std::uint64_t catalog_generation = 0;
     MoviePlaybackHandle active{};
     MoviePlaybackStatus state{};
     std::string error;
-    std::unique_ptr<ResourceLoad> load;
-    std::unique_ptr<ResourceLoad> audio_load;
-    ResourcePtr movie;
-    ResourcePtr clip;
+    ResourceReference movie;
+    ResourceReference clip;
+    struct Retired
+    {
+        ResourceReference movie;
+        std::shared_ptr<Decoder> decoder;
+        std::future<bool> pending;
+    };
+    std::vector<Retired> retired;
+    void collect() noexcept
+    {
+        std::erase_if(
+            retired, [](auto& job)
+            { return job.pending.wait_for(std::chrono::seconds(0)) == std::future_status::ready; });
+    }
     std::shared_ptr<Decoder> decoder;
     std::future<bool> pending;
     DecodedFrame current;
@@ -210,46 +258,52 @@ struct MoviePlayer::Impl
     AudioVoiceHandle voice{};
 };
 
-MoviePlayer::MoviePlayer(ResourceSystem& resources, TaskSystem& tasks, AudioSystem& audio) noexcept
+MoviePlayer::MoviePlayer(ResourceLoader& resources, TaskSystem& tasks, AudioSystem& audio) noexcept
     : impl_(std::make_unique<Impl>(resources, tasks, audio))
 {
 }
 MoviePlayer::~MoviePlayer() noexcept
 {
     impl_->close_audio();
+    impl_->cancel_decode();
+    for (auto& job : impl_->retired)
+    {
+        job.pending.wait();
+    }
+    impl_->retired.clear();
 }
 
-bool MoviePlayer::play(std::string_view path, MoviePlaybackHandle& output)
+bool MoviePlayer::play(const ResourceHandle& handle, MoviePlaybackHandle& output)
 {
     output = {};
     auto& p = *impl_;
+    p.collect();
     p.error.clear();
-    if (p.active.id || !p.resources.is_initialized() || !p.tasks.is_initialized() ||
+    if (p.active.id || p.serial == UINT64_MAX || !p.tasks.is_initialized() ||
         !p.audio.is_initialized())
     {
-        p.error = "movie player is busy or services are not ready";
+        p.error = "Movie player is busy or services are not ready";
         return false;
     }
-    Guid guid;
-    if (!p.resources.catalog().identities().path_to_guid(path, guid))
+    ResourceReference movie, clip;
+    if (!movie.retain(&p.resources, handle) || !movie.data<MovieResource>())
     {
-        p.error = "movie path not found in catalog";
+        p.error = "Movie resource is not loaded or has the wrong type";
         return false;
     }
-    const auto* entry = p.resources.catalog().find(guid);
-    if (!entry || entry->kind != schema::AssetKind::movie ||
-        !p.resources.loader().begin_load(guid, p.load) || !p.load)
+    const auto& data = *movie.data<MovieResource>();
+    if (!data.audio_guid.empty() &&
+        (!clip.dependency(&p.resources, movie.handle(), data.audio_guid) ||
+         !clip.data<AudioResource>()))
     {
-        p.error = "movie asynchronous load could not be started";
+        p.error = "Movie audio dependency is not available";
         return false;
     }
-    p.catalog_generation = p.resources.generation();
+    p.cancel_decode();
+    p.movie = std::move(movie);
+    p.clip = std::move(clip);
     p.active = {++p.serial, p.generation};
     p.state = {};
-    p.movie.reset();
-    p.clip.reset();
-    p.decoder.reset();
-    p.pending = {};
     p.has_current = false;
     p.has_next = false;
     output = p.active;
@@ -259,8 +313,8 @@ bool MoviePlayer::play(std::string_view path, MoviePlaybackHandle& output)
 bool MoviePlayer::set_paused(MoviePlaybackHandle handle, bool paused)
 {
     auto& p = *impl_;
-    if (!p.valid(handle) || (p.state.state != MovieState::playing &&
-                             p.state.state != MovieState::paused))
+    if (!p.valid(handle) ||
+        (p.state.state != MovieState::playing && p.state.state != MovieState::paused))
     {
         return false;
     }
@@ -272,8 +326,9 @@ bool MoviePlayer::set_paused(MoviePlaybackHandle handle, bool paused)
     {
         AudioPlaybackStatus playback;
         if (!p.audio.playback(p.voice, playback) ||
-            (playback.state != AudioVoiceState::completed &&
-             !p.audio.set_paused(p.voice, paused)))
+            (playback.state != AudioVoiceState::completed && !p.audio.set_paused(p.voice, paused) &&
+             (!p.audio.playback(p.voice, playback) ||
+              playback.state != AudioVoiceState::completed)))
         {
             p.fail("cannot pause or resume movie audio");
             return false;
@@ -305,10 +360,7 @@ bool MoviePlayer::stop(MoviePlaybackHandle handle, MovieStopReason reason)
     p.close_audio();
     p.state.state = MovieState::cancelled;
     p.state.stop_reason = reason;
-    p.load.reset();
-    p.audio_load.reset();
-    p.decoder.reset();
-    p.pending = {};
+    p.cancel_decode();
     p.has_current = false;
     p.has_next = false;
     return true;
@@ -340,10 +392,7 @@ bool MoviePlayer::release(MoviePlaybackHandle handle)
     }
     p.close_audio();
     p.active = {};
-    p.movie.reset();
-    p.clip.reset();
-    p.decoder.reset();
-    p.pending = {};
+    p.cancel_decode();
     p.current = {};
     p.next = {};
     p.has_current = false;
@@ -354,98 +403,36 @@ bool MoviePlayer::release(MoviePlaybackHandle handle)
 bool MoviePlayer::update(double delta_time)
 {
     auto& p = *impl_;
-    if (!std::isfinite(delta_time) || delta_time < 0 || !p.resources.is_initialized() ||
-        !p.tasks.is_initialized() || !p.audio.is_initialized())
+    p.collect();
+    if (!std::isfinite(delta_time) || delta_time < 0 || !p.tasks.is_initialized() ||
+        !p.audio.is_initialized())
     {
+        p.error = "invalid movie update time or services are not ready";
         return false;
     }
     if (!p.active.id || p.terminal() || p.state.state == MovieState::paused)
     {
         return true;
     }
-    if (p.state.state == MovieState::preparing)
+    if (p.state.state == MovieState::preparing && !p.decoder)
     {
-        if (p.resources.generation() != p.catalog_generation)
+        const auto* movie = p.movie.data<MovieResource>();
+        if (!movie || !movie->video)
         {
-            p.fail("catalog changed during movie preparation");
+            p.fail("Movie resource is no longer available");
             return true;
         }
-        if (!p.movie)
+        const auto& video = *movie->video;
+        p.state.duration_seconds =
+            static_cast<double>(video.frame_count) * video.frame_rate_den / video.frame_rate_num;
+        p.decoder = std::make_shared<Decoder>(*movie);
+        if (!p.schedule(0))
         {
-            ResourceLoadProgress progress;
-            const auto result = p.load->step(1, progress);
-            if (result == ResourceLoadStatus::failed)
-            {
-                p.fail(std::string(p.load->last_error()));
-                return true;
-            }
-            if (result != ResourceLoadStatus::ready)
-            {
-                return true;
-            }
-            p.movie = p.load->resource();
-            p.load.reset();
-            if (!p.movie || p.movie->generation() != p.catalog_generation || p.movie->bytes().empty())
-            {
-                p.fail("invalid movie resource generation");
-                return true;
-            }
-        }
-        const auto* movie = schema::GetMovieData(p.movie->bytes().data());
-        if (const auto* guid = movie->audio_guid(); guid && guid->size() && !p.clip)
-        {
-            if (!p.audio_load)
-            {
-                p.clip = p.resources.loader().find(guid->string_view());
-                if (!p.clip && (!p.resources.loader().begin_load(guid->string_view(), p.audio_load) ||
-                                !p.audio_load))
-                {
-                    p.fail("movie audio asynchronous load could not be started");
-                    return true;
-                }
-            }
-            if (!p.clip)
-            {
-                ResourceLoadProgress progress;
-                const auto result = p.audio_load->step(1, progress);
-                if (result == ResourceLoadStatus::failed)
-                {
-                    p.fail(std::string(p.audio_load->last_error()));
-                    return true;
-                }
-                if (result != ResourceLoadStatus::ready)
-                {
-                    return true;
-                }
-                p.clip = p.audio_load->resource();
-                p.audio_load.reset();
-            }
-            if (!p.clip || p.clip->generation() != p.catalog_generation)
-            {
-                p.fail("invalid movie audio resource generation");
-                return true;
-            }
-        }
-        if (!p.decoder)
-        {
-            const std::array<ResourcePtr, 1> deps{p.clip};
-            const auto dependencies = p.clip ? std::span<const ResourcePtr>(deps) : std::span<const ResourcePtr>();
-            if (!p.resources.validate_dependencies(*p.movie, dependencies))
-            {
-                p.fail("invalid movie dependencies");
-                return true;
-            }
-            const auto* video = movie->video();
-            p.state.duration_seconds = static_cast<double>(video->frame_count()) *
-                                       video->frame_rate_den() / video->frame_rate_num();
-            p.decoder = std::make_shared<Decoder>(p.movie);
-            if (!p.schedule())
-            {
-                return true;
-            }
+            return true;
         }
     }
-    if (p.pending.valid() && p.pending.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
+    if (p.pending.valid() &&
+        p.pending.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
     {
         if (!p.pending.get())
         {
@@ -460,7 +447,7 @@ bool MoviePlayer::update(double delta_time)
         p.current = std::move(p.next);
         p.has_current = true;
         p.has_next = false;
-        if (p.clip && !p.audio.play(p.clip, p.voice))
+        if (p.clip && !p.audio.play(p.clip.handle(), p.voice))
         {
             p.fail(std::string(p.audio.last_error()));
             return true;
@@ -491,24 +478,31 @@ bool MoviePlayer::update(double delta_time)
     }
     else
     {
-        p.state.position_seconds = std::min(p.state.duration_seconds,
-                                            p.state.position_seconds + delta_time);
+        p.state.position_seconds =
+            std::min(p.state.duration_seconds, p.state.position_seconds + delta_time);
     }
-    const auto* video = schema::GetMovieData(p.movie->bytes().data())->video();
-    const double next_time = p.has_next ? static_cast<double>(p.next.index) * video->frame_rate_den() /
-                                             video->frame_rate_num()
-                                       : 0;
+    const auto* video = p.movie.data<MovieResource>()->video.get();
+    const double next_time = p.has_next ? static_cast<double>(p.next.index) *
+                                              video->frame_rate_den / video->frame_rate_num
+                                        : 0;
     if (p.has_next && p.state.position_seconds >= next_time)
     {
         p.current = std::move(p.next);
         p.has_next = false;
     }
-    if (!p.has_next && !p.pending.valid() && p.decoder->index < video->frame_count())
+    if (!p.has_next && !p.pending.valid() && p.decoder->index < video->frame_count)
     {
-        (void)p.schedule();
+        const double frame_position =
+            p.state.position_seconds * video->frame_rate_num / video->frame_rate_den;
+        const auto target = static_cast<std::uint32_t>(
+            std::min(frame_position, static_cast<double>(video->frame_count - 1)));
+        if (!p.schedule(std::max(target, p.decoder->index)))
+        {
+            return true;
+        }
     }
     if (audio_finished && p.state.position_seconds >= p.state.duration_seconds &&
-        p.current.index + 1 == video->frame_count() && !p.pending.valid() && !p.has_next)
+        p.current.index + 1 == video->frame_count && !p.pending.valid() && !p.has_next)
     {
         p.state.state = MovieState::completed;
     }
@@ -525,13 +519,13 @@ bool MoviePlayer::frame(MoviePlaybackHandle handle, MovieFrame& output) const
     {
         return false;
     }
-    const auto* video = schema::GetMovieData(p.movie->bytes().data())->video();
+    const auto* video = p.movie.data<MovieResource>()->video.get();
     output.width = p.current.width;
     output.height = p.current.height;
     output.presentation_ticks = p.current.index;
-    output.time_base_num = video->time_base_num();
-    output.time_base_den = video->time_base_den();
-    output.color = *video->color();
+    output.time_base_num = video->time_base_num;
+    output.time_base_den = video->time_base_den;
+    output.color = *video->color;
     for (std::size_t plane = 0; plane < 3; ++plane)
     {
         const auto width = plane == 0 ? output.width : (output.width + 1) / 2;

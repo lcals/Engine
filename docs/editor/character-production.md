@@ -6,11 +6,11 @@
 
 核心流程是：购买或生成角色模型，由 AI 调用现成工具完成检查、绑定与动作适配，最终在引擎中复用公共动作库。AI 承担执行、编排和验证；工具内部可以使用确定性算法，不要求采用神经网络。界面不是选型依据，不为此自研完整 DCC 或动画制作界面。
 
-当前已有 FBX 模型、骨架和动作导入、完整关节路径匹配、ozz 双动作过渡、场景级编译缓存和 GPU compute 蒙皮。默认采用 InPlace，由控制器或导航处理移动；FBX 可通过 `.meta` 的 `animation_motion` 配置调用 ozz 提取并移除指定局部轴的运动，规则见[动画模块](../runtime/animation.md#inplace-与角色移动)。跨骨架的语义映射、参考姿态补偿及运行时重定向尚未实现；现有匹配不等于通用重定向。Root Motion 驱动、接触 IK 和通用动画状态图也未实现。
+当前已有 FBX 模型、骨架和动作导入、完整关节路径匹配、ozz 双动作过渡、场景级编译缓存和 GPU compute 蒙皮。默认采用 InPlace，由控制器或导航处理移动；FBX 可通过 `.meta` 的 `animation_motion` 配置调用 ozz 提取并移除指定局部轴的运动，规则见[动画模块](../runtime/animation.md#inplace-与角色移动)。可选重定向插件已支持显式 profile 与参考姿态转换，TS 状态机、基础 Aim/TwoBone IK、socket 和事件接口见[动画接入指南](../runtime/scripted-animation-controller.md)。自动语义匹配、RootMotion 驱动、接触脚锁和全身 IK 尚未提供。
 
 当前加工交付优先走 FBX；尚无 glTF/GLB 导入插件，服务仅返回 GLB 时须先在离线工具转换。FBX 已支持 `scale_factor`、`rotation_offset`、法线选择和 `material_remaps`，但后者只是引用已有引擎材质，并未自动转换源材质与贴图；材质和纹理需分别导入，再显式建立映射。每顶点仅保留最高四项骨骼影响并归一化，转换后须检查变形。外观保留须经离线材质整理、标准资源导入和实景检查，不能仅凭服务预览判断完成。
 
-本文记录制作流程、职责及验收方向，不新增已确认的类、公开方法、资源类型或文件后缀。后续新增骨架适配数据及运行时契约时，先更新所属类图和跨图关系供评审，再实现 Schema、代码和测试。
+本规划仅涵盖尚未接入的自动化资产制作流程；运行时能力以现有类图为准。新增制作接口仍须先评审所属类图，不以规划内容宣称工具已经集成。
 
 ## 两条资产线
 
@@ -87,7 +87,7 @@ flowchart TD
 | --- | --- | --- |
 | [Blender Python](https://developer.blender.org/docs/handbook/building_blender/python_module/) | 模型整理、骨架操作、权重处理、格式转换及预览渲染；可无界面执行 | 优先作为离线加工底座，仍需项目脚本和质量检查，不随游戏部署 |
 | [Tripo Rigging API](https://developers.tripo3d.com/en/models/rig) / [Meshy Rigging API](https://docs.meshy.ai/en/api/rigging) | 外部模型的骨架拟合与蒙皮，可异步提交和获取结果 | 按量绑骨候选；验证标准骨架约定、材质保留、手指和服装；预设动作接口不等于任意外部动作的运行时重定向 |
-| [Mixamo](https://helpx.adobe.com/creative-cloud/faq/mixamo-faq.html) / [AccuRIG](https://www.reallusion.com/auto-rig/accurig/) | 免费或低成本角色制作与动作效果对照 | 本轮未确认可依赖的官方无人值守绑骨 API，不作为全自动流程的必要依赖；动作许可与工具许可分别核对 |
+| [Mixamo](https://helpx.adobe.com/creative-cloud/faq/mixamo-faq.html) / [AccuRIG](https://www.reallusion.com/auto-rig/accurig/) | 免费或低成本角色制作与动作效果对照 | 尚未确认可用的官方无人值守绑骨 API，不作为全自动流程的必要依赖；动作许可与工具许可分别核对 |
 | [Mesh2Motion](https://github.com/Mesh2Motion/mesh2motion-app) | 骨架模板、启发式蒙皮及动作资源 | 已有流程仍需定位模板关节，未提供完整无头绑骨接口；不能当成现成的自动关节预测服务 |
 | [Make-It-Animatable](https://github.com/jasongzy/Make-It-Animatable) / [SkinTokens](https://github.com/VAST-AI-Research/SkinTokens) | 自动预测关节与权重的本地推理备选 | 非必要依赖；验证骨架约定、代码/权重及第三方许可、设备后端、质量与耗时，再决定是否封装 |
 | [Wicked Engine 重定向](https://wickedengine.net/category/devblog/2022/09/23/animation-retargeting/index.html) / [Godot RetargetModifier3D](https://docs.godotengine.org/en/stable/classes/class_retargetmodifier3d.html) | 已有 C++ 人形映射和姿态修正实现可供评估 | 依赖各自引擎数据与生命周期，不是直接链接的小库；采用前固定版本、保留许可并适配本引擎数据，不整体引入另一引擎 |
@@ -95,7 +95,7 @@ flowchart TD
 
 动作库独立选择可合法使用的内容，例如 [Quaternius Universal Animation Library](https://quaternius.com/packs/universalanimationlibrary.html)。免费制作工具、动作在游戏中使用、原始素材再分发是不同授权；不能把受限动作随引擎模板或公共仓库发布。付费/私有模型、动作、下载产物、购买清单、密钥和本机路径不进入引擎 Git；仅提交许可明确、允许再分发的最小验证样例。
 
-M1 Max / 64 GB 可作为资产准备和引擎验证设备，但本规划没有在该设备跑过上述推理工具。统一内存不能等同于满足 NVIDIA/CUDA 要求，不能保证现有 CUDA 依赖可直接转为 Metal/MPS。先验证真实模型的运行、峰值内存与耗时；不兼容时使用外部服务或独立 GPU 工作机，避免将推理后端移植变成引擎接入的前置条件。
+本地推理工具尚未验证；硬件和后端要求以工具实际支持为准，统一内存不能替代 NVIDIA/CUDA 依赖。外部服务与本地工具分别核验模型效果、成本、授权和失败重试，不将推理后端移植作为引擎接入前提。
 
 ## 分阶段验收
 
@@ -107,4 +107,4 @@ M1 Max / 64 GB 可作为资产准备和引擎验证设备，但本规划没有�
 | 实景与生命周期 | 检查移动、攻击、脚滑、触地、握物、服装、主画面/AO/阴影一致性，验证换动作、换场景、停止和重载释放；记录真实平台证据 |
 | 平台交付 | C++ 实现按根 Presets 完成受影响的 Debug/Release 构建，仅以 Release 运行 CTest 和目标平台实际播放；本地推理性能与运行时性能分别记录，不能互相代替 |
 
-首版先验证普通人形、原地动作与控制器移动；接触 IK、Root Motion 和特殊骨链按实际需求分阶段交付，不把通用全身重定向或任意购买/生成模型的自动成品质量当成已达成目标。这里新增的是规划文档，未运行绑骨服务、修改源资源或执行新的引擎构建。
+首版先验证普通人形、原地动作与控制器移动；接触 IK、Root Motion 和特殊骨链按实际需求分阶段交付，不把通用全身重定向或任意购买/生成模型的自动成品质量当成已达成目标。自动绑骨服务与本地推理工具尚未集成。

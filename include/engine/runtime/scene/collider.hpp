@@ -8,6 +8,11 @@
 
 namespace engine
 {
+class ResourceReference;
+}
+
+namespace engine
+{
 
 class PhysicsSystem;
 class Resource;
@@ -35,7 +40,6 @@ public:
     valid_settings(const schema::ColliderDataT& settings,
                    const schema::MeshDataT* transient_mesh = nullptr,
                    const MeshCollisionData* mesh_parts = nullptr) noexcept;
-    [[nodiscard]] schema::ColliderDataT settings() const noexcept;
     [[nodiscard]] bool get_settings(Data& output) const noexcept;
     [[nodiscard]] bool set_settings(const schema::ColliderDataT& settings);
     [[nodiscard]] bool restore_data(const schema::ComponentDataT& data);
@@ -47,6 +51,7 @@ public:
     [[nodiscard]] std::string_view mesh_path() const noexcept;
 
 private:
+    [[nodiscard]] bool apply_settings(const Data& settings, ResourceReference prepared);
     template <class T> friend auto engine::ecs_detail::component_runtime(T component) noexcept;
     [[nodiscard]] Runtime* runtime() const noexcept;
     friend class PhysicsSystem;

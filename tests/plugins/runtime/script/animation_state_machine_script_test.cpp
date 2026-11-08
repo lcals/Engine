@@ -26,20 +26,21 @@ bool load_script(Fixture& fixture, engine::plugins::script::ScriptSystem& script
     fixture.files.catalog.entries.back()->module_path = path;
     fixture.world.destroy_scene();
     return fixture.files.publish(fixture.resources) && script.initialize({}) &&
-           test_support::start_script(script, fixture.resources, {{"content", fixture.files.root}},
+           test_support::start_script(script, fixture.services, {{"content", fixture.files.root}},
                                       path);
 }
 
-bool check(engine::plugins::script::ScriptSystem& script, std::string_view body,
-           const char* message)
+bool check(test_support::ResourceServices& services, engine::plugins::script::ScriptSystem& script,
+           std::string_view body, const char* message)
 {
     std::string source = "const {Animator}=require('engine'); exports.default=()=>{";
     source += body;
     source += "};";
     std::string result;
     std::string error;
-    const bool passed = script.execute_project_script(
-        {script.status().run_id, "scripts/fsm-check.js", source, "null"}, result, error);
+    const bool passed = test_support::execute_script(
+        services, script, {script.status().run_id, "scripts/fsm-check.js", source, "null"}, result,
+        error);
     if (!passed || result != "true")
     {
         std::fprintf(stderr, "FSM check failed: %s; result=%s, error=%s\n", message, result.c_str(),
@@ -107,10 +108,10 @@ export default class extends Gameplay {
     }
 }
 )js";
-    engine::plugins::script::ScriptSystem script(&fixture.world);
+    engine::plugins::script::ScriptSystem script(&fixture.services.loader, &fixture.world);
     if (!expect(load_script(fixture, script, source, 1),
                 "one immutable definition binds eight independent actors") ||
-        !check(script, R"js(
+        !check(fixture.services, script, R"js(
 const f=globalThis.fsm, a=f.actors[0];
 return f.builds===1 && f.actors.every(x=>x.stateMachineState==='Idle') &&
     !f.definition.AddParameter('late','bool') &&
@@ -121,7 +122,7 @@ return f.builds===1 && f.actors.every(x=>x.stateMachineState==='Idle') &&
 )js",
                "component controls are exclusive and parameter batches validate atomically") ||
         !expect(script.tick(.25) && fixture.animation.tick(.25), "advance shared machines") ||
-        !check(script, R"js(
+        !check(fixture.services, script, R"js(
 const f=globalThis.fsm;
 let expired=false; try { void f.saved.state; } catch(e) { expired=e instanceof TypeError; }
 return expired && Math.abs(f.actors[0].time-.5)<.001 &&
@@ -131,7 +132,7 @@ return expired && Math.abs(f.actors[0].time-.5)<.001 &&
 )js",
                "context expires and per-instance parameters do not contaminate shared state") ||
         !expect(script.tick(0) && fixture.animation.tick(0), "commit triggered transition") ||
-        !check(script, R"js(
+        !check(fixture.services, script, R"js(
 const f=globalThis.fsm;
 return f.actors[0].stateMachineState==='Fire' && f.actors[0].stateMachineTransitioning &&
     f.actors[1].stateMachineState==='Idle' && f.kept[1]===true &&
@@ -139,37 +140,38 @@ return f.actors[0].stateMachineState==='Fire' && f.actors[0].stateMachineTransit
 )js",
                "an unselected condition cannot consume another trigger or affect another actor") ||
         !expect(script.tick(.25) && fixture.animation.tick(.25), "advance an active fade") ||
-        !check(script, "return globalThis.fsm.actors[0].Trigger('reenter');",
+        !check(fixture.services, script, "return globalThis.fsm.actors[0].Trigger('reenter');",
                "request same-state reentry while a transition is active") ||
         !expect(script.tick(0) && fixture.animation.tick(0), "interrupt from the displayed pose") ||
-        !check(script, R"js(
+        !check(fixture.services, script, R"js(
 const f=globalThis.fsm,a=f.actors[0];
 f.beforePause=f.updates[1];
 return a.stateMachineState==='Fire' && a.time===0 && a.SetStateMachinePaused(true);
 )js",
                "reentry restarts the same clip atomically") ||
         !expect(script.tick(1) && fixture.animation.tick(1), "tick with one paused machine") ||
-        !check(script, R"js(
+        !check(fixture.services, script, R"js(
 const f=globalThis.fsm,a=f.actors[0];
 return a.time===0 && f.updates[1]===f.beforePause && a.stateMachinePaused===true &&
     a.SetStateMachinePaused(false) && f.scene.SetPaused(true);
 )js",
                "pausing one machine freezes its callbacks and native clock") ||
         !expect(script.tick(1) && fixture.animation.tick(1), "tick paused world") ||
-        !check(script, R"js(
+        !check(fixture.services, script, R"js(
 const f=globalThis.fsm;
 return f.actors[0].time===0 && f.updates[1]===f.beforePause && f.scene.SetPaused(false);
 )js",
                "world pause leaves menu updates alive without advancing machines") ||
         !expect(script.tick(.5) && fixture.animation.tick(.5), "finish a nonlooping action") ||
-        !check(script, "return globalThis.fsm.actors[0].playback==='paused';",
+        !check(fixture.services, script, "return globalThis.fsm.actors[0].playback==='paused';",
                "native completion retains the nonlooping final pose") ||
         !expect(script.tick(0) && fixture.animation.tick(0), "evaluate completion while paused") ||
-        !check(script, "return globalThis.fsm.actors[0].stateMachineState==='Idle';",
+        !check(fixture.services, script,
+               "return globalThis.fsm.actors[0].stateMachineState==='Idle';",
                "exit-time transition is not blocked by native completion-paused state") ||
         !expect(script.tick(.25) && fixture.animation.tick(.25) && script.tick(0),
                 "finish return transition and consume pending trigger") ||
-        !check(script, R"js(
+        !check(fixture.services, script, R"js(
 const f=globalThis.fsm,a=f.actors[0];
 return a.stateMachineState==='Fire' && a.ClearStateMachine() && a.ClearStateMachine() &&
     a.stateMachineState===null && a.SetStateMachine(f.definition,f.aliases) &&
@@ -179,7 +181,7 @@ return a.stateMachineState==='Fire' && a.ClearStateMachine() && a.ClearStateMach
                "state") ||
         !expect(script.tick(0) && fixture.animation.tick(0),
                 "reject missing destination resource") ||
-        !check(script, R"js(
+        !check(fixture.services, script, R"js(
 const f=globalThis.fsm,a=f.actors[0];
 return a.stateMachineState==='Idle' && f.failed[1]===true &&
     a.ResetTrigger('fail') && a.SetStateMachine(f.definition,f.aliases);
@@ -200,7 +202,8 @@ return a.stateMachineState==='Idle' && f.failed[1]===true &&
     std::string error;
     script.stop_gameplay();
     return expect(fixture.world.scene() == foreign &&
-                      !script.execute_project_script(
+                      !test_support::execute_script(
+                          fixture.services, script,
                           {old_run, "scripts/stale-fsm.js", "exports.default=()=>true;", "null"},
                           result, error),
                   "Run cleanup rejects old callbacks and preserves foreign scene ownership");
@@ -213,7 +216,7 @@ import {Gameplay, Scene, Animator, AnimationStateMachine, AnimationState,
         AnimationCondition} from 'engine';
 )js";
     source += body;
-    engine::plugins::script::ScriptSystem script(&fixture.world);
+    engine::plugins::script::ScriptSystem script(&fixture.services.loader, &fixture.world);
     const bool started = load_script(fixture, script, source, sequence);
     if (started)
     {

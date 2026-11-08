@@ -1,7 +1,10 @@
 #include "plugins/editor/asset_build/builtin_resources.hpp"
+#include "editor/file_text.hpp"
+#include "runtime/resource/virtual_file_system.hpp"
 
 #include "editor/asset_pipeline/asset_io.hpp"
 #include "editor/asset_pipeline/editor_tools.hpp"
+#include "editor/asset_pipeline/import_tool.hpp"
 #include "runtime/resource/builtin_resources.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/schema/shader_generated.h"
@@ -67,11 +70,11 @@ bool compile_shaders(std::string_view target, const std::filesystem::path& cache
         return false;
     }
     std::vector<std::filesystem::path> inputs{compiler};
-    for (const auto name : {"vs_cube.sc", "fs_cube.sc", "vs_font.sc", "fs_font.sc",
-                            "varying.def.sc", "font_varying.def.sc", "pbr_helpers.sh",
-                            "pbr_surface.sh", "pbr_lighting.sh", "dfg_approx.sh", "color_space.sh",
-                            "material_helpers.sh", "shadow_helpers.sh", "csm_helpers.sh",
-                            "local_shadow_helpers.sh", "cluster/lighting.sh"})
+    for (const auto name :
+         {"vs_cube.sc", "fs_cube.sc", "vs_font.sc", "fs_font.sc", "varying.def.sc",
+          "font_varying.def.sc", "pbr_helpers.sh", "pbr_surface.sh", "pbr_lighting.sh",
+          "dfg_approx.sh", "color_space.sh", "material_helpers.sh", "shadow_helpers.sh",
+          "csm_helpers.sh", "local_shadow_helpers.sh", "cluster/lighting.sh"})
     {
         inputs.push_back(sources / name);
     }
@@ -134,8 +137,8 @@ bool compile_shaders(std::string_view target, const std::filesystem::path& cache
         }
         ByteBuffer bytes;
         std::string previous_hash;
-        const bool reusable = ResourceSystem::read_binary(output, bytes) && !bytes.empty() &&
-                              ResourceSystem::read_text(hash_path, previous_hash) &&
+        const bool reusable = VirtualFileSystem::read_file(output, bytes) && !bytes.empty() &&
+                              engine::editor::file_detail::read_text(hash_path, previous_hash) &&
                               pipeline::hash_bytes(bytes) == previous_hash;
         if (!reusable)
         {
@@ -157,7 +160,9 @@ bool compile_shaders(std::string_view target, const std::filesystem::path& cache
                 PathUtils::to_utf8(varying),
                 "-i",
                 PathUtils::to_utf8(includes) + ";" + PathUtils::to_utf8(sources)};
-            if (!pipeline::run_process(arguments, error) ||
+            std::string diagnostics;
+            if (pipeline::run_import_tool(arguments, diagnostics, error) !=
+                    pipeline::ImportToolStatus::success ||
                 !pipeline::read_bytes(output, bytes, error) || bytes.empty() ||
                 !pipeline::write_text(hash_path, pipeline::hash_bytes(bytes), error))
             {

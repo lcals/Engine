@@ -1,5 +1,9 @@
 #pragma once
 
+#include "runtime/schema/animation_generated.h"
+#include "runtime/schema/mesh_generated.h"
+#include "runtime/schema/skeleton_generated.h"
+
 #include "runtime/animation/animation_binding.hpp"
 #include "runtime/scene/transform.hpp"
 

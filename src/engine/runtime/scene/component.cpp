@@ -1,9 +1,11 @@
 #include "runtime/scene/component.hpp"
 
 #include "runtime/scene/component_registry.hpp"
+#include "runtime/scene/ecs_scene.hpp"
 #include "runtime/world/world_system.hpp"
 
 #include <atomic>
+#include <flecs.h>
 #include <limits>
 
 namespace engine
@@ -127,6 +129,12 @@ void Component::modified() noexcept
         return;
     }
     ++current->revision;
+    flecs::world(node_.world()->native_world())
+        .event<Component>()
+        .id<ecs_detail::Published>()
+        .entity(node_.id())
+        .ctx(*this)
+        .emit();
     if (type_ == ComponentType::TransformData || type_ == ComponentType::AnimatorData ||
         type_ == ComponentType::BoneAttachmentData)
     {
@@ -164,13 +172,7 @@ void* Component::runtime_value() const noexcept
     }
     return node_.world()->component_registry().operations(type_)->runtime(node_);
 }
-schema::ComponentDataT Component::data() const
-{
-    schema::ComponentDataT result;
-    (void)build_storage_data(result);
-    return result;
-}
-bool Component::build_storage_data(schema::ComponentDataT& output) const
+bool Component::get_data(schema::ComponentDataT& output) const
 {
     output = {};
     return valid() &&

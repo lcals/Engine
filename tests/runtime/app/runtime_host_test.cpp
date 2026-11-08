@@ -1,4 +1,6 @@
+#include "movie_fixture.hpp"
 #include "resource_fixture.hpp"
+#include "resource_services.hpp"
 #include "runtime_settings_fixture.hpp"
 
 #include "runtime/app/app.hpp"
@@ -6,6 +8,7 @@
 #include "runtime/gameplay/gameplay_session.hpp"
 #include "runtime/gameplay/script_runtime.hpp"
 #include "runtime/movie/movie_frame.hpp"
+#include "runtime/movie/movie_player.hpp"
 #include "runtime/render/render_system.hpp"
 #include "runtime/task/task_system.hpp"
 
@@ -13,10 +16,13 @@
 #include <nlohmann/json.hpp>
 
 #include <array>
+#include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <thread>
 
 namespace
 {
@@ -51,8 +57,7 @@ public:
         shutdown();
     }
 
-    bool prepare_gameplay(const ResourceCatalog&, const MountList&, std::string_view,
-                          std::string_view revision) override
+    bool prepare_gameplay(const ResourceHandle&, std::string_view revision) override
     {
         prepared_ = revision;
         return true;
@@ -68,8 +73,8 @@ public:
     {
         status_.running = false;
     }
-    bool execute_project_script(const ProjectScriptRequest&, std::string& result,
-                                std::string& error) override
+    bool execute_project_script(const ResourceHandle&, const ProjectScriptRequest&,
+                                std::string& result, std::string& error) override
     {
         result.clear();
         error = "Test runtime has no VM";
@@ -198,7 +203,7 @@ bool test_completion_fairness(const EngineConfig& config, RuntimeParallelConfig 
     parallel.completion_budget_seconds = 1.0;
     RuntimeHost host;
     background_tasks = nullptr;
-    if (!host.initialize(config, nullptr, nullptr, observe_domains, nullptr, parallel) ||
+    if (!host.initialize(config, nullptr, nullptr, nullptr, observe_domains, nullptr, parallel) ||
         background_tasks == nullptr)
     {
         return false;
@@ -234,9 +239,9 @@ bool test_completion_fairness(const EngineConfig& config, RuntimeParallelConfig 
 bool test_movie_presentation(const EngineConfig& config, const RuntimeParallelConfig& parallel)
 {
     RuntimeHost host;
-    if (!host.initialize_presentation(config, nullptr, nullptr, parallel) ||
-        !expect(host.world() == nullptr && host.ui() == nullptr && host.movie_player() != nullptr,
-                "presentation is ready before world and script initialization") ||
+    if (!host.initialize_presentation(config, nullptr, nullptr, nullptr, parallel) ||
+        !expect(host.world() == nullptr && host.ui() == nullptr && host.movie_player() == nullptr,
+                "presentation without a resource loader starts without movie services") ||
         !expect(host.tick(0.0) == FrameStatus::running, "presentation ticks without a world"))
     {
         return false;
@@ -261,15 +266,87 @@ bool test_movie_presentation(const EngineConfig& config, const RuntimeParallelCo
     return expect(!renderer->present_movie_frame(frame), "truncated movie plane is rejected");
 }
 
+bool test_movie_clock_and_startup(const EngineConfig& config, const RuntimeParallelConfig& parallel)
+{
+    test_support::ResourceFixture fixture;
+    test_support::ResourceServices services;
+    auto& resources = services.core;
+    RuntimeHost host;
+    if (!services.initialize(config) || !test_support::make_movie(fixture, 90, 30) ||
+        !fixture.publish(resources) ||
+        !host.initialize_presentation(config, &resources, &services.loader, &services.threads,
+                                      parallel))
+    {
+        return false;
+    }
+    auto catalog = std::make_shared<ResourceCatalog>(resources.catalog());
+    auto mounts = std::make_shared<MountList>(MountList{{"content", fixture.root}});
+    const auto generation = resources.generation();
+    auto& player = *host.movie_player();
+    engine::ResourceReference movie;
+    if (!services.load("movies/test.mp4", movie))
+    {
+        return false;
+    }
+    MoviePlaybackHandle handle;
+    if (!player.play(movie.handle(), handle) ||
+        !host.begin_gameplay(nullptr, nullptr, nullptr, catalog, mounts) ||
+        !expect(host.step_gameplay(0.002) == RuntimeStartupStatus::preparing && !host.world(),
+                "world preparation waits for this movie's submitted first frame"))
+    {
+        return false;
+    }
+    MovieFrame frame;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+    while (!player.frame(handle, frame) && std::chrono::steady_clock::now() < deadline)
+    {
+        if (!services.tick() || host.tick(0) != FrameStatus::running)
+        {
+            return false;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    MoviePlaybackStatus playback;
+    if (!expect(player.frame(handle, frame) && host.tick(1.25) == FrameStatus::running &&
+                    player.status(handle, playback) &&
+                    std::abs(playback.position_seconds - 1.25) < 0.0001,
+                "silent movie receives full wall time beyond the simulation step cap"))
+    {
+        return false;
+    }
+    RuntimeStartupStatus startup = RuntimeStartupStatus::preparing;
+    while (startup == RuntimeStartupStatus::preparing &&
+           std::chrono::steady_clock::now() < deadline)
+    {
+        startup = host.step_gameplay(0.002);
+        if (!services.tick() || host.tick(0) != FrameStatus::running)
+        {
+            return false;
+        }
+    }
+    return expect(startup == RuntimeStartupStatus::ready && host.world() &&
+                      player.status(handle, playback) && playback.state == MovieState::playing &&
+                      resources.generation() == generation,
+                  "staged preparation preserves the intro and submitted catalog") &&
+           player.stop(handle, MovieStopReason::skipped) && player.release(handle) &&
+           host.activate_gameplay() && host.tick(0) == FrameStatus::running;
+}
+
 bool test_deployment_selection(const EngineConfig& config, const RuntimeParallelConfig& parallel)
 {
+    test_support::ResourceServices services;
+    if (!services.initialize(config))
+    {
+        return false;
+    }
     RuntimeHost host;
-    if (!host.initialize(config, nullptr, create_script, observe_domains, nullptr, parallel))
+    if (!host.initialize(config, &services.core, &services.loader, create_script, observe_domains,
+                         &services.threads, parallel))
     {
         return false;
     }
     auto& session = *host.gameplay();
-    const std::string platform = ResourceSystem::instance()->catalog().data().target_platform;
+    const std::string platform = services.core.catalog().data().target_platform;
     const auto manifest = App::persistent_data_path() / "assets/available.json";
     const auto versions = App::persistent_data_path() / "assets/versions";
     if (!write_version(App::assets_path(), "builtin", platform) ||
@@ -289,7 +366,8 @@ bool test_deployment_selection(const EngineConfig& config, const RuntimeParallel
     }
     // A new session has no previously loaded builtin metadata to mask this dependency.
     host.shutdown();
-    if (!host.initialize(config, nullptr, create_script, observe_domains, nullptr, parallel) ||
+    if (!host.initialize(config, &services.core, &services.loader, create_script, observe_domains,
+                         &services.threads, parallel) ||
         !expect(host.gameplay()->start() &&
                     host.gameplay()->script_status()->active_revision == "external",
                 "a complete persistent version starts independently of a broken builtin catalog"))
@@ -327,8 +405,8 @@ bool test_deployment_selection(const EngineConfig& config, const RuntimeParallel
     std::error_code error;
     fs::remove(versions / "incomplete/gen/10000000-0000-4000-8000-000000000001", error);
     host.shutdown();
-    if (error ||
-        !host.initialize(config, nullptr, create_script, observe_domains, nullptr, parallel))
+    if (error || !host.initialize(config, &services.core, &services.loader, create_script,
+                                  observe_domains, &services.threads, parallel))
     {
         return false;
     }
@@ -353,7 +431,8 @@ bool test_deployment_selection(const EngineConfig& config, const RuntimeParallel
     host.shutdown();
     if (!write_file(App::assets_path() / "catalog.bin", "invalid") ||
         !write_file(manifest, "invalid") ||
-        !host.initialize(config, nullptr, create_script, observe_domains, nullptr, parallel))
+        !host.initialize(config, &services.core, &services.loader, create_script, observe_domains,
+                         &services.threads, parallel))
     {
         return false;
     }
@@ -382,6 +461,7 @@ int main(int, char**)
     settings.engine.height = 240;
     settings.engine.window_title = "Runtime host contract test";
     const bool success = test_movie_presentation(settings.engine, settings.parallel) &&
+                         test_movie_clock_and_startup(settings.engine, settings.parallel) &&
                          test_completion_fairness(settings.engine, settings.parallel) &&
                          test_deployment_selection(settings.engine, settings.parallel);
     App::shutdown();

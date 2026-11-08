@@ -5,11 +5,15 @@
 #include "editor/project/project_system.hpp"
 #include "editor/render/render_commands.hpp"
 #include "editor/scene/scene_persistence.hpp"
+#include "file_text.hpp"
 #include "plugins/editor/modeling/modeling_commands.hpp"
 #include "plugins/editor/modeling/modeling_mesh_importer.hpp"
+#include "resource_fixture.hpp"
+#include "resource_services.hpp"
 #include "runtime/engine_config.hpp"
 #include "runtime/render/render_system.hpp"
 #include "runtime/resource/resource_system.hpp"
+#include "runtime/resource/types/shader_resource.hpp"
 #include "runtime/scene/camera.hpp"
 #include "runtime/scene/environment_component.hpp"
 #include "runtime/scene/light.hpp"
@@ -89,7 +93,7 @@ bool snapshot_sources(const fs::path& root, SourceSnapshots& output)
         {
             SourceSnapshot snapshot;
             snapshot.modified = current->last_write_time(ec);
-            if (ec || !ResourceSystem::read_text(current->path(), snapshot.content))
+            if (ec || !test_support::read_text(current->path(), snapshot.content))
             {
                 return false;
             }
@@ -154,6 +158,7 @@ bool write_text(const fs::path& path, std::string_view text)
 bool compound_scene_round_trip(const fs::path& root)
 {
     schema::SceneDataT source;
+    source.schema_version = 2;
     source.info = std::make_unique<schema::SceneInfoT>();
     source.info->name = "Compound collider";
     auto node = std::make_unique<schema::NodeDataT>();
@@ -188,17 +193,88 @@ bool compound_scene_round_trip(const fs::path& root)
                   "compound hull vertices round trip through the standard scene TOML codec", error);
 }
 
+bool retained_shader_save(const fs::path& root)
+{
+    test_support::ResourceFixture files;
+    test_support::ResourceServices services;
+    WorldSystem world(&services.loader);
+    if (!services.initialize({}) || !services.prepare_builtins() || !world.initialize({}))
+    {
+        return false;
+    }
+    ResourceReference builtin;
+    if (!services.load("builtin://shaders/pbr", builtin))
+    {
+        return false;
+    }
+    auto shader = *builtin.data<ShaderResource>();
+    shader.path = "shaders/held.shader";
+    if (!files.add(shader) || !files.publish(services.core) || !services.prepare_builtins() ||
+        !services.load(shader.path))
+    {
+        return false;
+    }
+    auto* scene = world.create_scene("Held shader");
+    auto node = scene ? scene->create_node("Mesh") : Node{};
+    auto mesh = node.add_component<MeshRenderer>();
+    if (!mesh || !mesh.set_mesh("builtin://meshes/cube") ||
+        !mesh.material().set_shader(shader.path) || !mesh.material().set_float("roughness", 0.37F))
+    {
+        return false;
+    }
+    const auto* held = test_support::get_resource(services.loader, mesh.material().shader());
+    const auto guid = held ? held->info().guid : std::string{};
+    files.catalog.entries.clear();
+    ResourceHandle unavailable;
+    if (!expect(!guid.empty() && files.publish(services.core) &&
+                    !services.loader.load(shader.path, unavailable),
+                "current catalog no longer resolves the retained shader path"))
+    {
+        return false;
+    }
+    std::vector<engine::editor::SceneSavedResource> saved;
+    engine::editor::ScenePersistence persistence(
+        world, root, {},
+        [&](std::string_view, std::span<const engine::editor::SceneSavedResource> items)
+        { saved.assign(items.begin(), items.end()); });
+    engine::editor::EditorCommands commands([&]() { return scene->id(); });
+    Json result;
+    std::string error;
+    if (!expect(persistence.register_commands(commands) &&
+                    commands.execute("save_scene",
+                                     {{"sceneId", std::to_string(scene->id())},
+                                      {"path", "scenes/held-shader.scene"}},
+                                     result, error),
+                "save uses retained shader identity after catalog removal", error))
+    {
+        return false;
+    }
+    for (const auto& item : saved)
+    {
+        if (item.source.extension() == ".material")
+        {
+            std::string text;
+            return expect(test_support::read_text(item.source, text) &&
+                              text.find(guid) != std::string::npos,
+                          "exported material references the held shader GUID");
+        }
+    }
+    return expect(false, "modified material was exported");
+}
+
 bool run(const fs::path& root)
 {
     // 与 editor_app 同样装配项目系统，捕获跨模块 TOML ABI/符号冲突。
     engine::editor::ProjectSystem project(PathUtils::to_utf8(root));
-    ResourceSystem resources;
-    WorldSystem world;
     engine::ThreadSystem threads;
+    test_support::ResourceServices services(&threads);
+    auto& resources = services.core;
+    WorldSystem world(&services.loader);
     engine::TaskSystem tasks(threads, {"Editor", 4, engine::TaskPriority::low});
     engine::editor::AssetPipelineSystem pipeline(tasks);
-    if (!project.initialize({}) || !resources.initialize({}) || !world.initialize({}) ||
-        !threads.initialize({}) || !tasks.initialize({}) || !pipeline.initialize({}) ||
+    if (!project.initialize({}) ||
+        !((threads.initialize({}) && services.initialize({})) && services.prepare_builtins()) ||
+        !world.initialize({}) || !tasks.initialize({}) || !pipeline.initialize({}) ||
         !compound_scene_round_trip(root))
     {
         return false;
@@ -287,7 +363,7 @@ bool run(const fs::path& root)
     }
     camera = named(*scene, "Eye");
     auto light = named(*scene, "Lamp").get_component<Light>();
-    auto light_settings = light.settings();
+    auto light_settings = test_support::read_settings(light);
     light_settings.kind = schema::LightKind::point;
     light_settings.intensity = 7;
     if (!light.set_settings(light_settings))
@@ -380,7 +456,7 @@ bool run(const fs::path& root)
     {
         return false;
     }
-    auto transform = first.get_component<Transform>().settings();
+    auto transform = test_support::read_settings(first.get_component<Transform>());
     transform.position = Vec3(3, 4, 5);
     if (!first.get_component<Transform>().set_settings(transform))
     {
@@ -414,15 +490,14 @@ bool run(const fs::path& root)
     const auto path = root / "assets/scenes/room.scene";
     std::string source;
     std::string meta;
-    if (!ResourceSystem::read_text(path, source) ||
-        !ResourceSystem::read_text(root / "assets/scenes/room.scene.meta", meta))
+    if (!test_support::read_text(path, source) ||
+        !test_support::read_text(root / "assets/scenes/room.scene.meta", meta))
     {
         return false;
     }
     schema::SceneDataT saved;
     if (!expect(engine::editor::SceneImporter::read(path, saved, error) &&
-                    saved.nodes.size() == 4 &&
-                    saved.info->active_camera_node == camera.info().properties->id,
+                    saved.nodes.size() == 4 && saved.info->active_camera_node == camera.local_id(),
                 "saved schema omits transient nodes and descendants, retaining the camera", error))
     {
         return false;
@@ -442,9 +517,9 @@ bool run(const fs::path& root)
         return false;
     }
     const auto mesh_path = root / "assets/scenes/room-resources/meshes" /
-                           ("node-" + std::to_string(first.info().properties->id) + ".mesh");
+                           ("node-" + std::to_string(first.local_id()) + ".mesh");
     std::string original_mesh;
-    if (!ResourceSystem::read_text(mesh_path, original_mesh))
+    if (!test_support::read_text(mesh_path, original_mesh))
     {
         return false;
     }
@@ -487,13 +562,13 @@ bool run(const fs::path& root)
     reject_export = false;
     export_count = 0;
     std::string restored;
-    if (!expect(ResourceSystem::read_text(path, restored) && restored == source,
+    if (!expect(test_support::read_text(path, restored) && restored == source,
                 "scene restored after failed save") ||
-        !expect(ResourceSystem::read_text(mesh_path, restored) && restored == original_mesh,
+        !expect(test_support::read_text(mesh_path, restored) && restored == original_mesh,
                 "earlier mesh publication restored after later failure") ||
         !expect(execute("save_scene", save) && result["resourceCount"] == 2 && export_count == 2,
                 "failed save does not advance mesh snapshots before successful retry", error) ||
-        !expect(ResourceSystem::read_text(root / "assets/scenes/room.scene.meta", restored) &&
+        !expect(test_support::read_text(root / "assets/scenes/room.scene.meta", restored) &&
                     restored == meta,
                 "repeat save preserves scene GUID"))
     {
@@ -501,13 +576,12 @@ bool run(const fs::path& root)
     }
     auto mesh_meta_path = mesh_path;
     mesh_meta_path += ".meta";
-    const auto material_path =
-        root / "assets/scenes/room-resources/materials" /
-        ("node-" + std::to_string(first.info().properties->id) + "-slot-1.material");
+    const auto material_path = root / "assets/scenes/room-resources/materials" /
+                               ("node-" + std::to_string(first.local_id()) + "-slot-1.material");
     for (const auto& conflict_path : {mesh_path, mesh_meta_path, material_path, path})
     {
         std::string original;
-        if (!ResourceSystem::read_text(conflict_path, original) ||
+        if (!test_support::read_text(conflict_path, original) ||
             !write_text(conflict_path, original + "\n# external modification\n") ||
             !snapshot_sources(root / "assets", initial_sources))
         {
@@ -533,7 +607,7 @@ bool run(const fs::path& root)
     }
     std::string mesh_meta;
     std::error_code ec;
-    if (!ResourceSystem::read_text(mesh_meta_path, mesh_meta) || !fs::remove(mesh_meta_path, ec) ||
+    if (!test_support::read_text(mesh_meta_path, mesh_meta) || !fs::remove(mesh_meta_path, ec) ||
         ec ||
         !expect(!execute("save_scene", save), "missing saved mesh identity is not regenerated",
                 error) ||
@@ -550,7 +624,11 @@ bool run(const fs::path& root)
     if (!expect(pipeline.build_assets(root), "import saved scene and dependencies",
                 pipeline.last_error()) ||
         !expect(resources.update_catalog(pipeline.catalog(), {{"content", root / "cache"}}),
-                "publish imported resource catalog", resources.last_error()))
+                "publish imported resource catalog", std::string(resources.last_error())))
+    {
+        return false;
+    }
+    if (!services.prepare_builtins() || !services.load("scenes/room.scene"))
     {
         return false;
     }
@@ -568,27 +646,25 @@ bool run(const fs::path& root)
     float roughness = 0;
     float cutoff = 0;
     if (!expect(second.parent() == first &&
-                    first.get_component<Transform>().settings().position.x() == 3 &&
+                    test_support::read_settings(first.get_component<Transform>()).position.x() ==
+                        3 &&
                     renderer.material_count() == 2 && !renderer.cast_shadows() &&
                     renderer.bake_static() &&
                     renderer.material(1).blend_mode() == schema::BlendMode::premultiplied &&
                     first.get_component<PlanarReflectionComponent>() &&
                     !first.get_component<PlanarReflectionComponent>().enabled() &&
-                    first.get_component<PlanarReflectionComponent>().settings().resolution_scale ==
-                        .75F &&
-                    first.get_component<PlanarReflectionComponent>().settings().clip_bias == .04F &&
+                    test_support::read_settings(first.get_component<PlanarReflectionComponent>())
+                            .resolution_scale == .75F &&
+                    test_support::read_settings(first.get_component<PlanarReflectionComponent>())
+                            .clip_bias == .04F &&
                     first.get_component<LightProbeVolumeComponent>() &&
                     !first.get_component<LightProbeVolumeComponent>().enabled() &&
                     scene->active_camera().node().get_component<PostProcessComponent>() &&
-                    scene->active_camera()
-                        .node()
-                        .get_component<PostProcessComponent>()
-                        .settings()
+                    test_support::read_settings(
+                        scene->active_camera().node().get_component<PostProcessComponent>())
                         .ssr_enabled &&
-                    scene->active_camera()
-                            .node()
-                            .get_component<PostProcessComponent>()
-                            .settings()
+                    test_support::read_settings(
+                        scene->active_camera().node().get_component<PostProcessComponent>())
                             .ssr_max_steps == 96 &&
                     renderer.material(1).cull_mode() == schema::CullMode::none &&
                     renderer.material(1).get_float("alphaCutoff", cutoff) && cutoff == 0.4F &&
@@ -596,11 +672,14 @@ bool run(const fs::path& root)
                     renderer.material(1).get_float("roughness", roughness) && roughness == 0.75F,
                 "reload hierarchy, transform and all material slot values") ||
         !expect(!named(*scene, "Lamp").get_component<Light>().enabled() &&
-                    named(*scene, "Lamp").get_component<Light>().settings().intensity == 7 &&
-                    named(*scene, "Lamp").get_component<Light>().settings().cast_shadows &&
-                    named(*scene, "Lamp").get_component<Light>().settings().shadow_resolution ==
-                        512 &&
-                    named(*scene, "Lamp").get_component<Light>().settings().shadow_bias == .003F,
+                    test_support::read_settings(named(*scene, "Lamp").get_component<Light>())
+                            .intensity == 7 &&
+                    test_support::read_settings(named(*scene, "Lamp").get_component<Light>())
+                        .cast_shadows &&
+                    test_support::read_settings(named(*scene, "Lamp").get_component<Light>())
+                            .shadow_resolution == 512 &&
+                    test_support::read_settings(named(*scene, "Lamp").get_component<Light>())
+                            .shadow_bias == .003F,
                 "reload light values and disabled component"))
     {
         return false;
@@ -625,7 +704,7 @@ bool run(const fs::path& root)
     }
     // 切回资源引用，避免建模撤销保留的瞬态网格影响普通加载场景的回归。
     if (!expect(renderer.set_mesh("scenes/room-resources/meshes/node-" +
-                                  std::to_string(first.info().properties->id) + ".mesh"),
+                                  std::to_string(first.local_id()) + ".mesh"),
                 "restore imported mesh resource after modeling round trip"))
     {
         return false;
@@ -647,14 +726,15 @@ bool run(const fs::path& root)
     const auto original_material_source =
         root / "assets" / PathUtils::from_utf8(original_material_path);
     std::string original_material;
-    if (!ResourceSystem::read_text(original_material_source, original_material))
+    if (!test_support::read_text(original_material_source, original_material))
     {
         return false;
     }
     Guid shared_mesh_guid;
     Guid shared_material_guid;
-    if (!ResourceSystem::path_to_guid(renderer.mesh_path(), shared_mesh_guid) ||
-        !ResourceSystem::path_to_guid(original_material_path, shared_material_guid))
+    if (!resources.catalog().identities().path_to_guid(renderer.mesh_path(), shared_mesh_guid) ||
+        !resources.catalog().identities().path_to_guid(original_material_path,
+                                                       shared_material_guid))
     {
         return false;
     }
@@ -678,7 +758,7 @@ bool run(const fs::path& root)
     {
         return false;
     }
-    const auto* shared_saved = saved_mesh(saved, shared.info().properties->id);
+    const auto* shared_saved = saved_mesh(saved, shared.local_id());
     if (!expect(shared_saved && shared_saved->mesh_guid == shared_mesh_guid &&
                     shared_saved->material_guid == shared_material_guid,
                 "shared resources keep their original GUIDs") ||
@@ -710,11 +790,11 @@ bool run(const fs::path& root)
     const std::string after_transform = current_sources.at(path).content;
     if (!expect(execute("undo", current) && execute("save_scene", loaded_save) &&
                     result["resourceCount"] == 1 && commands.redo_count() == 1 &&
-                    ResourceSystem::read_text(path, restored) && restored == before_transform,
+                    test_support::read_text(path, restored) && restored == before_transform,
                 "saved edit can be undone and the reverted scene can be saved", error) ||
         !expect(execute("redo", current) && execute("save_scene", loaded_save) &&
                     result["resourceCount"] == 1 && commands.undo_count() == edited_history &&
-                    ResourceSystem::read_text(path, restored) && restored == after_transform &&
+                    test_support::read_text(path, restored) && restored == after_transform &&
                     export_count == 0,
                 "saving after undo preserves redo and the original resource identities", error))
     {
@@ -733,12 +813,12 @@ bool run(const fs::path& root)
     {
         return false;
     }
-    const auto* first_saved = saved_mesh(saved, first.info().properties->id);
-    shared_saved = saved_mesh(saved, shared.info().properties->id);
+    const auto* first_saved = saved_mesh(saved, first.local_id());
+    shared_saved = saved_mesh(saved, shared.local_id());
     if (!expect(first_saved && first_saved->additional_material_guids.size() == 1 &&
                     first_saved->additional_material_guids[0] != shared_material_guid &&
                     shared_saved && shared_saved->material_guid == shared_material_guid &&
-                    ResourceSystem::read_text(original_material_source, restored) &&
+                    test_support::read_text(original_material_source, restored) &&
                     restored == original_material,
                 "local override does not overwrite the material used by other nodes") ||
         !snapshot_sources(root / "assets", initial_sources) ||
@@ -761,10 +841,10 @@ bool run(const fs::path& root)
     {
         return false;
     }
-    auto environment_settings = environment.settings();
+    auto environment_settings = test_support::read_settings(environment);
     environment_settings.ambient_intensity = 0.4F;
     light = named(*scene, "Lamp").get_component<Light>();
-    light_settings = light.settings();
+    light_settings = test_support::read_settings(light);
     light_settings.intensity = 3;
     if (!expect(environment.set_settings(environment_settings) &&
                     light.set_settings(light_settings) && execute("save_scene", loaded_save) &&
@@ -786,6 +866,7 @@ bool run(const fs::path& root)
                                 {"path", "prefabs/material.prefab"}};
     if (!expect(execute("create_prefab", prefab_create) && pipeline.build_assets(root) &&
                     resources.update_catalog(pipeline.catalog(), {{"content", root / "cache"}}) &&
+                    services.prepare_builtins() &&
                     execute("instantiate_prefab", {{"sceneId", std::to_string(scene->id())},
                                                    {"path", "prefabs/material.prefab"},
                                                    {"name", "Prefab copy"}}),
@@ -855,7 +936,7 @@ bool run(const fs::path& root)
     if (!expect(material_override && material_override->material_guid != shared_material_guid &&
                     material_override->additional_material_guids.size() == 1 &&
                     material_override->additional_material_guids.front() != shared_material_guid &&
-                    ResourceSystem::read_text(original_material_source, restored) &&
+                    test_support::read_text(original_material_source, restored) &&
                     restored == original_material,
                 "prefab overrides export full material resources without changing the template",
                 error))
@@ -890,7 +971,7 @@ int main()
     }
     const bool success =
         write_text(root / "settings/editor-import.toml", "[common]\nimport_threads = 8\n") &&
-        run(root);
+        run(root) && retained_shader_save(root);
     fs::remove_all(root, ec);
     return success ? 0 : 1;
 }

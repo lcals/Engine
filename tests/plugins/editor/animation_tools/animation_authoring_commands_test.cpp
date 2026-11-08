@@ -1,3 +1,4 @@
+#include "file_text.hpp"
 #include "resource_fixture.hpp"
 
 #include "editor/asset_pipeline/asset_pipeline_system.hpp"
@@ -37,7 +38,7 @@ bool expect(bool success, const char* message, const std::string& error = {})
 std::string read(const fs::path& path)
 {
     std::string output;
-    return engine::ResourceSystem::read_text(path, output) ? output : std::string{};
+    return test_support::read_text(path, output) ? output : std::string{};
 }
 
 bool write(const fs::path& path, const std::string& contents)

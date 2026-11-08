@@ -1,3 +1,4 @@
+#include "editor/file_text.hpp"
 #include "plugins/editor/mcp/project_mcp_tools.hpp"
 
 #include "plugins/editor/mcp/mcp_system.hpp"
@@ -69,7 +70,7 @@ bool read_status(const fs::path& runtime, Json& response)
     std::string text;
     if (fs::exists(status_path, error))
     {
-        if (!ResourceSystem::read_text(status_path, text))
+        if (!engine::editor::file_detail::read_text(status_path, text))
         {
             response = {{"error", "cannot read script runtime status"}};
             return false;
@@ -92,7 +93,7 @@ bool read_status(const fs::path& runtime, Json& response)
     status["availableRevision"] = "";
     if (fs::exists(available_path, error))
     {
-        if (!ResourceSystem::read_text(available_path, text))
+        if (!engine::editor::file_detail::read_text(available_path, text))
         {
             response = {{"error", "cannot read published asset manifest"}};
             return false;

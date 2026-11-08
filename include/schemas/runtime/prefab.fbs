@@ -8,7 +8,7 @@ table PrefabModelNodeMapping {
 }
 
 table PrefabData {
-    schema_version:uint = 1;
+    schema_version:uint = 0;
     root_id:ulong;
     nodes:[NodeData] (required);
     model_guid:string;

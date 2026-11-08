@@ -23,7 +23,6 @@ public:
     using Runtime = CharacterMotorRuntime;
     static constexpr ComponentType component_type = ComponentType::CharacterMotorData;
     [[nodiscard]] static bool valid_settings(const schema::CharacterMotorDataT& settings) noexcept;
-    [[nodiscard]] schema::CharacterMotorDataT settings() const noexcept;
     [[nodiscard]] bool get_settings(Data& output) const noexcept;
     [[nodiscard]] bool set_settings(const schema::CharacterMotorDataT& settings) noexcept;
     [[nodiscard]] bool restore_data(const schema::ComponentDataT& data);

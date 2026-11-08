@@ -39,9 +39,10 @@ schema::CharacterVisualKind visual_kind(const Node& node) noexcept
     for (Node current = node; static_cast<bool>(current); current = current.parent())
     {
         const auto visual = current.get_component<CharacterVisual>();
-        if (static_cast<bool>(visual) && visual.active())
+        CharacterVisual::Data settings;
+        if (visual.get_settings(settings) && visual.active())
         {
-            return visual.settings().kind;
+            return settings.kind;
         }
     }
     return schema::CharacterVisualKind::body;
@@ -145,7 +146,12 @@ bool CharacterCameraSystem::on_tick(double)
                             pivot.z() + displacement.z() * safe_fraction};
             }
             auto transform = node.get_component<Transform>();
-            auto pose = transform.settings();
+            TransformSettings pose;
+            if (!transform.get_settings(pose))
+            {
+                clear_visibility();
+                return false;
+            }
             pose.position = position;
             pose.rotation = {rig.pitch(), rig.yaw(), 0};
             if (!transform.set_settings(pose))
@@ -201,11 +207,11 @@ bool CharacterCameraSystem::update_visibility()
             }
             const auto rig = camera_node.get_component<CharacterCamera>();
             Node first_person_target = {};
-            if (static_cast<bool>(rig) && rig.active() && camera.active() &&
-                detail::active(camera_node) &&
-                rig.settings().mode == schema::CharacterView::first_person)
+            CharacterCamera::Data settings;
+            if (rig.get_settings(settings) && rig.active() && camera.active() &&
+                detail::active(camera_node) && settings.mode == schema::CharacterView::first_person)
             {
-                first_person_target = scene->find_local_node(rig.settings().target_node_id);
+                first_person_target = scene->find_local_node(settings.target_node_id);
                 if (static_cast<bool>(first_person_target) && !detail::active(first_person_target))
                 {
                     first_person_target = {};

@@ -1,17 +1,128 @@
 #pragma once
+#include "editor/asset_pipeline/animation_sampling.hpp"
 
-#include "runtime/resource/resource_system.hpp"
+#include "resource_codecs.hpp"
+#include "runtime/resource/builtin_resources.hpp"
+#include "runtime/resource/resource_loader.hpp"
 
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <optional>
 #include <string>
 #include <system_error>
 
 namespace test_support
 {
+
+inline std::vector<std::string>
+scene_dependencies(const std::vector<std::unique_ptr<engine::schema::NodeDataT>>& nodes)
+{
+    std::vector<std::string> result;
+    const auto add = [&](const std::string& guid)
+    {
+        if (engine::GuidMap::valid_guid(guid))
+        {
+            result.push_back(guid);
+        }
+    };
+    for (const auto& node : nodes)
+    {
+        if (!node)
+        {
+            continue;
+        }
+        for (const auto& component : node->components)
+        {
+            if (!component)
+            {
+                continue;
+            }
+            if (const auto* value = component->payload.AsMeshRendererData())
+            {
+                add(value->mesh_guid);
+                add(value->material_guid);
+                add(value->lightmap_guid);
+                for (const auto& guid : value->additional_material_guids)
+                {
+                    add(guid);
+                }
+            }
+            if (const auto* value = component->payload.AsColliderData())
+            {
+                add(value->mesh_guid);
+            }
+            if (const auto* value = component->payload.AsAnimatorData())
+            {
+                add(value->animation_guid);
+            }
+            if (const auto* value = component->payload.AsAudioSourceData())
+            {
+                add(value->clip_guid);
+            }
+            if (const auto* value = component->payload.AsUiData())
+            {
+                add(value->document_guid);
+            }
+            if (const auto* value = component->payload.AsLightProbeVolumeData())
+            {
+                add(value->probes_guid);
+            }
+            if (const auto* value = component->payload.AsEnvironmentData())
+            {
+                add(value->ibl_irradiance_guid);
+                add(value->ibl_prefilter_guid);
+                add(value->ibl_lut_guid);
+            }
+            if (const auto* value = component->payload.AsTerrainData())
+            {
+                add(value->terrain_guid);
+                add(value->material_guid);
+            }
+            if (const auto* value = component->payload.AsDestructionData())
+            {
+                add(value->destruction_guid);
+                add(value->material_guid);
+            }
+            if (const auto* value = component->payload.AsEffectData())
+            {
+                add(value->effect_guid);
+            }
+        }
+    }
+    std::sort(result.begin(), result.end());
+    result.erase(std::unique(result.begin(), result.end()), result.end());
+    return result;
+}
+
+template <typename Codec>
+std::optional<typename Codec::ResourceType::Data> builtin(std::string_view path)
+{
+    for (const auto& info : engine::builtin_resource_catalog().entries)
+    {
+        if (info->path != path)
+        {
+            continue;
+        }
+        engine::ByteBuffer bytes;
+        std::unique_ptr<engine::Resource> value;
+        std::string error;
+        Codec codec;
+        if (!engine::builtin_resource_payload(info->guid, bytes) ||
+            !codec.decode(*info, bytes, value, error) || !codec.validate_data(*value, error))
+        {
+            return {};
+        }
+        const auto* data = engine::resource_detail::data<typename Codec::ResourceType>(value.get());
+        if (data)
+        {
+            return *data;
+        }
+    }
+    return {};
+}
 
 // 测试通过正式实体与目录接口准备资源，避免绕过加载和所有权契约。
 class ResourceFixture
@@ -93,7 +204,8 @@ public:
         flatbuffers::FlatBufferBuilder builder;
         engine::schema::FinishPrefabDataBuffer(builder,
                                                engine::schema::PrefabData::Pack(builder, &prefab));
-        return add_entity(path, engine::schema::AssetKind::prefab, builder, {});
+        return add_entity(path, engine::schema::AssetKind::prefab, builder,
+                          scene_dependencies(prefab.nodes));
     }
 
     bool add(std::string_view path, const engine::schema::SceneDataT& scene)
@@ -101,7 +213,8 @@ public:
         flatbuffers::FlatBufferBuilder builder;
         engine::schema::FinishSceneDataBuffer(builder,
                                               engine::schema::SceneData::Pack(builder, &scene));
-        return add_entity(path, engine::schema::AssetKind::scene, builder, {});
+        return add_entity(path, engine::schema::AssetKind::scene, builder,
+                          scene_dependencies(scene.nodes));
     }
 
     bool add(const engine::schema::TextureDataT& texture)
@@ -122,9 +235,15 @@ public:
 
     bool add(const engine::schema::SkeletonDataT& skeleton)
     {
+        auto compiled = skeleton;
+        std::string error;
+        if (!engine::editor::asset_pipeline::prepare_skeleton_sampling(compiled, error))
+        {
+            return false;
+        }
         flatbuffers::FlatBufferBuilder builder;
         engine::schema::FinishSkeletonDataBuffer(
-            builder, engine::schema::SkeletonData::Pack(builder, &skeleton));
+            builder, engine::schema::SkeletonData::Pack(builder, &compiled));
         return add_entity(skeleton.path, engine::schema::AssetKind::skeleton, builder, {});
     }
 
@@ -168,12 +287,17 @@ public:
         return resources.update_catalog(catalog, {{"content", root}});
     }
 
-    bool load(std::string_view path, engine::ResourcePtr& output)
+    bool load(engine::ResourceLoader& loader, std::string_view path, engine::ResourceHandle& output)
     {
-        auto* resources = engine::ResourceSystem::instance();
+        return loader.load(path, output);
+    }
+
+    bool read(engine::ResourceSystem& resources, std::string_view path,
+              std::unique_ptr<engine::Resource>& output)
+    {
         engine::Guid guid;
-        return resources && engine::ResourceSystem::path_to_guid(path, guid) &&
-               resources->load(guid, output);
+        return resources.catalog().identities().path_to_guid(path, guid) &&
+               resources.read(guid, output);
     }
 
     std::filesystem::path root;
@@ -190,7 +314,15 @@ private:
                 return true;
             }
         }
-        return engine::ResourceSystem::path_to_guid(path, guid);
+        for (const auto& entry : engine::builtin_resource_catalog().entries)
+        {
+            if (entry->path == path)
+            {
+                guid = entry->guid;
+                return true;
+            }
+        }
+        return false;
     }
 
     bool add_entity(std::string_view path, engine::schema::AssetKind kind,

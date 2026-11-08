@@ -1,4 +1,5 @@
 #include "plugins/editor/mcp/project_mcp_tools.hpp"
+#include "editor/file_text.hpp"
 
 #include "editor/asset_pipeline/asset_pipeline_system.hpp"
 #include "plugins/editor/asset_build/asset_build_system.hpp"
@@ -95,7 +96,8 @@ bool read_project_status(const fs::path& runtime, Json& status)
     std::error_code error;
     const auto size = fs::file_size(path, error);
     std::string text;
-    if (error || size > 64 * 1024 || !no_symlinks(path) || !ResourceSystem::read_text(path, text))
+    if (error || size > 64 * 1024 || !no_symlinks(path) ||
+        !engine::editor::file_detail::read_text(path, text))
     {
         return false;
     }

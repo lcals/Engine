@@ -16,7 +16,7 @@ if(PROJECT_IS_TOP_LEVEL
 endif()
 
 option(ENGINE_BUILD_APP "Build the minimal window application" ${PROJECT_IS_TOP_LEVEL})
-option(ENGINE_BUILD_TESTS "Build this project's tests" ${PROJECT_IS_TOP_LEVEL})
+option(ENGINE_BUILD_TESTS "Register tests and build the basic checks" ${PROJECT_IS_TOP_LEVEL})
 option(ENGINE_WARNINGS_AS_ERRORS "Treat warnings in this project's targets as errors" OFF)
 option(ENGINE_ENABLE_RUNTIME_DEPS "Build runtime systems and dependencies" OFF)
 option(ENGINE_ENABLE_EDITOR_DEPS "Build editor system and dependencies" OFF)

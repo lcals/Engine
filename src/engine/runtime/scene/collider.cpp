@@ -1,13 +1,14 @@
 #include "runtime/scene/collider.hpp"
 
+#include "runtime/resource/types/mesh_resource.hpp"
 #include "runtime/scene/collider_runtime.hpp"
 
 #include "runtime/scene/ecs_storage.hpp"
 
 #include "runtime/core/guid_map.hpp"
 #include "runtime/physics/mesh_collision_data.hpp"
-#include "runtime/resource/resource_system.hpp"
 #include "runtime/scene/node.hpp"
+#include "runtime/scene/resource_binding.hpp"
 #include "runtime/scene/rigid_body.hpp"
 
 #include <cmath>
@@ -88,12 +89,6 @@ bool Collider::valid_settings(const schema::ColliderDataT& value,
            bounded(value.restitution, 0.0, 1.0);
 }
 
-schema::ColliderDataT Collider::settings() const noexcept
-{
-    const auto* value = read_data<Data>();
-    return value ? *value : Data{};
-}
-
 bool Collider::get_settings(Data& output) const noexcept
 {
     const auto* value = read_data<Data>();
@@ -103,6 +98,11 @@ bool Collider::get_settings(Data& output) const noexcept
 
 bool Collider::set_settings(const schema::ColliderDataT& value)
 {
+    return apply_settings(value, {});
+}
+
+bool Collider::apply_settings(const Data& value, ResourceReference prepared)
+{
     if (!writable())
     {
         return false;
@@ -111,13 +111,19 @@ bool Collider::set_settings(const schema::ColliderDataT& value)
     {
         return false;
     }
-    auto replacement = runtime()->mesh_;
+    ResourceReference replacement;
+    if (runtime()->mesh_ && !replacement.retain(runtime()->mesh_))
+    {
+        return false;
+    }
     auto transient = runtime()->transient_mesh_;
     auto parts = runtime()->mesh_parts_;
     if (value.shape == schema::ColliderShape::mesh)
     {
         auto body = node().get_component<RigidBody>();
-        if (body.valid() && body.settings().motion != schema::BodyMotion::static_body)
+        RigidBody::Data body_settings;
+        if (body && (!body.get_settings(body_settings) ||
+                     body_settings.motion != schema::BodyMotion::static_body))
         {
             return false;
         }
@@ -125,11 +131,14 @@ bool Collider::set_settings(const schema::ColliderDataT& value)
         {
             replacement.reset();
         }
-        else if (!replacement || value.mesh_guid != settings().mesh_guid)
+        else if (!replacement || value.mesh_guid != read_data<Data>()->mesh_guid)
         {
-            auto* resources = ResourceSystem::instance();
-            if (resources == nullptr || !resources->loader().load(value.mesh_guid, replacement) ||
-                !replacement || replacement->mesh() == nullptr)
+            replacement = std::move(prepared);
+            auto* resources = node().world()->resource_loader();
+            if (resources == nullptr ||
+                (!replacement &&
+                 !ecs_detail::acquire_resource(node(), value.mesh_guid, replacement)) ||
+                !replacement || replacement.data<MeshResource>() == nullptr)
             {
                 return false;
             }
@@ -184,7 +193,7 @@ bool Collider::build_data(schema::ComponentDataT& output) const
         return false;
     }
     return runtime()->transient_mesh_ == nullptr && runtime()->mesh_parts_ == nullptr &&
-           build_storage_data(output);
+           get_data(output);
 }
 
 const schema::MeshDataT* Collider::mesh_data() const noexcept
@@ -194,7 +203,7 @@ const schema::MeshDataT* Collider::mesh_data() const noexcept
         return {};
     }
     return runtime()->transient_mesh_ ? runtime()->transient_mesh_.get()
-           : runtime()->mesh_         ? runtime()->mesh_->mesh()
+           : runtime()->mesh_         ? runtime()->mesh_.data<MeshResource>()
                                       : nullptr;
 }
 
@@ -204,14 +213,23 @@ bool Collider::set_mesh(std::string_view path)
     {
         return false;
     }
-    auto replacement = settings();
-    if (!ResourceSystem::path_to_guid(path, replacement.mesh_guid))
+    ResourceReference prepared;
+    Data replacement;
+    if (!get_settings(replacement))
     {
         return false;
     }
+    if (!ecs_detail::acquire_resource(node(), path, prepared))
+    {
+        return false;
+    }
+    if (prepared)
+    {
+        replacement.mesh_guid = prepared->info().guid;
+    }
     replacement.shape = schema::ColliderShape::mesh;
     replacement.hulls.clear();
-    return set_settings(replacement);
+    return apply_settings(replacement, std::move(prepared));
 }
 
 std::string_view Collider::mesh_path() const noexcept

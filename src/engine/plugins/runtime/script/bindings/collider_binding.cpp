@@ -1,4 +1,5 @@
 #include "plugins/runtime/script/bindings/collider_binding.hpp"
+#include "plugins/runtime/script/bindings/binding_helpers.hpp"
 
 #include "plugins/runtime/script/bindings/binding_context.hpp"
 #include "runtime/scene/collider.hpp"
@@ -47,30 +48,21 @@ Object.freeze(Collider.prototype);
 Object.freeze(Collider);
 )js";
 
-Collider collider(const Arguments& arguments, int count)
-{
-    arguments.set_return(false);
-    auto node = BindingContext::node(arguments);
-    return node.valid() && arguments.count() == count ? node.get_component<Collider>() : Collider{};
-}
-
-void add(const Arguments& arguments)
-{
-    auto node = BindingContext::node(arguments);
-    arguments.set_return(arguments.count() == 2 && node.valid() &&
-                         node.add_component<Collider>().valid());
-}
-
 void box(const Arguments& arguments)
 {
-    auto value = collider(arguments, 5);
+    auto value = binding_detail::component<Collider>(arguments, 5);
     double x = 0.0;
     double y = 0.0;
     double z = 0.0;
     if (value.valid() && BindingContext::number(arguments, 2, x) &&
         BindingContext::number(arguments, 3, y) && BindingContext::number(arguments, 4, z))
     {
-        auto settings = value.settings();
+        Collider::Data settings{};
+        if (!value.get_settings(settings))
+        {
+            arguments.set_return(false);
+            return;
+        }
         settings.shape = schema::ColliderShape::box;
         settings.hulls.clear();
         settings.mesh_guid.clear();
@@ -81,11 +73,16 @@ void box(const Arguments& arguments)
 
 void sphere(const Arguments& arguments)
 {
-    auto value = collider(arguments, 3);
+    auto value = binding_detail::component<Collider>(arguments, 3);
     float radius = 0.0F;
     if (value.valid() && BindingContext::scalar(arguments, 2, radius))
     {
-        auto settings = value.settings();
+        Collider::Data settings{};
+        if (!value.get_settings(settings))
+        {
+            arguments.set_return(false);
+            return;
+        }
         settings.shape = schema::ColliderShape::sphere;
         settings.hulls.clear();
         settings.mesh_guid.clear();
@@ -96,13 +93,18 @@ void sphere(const Arguments& arguments)
 
 void capsule(const Arguments& arguments)
 {
-    auto value = collider(arguments, 4);
+    auto value = binding_detail::component<Collider>(arguments, 4);
     float radius = 0.0F;
     float half_height = 0.0F;
     if (value.valid() && BindingContext::scalar(arguments, 2, radius) &&
         BindingContext::scalar(arguments, 3, half_height))
     {
-        auto settings = value.settings();
+        Collider::Data settings{};
+        if (!value.get_settings(settings))
+        {
+            arguments.set_return(false);
+            return;
+        }
         settings.shape = schema::ColliderShape::capsule;
         settings.hulls.clear();
         settings.mesh_guid.clear();
@@ -114,7 +116,7 @@ void capsule(const Arguments& arguments)
 
 void mesh(const Arguments& arguments)
 {
-    auto value = collider(arguments, 3);
+    auto value = binding_detail::component<Collider>(arguments, 3);
     std::string path;
     if (value.valid() && BindingContext::text(arguments, 2, path))
     {
@@ -124,11 +126,16 @@ void mesh(const Arguments& arguments)
 
 void set_scalar(const Arguments& arguments, float schema::ColliderDataT::* field)
 {
-    auto value = collider(arguments, 3);
+    auto value = binding_detail::component<Collider>(arguments, 3);
     float number = 0.0F;
     if (value.valid() && BindingContext::scalar(arguments, 2, number))
     {
-        auto settings = value.settings();
+        Collider::Data settings{};
+        if (!value.get_settings(settings))
+        {
+            arguments.set_return(false);
+            return;
+        }
         settings.*field = number;
         arguments.set_return(value.set_settings(settings));
     }
@@ -146,10 +153,15 @@ void restitution(const Arguments& arguments)
 
 void trigger(const Arguments& arguments)
 {
-    auto value = collider(arguments, 3);
+    auto value = binding_detail::component<Collider>(arguments, 3);
     if (value.valid() && arguments.is_boolean(2))
     {
-        auto settings = value.settings();
+        Collider::Data settings{};
+        if (!value.get_settings(settings))
+        {
+            arguments.set_return(false);
+            return;
+        }
         settings.is_trigger = arguments.boolean(2);
         arguments.set_return(value.set_settings(settings));
     }
@@ -169,9 +181,10 @@ std::string_view ColliderBinding::source() const noexcept
 bool ColliderBinding::register_functions(vm::ScriptVm& vm) const
 {
     return vm.integer("ColliderKind", static_cast<int>(Collider::component_type)) &&
-           vm.function("ColliderAdd", add) && vm.function("ColliderBox", box) &&
-           vm.function("ColliderSphere", sphere) && vm.function("ColliderCapsule", capsule) &&
-           vm.function("ColliderMesh", mesh) && vm.function("ColliderFriction", friction) &&
+           vm.function("ColliderAdd", binding_detail::add_component<Collider>) &&
+           vm.function("ColliderBox", box) && vm.function("ColliderSphere", sphere) &&
+           vm.function("ColliderCapsule", capsule) && vm.function("ColliderMesh", mesh) &&
+           vm.function("ColliderFriction", friction) &&
            vm.function("ColliderRestitution", restitution) &&
            vm.function("ColliderTrigger", trigger);
 }

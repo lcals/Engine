@@ -1,6 +1,6 @@
 # PBR 材质球对照
 
-当前修复与验收范围见[当前结果](pbr-comparison/current-results.md)。扩展参数历史矩阵与逐球统计见 [PBR 参数对照报告](pbr-parameter-comparison.md)；Blender 参考场景及同源网格复现方式见 [工具说明](pbr-comparison/tools.md)。
+实现说明、最近一次记录的对照结果与限制见[结果摘要](pbr-comparison/current-results.md)；Blender 参考场景及同源网格复现方式见[工具说明](pbr-comparison/tools.md)。过期的初版参数报告和截图索引不再维护，历史过程保留在 Git。
 
 `scenes/pbr-comparison.scene` 是引擎的 PBR 直射光基线：六个相同球体分别使用金属度 0、1 和粗糙度 0.2、0.5、0.8，使用内置 PBR shader、正式 Mesh、材质和预制体资源。场景不依赖玩法脚本，预览即可观察；场景已加入资源构建入口。
 
@@ -11,7 +11,7 @@
 | 相机 | 正交，位置 `(0, 0, 12)`，朝向 −Z，竖直视野 7.2 m；球心对应 `(420, 250)`、`(640, 250)`、`(860, 250)`、`(420, 470)`、`(640, 470)`、`(860, 470)`，理想半径 90 px |
 | 材质 | Base Color 在线性空间为 `(0.5, 0.5, 0.5)`；无贴图，表面使用几何法线；上排金属度 0，下排金属度 1，每排粗糙度从左到右为 0.2、0.5、0.8 |
 | 光 | 一盏白色方向光，从球指向光源的方向为 `(-4, 10, 7) / √165`，强度 1；无环境光、IBL、阴影、AO 或 SSR |
-| 后处理 | 曝光乘数 1；关闭 filmic、HDR 和 Bloom；当前受光物体仍经过 Reinhard 和 gamma 2.2 输出 |
+| 后处理 | 曝光乘数 1；关闭 filmic、HDR 和 Bloom；受光物体经过 Reinhard 和标准 sRGB 输出 |
 
 材质球无纹理以隔离直射 BRDF。后续贴图对照应使用同一图像和 UV：Base Color 纹理按 sRGB 解码，金属度、粗糙度和法线均按线性数据读取，不把它们误当 sRGB。
 

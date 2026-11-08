@@ -24,7 +24,6 @@ public:
     static constexpr ComponentType component_type = ComponentType::CharacterControllerData;
     [[nodiscard]] static bool
     valid_settings(const schema::CharacterControllerDataT& settings) noexcept;
-    [[nodiscard]] schema::CharacterControllerDataT settings() const noexcept;
     [[nodiscard]] bool get_settings(Data& output) const noexcept;
     [[nodiscard]] bool set_settings(const schema::CharacterControllerDataT& settings) noexcept;
     // 瞬态意图仅供下次控制器更新消费；不进入组件持久数据。

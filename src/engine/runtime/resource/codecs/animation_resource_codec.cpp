@@ -1,11 +1,13 @@
 #include "runtime/resource/codecs/animation_resource_codec.hpp"
+#include "runtime/resource/codecs/resource_decode.hpp"
+#include "runtime/resource/codecs/sampling_archive.hpp"
 
 #include "runtime/core/guid_map.hpp"
 #include "runtime/resource/codecs/model_value_utils.hpp"
-
-#include <flatbuffers/verifier.h>
-#include <limits>
+#include "runtime/resource/types/skeleton_resource.hpp"
 #include <set>
+
+#include <limits>
 #include <utility>
 
 namespace engine
@@ -30,7 +32,7 @@ bool animation_scale(const schema::Vec3& value)
 template <typename Key, typename Predicate>
 bool keys(const std::vector<Key>& values, float duration, Predicate validate)
 {
-    if (values.empty() || values.size() > 1000000)
+    if (values.size() > 1000000)
     {
         return false;
     }
@@ -49,7 +51,7 @@ bool keys(const std::vector<Key>& values, float duration, Predicate validate)
 } // namespace
 bool AnimationResourceCodec::validate(const schema::AnimationDataT& data)
 {
-    if (data.schema_version != 1 || !valid_path(data.path) || data.name.empty() ||
+    if (data.schema_version != 2 || !valid_path(data.path) || data.name.empty() ||
         !GuidMap::valid_guid(data.skeleton_guid) || !std::isfinite(data.duration) ||
         data.duration <= 0.0F || !std::isfinite(1.0F / data.duration) || data.duration > 86400.0F ||
         data.tracks.empty() || data.tracks.size() > 1024)
@@ -130,39 +132,83 @@ bool AnimationResourceCodec::validate(const schema::AnimationDataT& data)
             return false;
         }
     }
-    return true;
+    return sampling_archive_detail::animation(data);
 }
-bool AnimationResourceCodec::decode(const ResourceCatalog& catalog, ByteView payload,
-                                    Resource& output) const
+schema::AssetKind AnimationResourceCodec::kind() const noexcept
 {
-    const auto* bytes = reinterpret_cast<const std::uint8_t*>(payload.data());
-    flatbuffers::Verifier verifier(bytes, payload.size());
-    if (!schema::VerifyAnimationDataBuffer(verifier))
+    return schema::AssetKind::animation;
+}
+
+bool AnimationResourceCodec::decode(const schema::AssetEntryT& entry, ByteView payload,
+                                    std::unique_ptr<Resource>& output, std::string& error) const
+{
+    const auto validate = [](ByteView payload, std::string& error)
     {
+        if (!resource_decode_detail::verify_flatbuffer(payload, schema::VerifyAnimationDataBuffer,
+                                                       "Invalid Animation FlatBuffer", error))
+        {
+            return false;
+        }
+        const auto* data = schema::GetAnimationData(payload.data());
+        if (data->schema_version() != 2 ||
+            data->sampling_encoding() != schema::SamplingEncoding::ozz_archive)
+        {
+            error = "Disk Animation requires the current offline sampling archive";
+            return false;
+        }
+        return true;
+    };
+    return resource_decode_detail::decode_flatbuffer<ResourceType>(
+        entry, payload, 64U * 1024U * 1024U, validate, [](const std::uint8_t* bytes)
+        { return schema::UnPackAnimationData(bytes); }, output, error);
+}
+
+bool AnimationResourceCodec::validate_data(const Resource& resource, std::string& error) const
+{
+    const auto* data = resource_detail::data<ResourceType>(&resource);
+    if (!data ||
+        !(data->path == resource.info().path && validate(*data) &&
+          resource.info().dependencies.size() == 1 && declares(resource, data->skeleton_guid)))
+    {
+        error = "Invalid Animation data or declared dependencies";
         return false;
     }
-    auto data = schema::UnPackAnimationData(bytes);
-    if (data->path != output.info().path || !validate(*data) ||
-        output.info().dependencies.size() != 1 ||
-        !declares(catalog, output, data->skeleton_guid, schema::AssetKind::skeleton))
-    {
-        return false;
-    }
-    store(output, std::move(data));
+    error.clear();
     return true;
 }
-bool AnimationResourceCodec::validate_dependencies(const ResourceCatalog&, const Resource& resource,
-                                                   std::span<const ResourcePtr> dependencies) const
+
+bool AnimationResourceCodec::validate_dependencies(const Resource& resource,
+                                                   ResourceView dependencies,
+                                                   std::string& error) const
 {
-    const auto* data = resource.animation();
+    const auto* data = resource_detail::data<AnimationResource>(&resource);
     const auto* skeleton = data ? dependency(dependencies, data->skeleton_guid) : nullptr;
-    if (!skeleton || !skeleton->skeleton())
+    if (!skeleton || !resource_detail::data<SkeletonResource>(skeleton))
     {
         return false;
+    }
+    const auto count = resource_detail::data<SkeletonResource>(skeleton)->joints.size();
+    if (data->sampling_encoding == schema::SamplingEncoding::ozz_archive)
+    {
+        std::vector<std::uint8_t> channels(count);
+        for (const auto& track : data->tracks)
+        {
+            if (track->joint >= count)
+            {
+                return false;
+            }
+            channels[track->joint] = (!track->translations.empty() ? 1 : 0) |
+                                     (!track->rotations.empty() ? 2 : 0) |
+                                     (!track->scales.empty() ? 4 : 0);
+        }
+        if (channels != data->sampling_channels)
+        {
+            return false;
+        }
     }
     for (const auto& track : data->tracks)
     {
-        if (track->joint >= skeleton->skeleton()->joints.size())
+        if (track->joint >= resource_detail::data<SkeletonResource>(skeleton)->joints.size())
         {
             return false;
         }

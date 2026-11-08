@@ -10,7 +10,7 @@ classDiagram
         +CharacterController(Component component)
         +register_type(ComponentRegistry& registry) bool$
         +valid_settings(const CharacterControllerDataT& settings) bool$
-        +settings() CharacterControllerDataT
+
         +get_settings(CharacterControllerDataT& output) bool
         +set_settings(const CharacterControllerDataT& settings) bool
         +set_input(const CharacterInput& input) bool
@@ -30,7 +30,7 @@ classDiagram
         +CharacterCamera(Component component)
         +register_type(ComponentRegistry& registry) bool$
         +valid_settings(const CharacterCameraDataT& settings) bool$
-        +settings() CharacterCameraDataT
+
         +get_settings(CharacterCameraDataT& output) bool
         +set_settings(const CharacterCameraDataT& settings) bool
         +synchronize_angles() bool
@@ -50,7 +50,7 @@ classDiagram
         +CharacterVisual(Component component)
         +register_type(ComponentRegistry& registry) bool$
         +valid_settings(const CharacterVisualDataT& settings) bool$
-        +settings() CharacterVisualDataT
+
         +get_settings(CharacterVisualDataT& output) bool
         +set_settings(const CharacterVisualDataT& settings) bool
         +restore_data(const ComponentDataT& data) bool
@@ -121,7 +121,7 @@ classDiagram
 - `CharacterCamera` 挂在普通 Camera 节点，独立引用目标节点，可跟随没有玩家组件的 NPC 或其他物体。模式、眼高、距离、俯仰范围和避障参数由自己的 FlatBuffers 数据保存。观察角为瞬态；镜头在物理后取最终位置，第三人称使用现有 Jolt 球扫掠避障，第一人称位于目标眼高。
 - `CharacterVisual` 标记身体、头部或第一人称手/武器，子树使用最近的标记，默认身体。第一人称只从自己的镜头隐藏身体/头部，第一人称手/武器仅向对应第一人称镜头显示。其他镜头仍看得到身体。本插件独占场景 Camera 的瞬态隐藏实例列表；过滤使用该列表，不修改 MeshRenderer 的全局可见性；角色身体继续投射阴影，禁用动画与可见性无关。
 - 正式宿主按脚本/玩家意图、物理、动画、跟随相机、音频的顺序装配系统。核心不包含具体插件，插件的物理前/后安装入口由宿主提供；测试必须使用同一顺序。
-- 原控制器中的相机参数迁移为相机节点上的 `character_camera`，其目标为角色节点；美术部件可挂 `character_visual`。二进制 schema 保留已废弃字段的编号，源场景显式迁移并重新导入，不在运行时偷偷创建相机或修改场景结构。
+- 原控制器中的相机参数迁移为相机节点上的 `character_camera`，其目标为角色节点；美术部件可挂 `character_visual`。二进制 schema 删除废弃字段；SceneData 与 PrefabData 只接受当前版本 2，默认版本 0 无效，旧缓存重新导入。不在运行时创建相机或修改场景结构。
 
 ## 输入链路
 
@@ -133,4 +133,4 @@ CharacterControllerSystem 不借用 WindowSystem，也不提供固定按键 fall
 
 常驻玩家与相机继续在原 Scene 中更新，选中玩家的组件实例和观察角不随活动 Scene 更换而重置。组件中的 local ID 引用只在所属 Scene 内解析；目标或外部相机正常卸载后停止对应跟随/主动输入，清理失效的视图隐藏，不转向新场景同 local ID 的节点。非法层级、数值和必要组件配置仍返回失败。视图隐藏列表覆盖全部已发布场景中的 MeshRenderer，保持每相机独立可见性。
 
-本页组件均为可复制值句柄，生成设置唯一存于 `ComponentStorage<Data>` 的 ECS 列；`settings()` 返回独立值，`get_settings(output)` 明确返回失败。Runtime 为 ECS 中的领域运行列，资源引用、请求和缓存归该列或所属 System；句柄不拥有这些数据。Runtime 定义与可变访问仅供所属模块内部实现使用，公开组件不提供 `runtime()`；原生系统的 ECS 列借用仅在当前结构稳定阶段有效，不能跨结构修改留存。类型注册、失效身份与查询规则见 [ECS 场景](../../../runtime/class-diagrams/ecs-scene.md)。
+本页组件均为可复制值句柄，生成设置唯一存于 `ComponentStorage<Data>` 的 ECS 列；`get_settings(output)` 返回独立值并明确报告失败，失败输出安全默认值；不保留吞掉失败的 settings() 包装。Runtime 为 ECS 中的领域运行列，资源引用、请求和缓存归该列或所属 System；句柄不拥有这些数据。Runtime 定义与可变访问仅供所属模块内部实现使用，公开组件不提供 `runtime()`；原生系统的 ECS 列借用仅在当前结构稳定阶段有效，不能跨结构修改留存。类型注册、失效身份与查询规则见 [ECS 场景](../../../runtime/class-diagrams/ecs-scene.md)。

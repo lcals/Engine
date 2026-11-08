@@ -15,6 +15,8 @@ classDiagram
     class ModelingCommands
     register_modeling_tools --> EditorMcpTools : 借用固定编辑器通道
     register_modeling_tools ..> McpSystem : 注册参数Schema和回调
+    class mcp_functions
+    register_modeling_tools ..> mcp_functions : 精简目标 共用命令登记
     register_modeling_tools ..> ModelingCommands : 命令转发及原回执
 ```
 
@@ -30,3 +32,5 @@ modeling_help 提供各 operation 的参数类型、示例、选择方式及适�
 MCP 不执行几何和路径处理，参数通过 schema 初检后由编辑器校验真实场景及资源状态。
 
 `register_modeling_tools` 是模块登记函数，没有适配器对象或独立状态；工具回调直接借用 EditorMcpTools，宿主保证通道存活到 McpSystem 关闭。
+
+**登记精简已实现：** 直接转发项使用[共用工具登记函数](editor-mcp-tools.md#共用工具登记目标)，工具名、schema、命令名和回执语义保持。原有特定参数转换仍由本模块执行，不迁入公共登记函数。

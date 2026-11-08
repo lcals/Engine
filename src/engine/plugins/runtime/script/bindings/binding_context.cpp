@@ -1,12 +1,10 @@
 #include "plugins/runtime/script/bindings/binding_context.hpp"
 
-#include "runtime/scene/animator_runtime.hpp"
-
 #include "runtime/app/app.hpp"
 #include "runtime/input/input_system.hpp"
 #include "runtime/log/log_system.hpp"
 #include "runtime/navigation/navigation_system.hpp"
-#include "runtime/resource/resource_system.hpp"
+#include "runtime/resource/types/scene_resource.hpp"
 #include "runtime/scene/animator.hpp"
 #include "runtime/scene/scene.hpp"
 #include "runtime/world/world_system.hpp"
@@ -17,11 +15,12 @@
 
 namespace engine::plugins::script::bindings
 {
-BindingContext::BindingContext(WorldSystem* world, RenderSystem* renderer, UiSystem* ui,
-                               PhysicsSystem* physics, NavigationSystem* navigation,
-                               InputSystem* input, WindowSystem* window, MoviePlayer* movies) noexcept
-    : world_(world), renderer_(renderer), ui_(ui), physics_(physics), navigation_(navigation),
-      input_(input), window_(window), movies_(movies)
+BindingContext::BindingContext(ResourceLoader* resources, WorldSystem* world,
+                               RenderSystem* renderer, UiSystem* ui, PhysicsSystem* physics,
+                               NavigationSystem* navigation, InputSystem* input,
+                               WindowSystem* window, MoviePlayer* movies) noexcept
+    : resources_(resources), world_(world), renderer_(renderer), ui_(ui), physics_(physics),
+      navigation_(navigation), input_(input), window_(window), movies_(movies)
 {
 }
 
@@ -65,7 +64,10 @@ void BindingContext::cancel_movies() noexcept
     movie_handle_ = {};
 }
 
-MoviePlayer* BindingContext::movies() const noexcept { return movies_; }
+MoviePlayer* BindingContext::movies() const noexcept
+{
+    return movies_;
+}
 bool BindingContext::remember_movie(MoviePlaybackHandle handle) noexcept
 {
     if (movie_handle_.id || !handle.id)
@@ -92,6 +94,8 @@ void BindingContext::shutdown() noexcept
 {
     cancel_movies();
     cancel_scene_load();
+    resource_requests_.clear();
+    resource_handles_.clear();
     async_results_.clear();
     animation_events_.clear();
     animation_event_cursor_ = 0;
@@ -188,57 +192,31 @@ bool BindingContext::set_mouse_mode(MouseMode mode)
 
 bool BindingContext::begin_scene_load(std::string_view path)
 {
-    if (!active_ || !callable_ || world_ == nullptr || !world_->is_initialized() ||
-        !scene_load_path_.empty())
+    if (!active_ || !callable_ || !world_ || !world_->is_initialized() ||
+        !scene_load_path_.empty() || world_->resource_loader() != resources_)
     {
         return false;
     }
     const auto* current = world_->scene();
-    if ((current != nullptr ? current->id() : 0) != scene_id_)
+    if ((current ? current->id() : 0) != scene_id_)
     {
         return false;
     }
     scene_load_error_.clear();
-    auto* resources = ResourceSystem::instance();
-    Guid guid;
-    if (resources == nullptr || !ResourceSystem::path_to_guid(path, guid))
+    ResourceReference root;
+    if (!root.acquire(resources_, path) || !root.data<SceneResource>())
     {
-        scene_load_error_ = "Scene path is unavailable: " + std::string(path);
+        scene_load_error_ = "Scene must be loaded with Resources before use";
         return false;
     }
-    const auto* entry = resources->catalog().find(guid);
-    if (entry == nullptr || entry->kind != schema::AssetKind::scene)
-    {
-        scene_load_error_ = "The requested resource is not a scene";
-        return false;
-    }
-    auto& loader = resources->loader();
-    std::unique_ptr<ResourceLoad> operation;
-    if (!loader.begin_load(guid, operation) || !operation)
-    {
-        scene_load_error_ =
-            loader.last_error().empty() ? "Scene step loading is unavailable" : loader.last_error();
-        return false;
-    }
-    ResourceLoadProgress progress;
-    const auto status = operation->step(0, progress);
-    if (status == ResourceLoadStatus::failed || progress.total == 0)
-    {
-        scene_load_error_ = operation->last_error().empty() ? "Cannot prepare scene resources"
-                                                            : operation->last_error();
-        return false;
-    }
-    scene_load_ = std::move(operation);
-    scene_load_resources_ = resources;
-    scene_load_loader_ = &loader;
-    scene_load_generation_ = resources->generation();
-    scene_load_progress_ = progress;
+    scene_load_ = std::move(root);
+    scene_load_progress_ = {0, 1};
     scene_load_status_ = ResourceLoadStatus::loading;
     scene_load_path_ = path;
     return true;
 }
 
-ResourceLoadStatus BindingContext::step_scene_load(std::uint32_t resource_budget,
+ResourceLoadStatus BindingContext::step_scene_load(std::uint32_t node_budget,
                                                    ResourceLoadProgress& output)
 {
     output = {};
@@ -250,32 +228,23 @@ ResourceLoadStatus BindingContext::step_scene_load(std::uint32_t resource_budget
     {
         if (!scene_load_context_valid())
         {
-            fail_scene_load("The scene loading directory or owning world changed");
+            fail_scene_load("The scene owning world changed");
         }
-        else
+        else if (node_budget)
         {
-            const auto resources_status = scene_load_->step(resource_budget, scene_load_progress_);
-            if (resources_status == ResourceLoadStatus::failed)
+            if (!scene_restore_request_)
             {
-                fail_scene_load(scene_load_->last_error().empty() ? "Cannot load scene resources"
-                                                                  : scene_load_->last_error());
+                scene_restore_request_ = world_->begin_restore_scene(scene_load_.handle());
             }
-            else if (resources_status == ResourceLoadStatus::ready && resource_budget != 0)
+            const auto restored = world_->step_restore_scene(scene_restore_request_, node_budget);
+            if (restored == SceneRestoreStatus::failed)
             {
-                if (scene_restore_request_ == 0)
-                {
-                    scene_restore_request_ = world_->begin_restore_scene(scene_load_->resource());
-                }
-                const auto restored =
-                    world_->step_restore_scene(scene_restore_request_, resource_budget);
-                if (restored == SceneRestoreStatus::failed)
-                {
-                    fail_scene_load("Cannot restore scene candidate: " + scene_load_path_);
-                }
-                else if (restored == SceneRestoreStatus::ready)
-                {
-                    scene_load_status_ = ResourceLoadStatus::ready;
-                }
+                fail_scene_load("Cannot restore scene candidate: " + scene_load_path_);
+            }
+            else if (restored == SceneRestoreStatus::ready)
+            {
+                scene_load_status_ = ResourceLoadStatus::ready;
+                scene_load_progress_.completed = 1;
             }
         }
     }
@@ -296,8 +265,7 @@ Scene* BindingContext::commit_scene_load()
         return nullptr;
     }
     // 候选已在主线程按预算恢复；提交只切换活动场景所有权。
-    const auto root = scene_load_->resource();
-    if (!root || !root->scene() || root->generation() != scene_load_generation_)
+    if (!scene_load_.data<SceneResource>())
     {
         fail_scene_load("The prepared scene resource is unavailable");
         return nullptr;
@@ -320,11 +288,8 @@ void BindingContext::cancel_scene_load() noexcept
     }
     scene_restore_request_ = 0;
     scene_load_.reset();
-    scene_load_resources_ = nullptr;
-    scene_load_loader_ = nullptr;
     scene_load_progress_ = {};
     scene_load_status_ = ResourceLoadStatus::loading;
-    scene_load_generation_ = 0;
     scene_load_path_.clear();
     scene_load_error_.clear();
 }
@@ -336,11 +301,8 @@ std::string_view BindingContext::scene_load_error() const noexcept
 
 bool BindingContext::scene_load_context_valid() const noexcept
 {
-    auto* resources = ResourceSystem::instance();
-    if (resources == nullptr || resources != scene_load_resources_ ||
-        resources->generation() != scene_load_generation_ ||
-        &resources->loader() != scene_load_loader_ || world_ == nullptr ||
-        !world_->is_initialized())
+    if (!resources_ || !world_ || world_->resource_loader() != resources_ ||
+        !world_->is_initialized() || !scene_load_)
     {
         return false;
     }
@@ -358,6 +320,126 @@ void BindingContext::fail_scene_load(std::string_view error)
     scene_load_error_ = error;
     scene_load_status_ = ResourceLoadStatus::failed;
     scene_load_.reset();
+}
+
+std::uint64_t BindingContext::load_resource(std::string_view path)
+{
+    if (!active_ || !callable_ || !resources_ || resource_sequence_ == UINT64_MAX)
+    {
+        resource_error_ = "Resource service is unavailable";
+        return 0;
+    }
+    ResourceHandle handle;
+    if (!resources_->load(path, handle))
+    {
+        resource_error_ = resources_->last_error();
+        return 0;
+    }
+    ResourceReference reference;
+    if (!reference.adopt(resources_, handle))
+    {
+        (void)resources_->release(handle);
+        return 0;
+    }
+    const auto token = ++resource_sequence_;
+    resource_handles_.emplace(token, std::move(reference));
+    resource_error_.clear();
+    return token;
+}
+
+ResourceHandle BindingContext::resource_handle(std::uint64_t token) const noexcept
+{
+    const auto found = resource_handles_.find(token);
+    return found != resource_handles_.end() ? found->second.handle() : ResourceHandle{};
+}
+
+std::uint64_t BindingContext::retain_resource(std::uint64_t token)
+{
+    ResourceReference reference;
+    if (!active_ || !callable_ || resource_sequence_ == UINT64_MAX ||
+        !reference.retain(resources_, resource_handle(token)))
+    {
+        resource_error_ = "Invalid resource acquisition";
+        return 0;
+    }
+    const auto result = ++resource_sequence_;
+    resource_handles_.emplace(result, std::move(reference));
+    resource_error_.clear();
+    return result;
+}
+
+bool BindingContext::release_resource(std::uint64_t token)
+{
+    if (!active_ || !callable_ || !resource_handles_.erase(token))
+    {
+        resource_error_ = "Invalid resource acquisition";
+        return false;
+    }
+    resource_error_.clear();
+    return true;
+}
+
+std::uint64_t BindingContext::begin_resource_load(std::string_view path)
+{
+    if (!active_ || !callable_ || !resources_ || resource_sequence_ == UINT64_MAX)
+    {
+        resource_error_ = "Resource service is unavailable";
+        return 0;
+    }
+    std::unique_ptr<ResourceLoad> operation;
+    if (!resources_->begin_load(path, operation))
+    {
+        resource_error_ = resources_->last_error();
+        return 0;
+    }
+    const auto token = ++resource_sequence_;
+    resource_requests_.emplace(token, std::move(operation));
+    resource_error_.clear();
+    return token;
+}
+
+ResourceLoad* BindingContext::resource_request(std::uint64_t token) const noexcept
+{
+    const auto found = resource_requests_.find(token);
+    return found != resource_requests_.end() ? found->second.get() : nullptr;
+}
+
+std::uint64_t BindingContext::take_resource(std::uint64_t token)
+{
+    auto* operation = resource_request(token);
+    if (!active_ || !callable_ || !operation || resource_sequence_ == UINT64_MAX)
+    {
+        return 0;
+    }
+    ResourceHandle handle;
+    if (!operation->take(handle))
+    {
+        resource_error_ = operation->last_error();
+        return 0;
+    }
+    ResourceReference reference;
+    if (!reference.adopt(resources_, handle))
+    {
+        (void)resources_->release(handle);
+        return 0;
+    }
+    const auto result = ++resource_sequence_;
+    resource_handles_.emplace(result, std::move(reference));
+    resource_requests_.erase(token);
+    resource_error_.clear();
+    return result;
+}
+
+bool BindingContext::cancel_resource_load(std::uint64_t token)
+{
+    auto* operation = resource_request(token);
+    if (!active_ || !callable_ || !operation)
+    {
+        return false;
+    }
+    const bool cancelled = operation->cancel();
+    resource_requests_.erase(token);
+    return cancelled;
 }
 
 std::uint64_t
@@ -542,13 +624,13 @@ bool BindingContext::take_animation_event(AnimationEvent& output)
         const auto& event = animation_events_[animation_event_cursor_++];
         const auto node = find_node(event.scene_id, event.node_id);
         const auto animator = node ? node.get_component<Animator>() : Animator{};
-        const auto* runtime = animator ? engine::ecs_detail::component_runtime(animator) : nullptr;
+        AnimatorPlaybackInfo info;
         if (animator && animator.active() &&
-            animator.instance_id() == event.component_instance_id && runtime &&
-            runtime->playback_id_ == event.playback_id &&
-            runtime->track_revision_ == event.track_revision && runtime->animation_ &&
-            runtime->animation_->info().guid == event.animation_guid &&
-            runtime->animation_->generation() == event.resource_generation)
+            animator.instance_id() == event.component_instance_id &&
+            animator.get_playback_info(info) && info.playback_id == event.playback_id &&
+            info.track_revision == event.track_revision &&
+            info.animation_guid == event.animation_guid &&
+            info.resource_generation == event.resource_generation)
         {
             output = event;
             return true;

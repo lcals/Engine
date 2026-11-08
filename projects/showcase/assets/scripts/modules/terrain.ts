@@ -1,4 +1,4 @@
-import {
+import { Resources, ResourceHandle,
     Animator, Camera, CharacterMotor, Debug, Gameplay, MeshRenderer,
     Scene, TerrainComponent, Transform, UiComponent,
 } from "engine";
@@ -10,6 +10,7 @@ const save_slot = "showcase-terrain";
 const camera_nodes = { overview: "Overview camera", cave: "Cave camera", walk: "Player camera" };
 
 export default class Game extends Gameplay {
+    private readonly resources: ResourceHandle[] = [];
     scene: Scene | null = null;
     private terrain: TerrainComponent | null = null;
     private motor: CharacterMotor | null = null;
@@ -23,6 +24,12 @@ export default class Game extends Gameplay {
     private animation_speed = 0;
 
     override OnInitialize(): boolean {
+        for (const path of ["scenes/terrain.scene", "prefabs/characters/player.prefab", "materials/character.material", "models/locomotions.fbx/animations/walk"]) {
+            const resource = Resources.Load(path);
+            if (!resource) { Debug.LogError(`Cannot load ${path}: ${Resources.lastError}`); return false; }
+            this.resources.push(resource);
+        }
+
         this.scene = Scene.Load("scenes/terrain.scene");
         const scene = this.scene;
         if (!scene) return false;
@@ -159,6 +166,10 @@ export default class Game extends Gameplay {
     }
 
     override OnShutdown(): void {
+        for (const resource of this.resources.splice(0)) {
+            if (!Resources.Release(resource)) Debug.LogError("Cannot release showcase resource");
+        }
+
         this.input.Shutdown();
         this.controller?.Unbind();
         this.controller = null;

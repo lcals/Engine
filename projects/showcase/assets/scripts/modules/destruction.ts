@@ -1,8 +1,9 @@
-import { Camera, Debug, DestructionComponent, Gameplay, Scene, UiComponent } from "engine";
+import { Resources, ResourceHandle, Camera, Debug, DestructionComponent, Gameplay, Scene, UiComponent } from "engine";
 import { DestructionController } from "../controllers/destruction_controller.js";
 import { DestructionAction, DestructionModel } from "../models/destruction_model.js";
 
 export default class Game extends Gameplay {
+    private readonly resources: ResourceHandle[] = [];
     scene: Scene | null = null;
     private tower: DestructionComponent | null = null;
     private wall: DestructionComponent | null = null;
@@ -11,6 +12,12 @@ export default class Game extends Gameplay {
     private readonly model = new DestructionModel();
 
     override OnInitialize(): boolean {
+        for (const path of ["scenes/destruction.scene"]) {
+            const resource = Resources.Load(path);
+            if (!resource) { Debug.LogError(`Cannot load ${path}: ${Resources.lastError}`); return false; }
+            this.resources.push(resource);
+        }
+
         this.scene = Scene.Load("scenes/destruction.scene");
         this.tower = this.scene?.FindNode("Tower")?.GetComponent(DestructionComponent) ?? null;
         this.wall = this.scene?.FindNode("Wall")?.GetComponent(DestructionComponent) ?? null;
@@ -87,6 +94,10 @@ export default class Game extends Gameplay {
     }
 
     override OnShutdown(): void {
+        for (const resource of this.resources.splice(0)) {
+            if (!Resources.Release(resource)) Debug.LogError("Cannot release showcase resource");
+        }
+
         this.controller?.Unbind();
         this.controller = null;
         this.tower = null;

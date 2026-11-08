@@ -21,7 +21,17 @@ int main(int argc, char** argv)
         }
         if (mode == "fail")
         {
+            std::fputs("compiler diagnostic", stderr);
             return 7;
+        }
+        if (mode == "large")
+        {
+            const std::string bytes(1024, 'x');
+            for (int index = 0; index < 64; ++index)
+            {
+                std::fwrite(bytes.data(), 1, bytes.size(), stdout);
+            }
+            return 0;
         }
         if (mode == "wait")
         {
@@ -32,29 +42,34 @@ int main(int argc, char** argv)
     }
     std::string output;
     std::string error;
-    if (run_import_tool({argv[0], "echo"}, {}, 64, output, error) != ImportToolStatus::success ||
+    if (run_import_tool({argv[0], "echo"}, output, error) != ImportToolStatus::success ||
         output != "tool output" || !error.empty())
     {
         return 1;
     }
-    if (run_import_tool({argv[0], "echo"}, {}, 4, output, error) != ImportToolStatus::failed ||
+    if (run_import_tool({argv[0], "echo"}, output, error, {}, 4) != ImportToolStatus::failed ||
         output.size() > 4 || error.empty())
     {
         return 2;
     }
-    if (run_import_tool({argv[0], "fail"}, {}, 64, output, error) != ImportToolStatus::failed ||
-        error.empty())
+    if (run_import_tool({argv[0], "fail"}, output, error) != ImportToolStatus::failed ||
+        output != "compiler diagnostic" || error.find(output) == std::string::npos)
     {
         return 3;
     }
     const auto start = std::chrono::steady_clock::now();
     if (run_import_tool(
-            {argv[0], "wait"}, [&]
+            {argv[0], "wait"}, output, error, [&]
             { return std::chrono::steady_clock::now() - start > std::chrono::milliseconds(100); },
-            64, output, error) != ImportToolStatus::cancelled ||
+            64) != ImportToolStatus::cancelled ||
         std::chrono::steady_clock::now() - start > std::chrono::seconds(2))
     {
         return 4;
+    }
+    if (run_import_tool({argv[0], "large"}, output, error) != ImportToolStatus::success ||
+        output != std::string(65536, 'x') || !error.empty())
+    {
+        return 5;
     }
     return 0;
 }

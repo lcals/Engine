@@ -144,18 +144,21 @@ bool add_script(test_support::ResourceFixture& files)
 bool run(test_support::ResourceFixture& files)
 {
     using engine::plugins::navigation_crowd::NavigationAgent;
-    engine::ResourceSystem resources;
     engine::ThreadSystem threads({.worker_limit = 2});
+    test_support::ResourceServices services(&threads);
+    auto& resources = services.core;
+
     engine::TaskSystem tasks(threads, {.name = "Navigation binding tests", .max_concurrency = 2});
-    engine::WorldSystem world;
+    engine::WorldSystem world(&services.loader);
     auto navigation = std::make_unique<engine::NavigationSystem>();
     auto* navigation_ptr = navigation.get();
     engine::WindowSystem window;
     engine::PhysicsSystem physics(&world);
     engine::RenderSystem renderer(window, &world);
-    engine::plugins::script::ScriptSystem script(&world, nullptr, nullptr, nullptr, navigation_ptr);
+    engine::plugins::script::ScriptSystem script(&services.loader, &world, nullptr, nullptr,
+                                                 nullptr, navigation_ptr);
     std::unique_ptr<engine::System> navigation_base = std::move(navigation);
-    if (!expect(resources.initialize({}) && threads.initialize({}) && tasks.initialize({}) &&
+    if (!expect((threads.initialize({}) && services.initialize({})) && tasks.initialize({}) &&
                     world.add_subsystem(navigation_base) &&
                     configure_runtime_plugins(engine::RuntimeStage::before_physics, world, window,
                                               physics, *navigation_ptr, renderer, tasks) &&
@@ -165,7 +168,7 @@ bool run(test_support::ResourceFixture& files)
                     world.subsystem_count() == 2 && world.initialize({}) &&
                     world.component_registry().contains(NavigationAgent::component_type) &&
                     script.initialize({}) && add_script(files) && files.publish(resources) &&
-                    test_support::start_script(script, resources, {{"content", files.root}},
+                    test_support::start_script(script, services, {{"content", files.root}},
                                                "scripts/game.js"),
                 "production host assembly registers the plugin without a window or GPU", script))
     {
@@ -176,8 +179,10 @@ bool run(test_support::ResourceFixture& files)
                     ? test_support::scene_nodes(*scene).front()
                     : engine::Node{};
     auto old_agent = node.valid() ? node.get_component<NavigationAgent>() : NavigationAgent{};
-    if (!expect(old_agent.valid() && std::abs(old_agent.settings().radius - .45F) < .0001F &&
-                    old_agent.settings().max_speed == 4.0F && !old_agent.settings().face_velocity &&
+    if (!expect(old_agent.valid() &&
+                    std::abs(test_support::read_settings(old_agent).radius - .45F) < .0001F &&
+                    test_support::read_settings(old_agent).max_speed == 4.0F &&
+                    !test_support::read_settings(old_agent).face_velocity &&
                     old_agent.state() == engine::NavigationAgentStatus::pending,
                 "script configuration and pending target use the native component", script))
     {
@@ -192,7 +197,7 @@ bool run(test_support::ResourceFixture& files)
     auto fresh = node.add_component<NavigationAgent>();
     if (!expect(fresh.valid() && fresh.instance_id() != old_identity && script.tick(.016) &&
                     script.status().running && fresh.enabled() &&
-                    fresh.settings() == engine::schema::NavigationAgentDataT{} &&
+                    test_support::read_settings(fresh) == engine::schema::NavigationAgentDataT{} &&
                     fresh.state() == engine::NavigationAgentStatus::idle,
                 "stale handle is rejected and the replacement uses schema defaults", script) ||
         !expect(world.tick(.016) && script.tick(.016) && script.status().running,

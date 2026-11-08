@@ -1,18 +1,17 @@
 #include "runtime/resource/codecs/prefab_resource_codec.hpp"
+#include "runtime/resource/codecs/resource_decode.hpp"
 
 #include "runtime/resource/codecs/scene_resource_codec.hpp"
-
-#include <flatbuffers/verifier.h>
+#include <set>
 
 #include <map>
-#include <set>
 #include <utility>
 
 namespace engine
 {
 bool PrefabResourceCodec::validate(const schema::PrefabDataT& data)
 {
-    if (data.schema_version != 1 || data.root_id == 0 || data.nodes.empty())
+    if (data.schema_version != 2 || data.root_id == 0 || data.nodes.empty())
     {
         return false;
     }
@@ -60,31 +59,40 @@ bool PrefabResourceCodec::validate(const schema::PrefabDataT& data)
     return true;
 }
 
-bool PrefabResourceCodec::decode(const ResourceCatalog& catalog, ByteView payload,
-                                 Resource& output) const
+schema::AssetKind PrefabResourceCodec::kind() const noexcept
 {
-    flatbuffers::Verifier verifier(reinterpret_cast<const std::uint8_t*>(payload.data()),
-                                   payload.size());
-    if (!schema::VerifyPrefabDataBuffer(verifier))
+    return schema::AssetKind::prefab;
+}
+
+bool PrefabResourceCodec::decode(const schema::AssetEntryT& entry, ByteView payload,
+                                 std::unique_ptr<Resource>& output, std::string& error) const
+{
+    const auto validate = [](ByteView payload, std::string& error)
     {
+        return resource_decode_detail::verify_flatbuffer(payload, schema::VerifyPrefabDataBuffer,
+                                                         "Invalid Prefab FlatBuffer", error);
+    };
+    return resource_decode_detail::decode_flatbuffer<ResourceType>(
+        entry, payload, 64U * 1024U * 1024U, validate,
+        [](const std::uint8_t* bytes) { return schema::UnPackPrefabData(bytes); }, output, error);
+}
+
+bool PrefabResourceCodec::validate_data(const Resource& resource, std::string& error) const
+{
+    const auto* data = resource_detail::data<ResourceType>(&resource);
+    if (!data || !(validate(*data) && SceneResourceCodec::validate_nodes(resource, data->nodes)))
+    {
+        error = "Invalid Prefab data or declared dependencies";
         return false;
     }
-    auto data = schema::UnPackPrefabData(payload.data());
-    if (!data || !validate(*data) ||
-        !SceneResourceCodec::validate_nodes(catalog, output, data->nodes))
-    {
-        return false;
-    }
-    store(output, std::move(data));
+    error.clear();
     return true;
 }
 
-bool PrefabResourceCodec::validate_dependencies(const ResourceCatalog& catalog,
-                                                const Resource& resource,
-                                                std::span<const ResourcePtr> dependencies) const
+bool PrefabResourceCodec::validate_dependencies(const Resource& resource, ResourceView dependencies,
+                                                std::string& error) const
 {
-    const auto* prefab = resource.prefab();
-    return prefab &&
-           SceneResourceCodec::validate_node_dependencies(catalog, prefab->nodes, dependencies);
+    const auto* prefab = resource_detail::data<PrefabResource>(&resource);
+    return prefab && SceneResourceCodec::validate_node_dependencies(prefab->nodes, dependencies);
 }
 } // namespace engine

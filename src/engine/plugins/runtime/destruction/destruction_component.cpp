@@ -5,9 +5,12 @@
 #include "runtime/scene/collider.hpp"
 #include "runtime/scene/ecs_storage.hpp"
 
+#include "plugins/runtime/destruction/destruction_resource.hpp"
 #include "plugins/runtime/destruction/destruction_system.hpp"
 #include "runtime/core/guid_map.hpp"
-#include "runtime/resource/resource_system.hpp"
+#include "runtime/resource/types/material_resource.hpp"
+#include "runtime/resource/virtual_file_system.hpp"
+#include "runtime/scene/resource_binding.hpp"
 
 #include <flatbuffers/flatbuffers.h>
 #include <flatbuffers/verifier.h>
@@ -38,12 +41,6 @@ bool DestructionComponent::valid_settings(const schema::DestructionDataT& value)
            std::isfinite(value.restitution) && value.restitution >= 0 && value.restitution <= 1;
 }
 
-schema::DestructionDataT DestructionComponent::settings() const noexcept
-{
-    const auto* value = read_data<Data>();
-    return value ? *value : Data{};
-}
-
 bool DestructionComponent::get_settings(Data& output) const noexcept
 {
     const auto* value = read_data<Data>();
@@ -62,37 +59,33 @@ bool DestructionComponent::set_settings(const schema::DestructionDataT& value)
         runtime()->last_error_ = "Invalid destruction component settings";
         return false;
     }
-    auto* resources = ResourceSystem::instance();
-    ResourcePtr replacement;
+    auto* resources = node().world()->resource_loader();
+    ResourceReference replacement;
+    ResourceReference material;
     DestructionGraph candidate;
     if (!value.destruction_guid.empty())
     {
-        if (!resources || !resources->loader().load(value.destruction_guid, replacement) ||
+        if (!resources ||
+            !ecs_detail::acquire_resource(node(), value.destruction_guid, replacement) ||
             !replacement || replacement->info().kind != schema::AssetKind::destruction)
         {
             runtime()->last_error_ = "Cannot load destruction resource";
             return false;
         }
-        const auto bytes = replacement->bytes();
-        const auto* data = reinterpret_cast<const std::uint8_t*>(bytes.data());
-        flatbuffers::Verifier verifier(data, bytes.size());
-        if (bytes.size() > 64U * 1024U * 1024U ||
-            !schema::VerifyDestructionAssetDataBuffer(verifier) ||
-            !candidate.initialize(*schema::UnPackDestructionAssetData(data),
-                                  runtime()->last_error_))
+        if (!replacement.data<DestructionResource>() ||
+            !candidate.initialize(*replacement.data<DestructionResource>(), runtime()->last_error_))
         {
             runtime()->last_error_ = "Invalid destruction asset: " + runtime()->last_error_;
             return false;
         }
-        if (!value.material_guid.empty())
+        const auto material_path = value.material_guid.empty()
+                                       ? std::string_view("builtin://materials/default-pbr")
+                                       : std::string_view(value.material_guid);
+        if (!ecs_detail::acquire_resource(node(), material_path, material) ||
+            !material.data<MaterialResource>())
         {
-            ResourcePtr material;
-            if (!resources->loader().load(value.material_guid, material) || !material ||
-                !material->material())
-            {
-                runtime()->last_error_ = "Cannot load destruction material";
-                return false;
-            }
+            runtime()->last_error_ = "Material must be loaded before binding";
+            return false;
         }
     }
     const bool retain =
@@ -103,11 +96,17 @@ bool DestructionComponent::set_settings(const schema::DestructionDataT& value)
     {
         return false;
     }
-    const auto previous_settings = settings();
-    auto previous_resource = runtime()->resource_;
+    Data previous_settings;
+    if (!get_settings(previous_settings))
+    {
+        return false;
+    }
+    auto previous_resource = std::move(runtime()->resource_);
+    auto previous_material = std::move(runtime()->material_);
     *write_data<Data>() = value;
     modified();
     runtime()->resource_ = std::move(replacement);
+    runtime()->material_ = std::move(material);
     if (runtime()->ready_ && runtime()->resource_)
     {
         auto* system = DestructionSystem::instance();
@@ -116,6 +115,7 @@ bool DestructionComponent::set_settings(const schema::DestructionDataT& value)
             *write_data<Data>() = previous_settings;
             modified();
             runtime()->resource_ = std::move(previous_resource);
+            runtime()->material_ = std::move(previous_material);
             return false;
         }
     }
@@ -123,7 +123,7 @@ bool DestructionComponent::set_settings(const schema::DestructionDataT& value)
     {
         runtime()->graph_ = std::move(candidate);
         runtime()->ready_ = false;
-        runtime()->pending_ = runtime()->resource_ != nullptr;
+        runtime()->pending_ = static_cast<bool>(runtime()->resource_);
     }
     runtime()->last_error_.clear();
     return true;

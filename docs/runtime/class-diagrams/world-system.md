@@ -4,7 +4,7 @@
 
 本图仅定义 `WorldSystem` 的方法；其他节点为跨图引用或第三方类型。
 
-> **世界暂停已实现。** `set_paused()` / `paused()` 及下述暂停约定沿用已确认契约。行为与限制见[世界暂停](../world-pause.md)，实际验证范围统一见[测试文档](../../testing.md)。`Engine` / `System` 的通用调度契约保持不变。
+`set_paused()` / `paused()` 的行为与限制见[世界暂停](../world-pause.md)，实际验证范围统一见[测试文档](../../testing.md)。`Engine` / `System` 的通用调度契约保持不变。
 
 ```mermaid
 classDiagram
@@ -12,11 +12,12 @@ classDiagram
     class WorldSystem {
         +component_registry() ComponentRegistry&
         <<final>>
-        +WorldSystem(const SceneRestoreConfig& config)
+        +WorldSystem(ResourceLoader#42; resources, const SceneRestoreConfig& config)
         +~WorldSystem()
         +create_scene(string_view name) Scene#42;
         +load_scene(string_view path) Scene#42;
-        +begin_restore_scene(shared_ptr~const Resource~ resource) uint64_t
+        +resource_loader() ResourceLoader#42;
+        +begin_restore_scene(const ResourceHandle& resource) uint64_t
         +step_restore_scene(uint64_t request, size_t node_budget, double max_seconds) SceneRestoreStatus
         +commit_restore_scene(uint64_t request) Scene#42;
         +cancel_restore_scene(uint64_t request) void
@@ -57,7 +58,7 @@ classDiagram
     class ComponentRegistry
     WorldSystem *-- ComponentRegistry : 独占类型操作登记表
     WorldSystem --> ComponentRegistry : 返回可写借用供宿主登记
-    class ResourceSystem
+    class ResourceHandle
     class ResourceLoader
     class Scene
     class SceneRestoreConfig {
@@ -75,8 +76,8 @@ classDiagram
     WorldSystem ..> SceneRestoreStatus
     WorldSystem --> Resource : 候选共享持有已加载闭包
     WorldSystem "1" *-- "0..1" Scene : 独占未发布候选
-    WorldSystem ..> ResourceSystem : 查询目录与加载接口
-    WorldSystem ..> ResourceLoader : 加载场景根资源
+    WorldSystem ..> ResourceHandle : 已加载资源获取身份
+    WorldSystem --> ResourceLoader : 可空借用 只获取已加载场景
     WorldSystem "1" *-- "0..*" Scene : 独占已发布场景容器
     WorldSystem --> Scene : scene 返回可空当前玩法场景
     class Node
@@ -93,7 +94,7 @@ classDiagram
     class UiSystem
     WorldSystem "1" *-- "0..1" UiSystem : 独占子系统
     class AudioSystem
-    WorldSystem "1" *-- "0..1" AudioSystem : 独占子系统
+    AudioSystem --> WorldSystem : 宿主后期绑定，读取发布场景
     class ScriptRuntime
     WorldSystem "1" *-- "0..1" ScriptRuntime : 宿主工厂提供可选实现
     note for WorldSystem "继承 System 生命周期；析构中调用 shutdown()"
@@ -101,15 +102,15 @@ classDiagram
 
 - 由 `Engine` 拥有的根系统；持有一个 flecs 世界，初始化与销毁调用成对。
 - `on_tick()` 校验帧时长、回收空常驻场景并刷新派生场景状态；之后由 `System` 按加入顺序更新子系统，不另启 Flecs 调度器。暂停时仍刷新可见性与层级，实际模拟系统读取 `paused()` 决定是否推进。场景节点属性、层级、具体组件生成数据及领域运行列唯一存入 Flecs；Node/Component 只是身份值句柄，系统以有类型查询消费 Published 实体。
-- `RuntimeHost` 通过 `add_subsystem()` 将子系统所有权移交世界系统；当前顺序为字体、界面、导航底层、可选脚本、`before_physics` 插件、物理、动画、`after_physics` 插件、音频，详见[运行宿主](runtime-host.md)。关闭子系统后再销毁 ECS 世界。
+- `RuntimeHost` 通过 `add_subsystem()` 将子系统所有权移交世界系统；当前顺序为字体、界面、导航底层、可选脚本、`before_physics` 插件、物理、动画、`after_physics` 插件；音频由宿主独占并在世界之后单独更新，详见[运行宿主](runtime-host.md)。关闭子系统后再销毁 ECS 世界。
 - 只有已初始化的世界可创建一个活动场景，已有场景时返回空指针。`destroy_scene()` 可重复调用；关闭时在释放 ECS 世界前销毁场景。每次成功创建分配递增的场景标识，关闭再初始化不重用，供脚本与渲染器拒绝旧引用。
 - `scene()` 返回可空借用，`destroy_scene()` 或世界关闭后失效；只读重载为 `const`，查询与销毁为 `noexcept`。初始化失败和清理遵守[系统约定](engine-system.md)。
 
 C++ 限定符：构造、析构及 `on_shutdown()` 为 `noexcept`；析构和受保护钩子标注 `override`，返回状态的钩子标注 `[[nodiscard]]`。
 
-`load_scene(string_view path)` 从当前 ResourceCatalog 读取场景，建立候选 Scene 并校验全部节点/组件/父子和资源引用；成功替换活动场景并保留旧场景常驻子树，失败保留当前场景。
+`load_scene(string_view path)` 通过 acquire_loaded 获取当前目录中已加载的场景，建立候选 Scene 并校验全部节点/组件/父子和资源引用；成功替换活动场景并保留旧场景常驻子树，失败保留当前场景。
 
-`begin_restore_scene` 只接受已加载的场景资源并返回非零请求身份；每个世界最多一个候选。`step_restore_scene` 在主线程按节点数和时间预算创建节点/组件、恢复父子，预算默认每步最多 64 项、1 ms；第三参数默认 0 表示使用系统配置上限；显式正数与系统时间预算取较小值，负数和非有限值拒绝。单个组件恢复不可抢占。资源读取和解码已在前一阶段完成，候选不作为活动场景更新。ready 后由调用方显式 commit；失败/取消保持旧场景。代际、请求身份和世界生命周期均在提交时重新校验。新场景创建/切换及世界关闭取消候选，过期请求不能取消新请求。同步 load_scene 保留原语义。脚本既有 BeginLoadScene/StepSceneLoad/CommitSceneLoad 共用此链路，玩法无需管理线程。
+`begin_restore_scene` 只接受已加载的场景资源并返回非零请求身份；每个世界最多一个候选。`step_restore_scene` 在主线程按节点数和时间预算创建节点/组件、恢复父子，预算默认每步最多 64 项、1 ms；第三参数默认 0 表示使用系统配置上限；显式正数与系统时间预算取较小值，负数和非有限值拒绝。单个组件恢复不可抢占。资源读取和解码已在前一阶段完成，候选不作为活动场景更新。ready 后由调用方显式 commit；失败/取消保持旧场景。获取身份、请求身份和世界生命周期在提交时重新校验；目录更新不使已就绪且被持有的资源失效。新场景创建/切换及世界关闭取消候选，过期请求不能取消新请求。同步 load_scene 仅恢复已经加载的场景，缺少预加载返回失败。脚本先通过 Resources.Load/BeginLoad 完成资源阶段，再调用 Scene.BeginLoad/StepLoad/CommitLoad 恢复场景。
 
 宿主在加载场景前通过 `component_registry()` 登记插件组件；WorldSystem 拥有登记表，Scene 在恢复时借用，不引用具体插件。登记函数地址须保持有效直到世界关闭。
 
@@ -121,7 +122,7 @@ C++ 限定符：构造、析构及 `on_shutdown()` 为 `noexcept`；析构和受
 - 已完成的本帧工作不回滚；设置后尚未执行的模拟系统在本次调度读取最新状态，已经执行的系统从下一帧起暂停。恢复时只消费正常新帧时长，不累积暂停时长、不补算历史帧；不能用传入 `0` 秒代替暂停。
 - 成功创建或替换活动场景、销毁场景及世界关闭时恢复 `false`；加载失败保留旧场景及其暂停状态。仅预检而未激活的候选 Run 不能设置或复位活动世界的暂停状态。Run 停止时由现有会话/绑定的场景释放链清理其拥有的场景，不能借候选 Run 析构清理另一 Run 的状态。
 - 脚本通过现有 `SceneBinding` 提供实例 `SetPaused(bool): boolean` 与 `GetPaused(): boolean | null`；只允许活动回调通过当前 Run 所拥有的活动 Scene 身份访问 WorldSystem。旧句柄/不活动回调设置失败、查询为空；不新增原生 `Scene` 持久字段或引擎项目策略。
-- 各模拟系统继续只依赖核心 `WorldSystem` 查询；WorldSystem 不反向 include、链接或扫描具体插件。音频仍由 RuntimeHost 合并窗口不可绘制与世界暂停两项原因，复用已有 `AudioSystem::set_paused()`，不把项目菜单逻辑加入音频或世界核心。
+- 各模拟系统继续只依赖核心 `WorldSystem` 查询；WorldSystem 不反向 include、链接或扫描具体插件。RuntimeHost 仅因窗口不可绘制暂停音频设备；AudioSystem 自行读取世界暂停值以暂停场景声部，独立影片不随世界暂停。不把项目菜单逻辑加入音频或世界核心。
 
 ## 常驻节点与精确清理
 

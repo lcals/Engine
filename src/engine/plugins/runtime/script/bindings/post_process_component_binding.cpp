@@ -1,4 +1,5 @@
 #include "plugins/runtime/script/bindings/post_process_component_binding.hpp"
+#include "plugins/runtime/script/bindings/binding_helpers.hpp"
 
 #include "plugins/runtime/script/bindings/binding_context.hpp"
 #include "runtime/scene/node.hpp"
@@ -43,13 +44,6 @@ Object.freeze(PostProcessComponent.prototype);
 Object.freeze(PostProcessComponent);
 )js";
 
-void add(const Arguments& arguments)
-{
-    auto node = BindingContext::node(arguments);
-    arguments.set_return(arguments.count() == 2 && node.valid() &&
-                         node.add_component<PostProcessComponent>().valid());
-}
-
 void exposure(const Arguments& arguments)
 {
     arguments.set_return(false);
@@ -59,7 +53,12 @@ void exposure(const Arguments& arguments)
     {
         return;
     }
-    auto value = target.settings();
+    PostProcessComponent::Data value{};
+    if (!target.get_settings(value))
+    {
+        arguments.set_return(false);
+        return;
+    }
     if (BindingContext::scalar(arguments, 2, value.exposure))
     {
         arguments.set_return(target.set_settings(value));
@@ -75,7 +74,12 @@ void filmic_tonemap(const Arguments& arguments)
     {
         return;
     }
-    auto value = target.settings();
+    PostProcessComponent::Data value{};
+    if (!target.get_settings(value))
+    {
+        arguments.set_return(false);
+        return;
+    }
     value.filmic_tonemap = arguments.boolean(2);
     arguments.set_return(target.set_settings(value));
 }
@@ -89,7 +93,12 @@ void hdr(const Arguments& arguments)
     {
         return;
     }
-    auto settings = target.settings();
+    PostProcessComponent::Data settings{};
+    if (!target.get_settings(settings))
+    {
+        arguments.set_return(false);
+        return;
+    }
     settings.hdr_enabled = arguments.boolean(2);
     arguments.set_return(target.set_settings(settings));
 }
@@ -103,7 +112,12 @@ void bloom(const Arguments& arguments)
     {
         return;
     }
-    auto settings = target.settings();
+    PostProcessComponent::Data settings{};
+    if (!target.get_settings(settings))
+    {
+        arguments.set_return(false);
+        return;
+    }
     settings.bloom_enabled = arguments.boolean(2);
     if (BindingContext::scalar(arguments, 3, settings.bloom_threshold) &&
         BindingContext::scalar(arguments, 4, settings.bloom_intensity) &&
@@ -123,7 +137,12 @@ void screen_space_reflections(const Arguments& arguments)
     {
         return;
     }
-    auto settings = target.settings();
+    PostProcessComponent::Data settings{};
+    if (!target.get_settings(settings))
+    {
+        arguments.set_return(false);
+        return;
+    }
     settings.ssr_enabled = arguments.boolean(2);
     settings.ssr_max_steps = static_cast<std::uint16_t>(arguments.unsigned_integer(4));
     if (BindingContext::scalar(arguments, 3, settings.ssr_resolution_scale) &&
@@ -144,7 +163,12 @@ void ambient_occlusion(const Arguments& arguments)
     {
         return;
     }
-    auto settings = target.settings();
+    PostProcessComponent::Data settings{};
+    if (!target.get_settings(settings))
+    {
+        arguments.set_return(false);
+        return;
+    }
     settings.ao_enabled = arguments.boolean(2);
     if (BindingContext::scalar(arguments, 3, settings.ao_radius) &&
         BindingContext::scalar(arguments, 4, settings.ao_strength) &&
@@ -170,7 +194,8 @@ std::string_view PostProcessComponentBinding::source() const noexcept
 bool PostProcessComponentBinding::register_functions(vm::ScriptVm& vm) const
 {
     return vm.integer("PostProcessKind", static_cast<int>(PostProcessComponent::component_type)) &&
-           vm.function("PostProcessAdd", add) && vm.function("PostProcessExposure", exposure) &&
+           vm.function("PostProcessAdd", binding_detail::add_component<PostProcessComponent>) &&
+           vm.function("PostProcessExposure", exposure) &&
            vm.function("PostProcessFilmicTonemap", filmic_tonemap) &&
            vm.function("PostProcessHdr", hdr) && vm.function("PostProcessBloom", bloom) &&
            vm.function("PostProcessAmbientOcclusion", ambient_occlusion) &&

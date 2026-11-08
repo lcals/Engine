@@ -1,4 +1,5 @@
 #include "editor/asset_pipeline/scene_importer.hpp"
+#include "editor/file_text.hpp"
 
 #include "editor/asset_pipeline/asset_io.hpp"
 #include "editor/asset_pipeline/components/scene_component_codec.hpp"
@@ -28,7 +29,7 @@ namespace
 
 bool validate_scene(const schema::SceneDataT& scene, std::string& error)
 {
-    if (scene.schema_version != 1 || scene.info == nullptr || scene.info->name.empty())
+    if (scene.schema_version != 2 || scene.info == nullptr || scene.info->name.empty())
     {
         error = "scene requires version 1 and a name";
         return false;
@@ -300,7 +301,7 @@ bool SceneImporter::read(const std::filesystem::path& source, schema::SceneDataT
     output = {};
     error.clear();
     std::string text;
-    if (!ResourceSystem::read_text(source, text))
+    if (!engine::editor::file_detail::read_text(source, text))
     {
         error = "cannot read scene: " + PathUtils::to_utf8(source);
         return false;
@@ -313,6 +314,7 @@ bool SceneImporter::read(const std::filesystem::path& source, schema::SceneDataT
     }
     const auto& table = parsed.table();
     schema::SceneDataT data;
+    data.schema_version = 2;
     data.info = std::make_unique<schema::SceneInfoT>();
     data.info->name = table["name"].value_or(std::string{});
     if (table.contains("active_camera") &&

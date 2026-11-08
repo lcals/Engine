@@ -66,7 +66,7 @@ struct Fixture
             return {};
         }
         auto transform = node.get_component<engine::Transform>();
-        auto settings = transform.settings();
+        auto settings = test_support::read_settings(transform);
         settings.position = position;
         return transform.set_settings(settings) ? node.add_component<NavigationAgent>()
                                                 : NavigationAgent{};
@@ -87,7 +87,7 @@ struct Fixture
 
 engine::Vec3 position(NavigationAgent agent)
 {
-    return agent.node().get_component<engine::Transform>().settings().position;
+    return test_support::read_settings(agent.node().get_component<engine::Transform>()).position;
 }
 
 double distance(const engine::Vec3& left, const engine::Vec3& right)
@@ -103,19 +103,21 @@ bool requests_and_lifetime()
         return false;
     }
     auto agent = fixture.agent({2, 0, 2});
-    if (!expect(
-            agent.valid() && agent.move_to({20, 0, 2}) && fixture.advance(90) &&
-                position(agent).x() > 4 && agent.velocity().x() > 0 &&
-                std::abs(agent.node().get_component<engine::Transform>().settings().rotation.y() +
-                         90.0) < 0.1,
-            "native crowd writes Transform without script movement"))
+    if (!expect(agent.valid() && agent.move_to({20, 0, 2}) && fixture.advance(90) &&
+                    position(agent).x() > 4 && agent.velocity().x() > 0 &&
+                    std::abs(
+                        test_support::read_settings(agent.node().get_component<engine::Transform>())
+                            .rotation.y() +
+                        90.0) < 0.1,
+                "native crowd writes Transform without script movement"))
     {
         return false;
     }
-    const auto settings = agent.settings();
+    const auto settings = test_support::read_settings(agent);
     auto invalid = settings;
     invalid.max_speed = std::numeric_limits<float>::quiet_NaN();
-    if (!expect(!agent.set_settings(invalid) && agent.settings().max_speed == settings.max_speed &&
+    if (!expect(!agent.set_settings(invalid) &&
+                    test_support::read_settings(agent).max_speed == settings.max_speed &&
                     !agent.move_to({std::numeric_limits<double>::quiet_NaN(), 0, 2}),
                 "invalid input preserves prior valid settings/request"))
     {
@@ -148,10 +150,12 @@ bool requests_and_lifetime()
     auto node = agent.node();
     const auto instance = agent.instance_id();
     const auto before_remove = position(agent);
-    if (!expect(node.remove_component(NavigationAgent::component_type) && fixture.advance(30) &&
-                    distance(node.get_component<engine::Transform>().settings().position,
-                             before_remove) < 0.001,
-                "removal stops native movement"))
+    if (!expect(
+            node.remove_component(NavigationAgent::component_type) && fixture.advance(30) &&
+                distance(
+                    test_support::read_settings(node.get_component<engine::Transform>()).position,
+                    before_remove) < 0.001,
+            "removal stops native movement"))
     {
         return false;
     }
@@ -212,7 +216,7 @@ bool requests_and_lifetime()
         return false;
     }
     auto transform = node.get_component<engine::Transform>();
-    auto pose = transform.settings();
+    auto pose = test_support::read_settings(transform);
     pose.position = {3, 0, 8};
     if (!expect(transform.set_settings(pose) && fixture.advance(1) && position(agent).z() > 7,
                 "explicit teleport reprojects rather than restoring old crowd position"))
@@ -247,7 +251,7 @@ bool many_agents()
         {
             return false;
         }
-        auto settings = agent.settings();
+        auto settings = test_support::read_settings(agent);
         // 群体分离允许角色在目标附近停靠；精确到达由前面的单人用例验证。
         settings.arrival_distance = 0.4F;
         if (!expect(agent.set_settings(settings) && agent.move_to({22, 0, z}),
@@ -282,7 +286,7 @@ bool many_agents()
     {
         return false;
     }
-    auto data = agents.front().data();
+    auto data = test_support::read_data(agents.front());
     return expect(agents.front().restore_data(data) &&
                       agents.front().state() == NavigationAgentStatus::idle && fixture.advance(1) &&
                       agents.front().state() == NavigationAgentStatus::idle,
@@ -359,7 +363,7 @@ bool physics_shape_ownership()
     {
         return false;
     }
-    auto settings = body.settings();
+    auto settings = test_support::read_settings(body);
     settings.motion = engine::schema::BodyMotion::kinematic;
     const auto initial = position(agent);
     if (!expect(body.set_settings(settings) && fixture.advance(60) &&
@@ -430,7 +434,7 @@ bool physics_shape_ownership()
     {
         std::abort();
     }
-    auto shape = collider.settings();
+    auto shape = test_support::read_settings(collider);
     shape.is_trigger = true;
     return expect(collider.set_settings(shape) && fixture.advance(30) &&
                       agent.state() == NavigationAgentStatus::moving,

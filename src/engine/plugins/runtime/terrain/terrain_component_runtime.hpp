@@ -1,5 +1,7 @@
 #pragma once
 
+#include "runtime/resource/resource_reference.hpp"
+
 #include "plugins/runtime/terrain/terrain_component.hpp"
 #include "runtime/scene/component_runtime.hpp"
 
@@ -7,7 +9,8 @@ namespace engine::plugins::terrain
 {
 struct TerrainComponentRuntime
 {
-    ResourcePtr resource_;
+    ResourceReference resource_;
+    ResourceReference material_;
     TerrainVolume volume_;
     // Weak tokens identify this exact component even if a node removes and recreates it.
     std::shared_ptr<const std::uint8_t> lifetime_ = std::make_shared<const std::uint8_t>(0);

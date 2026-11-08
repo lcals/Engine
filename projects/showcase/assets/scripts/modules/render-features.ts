@@ -1,8 +1,9 @@
-import { Camera, Debug, EnvironmentComponent, Gameplay, MeshRenderer, Scene, Transform, UiComponent } from "engine";
+import { Resources, ResourceHandle, Camera, Debug, EnvironmentComponent, Gameplay, MeshRenderer, Scene, Transform, UiComponent } from "engine";
 import { RenderFeaturesController } from "../controllers/render_features_controller.js";
 import { RenderFeaturesModel } from "../models/render_features_model.js";
 
 export default class RenderFeatures extends Gameplay {
+    private readonly resources: ResourceHandle[] = [];
     scene: Scene | null = null;
     private readonly model = new RenderFeaturesModel();
     private controller: RenderFeaturesController | null = null;
@@ -10,6 +11,12 @@ export default class RenderFeatures extends Gameplay {
     private ground: MeshRenderer | null = null;
 
     override OnInitialize(): boolean {
+        for (const path of ["scenes/render-features.scene", "ui/render-features.rml", "meshes/render-lod-sphere.mesh", "materials/render-features.material", "meshes/cube.mesh", "builtin://materials/default-pbr", "textures/paving-albedo.jpg", "textures/paving-normal.png", "textures/paving-orm.png"]) {
+            const resource = Resources.Load(path);
+            if (!resource) { Debug.LogError(`Cannot load ${path}: ${Resources.lastError}`); return false; }
+            this.resources.push(resource);
+        }
+
         this.scene = Scene.Load("scenes/render-features.scene");
         if (!this.scene) return false;
         const camera = this.scene.FindNode("Render Camera")?.GetComponent(Camera);
@@ -94,6 +101,10 @@ export default class RenderFeatures extends Gameplay {
     }
 
     override OnShutdown(): void {
+        for (const resource of this.resources.splice(0)) {
+            if (!Resources.Release(resource)) Debug.LogError("Cannot release showcase resource");
+        }
+
         this.controller?.Unbind();
         this.controller = null;
         this.meshes.length = 0;

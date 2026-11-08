@@ -24,7 +24,6 @@ public:
     static constexpr ComponentType component_type = ComponentType::CameraData;
     [[nodiscard]] bool restore_data(const schema::ComponentDataT& data);
 
-    [[nodiscard]] CameraSettings settings() const noexcept;
     [[nodiscard]] bool get_settings(Data& output) const noexcept;
     [[nodiscard]] bool set_settings(const CameraSettings& settings) noexcept;
     // 左上原点；点与视口尺寸使用同一单位。失败清零两个输出。

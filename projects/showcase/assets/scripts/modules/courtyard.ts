@@ -1,4 +1,4 @@
-import { Animator, CharacterMotor, Debug, Gameplay, MeshRenderer, Scene, Transform, Time } from "engine";
+import { Resources, ResourceHandle, Animator, CharacterMotor, Debug, Gameplay, MeshRenderer, Scene, Transform, Time } from "engine";
 import { CharacterControls } from "../character_controls.js";
 import { locomotionMachine, locomotionActions } from "../animation/locomotion_machine.js";
 
@@ -6,6 +6,7 @@ import { locomotionMachine, locomotionActions } from "../animation/locomotion_ma
 const avatar_ground_offset = 0.05;
 
 export default class Game extends Gameplay {
+    private readonly resources: ResourceHandle[] = [];
     scene: Scene | null = null;
     private readonly input = new CharacterControls();
     private animator: Animator | null = null;
@@ -15,6 +16,12 @@ export default class Game extends Gameplay {
 
 
     override OnInitialize(): boolean {
+        for (const path of ["scenes/playground.scene", "prefabs/characters/player.prefab", "materials/character.material", "models/locomotions.fbx/animations/walk", "models/locomotions.fbx/animations/run"]) {
+            const resource = Resources.Load(path);
+            if (!resource) { Debug.LogError(`Cannot load ${path}: ${Resources.lastError}`); return false; }
+            this.resources.push(resource);
+        }
+
         this.scene = Scene.Load("scenes/playground.scene");
         const scene = this.scene;
         if (!scene) return false;
@@ -74,6 +81,10 @@ export default class Game extends Gameplay {
     }
 
     override OnShutdown(): void {
+        for (const resource of this.resources.splice(0)) {
+            if (!Resources.Release(resource)) Debug.LogError("Cannot release showcase resource");
+        }
+
         this.input.Shutdown();
         this.animator?.ClearStateMachine();
         for (const peer of this.peers) peer.ClearStateMachine();

@@ -1,4 +1,6 @@
 #include "editor/commands/components/component_edit.hpp"
+#include "editor/asset_pipeline/components/scene_component_codec.hpp"
+#include "editor/commands/scene_commands.hpp"
 #include "runtime/resource/resource_system.hpp"
 
 #include <algorithm>
@@ -6,6 +8,36 @@
 
 namespace engine::editor::components
 {
+bool prepare_component_edit(WorldSystem& world, SceneCommands& scene_commands, Node node,
+                            std::optional<schema::ComponentDataT> before,
+                            schema::ComponentDataT after, std::vector<ResourceReference> prepared,
+                            std::unique_ptr<EditorEdit>& output, std::string& error)
+{
+    output.reset();
+    if (!node || node.scene() != world.scene() || after.payload.type == ComponentType::NONE ||
+        (before && before->payload.type != after.payload.type))
+    {
+        error = "Component edit requires a current node and matching snapshots";
+        return false;
+    }
+    auto identity = scene_commands.node_identity(node.id());
+    if (!identity)
+    {
+        error = "Cannot resolve stable node identity";
+        return false;
+    }
+    std::vector<schema::AssetEntryT> versions;
+    if ((before && !resource_versions(world, *before, versions, prepared, error)) ||
+        !resource_versions(world, after, versions, prepared, error))
+    {
+        return false;
+    }
+    output = std::make_unique<ComponentEdit>(
+        world, node.scene()->id(), std::move(identity), std::move(before), std::move(after),
+        std::move(versions), ComponentType::NONE, std::move(prepared));
+    return true;
+}
+
 bool fields(const Json& arguments, std::initializer_list<std::string_view> allowed)
 {
     if (!arguments.is_object())
@@ -162,14 +194,19 @@ ComponentEdit::ComponentEdit(WorldSystem& world, std::uint64_t scene,
                              std::optional<schema::ComponentDataT> before,
                              schema::ComponentDataT after,
                              std::vector<schema::AssetEntryT> versions,
-                             ComponentType required_component)
-    : world_(world), scene_(scene), node_(std::move(node)), type_(after.payload.type),
-      before_(std::move(before)), after_(std::move(after)), versions_(std::move(versions)),
-      required_component_(required_component)
+                             ComponentType required_component,
+                             std::vector<ResourceReference> prepared)
+    : target_(world), type_(after.payload.type), before_(std::move(before)),
+      after_(std::move(after)), versions_(std::move(versions)),
+      required_component_(required_component), prepared_(std::move(prepared))
 {
+    target_.scene_id = scene;
+    target_.identity = std::move(node);
 }
 bool ComponentEdit::apply(std::string& error)
 {
+    // 首次应用完成后不再由编辑历史保活载荷；重做按版本元数据重新获取。
+    auto prepared = std::move(prepared_);
     return replace(before_, after_, error);
 }
 bool ComponentEdit::revert(std::string& error)
@@ -179,22 +216,17 @@ bool ComponentEdit::revert(std::string& error)
 bool ComponentEdit::replace(const std::optional<schema::ComponentDataT>& expected,
                             const std::optional<schema::ComponentDataT>& value, std::string& error)
 {
-    auto* scene = world_.scene();
-    auto node = scene && scene->id() == scene_ ? scene->find_node(*node_) : Node{};
+    auto node = target_.node(error);
     if (!node)
     {
         error = "Component edit targets a stale scene or node";
         return false;
     }
-    const auto* resources = ResourceSystem::instance();
-    for (const auto& version : versions_)
+    std::vector<ResourceReference> pins;
+    if (!resource_access::load_versions(target_.world.resource_loader(), versions_, pins))
     {
-        const auto* available = resources ? resources->catalog().find(version.guid) : nullptr;
-        if (!available || *available != version)
-        {
-            error = "Component resource version changed since the edit";
-            return false;
-        }
+        error = "Component resource version changed since the edit";
+        return false;
     }
     auto current = node.get_component(type_);
     schema::ComponentDataT snapshot;
@@ -217,7 +249,7 @@ bool ComponentEdit::replace(const std::optional<schema::ComponentDataT>& expecte
     const bool created = !current;
     if (created)
     {
-        current = world_.component_registry().create(type_, node);
+        current = target_.world.component_registry().create(type_, node);
     }
     if (!current || !current.restore_data(*value))
     {
@@ -227,6 +259,63 @@ bool ComponentEdit::replace(const std::optional<schema::ComponentDataT>& expecte
         }
         error = "Cannot apply component settings or resolve its resources";
         return false;
+    }
+    return true;
+}
+bool resource_versions(WorldSystem& world, const schema::ComponentDataT& data,
+                       std::vector<schema::AssetEntryT>& versions,
+                       std::vector<ResourceReference>& prepared, std::string& error)
+{
+    const auto* codec = asset_pipeline::find_scene_component_codec(data.payload.type);
+    if (!codec)
+    {
+        error = "Component codec is unavailable";
+        return false;
+    }
+    toml::table fields;
+    codec->write(data, fields);
+    const auto capture = [&](std::string_view path)
+    {
+        if (path.empty())
+        {
+            return true;
+        }
+        for (const auto& resource : prepared)
+        {
+            if (resource && (resource->info().guid == path || resource->info().path == path))
+            {
+                return resource_access::collect_versions(resource, versions);
+            }
+        }
+        ResourceReference resource;
+        if (!resource_access::load(world.resource_loader(), path, resource) ||
+            !resource_access::collect_versions(resource, versions))
+        {
+            return false;
+        }
+        prepared.push_back(std::move(resource));
+        return true;
+    };
+    for (const auto name : codec->resource_fields())
+    {
+        const auto field = fields[name];
+        if (const auto text = field.value<std::string>(); text && !capture(*text))
+        {
+            error = "Cannot prepare component resource: " + *text;
+            return false;
+        }
+        if (const auto* items = field.as_array())
+        {
+            for (const auto& item : *items)
+            {
+                const auto text = item.value<std::string>();
+                if (!text || !capture(*text))
+                {
+                    error = "Cannot prepare component resource array";
+                    return false;
+                }
+            }
+        }
     }
     return true;
 }

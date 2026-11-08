@@ -1,5 +1,6 @@
 include "common.fbs";
 include "animation_pose.fbs";
+include "sampling.fbs";
 namespace engine.schema;
 
 table JointData {
@@ -39,12 +40,15 @@ table SkeletonTwoBoneIkData {
 }
 
 table SkeletonData {
-    schema_version:uint = 1;
+    schema_version:uint = 0;
     path:string (required);
     joints:[JointData] (required);
     sockets:[SkeletonSocketData];
     aim_ik:[SkeletonAimIkData];
     two_bone_ik:[SkeletonTwoBoneIkData];
+    sampling_encoding:SamplingEncoding = structured;
+    sampling_archive:[ubyte];
+    sampling_joint_order:[uint];
 }
 
 root_type SkeletonData;

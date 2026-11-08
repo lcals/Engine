@@ -12,12 +12,6 @@ bool PostProcessComponent::register_type(ComponentRegistry& registry)
     return register_component_storage<PostProcessComponent, Data>(registry);
 }
 
-PostProcessSettings PostProcessComponent::settings() const noexcept
-{
-    const auto* value = read_data<Data>();
-    return value ? *value : Data{};
-}
-
 bool PostProcessComponent::get_settings(Data& output) const noexcept
 {
     const auto* value = read_data<Data>();

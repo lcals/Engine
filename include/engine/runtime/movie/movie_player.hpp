@@ -1,6 +1,7 @@
 #pragma once
 
 #include "runtime/movie/movie_frame.hpp"
+#include "runtime/resource/resource_handle.hpp"
 
 #include <cstdint>
 #include <memory>
@@ -9,7 +10,7 @@
 
 namespace engine
 {
-class ResourceSystem;
+class ResourceLoader;
 class TaskSystem;
 class AudioSystem;
 
@@ -48,14 +49,14 @@ struct MoviePlaybackStatus
 class MoviePlayer final
 {
 public:
-    MoviePlayer(ResourceSystem& resources, TaskSystem& tasks, AudioSystem& audio) noexcept;
+    MoviePlayer(ResourceLoader& resources, TaskSystem& tasks, AudioSystem& audio) noexcept;
     ~MoviePlayer() noexcept;
     MoviePlayer(const MoviePlayer&) = delete;
     MoviePlayer& operator=(const MoviePlayer&) = delete;
     MoviePlayer(MoviePlayer&&) = delete;
     MoviePlayer& operator=(MoviePlayer&&) = delete;
 
-    [[nodiscard]] bool play(std::string_view path, MoviePlaybackHandle& output);
+    [[nodiscard]] bool play(const ResourceHandle& resource, MoviePlaybackHandle& output);
     [[nodiscard]] bool set_paused(MoviePlaybackHandle handle, bool paused);
     [[nodiscard]] bool stop(MoviePlaybackHandle handle, MovieStopReason reason);
     [[nodiscard]] bool status(MoviePlaybackHandle handle, MoviePlaybackStatus& output) const;

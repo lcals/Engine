@@ -73,7 +73,7 @@ bool status_ok(const manifold::Manifold& solid, std::string& error)
 bool to_solid(const schema::EditableMeshDataT& data, manifold::Manifold& output,
               Provenance& provenance, std::string& error)
 {
-    if (!EditableMesh::validate(data, error))
+    if (!mesh::validate(data, error))
     {
         return false;
     }
@@ -91,7 +91,7 @@ bool to_solid(const schema::EditableMeshDataT& data, manifold::Manifold& output,
     {
         const auto& face = *data.faces[f];
         std::vector<std::uint32_t> triangles;
-        if (!EditableMesh::triangulate_face(data, face, triangles, error))
+        if (!mesh::triangulate_face(data, face, triangles, error))
         {
             return false;
         }
@@ -284,7 +284,7 @@ bool clip_open(schema::EditableMeshDataT& data, Point normal, double offset, std
     {
         const auto source = corners(*face);
         std::vector<std::uint32_t> triangles;
-        if (!EditableMesh::triangulate_face(data, *face, triangles, error))
+        if (!mesh::triangulate_face(data, *face, triangles, error))
         {
             return false;
         }
@@ -339,9 +339,9 @@ bool clip_open(schema::EditableMeshDataT& data, Point normal, double offset, std
 
 } // namespace
 
-bool MeshGeometry::boolean_operation(schema::EditableMeshDataT& data,
-                                     const schema::EditableMeshDataT& other,
-                                     MeshBooleanOperation operation, std::string& error)
+bool mesh::boolean_operation(schema::EditableMeshDataT& data,
+                             const schema::EditableMeshDataT& other, MeshBooleanOperation operation,
+                             std::string& error)
 {
     manifold::Manifold first;
     manifold::Manifold second;
@@ -370,14 +370,12 @@ bool MeshGeometry::boolean_operation(schema::EditableMeshDataT& data,
                       std::max(data.next_id, other.next_id), data, error);
 }
 
-bool MeshGeometry::clip(schema::EditableMeshDataT& data, const MeshClipOptions& options,
-                        std::string& error)
+bool mesh::clip(schema::EditableMeshDataT& data, const MeshClipOptions& options, std::string& error)
 {
     error.clear();
     Point normal = math::point(options.normal);
     const double size = math::length(normal);
-    if (!math::normalize(normal) || !std::isfinite(options.offset) ||
-        !EditableMesh::validate(data, error))
+    if (!math::normalize(normal) || !std::isfinite(options.offset) || !mesh::validate(data, error))
     {
         if (error.empty())
         {
@@ -405,14 +403,14 @@ bool MeshGeometry::clip(schema::EditableMeshDataT& data, const MeshClipOptions& 
                       options.cap_material_slot, data.next_id, data, error);
 }
 
-bool MeshGeometry::bevel(schema::EditableMeshDataT& data, const MeshBevelOptions& options,
-                         std::string& error)
+bool mesh::bevel(schema::EditableMeshDataT& data, const MeshBevelOptions& options,
+                 std::string& error)
 {
     error.clear();
     if (options.edges.empty() || options.edges.size() > 4096 || !std::isfinite(options.width) ||
         options.width <= 0.0 || options.segments == 0 || options.segments > 64 ||
         !std::isfinite(options.profile) || options.profile <= 0.0 || options.profile >= 1.0 ||
-        !EditableMesh::validate(data, error))
+        !mesh::validate(data, error))
     {
         if (error.empty())
         {

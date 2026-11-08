@@ -1,4 +1,5 @@
 #include "editor/commands/scene_query.hpp"
+#include "editor/resource_access.hpp"
 
 #include "editor/commands/components/component_edit.hpp"
 #include "editor/render/render_component_commands.hpp"
@@ -92,7 +93,12 @@ bool query_scene(WorldSystem& world, const Json& arguments, Json& result, std::s
             {
             case ComponentType::TransformData:
             {
-                const auto& value = node.get_component<Transform>().settings();
+                Transform::Data value;
+                if (!node.get_component<Transform>().get_settings(value))
+                {
+                    error = "Cannot read component settings";
+                    return false;
+                }
                 data.update({{"type", "transform"},
                              {"position", json_vector(value.position)},
                              {"rotation", json_vector(value.rotation)},
@@ -101,7 +107,12 @@ bool query_scene(WorldSystem& world, const Json& arguments, Json& result, std::s
             }
             case ComponentType::CameraData:
             {
-                const auto& value = node.get_component<Camera>().settings();
+                Camera::Data value;
+                if (!node.get_component<Camera>().get_settings(value))
+                {
+                    error = "Cannot read component settings";
+                    return false;
+                }
                 data.update({{"type", "camera"},
                              {"fovDegrees", value.fov_degrees},
                              {"nearClip", value.near_clip},
@@ -113,7 +124,12 @@ bool query_scene(WorldSystem& world, const Json& arguments, Json& result, std::s
             }
             case ComponentType::LightData:
             {
-                const auto& value = node.get_component<Light>().settings();
+                Light::Data value;
+                if (!node.get_component<Light>().get_settings(value))
+                {
+                    error = "Cannot read component settings";
+                    return false;
+                }
                 data.update({{"type", "light"},
                              {"color",
                               {value.color.r(), value.color.g(), value.color.b(), value.color.a()}},
@@ -158,9 +174,16 @@ bool query_scene(WorldSystem& world, const Json& arguments, Json& result, std::s
             case ComponentType::UiData:
             {
                 const auto& value = node.get_component<UiComponent>();
-                const auto& guid = value.settings().document_guid;
+                UiComponent::Data settings;
+                if (!value.get_settings(settings))
+                {
+                    error = "Cannot read UI settings";
+                    return false;
+                }
+                const auto& guid = settings.document_guid;
                 std::string path;
-                if (!guid.empty() && !ResourceSystem::guid_to_path(guid, path))
+                if (!guid.empty() &&
+                    !resource_access::path(node.scene()->world().resource_loader(), guid, path))
                 {
                     path.clear();
                 }
@@ -169,7 +192,12 @@ bool query_scene(WorldSystem& world, const Json& arguments, Json& result, std::s
             }
             case ComponentType::PostProcessData:
             {
-                const auto& value = node.get_component<PostProcessComponent>().settings();
+                PostProcessComponent::Data value;
+                if (!node.get_component<PostProcessComponent>().get_settings(value))
+                {
+                    error = "Cannot read component settings";
+                    return false;
+                }
                 data.update({{"type", "post_process"},
                              {"ssrEnabled", value.ssr_enabled},
                              {"ssrResolutionScale", value.ssr_resolution_scale},

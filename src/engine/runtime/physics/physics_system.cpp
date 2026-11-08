@@ -8,14 +8,16 @@
 #include "runtime/physics/mesh_collision_data.hpp"
 #include "runtime/physics/physics_jobs.hpp"
 #include "runtime/resource/resource.hpp"
-#include "runtime/resource/resource_system.hpp"
+#include "runtime/resource/types/mesh_resource.hpp"
 #include "runtime/scene/character_motor.hpp"
 #include "runtime/scene/collider.hpp"
 #include "runtime/scene/ecs_storage.hpp"
+#include "runtime/scene/resource_binding.hpp"
 #include "runtime/scene/rigid_body.hpp"
 #include "runtime/scene/scene.hpp"
 #include "runtime/scene/transform.hpp"
 #include "runtime/world/world_system.hpp"
+#include <tuple>
 
 // Jolt 要求先包含基础定义，不能按文件名字母顺序重排。
 // clang-format off
@@ -540,12 +542,13 @@ bool read_character(Node node, CharacterMotor motor, CharacterSnapshot& output)
     auto transform = node.get_component<Transform>();
     auto collider = node.get_component<Collider>();
     auto rigid = node.get_component<RigidBody>();
+    TransformSettings pose;
     if (node.parent().valid() || !transform.valid() || (collider.valid() && collider.active()) ||
-        (rigid.valid() && rigid.active()) || !CharacterMotor::valid_settings(motor.settings()))
+        (rigid.valid() && rigid.active()) || !motor.get_settings(output.settings) ||
+        !CharacterMotor::valid_settings(output.settings) || !transform.get_settings(pose))
     {
         return false;
     }
-    const auto& pose = transform.settings();
     if (pose.scale != Vec3(1, 1, 1) || pose.rotation.x() != 0.0 || pose.rotation.z() != 0.0 ||
         !finite(vector(pose.position)) || vector(pose.position).Abs().ReduceMax() > 10000000.0F)
     {
@@ -553,7 +556,6 @@ bool read_character(Node node, CharacterMotor motor, CharacterSnapshot& output)
     }
     output.scene_id = node.scene()->id();
     output.node_id = node.id();
-    output.settings = motor.settings();
     output.position = vector(pose.position);
     return true;
 }
@@ -576,7 +578,7 @@ struct BodySnapshot
     // 只用于根动态刚体：调用方未改写展示 TRS 时，保留 Jolt 原始姿态。
     // 不能把自身 Euler 回写的舍入或 q/-q 翻号当成下一帧的 teleport。
     std::optional<TransformSettings> written_transform;
-    ResourcePtr mesh;
+    std::tuple<std::uint64_t, std::uint64_t, std::uint64_t> mesh;
     std::shared_ptr<const schema::MeshDataT> transient_mesh;
     std::shared_ptr<const MeshCollisionData> mesh_parts;
     std::shared_ptr<const MeshPartShapes> part_shapes;
@@ -598,24 +600,27 @@ bool read_snapshot(Node node, const schema::ColliderDataT& collider, const schem
     {
         auto ancestor_transform = ancestor.get_component<Transform>();
         auto ancestor_body = ancestor.get_component<RigidBody>();
-        if (!ancestor_transform.valid() || ancestor_transform.settings().scale.x() <= 0.0 ||
-            ancestor_transform.settings().scale.y() <= 0.0 ||
-            ancestor_transform.settings().scale.z() <= 0.0 ||
+        TransformSettings pose;
+        RigidBody::Data ancestor_settings;
+        if (!ancestor_transform.get_settings(pose) || pose.scale.x() <= 0.0 ||
+            pose.scale.y() <= 0.0 || pose.scale.z() <= 0.0 ||
             (ancestor != node && ancestor_body.valid() && ancestor_body.active() &&
-             ancestor_body.settings().motion != schema::BodyMotion::static_body))
+             (!ancestor_body.get_settings(ancestor_settings) ||
+              ancestor_settings.motion != schema::BodyMotion::static_body)))
         {
             return false;
         }
     }
     auto transform = node.get_component<Transform>();
-    if (!transform.valid())
+    TransformSettings pose;
+    if (!transform.get_settings(pose) || (body && !body.get_settings(output.rigid_body)))
     {
         return false;
     }
     const bool unchanged_output = same_instance && previous->written_transform &&
                                   node.parent().valid() == false && body.valid() &&
-                                  body.settings().motion == schema::BodyMotion::dynamic &&
-                                  transform.settings() == *previous->written_transform;
+                                  output.rigid_body.motion == schema::BodyMotion::dynamic &&
+                                  pose == *previous->written_transform;
     if (unchanged_output)
     {
         output.position = previous->position;
@@ -641,11 +646,7 @@ bool read_snapshot(Node node, const schema::ColliderDataT& collider, const schem
     const bool previously_valid = same_collider && previous->mesh == output.mesh &&
                                   previous->transient_mesh == output.transient_mesh &&
                                   previous->mesh_parts == output.mesh_parts;
-    if (body.valid())
-    {
-        output.rigid_body = body.settings();
-    }
-    else
+    if (!body.valid())
     {
         output.rigid_body.motion = schema::BodyMotion::static_body;
     }
@@ -816,7 +817,8 @@ bool active_collision(Node node)
 {
     auto collider = node.get_component<Collider>();
     auto body = node.get_component<RigidBody>();
-    return collider.valid() && collider.active() && !collider.settings().is_trigger &&
+    Collider::Data settings;
+    return collider.get_settings(settings) && collider.active() && !settings.is_trigger &&
            (!body.valid() || body.active()) && active_transform(node);
 }
 
@@ -944,7 +946,11 @@ bool write_transform(Node node, JPH::Vec3Arg position, JPH::QuatArg rotation,
     {
         return false;
     }
-    auto settings = transform.settings();
+    TransformSettings settings;
+    if (!transform.get_settings(settings))
+    {
+        return false;
+    }
     settings.position = vector(local_position);
     settings.rotation = euler_angles(local_rotation);
     // 物理只写位置和旋转，保留调用方明确设置的局部缩放。
@@ -2213,16 +2219,21 @@ bool PhysicsSystem::set_collider_data(Collider collider, const schema::ColliderD
         return false;
     }
     BodySnapshot snapshot;
+    ResourceReference source;
     if (settings.shape == schema::ColliderShape::mesh)
     {
-        auto* resources = ResourceSystem::instance();
-        if (resources == nullptr || !resources->loader().load(settings.mesh_guid, snapshot.mesh) ||
-            !snapshot.mesh || snapshot.mesh->mesh() == nullptr)
+        const auto& current = engine::ecs_detail::component_runtime(collider)->mesh_;
+        const bool acquired = current && current->info().guid == settings.mesh_guid
+                                  ? source.retain(current)
+                                  : ecs_detail::acquire_resource(node, settings.mesh_guid, source);
+        if (!acquired || !source.data<MeshResource>())
         {
             return false;
         }
     }
-    const auto* mesh = snapshot.mesh ? snapshot.mesh->mesh() : nullptr;
+    const auto handle = source.handle();
+    snapshot.mesh = {handle.owner, handle.id, handle.generation};
+    const auto* mesh = source.data<MeshResource>();
     if (!read_snapshot(node, settings, mesh, rigid, snapshot))
     {
         return false;
@@ -2245,7 +2256,7 @@ bool PhysicsSystem::set_collider_data(Collider collider, const schema::ColliderD
     state_->mark_synchronized(node.scene()->id());
     *collider.write_data<Collider::Data>() = *snapshot.collider;
     collider.modified();
-    engine::ecs_detail::component_runtime(collider)->mesh_ = std::move(snapshot.mesh);
+    engine::ecs_detail::component_runtime(collider)->mesh_ = std::move(source);
     engine::ecs_detail::component_runtime(collider)->transient_mesh_.reset();
     engine::ecs_detail::component_runtime(collider)->mesh_parts_.reset();
     return true;
@@ -2266,14 +2277,18 @@ bool PhysicsSystem::set_mesh_data(Collider collider, const schema::MeshDataT& me
     }
     auto rigid = node.get_component<RigidBody>();
     auto motor = node.get_component<CharacterMotor>();
-    if ((rigid.valid() && rigid.settings().motion != schema::BodyMotion::static_body) ||
+    RigidBody::Data rigid_settings;
+    Collider::Data collider_settings;
+    if ((rigid && (!rigid.get_settings(rigid_settings) ||
+                   rigid_settings.motion != schema::BodyMotion::static_body)) ||
+        !collider.get_settings(collider_settings) ||
         (motor.valid() && motor.active() && collider.active()))
     {
         return false;
     }
     BodySnapshot snapshot;
     snapshot.mesh_parts = engine::ecs_detail::component_runtime(collider)->mesh_parts_;
-    if (!read_snapshot(node, collider.settings(), collider.mesh_data(), rigid, snapshot))
+    if (!read_snapshot(node, collider_settings, collider.mesh_data(), rigid, snapshot))
     {
         return false;
     }
@@ -2327,14 +2342,18 @@ bool PhysicsSystem::set_mesh_parts(Collider collider, const MeshCollisionData& p
     }
     auto rigid = node.get_component<RigidBody>();
     auto motor = node.get_component<CharacterMotor>();
-    if ((rigid.valid() && rigid.settings().motion != schema::BodyMotion::static_body) ||
+    RigidBody::Data rigid_settings;
+    Collider::Data collider_settings;
+    if ((rigid && (!rigid.get_settings(rigid_settings) ||
+                   rigid_settings.motion != schema::BodyMotion::static_body)) ||
+        !collider.get_settings(collider_settings) ||
         (motor.valid() && motor.active() && collider.active()))
     {
         return false;
     }
     BodySnapshot snapshot;
     snapshot.mesh_parts = engine::ecs_detail::component_runtime(collider)->mesh_parts_;
-    if (!read_snapshot(node, collider.settings(), collider.mesh_data(), rigid, snapshot))
+    if (!read_snapshot(node, collider_settings, collider.mesh_data(), rigid, snapshot))
     {
         return false;
     }
@@ -2469,7 +2488,9 @@ bool PhysicsSystem::on_tick(double delta_time)
                         return;
                     }
                     BodySnapshot snapshot;
-                    snapshot.mesh = engine::ecs_detail::component_runtime(collider)->mesh_;
+                    const auto handle =
+                        engine::ecs_detail::component_runtime(collider)->mesh_.handle();
+                    snapshot.mesh = {handle.owner, handle.id, handle.generation};
                     snapshot.transient_mesh =
                         engine::ecs_detail::component_runtime(collider)->transient_mesh_;
                     snapshot.mesh_parts =
@@ -2477,7 +2498,9 @@ bool PhysicsSystem::on_tick(double delta_time)
                     const auto existing = state_->bodies.find(node.id());
                     const auto* previous =
                         existing != state_->bodies.end() ? &existing->second.snapshot : nullptr;
-                    if (!read_snapshot(node, collider.settings(), collider.mesh_data(), rigid_body,
+                    Collider::Data collider_settings;
+                    if (!collider.get_settings(collider_settings) ||
+                        !read_snapshot(node, collider_settings, collider.mesh_data(), rigid_body,
                                        snapshot, previous))
                     {
                         std::fputs("Physics rejects invalid settings, shear, reflection or a "
@@ -2551,7 +2574,9 @@ bool PhysicsSystem::on_tick(double delta_time)
         {
             auto node = world_->find_node(id);
             auto body = !node.valid() ? RigidBody{} : node.get_component<RigidBody>();
-            if (body.valid() && body.settings().motion == schema::BodyMotion::dynamic)
+            RigidBody::Data body_settings;
+            if (body.get_settings(body_settings) &&
+                body_settings.motion == schema::BodyMotion::dynamic)
             {
                 if (engine::ecs_detail::component_runtime(body)->pending_impulse_ != Vec3{})
                 {
@@ -2589,7 +2614,8 @@ bool PhysicsSystem::on_tick(double delta_time)
             {
                 auto node = world_->find_node(id);
                 auto motor = node.valid() ? node.get_component<CharacterMotor>() : CharacterMotor{};
-                if (!motor.valid())
+                CharacterMotor::Data motor_settings;
+                if (!motor.get_settings(motor_settings))
                 {
                     clear();
                     return false;
@@ -2616,7 +2642,7 @@ bool PhysicsSystem::on_tick(double delta_time)
                     vector(engine::ecs_detail::component_runtime(motor)->pending_velocity_);
                 engine::ecs_detail::component_runtime(motor)->pending_velocity_ = {};
                 entry.external_velocity += JPH::Vec3(delta.GetX(), 0, delta.GetZ());
-                const auto gravity = state_->physics.GetGravity() * motor.settings().gravity_factor;
+                const auto gravity = state_->physics.GetGravity() * motor_settings.gravity_factor;
                 velocity +=
                     gravity * static_cast<float>(fixed_step) +
                     vector(engine::ecs_detail::component_runtime(motor)->desired_velocity_) +
@@ -2629,8 +2655,8 @@ bool PhysicsSystem::on_tick(double delta_time)
                 character.SetLinearVelocity(velocity);
                 JPH::CharacterVirtual::ExtendedUpdateSettings settings;
                 settings.mStickToFloorStepDown =
-                    JPH::Vec3(0, -motor.settings().ground_snap_distance, 0);
-                settings.mWalkStairsStepUp = JPH::Vec3(0, motor.settings().step_height, 0);
+                    JPH::Vec3(0, -motor_settings.ground_snap_distance, 0);
+                settings.mWalkStairsStepUp = JPH::Vec3(0, motor_settings.step_height, 0);
                 character.ExtendedUpdate(
                     static_cast<float>(fixed_step), gravity, settings,
                     state_->physics.GetDefaultBroadPhaseLayerFilter(moving_layer),
@@ -2666,7 +2692,7 @@ bool PhysicsSystem::on_tick(double delta_time)
                 }
                 character.SetLinearVelocity(resolved);
                 entry.external_velocity *=
-                    std::exp(-motor.settings().external_damping * static_cast<float>(fixed_step));
+                    std::exp(-motor_settings.external_damping * static_cast<float>(fixed_step));
             }
         }
         {
@@ -2689,12 +2715,12 @@ bool PhysicsSystem::on_tick(double delta_time)
             auto node = world_->find_node(id);
             auto motor = node.valid() ? node.get_component<CharacterMotor>() : CharacterMotor{};
             auto transform = node.valid() ? node.get_component<Transform>() : Transform{};
-            if (!motor.valid() || !transform.valid())
+            TransformSettings pose;
+            if (!motor.valid() || !transform.get_settings(pose))
             {
                 clear();
                 return false;
             }
-            auto pose = transform.settings();
             pose.position = vector(JPH::Vec3(entry.character->GetPosition()));
             if (!transform.set_settings(pose))
             {
@@ -2740,12 +2766,23 @@ bool PhysicsSystem::on_tick(double delta_time)
             {
                 entry.snapshot.position = JPH::Vec3(position);
                 entry.snapshot.rotation = rotation;
-                entry.snapshot.written_transform = node.get_component<Transform>().settings();
+                TransformSettings pose;
+                if (!node.get_component<Transform>().get_settings(pose))
+                {
+                    clear();
+                    return false;
+                }
+                entry.snapshot.written_transform = pose;
             }
             JPH::Vec3 linear_velocity;
             JPH::Vec3 angular_velocity;
             interface.GetLinearAndAngularVelocity(entry.body, linear_velocity, angular_velocity);
-            auto settings = body.settings();
+            RigidBody::Data settings;
+            if (!body.get_settings(settings))
+            {
+                clear();
+                return false;
+            }
             settings.linear_velocity = vector(linear_velocity);
             settings.angular_velocity = vector(angular_velocity);
             if (!body.set_settings(settings))

@@ -1,3 +1,4 @@
+#include "resource_services.hpp"
 #include "runtime/engine_config.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/scene/animator.hpp"
@@ -132,10 +133,11 @@ bool registration_phase_guard()
 
 bool check()
 {
-    engine::ResourceSystem resources;
-    engine::WorldSystem world;
+    test_support::ResourceServices services;
+    engine::ResourceSystem& resources = services.core;
+    engine::WorldSystem world{&services.loader};
     const engine::EngineConfig config;
-    if (!resources.initialize(config) || !world.initialize(config))
+    if (!(services.initialize(config) && services.prepare_builtins()) || !world.initialize(config))
     {
         return false;
     }
@@ -164,7 +166,8 @@ bool check()
     snapshot.flags->enabled = false;
     snapshot.payload.AsLightData()->intensity = 2.5F;
     if (!expect(light.restore_data(snapshot) && !light.enabled() &&
-                    node.get_component<engine::Light>().settings().intensity == 2.5F,
+                    test_support::read_settings(node.get_component<engine::Light>()).intensity ==
+                        2.5F,
                 "restore dispatches through Component interface"))
     {
         return false;
@@ -172,7 +175,8 @@ bool check()
     snapshot.flags->enabled = true;
     snapshot.payload.AsLightData()->intensity = std::numeric_limits<float>::quiet_NaN();
     if (!expect(!light.restore_data(snapshot) && !light.enabled() &&
-                    node.get_component<engine::Light>().settings().intensity == 2.5F,
+                    test_support::read_settings(node.get_component<engine::Light>()).intensity ==
+                        2.5F,
                 "invalid typed restore leaves previous state unchanged"))
     {
         return false;
@@ -200,7 +204,7 @@ bool check()
         return false;
     }
     auto camera = node.add_component<engine::Camera>();
-    auto lens = camera.settings();
+    auto lens = test_support::read_settings(camera);
     if (!expect(camera && !lens.frustum_culling_enabled,
                 "optional camera frustum culling defaults off"))
     {
@@ -216,7 +220,7 @@ bool check()
     }
     lens.frustum_culling_enabled = false;
     if (!expect(camera.set_settings(lens) && camera.restore_data(camera_snapshot) &&
-                    camera.settings().frustum_culling_enabled,
+                    test_support::read_settings(camera).frustum_culling_enabled,
                 "camera restore preserves explicit opt-in without separate renderer state"))
     {
         return false;
@@ -247,6 +251,7 @@ bool check()
     mismatch.flags = std::make_unique<engine::schema::ComponentFlagsT>();
     mismatch.payload.Set(engine::schema::CameraDataT{});
     engine::schema::SceneDataT scene_data;
+    scene_data.schema_version = 2;
     if (!expect(!component.restore_data(mismatch), "reject incompatible payload") ||
         !expect(scene->build_data(scene_data),
                 "scene snapshots registered components without type dispatch"))

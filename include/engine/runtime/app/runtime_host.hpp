@@ -30,6 +30,7 @@ class FontSystem;
 class UiSystem;
 class GameplaySession;
 class ResourceSystem;
+class ResourceLoader;
 class ScriptRuntime;
 class ThreadSystem;
 class TaskSystem;
@@ -78,11 +79,13 @@ public:
     // threads 可空；非空借用已初始化预算，调用方在宿主关闭后再关闭它。
     // 完整运行预算由调用方读取配置后显式提交；可空依赖也须明确传入。
     [[nodiscard]] bool initialize(const EngineConfig& config, ResourceSystem* resources,
-                                  ScriptRuntimeFactory script_factory, RuntimeSetup setup,
-                                  ThreadSystem* threads, const RuntimeParallelConfig& parallel,
+                                  ResourceLoader* loader, ScriptRuntimeFactory script_factory,
+                                  RuntimeSetup setup, ThreadSystem* threads,
+                                  const RuntimeParallelConfig& parallel,
                                   AnimationRetargeterFactory retargeter_factory = nullptr);
     [[nodiscard]] bool initialize_presentation(const EngineConfig& config,
-                                               ResourceSystem* resources, ThreadSystem* threads,
+                                               ResourceSystem* resources, ResourceLoader* loader,
+                                               ThreadSystem* threads,
                                                const RuntimeParallelConfig& parallel);
     [[nodiscard]] bool begin_gameplay(ScriptRuntimeFactory script_factory, RuntimeSetup setup,
                                       AnimationRetargeterFactory retargeter_factory,
@@ -91,6 +94,7 @@ public:
                                       std::string_view entry = {}, std::string_view scene = {});
     [[nodiscard]] RuntimeStartupStatus step_gameplay(double max_seconds);
     [[nodiscard]] bool activate_gameplay();
+    // 真实、未缩放秒数；影片按完整时间推进，世界模拟保留单步上限。
     [[nodiscard]] FrameStatus tick(double delta_time);
     // 单独处理事件并发布输入，供不推进世界的宿主流程使用；每帧与 tick 二选一。
     [[nodiscard]] FrameStatus poll_events(double delta_time);
@@ -118,7 +122,8 @@ private:
     Engine& engine_;
     std::unique_ptr<ThreadSystem> owned_threads_;
     std::unique_ptr<TaskSystem> tasks_;
-    std::unique_ptr<TaskSystem> loading_tasks_;
+    std::unique_ptr<TaskSystem> render_tasks_;
+    std::unique_ptr<TaskSystem> movie_tasks_;
     std::unique_ptr<TaskSystem> background_tasks_;
     std::unique_ptr<TaskSystem> physics_tasks_;
     std::unique_ptr<TaskSystem> animation_tasks_;
@@ -137,7 +142,9 @@ private:
     RuntimeStartupStatus startup_status_ = RuntimeStartupStatus::failed;
     bool startup_requested_ = false;
     bool gameplay_active_ = false;
+    bool movie_clock_paused_ = false;
     ResourceSystem* resources_ = nullptr;
+    ResourceLoader* loader_ = nullptr;
     std::unique_ptr<ResourceSystem> owned_resources_;
     std::unique_ptr<WindowSystem> window_;
     std::unique_ptr<InputSystem> input_;

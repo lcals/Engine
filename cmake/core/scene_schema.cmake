@@ -90,6 +90,7 @@ function(engine_add_scene_schema)
         mesh
         model
         skeleton
+        sampling
         animation
         animation_pose
         animation_retarget

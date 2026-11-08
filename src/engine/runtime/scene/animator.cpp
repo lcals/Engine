@@ -9,9 +9,12 @@
 #include "runtime/animation/animation_services.hpp"
 #include "runtime/core/guid_map.hpp"
 #include "runtime/resource/codecs/animation_resource_codec.hpp"
-#include "runtime/resource/resource_system.hpp"
+#include "runtime/resource/types/animation_resource.hpp"
+#include "runtime/resource/types/animation_retarget_profile_resource.hpp"
+#include "runtime/resource/types/skeleton_resource.hpp"
 #include "runtime/scene/ecs_storage.hpp"
 #include "runtime/scene/mesh_renderer.hpp"
+#include "runtime/scene/resource_binding.hpp"
 
 #include <cmath>
 #include <limits>
@@ -21,7 +24,7 @@ namespace engine
 {
 namespace
 {
-bool same_resource(const ResourcePtr& a, const ResourcePtr& b)
+bool same_resource(const ResourceReference& a, const ResourceReference& b)
 {
     return (!a && !b) ||
            (a && b && a->info().guid == b->info().guid && a->generation() == b->generation());
@@ -36,16 +39,17 @@ bool validate_overlay(const schema::AnimationDataT& animation,
     }
     return AnimationResourceCodec::validate(data);
 }
-bool target_skeleton(Animator animator, ResourcePtr& target)
+bool target_skeleton(Animator animator, ResourceReference& target)
 {
     target.reset();
     const auto renderer = animator.node().get_component<MeshRenderer>();
     const auto* mesh = renderer ? renderer.mesh_data() : nullptr;
-    auto* resources = ResourceSystem::instance();
+    auto* resources = animator.node().world()->resource_loader();
     return mesh && resources && !mesh->skeleton_guid.empty() &&
-           resources->loader().load(mesh->skeleton_guid, target) && target && target->skeleton();
+           target.dependency(resources, renderer.mesh_resource(), mesh->skeleton_guid) && target &&
+           target.data<SkeletonResource>();
 }
-bool committed_pose(Animator animator, ResourcePtr& target, MeshRenderer& renderer)
+bool committed_pose(Animator animator, ResourceReference& target, MeshRenderer& renderer)
 {
     target.reset();
     renderer = {};
@@ -58,16 +62,19 @@ bool committed_pose(Animator animator, ResourcePtr& target, MeshRenderer& render
         return false;
     }
     renderer = animator.node().get_component<MeshRenderer>();
-    target = engine::ecs_detail::component_runtime(animator)->target_skeleton_;
+    if (!target.retain(engine::ecs_detail::component_runtime(animator)->target_skeleton_))
+    {
+        return false;
+    }
     const auto* mesh = renderer ? renderer.mesh_data() : nullptr;
-    return renderer && renderer.active() && mesh && target && target->skeleton() &&
+    return renderer && renderer.active() && mesh && target && target.data<SkeletonResource>() &&
            mesh->skeleton_guid == target->info().guid &&
            engine::ecs_detail::component_runtime(animator)->pose_mesh_revision_ ==
                renderer.mesh_revision() &&
            engine::ecs_detail::component_runtime(animator)->pose_mesh_instance_ ==
                renderer.instance_id() &&
            engine::ecs_detail::component_runtime(animator)->committed_models_.size() ==
-               target->skeleton()->joints.size();
+               target.data<SkeletonResource>()->joints.size();
 }
 } // namespace
 
@@ -84,11 +91,6 @@ bool Animator::valid_settings(const Data& data) noexcept
     return (data.animation_guid.empty() || GuidMap::valid_guid(data.animation_guid)) &&
            std::isfinite(data.speed) && data.speed >= 0.0F && data.speed <= 16.0F;
 }
-Animator::Data Animator::settings() const noexcept
-{
-    const auto* value = read_data<Data>();
-    return value ? *value : Data{};
-}
 bool Animator::get_settings(Data& output) const noexcept
 {
     const auto* value = read_data<Data>();
@@ -97,26 +99,42 @@ bool Animator::get_settings(Data& output) const noexcept
 }
 bool Animator::set_settings(const Data& data)
 {
+    return apply_settings(data, {});
+}
+
+bool Animator::apply_settings(const Data& data, ResourceReference prepared)
+{
     if (!writable() || !valid_settings(data))
     {
         return false;
     }
     auto* state = runtime();
-    const bool changed = data.animation_guid != settings().animation_guid;
-    auto replacement = state->animation_;
+    Data previous;
+    if (!get_settings(previous))
+    {
+        return false;
+    }
+    const bool changed = data.animation_guid != previous.animation_guid;
+    ResourceReference replacement;
+    if (state->animation_ && !replacement.retain(state->animation_))
+    {
+        return false;
+    }
     if (changed)
     {
         if (state->revision_ == std::numeric_limits<std::uint64_t>::max())
         {
             return false;
         }
-        replacement.reset();
+        replacement = std::move(prepared);
         if (!data.animation_guid.empty())
         {
-            auto* resources = ResourceSystem::instance();
-            if (!resources || !resources->loader().load(data.animation_guid, replacement) ||
-                !replacement || !replacement->animation() ||
-                !validate_overlay(*replacement->animation(), state->event_markers_))
+            auto* resources = node().world()->resource_loader();
+            if (!resources ||
+                (!replacement &&
+                 !ecs_detail::acquire_resource(node(), data.animation_guid, replacement)) ||
+                !replacement || !replacement.data<AnimationResource>() ||
+                !validate_overlay(*replacement.data<AnimationResource>(), state->event_markers_))
             {
                 return false;
             }
@@ -160,16 +178,25 @@ bool Animator::set_animation(std::string_view path)
     {
         return false;
     }
-    auto data = settings();
+    ResourceReference prepared;
+    Data data;
+    if (!get_settings(data))
+    {
+        return false;
+    }
     if (path.empty())
     {
         data.animation_guid.clear();
     }
-    else if (!ResourceSystem::path_to_guid(path, data.animation_guid))
+    else if (!ecs_detail::acquire_resource(node(), path, prepared))
     {
         return false;
     }
-    if (!set_settings(data))
+    if (prepared)
+    {
+        data.animation_guid = prepared->info().guid;
+    }
+    if (!apply_settings(data, std::move(prepared)))
     {
         return false;
     }
@@ -195,6 +222,10 @@ bool Animator::set_animation(std::string_view path)
 }
 bool Animator::play_animation(const AnimationPlayRequest& request)
 {
+    return apply_animation(request, {});
+}
+bool Animator::apply_animation(const AnimationPlayRequest& request, ResourceReference clip)
+{
     if (!writable() || !active() || request.animation_path.empty() ||
         !std::isfinite(request.fade_seconds) || request.fade_seconds < 0 ||
         !std::isfinite(request.speed) || request.speed < 0 || request.speed > 16)
@@ -204,44 +235,47 @@ bool Animator::play_animation(const AnimationPlayRequest& request)
     auto* state = runtime();
     const auto renderer = node().get_component<MeshRenderer>();
     const auto* mesh = renderer ? renderer.mesh_data() : nullptr;
-    auto* resources = ResourceSystem::instance();
-    ResourcePtr clip, source, target, profile;
-    Guid guid;
+    auto* resources = node().world()->resource_loader();
+    ResourceReference source, target, profile;
     if (!resources || !mesh || mesh->skeleton_guid.empty() ||
-        !ResourceSystem::path_to_guid(request.animation_path, guid) ||
-        !resources->loader().load(guid, clip) || !clip || !clip->animation() ||
-        !resources->loader().load(clip->animation()->skeleton_guid, source) || !source ||
-        !source->skeleton() || !target_skeleton(*this, target) ||
-        !validate_overlay(*clip->animation(), state->event_markers_))
+        (!clip && !ecs_detail::acquire_resource(node(), request.animation_path, clip)) || !clip ||
+        !clip.data<AnimationResource>() ||
+        !source.dependency(resources, clip.handle(),
+                           clip.data<AnimationResource>()->skeleton_guid) ||
+        !source || !source.data<SkeletonResource>() || !target_skeleton(*this, target) ||
+        !validate_overlay(*clip.data<AnimationResource>(), state->event_markers_))
     {
         return false;
     }
     std::shared_ptr<const AnimationRetargetBinding> binding;
     if (request.retarget_profile_path.empty())
     {
-        if (!animation_detail::valid_binding(*mesh, *target->skeleton(), *source->skeleton(),
-                                             *clip->animation()))
+        if (!animation_detail::valid_binding(*mesh, *target.data<SkeletonResource>(),
+                                             *source.data<SkeletonResource>(),
+                                             *clip.data<AnimationResource>()))
         {
             return false;
         }
     }
     else
     {
-        Guid profile_guid;
         const auto* services = flecs::world(node().world()->native_world())
                                    .try_get<animation_detail::AnimationServices>();
         std::string error;
         schema::AnimationDataT rest;
+        rest.schema_version = 2;
         if (!services || !services->retargeter ||
-            !ResourceSystem::path_to_guid(request.retarget_profile_path, profile_guid) ||
-            !resources->loader().load(profile_guid, profile) || !profile ||
-            !profile->retarget_profile() ||
-            profile->retarget_profile()->source_skeleton_guid != source->info().guid ||
-            profile->retarget_profile()->target_skeleton_guid != target->info().guid ||
-            !animation_detail::valid_binding(*mesh, *target->skeleton(), *target->skeleton(),
-                                             rest) ||
-            !services->retargeter->prepare(*profile->retarget_profile(), *source->skeleton(),
-                                           *target->skeleton(), binding, error) ||
+            !ecs_detail::acquire_resource(node(), request.retarget_profile_path, profile) ||
+            !profile || !profile.data<AnimationRetargetResource>() ||
+            profile.data<AnimationRetargetResource>()->source_skeleton_guid !=
+                source->info().guid ||
+            profile.data<AnimationRetargetResource>()->target_skeleton_guid !=
+                target->info().guid ||
+            !animation_detail::valid_binding(*mesh, *target.data<SkeletonResource>(),
+                                             *target.data<SkeletonResource>(), rest) ||
+            !services->retargeter->prepare(*profile.data<AnimationRetargetResource>(),
+                                           *source.data<SkeletonResource>(),
+                                           *target.data<SkeletonResource>(), binding, error) ||
             !binding)
         {
             return false;
@@ -274,14 +308,18 @@ bool Animator::play_animation(const AnimationPlayRequest& request)
     {
         return false;
     }
-    state->previous_animation_ =
-        state->playback_ == AnimationPlayback::stopped ? nullptr : state->animation_;
-    state->previous_source_skeleton_ = state->source_skeleton_;
-    state->previous_retarget_profile_ = state->retarget_profile_;
+    Data previous;
+    if (!get_settings(previous))
+    {
+        return false;
+    }
+    state->previous_animation_ = std::move(state->animation_);
+    state->previous_source_skeleton_ = std::move(state->source_skeleton_);
+    state->previous_retarget_profile_ = std::move(state->retarget_profile_);
     state->previous_retarget_binding_ = state->retarget_binding_;
     state->previous_time_ = state->time_;
-    state->previous_speed_ = settings().speed;
-    state->previous_loop_ = settings().loop;
+    state->previous_speed_ = previous.speed;
+    state->previous_loop_ = previous.loop;
     state->previous_advancing_ = state->playback_ == AnimationPlayback::playing;
     state->frozen_pose_.reset();
     if (!same_resource(state->target_skeleton_, target))
@@ -291,7 +329,7 @@ bool Animator::play_animation(const AnimationPlayRequest& request)
         state->committed_models_.clear();
     }
     auto* data = write_data<Data>();
-    data->animation_guid = std::move(guid);
+    data->animation_guid = clip->info().guid;
     data->speed = request.speed;
     data->loop = request.loop;
     state->animation_ = std::move(clip);
@@ -319,12 +357,15 @@ bool Animator::cross_fade(std::string_view path, double seconds)
     {
         return false;
     }
-    // 旧接口的同一资源 no-op（包括保持暂停）保留。
-    Guid guid;
-    ResourcePtr clip;
-    auto* resources = ResourceSystem::instance();
-    if (!resources || !ResourceSystem::path_to_guid(path, guid) ||
-        !resources->loader().load(guid, clip) || !clip || !clip->animation())
+    // 对同一资源保持当前播放状态，包括暂停状态。
+    Data data;
+    if (!get_settings(data))
+    {
+        return false;
+    }
+    ResourceReference clip;
+    if (!ecs_detail::acquire_resource(node(), path, clip) || !clip ||
+        !clip.data<AnimationResource>())
     {
         return false;
     }
@@ -336,9 +377,9 @@ bool Animator::cross_fade(std::string_view path, double seconds)
     AnimationPlayRequest request;
     request.animation_path = std::string(path);
     request.fade_seconds = seconds;
-    request.speed = settings().speed;
-    request.loop = settings().loop;
-    return play_animation(request);
+    request.speed = data.speed;
+    request.loop = data.loop;
+    return apply_animation(request, std::move(clip));
 }
 std::string_view Animator::animation_path() const noexcept
 {
@@ -347,7 +388,8 @@ std::string_view Animator::animation_path() const noexcept
 }
 bool Animator::play() noexcept
 {
-    if (!writable() || !active() || !runtime()->animation_ || !runtime()->animation_->animation())
+    if (!writable() || !active() || !runtime()->animation_ ||
+        !runtime()->animation_.data<AnimationResource>())
     {
         return false;
     }
@@ -417,7 +459,8 @@ bool Animator::seek(double seconds) noexcept
         return false;
     }
     auto* state = runtime();
-    const auto* animation = state->animation_ ? state->animation_->animation() : nullptr;
+    const auto* animation =
+        state->animation_ ? state->animation_.data<AnimationResource>() : nullptr;
     if (!animation || !std::isfinite(seconds) || seconds < 0 || seconds > animation->duration ||
         state->playback_sequence_ == std::numeric_limits<std::uint64_t>::max())
     {
@@ -450,7 +493,7 @@ double Animator::time() const noexcept
 {
     return valid() ? runtime()->time_ : 0;
 }
-bool Animator::get_playback_info(AnimatorPlaybackInfo& output) const noexcept
+bool Animator::get_playback_info(AnimatorPlaybackInfo& output) const
 {
     output = {};
     if (!valid())
@@ -458,7 +501,8 @@ bool Animator::get_playback_info(AnimatorPlaybackInfo& output) const noexcept
         return false;
     }
     const auto* state = runtime();
-    const auto* animation = state->animation_ ? state->animation_->animation() : nullptr;
+    const auto* animation =
+        state->animation_ ? state->animation_.data<AnimationResource>() : nullptr;
     output.playback = state->playback_;
     output.time = state->time_;
     output.duration = animation ? animation->duration : 0;
@@ -468,16 +512,19 @@ bool Animator::get_playback_info(AnimatorPlaybackInfo& output) const noexcept
     output.completed = state->completed_;
     output.transitioning = state->fade_seconds_ > 0 && state->fade_elapsed_ < state->fade_seconds_;
     output.playback_id = state->playback_id_;
+    output.animation_guid = state->animation_ ? state->animation_->info().guid : "";
+    output.resource_generation = state->animation_ ? state->animation_->generation() : 0;
+    output.track_revision = state->track_revision_;
     return true;
 }
 bool Animator::get_bone_pose(std::string_view path, AnimationPoseTransform& output) const
 {
     output = {};
-    ResourcePtr target;
+    ResourceReference target;
     MeshRenderer renderer;
     std::vector<std::string> paths;
     if (!committed_pose(*this, target, renderer) ||
-        !animation_detail::readable_joint_paths(*target->skeleton(), paths))
+        !animation_detail::readable_joint_paths(*target.data<SkeletonResource>(), paths))
     {
         return false;
     }
@@ -505,13 +552,13 @@ bool Animator::get_bone_pose(std::string_view path, AnimationPoseTransform& outp
 bool Animator::get_socket_pose(std::string_view name, AnimationPoseTransform& output) const
 {
     output = {};
-    ResourcePtr target;
+    ResourceReference target;
     MeshRenderer renderer;
     if (!committed_pose(*this, target, renderer))
     {
         return false;
     }
-    for (const auto& socket : target->skeleton()->sockets)
+    for (const auto& socket : target.data<SkeletonResource>()->sockets)
     {
         if (socket && socket->name == name)
         {
@@ -556,9 +603,9 @@ bool Animator::get_ik_target(std::string_view name, AnimationIkTarget& output) c
 }
 bool Animator::set_event_markers(std::span<const schema::AnimationEventMarkerDataT> markers)
 {
-    if (!writable() || !runtime()->animation_ || !runtime()->animation_->animation() ||
+    if (!writable() || !runtime()->animation_ || !runtime()->animation_.data<AnimationResource>() ||
         runtime()->track_revision_ == std::numeric_limits<std::uint64_t>::max() ||
-        !validate_overlay(*runtime()->animation_->animation(), markers))
+        !validate_overlay(*runtime()->animation_.data<AnimationResource>(), markers))
     {
         return false;
     }

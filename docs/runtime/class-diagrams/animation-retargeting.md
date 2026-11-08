@@ -1,8 +1,8 @@
-# 动画资源与重定向契约（接口已确认）
+# 动画资源与重定向契约
 
 [类图索引](../../class-diagrams/index.md) · [动画系统](animation-system.md) · [具体重定向插件](../../plugins/runtime/class-diagrams/animation-retarget.md) · [三层职责](../scripted-animation-controller.md)
 
-本页定义已确认并接入的公开契约。资源、独立 TS 状态机脚本和业务仍按各自职责组合；本页只定义跨骨架姿态转换，不定义待机、移动、攻击等状态规则，也不建立原生 Graph、System 或 Manager。
+本页定义跨骨架重定向的公开契约。资源、独立 TS 状态机脚本和业务仍按各自职责组合；本页只定义跨骨架姿态转换，不定义待机、移动、攻击等状态规则，也不建立原生 Graph、System 或 Manager。
 
 ## 独立资源与姿态数据
 

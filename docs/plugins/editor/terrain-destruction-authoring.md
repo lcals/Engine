@@ -1,8 +1,8 @@
 # 地形与建筑破坏制作方案
 
-地形导入、组件编解码、MCP、撤销/重做、建筑预破碎及 showcase 实验场已实现。制作工具保持同步准备和原子发布；运行时已接入地基联动、撞击反馈、应力、土石塌方、导航和连续火箭测试。整体目标见[运行时方案](../runtime/terrain-destruction.md)，各阶段实际平台验证见[技术研究](../runtime/terrain-destruction-feasibility.md)，当前性能与待优化项见[性能采样](../../runtime/performance.md)。
+地形导入、组件编解码、MCP、撤销/重做、建筑预破碎及 showcase 实验场已实现。制作工具保持同步准备和原子发布；运行时已接入地基联动、撞击反馈、应力、土石塌方、导航和连续火箭测试。整体目标见[运行时方案](../runtime/terrain-destruction.md)，采用范围与平台限制见[技术研究](../runtime/terrain-destruction-feasibility.md)，当前性能与待优化项见[性能采样](../../runtime/performance.md)。
 
-全部测试统一放在第一个示例项目 `projects/showcase/`。当前已生成自制地形、墙柱和分层塔试件，后续扩展空心楼板与多层建筑，复用现有菜单、角色与效果；每阶段扩展本项目的场景和桌面/Android 资源清单，不另开测试项目或导入其他项目的商业资源。
+公开场景使用 `projects/showcase/` 的自制地形、墙柱和分层塔试件，复用现有菜单、角色与效果；引擎回归按所属模块放在 `tests/`，项目交互检查留在项目内，不复制测试项目或引入商业资源。
 
 生成、笔刷和预破碎同步返回完成或失败，保留准备与提交的职责边界。后台准备留待后续，既有 MCP 请求回执与编辑器命令通道继续沿用。
 
@@ -79,6 +79,6 @@ showcase 菜单第六项 `Terrain laboratory` 进入 `scenes/terrain.scene`，�
 
 先核实开源版本、许可、依赖和平台可用性，再更新所属层级类图并实现。商业包只在本地参考，不提交其源码、转换片段或付费素材。公开测试使用可提交的自制或许可允许的资源；项目专有内容不迁移到其他项目。
 
-地形制作阶段已通过 macOS Debug/Release 的 `engine.physics`、`engine.scene`、`editor.scene_persistence`、`engine.terrain_runtime`、`editor.terrain_pipeline`、`engine.mcp_registry` 六项定向测试，日志保留在忽略目录 `build/terrain-step1/`。Metal 窗口的地形操作及预览生命周期已通过；正式 Android 地形插件尚未验证。
+旧阶段日志保留在 Git 和本地构建目录；当前平台验证范围以[测试文档](../../testing.md#验证范围与限制)为准。修改制作链路时只选择对应导入、命令或发布用例，不运行全套地形/破坏场景。
 
-建筑制作的测试、窗口回执及剩余验收范围统一维护在[技术研究](../runtime/terrain-destruction-feasibility.md)，不将资源清单登记、依赖编译或独立 Graph 探针视为全平台完成。
+建筑制作的采用范围和平台边界见[技术研究](../runtime/terrain-destruction-feasibility.md)，不将资源清单登记、依赖编译或独立 Graph 探针视为全平台完成。

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "runtime/resource/resource_handle.hpp"
+
 #include "runtime/scene/component.hpp"
 #include "runtime/schema/material_generated.h"
 
@@ -32,7 +34,10 @@ public:
         return valid();
     }
     [[nodiscard]] std::string type_path() const noexcept;
+    [[nodiscard]] ResourceHandle resource() const noexcept;
     [[nodiscard]] std::string shader_path() const noexcept;
+    // 借用实际持有的 Shader 获取身份；失效材质返回空句柄。
+    [[nodiscard]] ResourceHandle shader() const noexcept;
     // 借用材质当前持有的 Shader 定义；切换 Shader 或销毁材质后失效。
     [[nodiscard]] const schema::ShaderDataT* shader_data() const noexcept;
     // 与持有的材质定义及 Shader 默认值比较；恢复原值后没有覆盖，不重新加载资源。
@@ -53,7 +58,7 @@ public:
     // 输出借用当前资源路径；失败输出空视图。
     [[nodiscard]] bool get_texture(std::string_view name, std::string_view& output) const noexcept;
     // 借用共享引用，未知名称返回空引用；修改材质后重新查询。
-    [[nodiscard]] std::shared_ptr<const Resource> texture(std::string_view name) const noexcept;
+    [[nodiscard]] ResourceHandle texture(std::string_view name) const noexcept;
     // 查询失败时输出零值。
     [[nodiscard]] bool get_float(std::string_view name, float& output) const noexcept;
     [[nodiscard]] bool get_v2(std::string_view name, Vec2& output) const noexcept;

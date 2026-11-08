@@ -22,7 +22,4 @@ struct AssetEntryT;
 // Shader 初始字节码属于当前宿主；异平台构建必须由编辑器替换成目标平台字节码。
 [[nodiscard]] bool builtin_resource_payload(std::string_view guid, ByteBuffer& output);
 
-// 注册引擎内置的 Mesh、Shader 与材质定义。
-[[nodiscard]] bool register_builtin_render_resources();
-
 } // namespace engine

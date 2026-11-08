@@ -1,4 +1,6 @@
 #include "resource_fixture.hpp"
+#include "resource_services.hpp"
+#include "scene_snapshot.hpp"
 
 #include "runtime/engine_config.hpp"
 #include "runtime/scene/ecs_storage.hpp"
@@ -48,7 +50,7 @@ bool producer_transform_drive()
     auto child = scene ? scene->create_node("Child") : Node{};
     auto light = owner.add_component<Light>();
     auto transform = child.get_component<Transform>();
-    auto settings = transform.settings();
+    auto settings = test_support::read_settings(transform);
     settings.position = {1, 0, 0};
     if (!light || !child.set_parent(owner) || !transform.set_settings(settings))
     {
@@ -91,25 +93,26 @@ bool producer_transform_drive()
 
 bool scene_lifetime_phases()
 {
-    ResourceSystem resources;
-    WorldSystem world;
+    test_support::ResourceServices services;
+    auto& resources = services.core;
+    WorldSystem world(&services.loader);
     test_support::ResourceFixture fixture;
-    if (!resources.initialize({}) || !world.initialize({}))
+    if (!services.initialize({}) || !world.initialize({}))
     {
         return false;
     }
     auto* active = world.create_scene("Active");
     auto node = active ? active->create_node("Retained until safe point") : Node{};
     schema::SceneDataT snapshot;
-    ResourcePtr resource;
+    engine::ResourceReference resource;
     if (!node || !active->build_data(snapshot) || !fixture.add("phases.scene", snapshot) ||
-        !fixture.publish(resources) || !fixture.load("phases.scene", resource))
+        !fixture.publish(resources) || !services.load("phases.scene", resource))
     {
         return false;
     }
     for (bool multi_threaded : {true, false})
     {
-        const auto request = world.begin_restore_scene(resource);
+        const auto request = world.begin_restore_scene(resource.handle());
         if (!request || world.step_restore_scene(request, 64) != SceneRestoreStatus::ready)
         {
             return false;
@@ -247,7 +250,8 @@ bool check()
         }
     }
     ecs_readonly_begin(world.native_world(), true);
-    const bool readonly_safe = original.valid() && original.settings().position.x() == 0 &&
+    const bool readonly_safe = original.valid() &&
+                               test_support::read_settings(original).position.x() == 0 &&
                                !root.set_enabled(false) && !scene->create_node("Rejected") &&
                                !nodes.front().remove_component(Transform::component_type);
     ecs_readonly_end(world.native_world());

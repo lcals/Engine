@@ -222,7 +222,7 @@ bool read_selection(const Json& input, const schema::EditableMeshDataT& data, Me
         return true;
     }
     std::vector<std::uint64_t> selected;
-    return EditableMesh::selected_vertices(data, output, selected, error);
+    return mesh::selected_vertices(data, output, selected, error);
 }
 
 Json selection_json(const MeshSelection& selection)
@@ -327,7 +327,7 @@ bool create_mesh(std::string_view shape, const Json& params, schema::EditableMes
                 }
             }
         }
-        return MeshPrimitives::polygon(points, holes, data, error);
+        return mesh::polygon(points, holes, data, error);
     }
     if (shape == "sweep")
     {
@@ -343,7 +343,7 @@ bool create_mesh(std::string_view shape, const Json& params, schema::EditableMes
             error = "Invalid sweep profile, path or options";
             return false;
         }
-        return MeshGeometry::sweep(options, data, error);
+        return mesh::sweep(options, data, error);
     }
     if (shape == "lathe")
     {
@@ -357,7 +357,7 @@ bool create_mesh(std::string_view shape, const Json& params, schema::EditableMes
             error = "Invalid lathe profile or options";
             return false;
         }
-        return MeshGeometry::lathe(options, data, error);
+        return mesh::lathe(options, data, error);
     }
     const std::map<std::string_view, MeshPrimitive> types = {
         {"cube", MeshPrimitive::cube},         {"plane", MeshPrimitive::plane},
@@ -388,7 +388,7 @@ bool create_mesh(std::string_view shape, const Json& params, schema::EditableMes
         return false;
     }
     options.type = type->second;
-    return MeshPrimitives::create(options, data, error);
+    return mesh::create(options, data, error);
 }
 
 bool operate(std::string_view operation, const Json& params, const MeshSelection& selection,
@@ -415,7 +415,7 @@ bool operate(std::string_view operation, const Json& params, const MeshSelection
             error = "Transform requires a 16-number column-major affine matrix";
             return false;
         }
-        return MeshTopology::transform(data, selection, matrix, error);
+        return mesh::transform(data, selection, matrix, error);
     }
     if (operation == "extrude")
     {
@@ -423,14 +423,14 @@ bool operate(std::string_view operation, const Json& params, const MeshSelection
         return fields(params, {"distance", "individual"}) &&
                number_field(params, "distance", distance) &&
                boolean_field(params, "individual", individual) &&
-               MeshTopology::extrude(data, faces, distance, individual, error);
+               mesh::extrude(data, faces, distance, individual, error);
     }
     if (operation == "extrude_edges")
     {
         Vec3 delta;
         return fields(params, {"delta"}) && params.contains("delta") &&
                vec3_field(params, "delta", delta) &&
-               MeshTopology::extrude_edges(data, selection.edges, delta, error);
+               mesh::extrude_edges(data, selection.edges, delta, error);
     }
     if (operation == "inset")
     {
@@ -438,7 +438,7 @@ bool operate(std::string_view operation, const Json& params, const MeshSelection
         return fields(params, {"distance", "group"}) &&
                number_field(params, "distance", distance) &&
                boolean_field(params, "group", group) &&
-               MeshTopology::inset(data, faces, distance, error, group);
+               mesh::inset(data, faces, distance, error, group);
     }
     if (operation == "erase_faces" || operation == "reverse" || operation == "triangulate" ||
         operation == "detach" || operation == "duplicate_faces")
@@ -450,39 +450,38 @@ bool operate(std::string_view operation, const Json& params, const MeshSelection
         }
         if (operation == "erase_faces")
         {
-            return MeshTopology::erase_faces(data, faces, error);
+            return mesh::erase_faces(data, faces, error);
         }
         if (operation == "reverse")
         {
-            return MeshTopology::reverse_faces(data, faces, error);
+            return mesh::reverse_faces(data, faces, error);
         }
         if (operation == "triangulate")
         {
-            return MeshTopology::triangulate(data, faces, error);
+            return mesh::triangulate(data, faces, error);
         }
         if (operation == "detach")
         {
-            return MeshTopology::detach_faces(data, faces, error);
+            return mesh::detach_faces(data, faces, error);
         }
-        return MeshTopology::duplicate_faces(data, faces, error);
+        return mesh::duplicate_faces(data, faces, error);
     }
     if (operation == "subdivide")
     {
         std::uint32_t iterations = 1;
         return fields(params, {"iterations"}) && uint_field(params, "iterations", iterations) &&
-               MeshTopology::subdivide(data, faces, iterations, error);
+               mesh::subdivide(data, faces, iterations, error);
     }
     if (operation == "split_vertices")
     {
         std::vector<std::uint64_t> vertices;
-        return params.empty() &&
-               EditableMesh::selected_vertices(data, selection, vertices, error) &&
-               MeshTopology::split_vertices(data, vertices, error);
+        return params.empty() && mesh::selected_vertices(data, selection, vertices, error) &&
+               mesh::split_vertices(data, vertices, error);
     }
     if (operation == "weld" || operation == "merge_vertices")
     {
         std::vector<std::uint64_t> vertices;
-        if (!EditableMesh::selected_vertices(data, selection, vertices, error))
+        if (!mesh::selected_vertices(data, selection, vertices, error))
         {
             return false;
         }
@@ -490,12 +489,12 @@ bool operate(std::string_view operation, const Json& params, const MeshSelection
         {
             double tolerance = 0.000001;
             return fields(params, {"tolerance"}) && number_field(params, "tolerance", tolerance) &&
-                   MeshTopology::weld(data, vertices, tolerance, error);
+                   mesh::weld(data, vertices, tolerance, error);
         }
         Vec3 position;
         return fields(params, {"position"}) && params.contains("position") &&
                vec3_field(params, "position", position) &&
-               MeshTopology::merge_vertices(data, vertices, position, error);
+               mesh::merge_vertices(data, vertices, position, error);
     }
     if (operation == "bridge" || operation == "fill_hole")
     {
@@ -504,12 +503,11 @@ bool operate(std::string_view operation, const Json& params, const MeshSelection
         if (operation == "fill_hole")
         {
             return fields(params, {"loop"}) && params.contains("loop") &&
-                   ids(params["loop"], first) && MeshTopology::fill_hole(data, first, error);
+                   ids(params["loop"], first) && mesh::fill_hole(data, first, error);
         }
         return fields(params, {"firstLoop", "secondLoop"}) && params.contains("firstLoop") &&
                params.contains("secondLoop") && ids(params["firstLoop"], first) &&
-               ids(params["secondLoop"], second) &&
-               MeshTopology::bridge(data, first, second, error);
+               ids(params["secondLoop"], second) && mesh::bridge(data, first, second, error);
     }
     if (operation == "loop_cut")
     {
@@ -523,7 +521,7 @@ bool operate(std::string_view operation, const Json& params, const MeshSelection
         }
         return fields(params, {"cuts", "pinch", "offset"}) && uint_field(params, "cuts", cuts) &&
                number_field(params, "pinch", pinch) && number_field(params, "offset", offset) &&
-               MeshTopology::loop_cut(data, selection.edges[0], cuts, pinch, offset, error);
+               mesh::loop_cut(data, selection.edges[0], cuts, pinch, offset, error);
     }
     if (operation == "dissolve_edge" || operation == "split_edge")
     {
@@ -534,11 +532,11 @@ bool operate(std::string_view operation, const Json& params, const MeshSelection
         }
         if (operation == "dissolve_edge")
         {
-            return params.empty() && MeshTopology::dissolve_edge(data, selection.edges[0], error);
+            return params.empty() && mesh::dissolve_edge(data, selection.edges[0], error);
         }
         double fraction = 0.5;
         return fields(params, {"fraction"}) && number_field(params, "fraction", fraction) &&
-               MeshTopology::split_edge(data, selection.edges[0], fraction, error);
+               mesh::split_edge(data, selection.edges[0], fraction, error);
     }
     if (operation == "connect_vertices")
     {
@@ -549,8 +547,8 @@ bool operate(std::string_view operation, const Json& params, const MeshSelection
             error = "Connect requires two selected vertices and a face ID";
             return false;
         }
-        return MeshTopology::connect_vertices(data, face, selection.vertices[0],
-                                              selection.vertices[1], error);
+        return mesh::connect_vertices(data, face, selection.vertices[0], selection.vertices[1],
+                                      error);
     }
     if (operation == "mirror")
     {
@@ -561,7 +559,7 @@ bool operate(std::string_view operation, const Json& params, const MeshSelection
                boolean_field(params, "duplicate", options.duplicate) &&
                boolean_field(params, "weld", options.weld) &&
                number_field(params, "tolerance", options.tolerance) &&
-               MeshGeometry::mirror(data, options, error);
+               mesh::mirror(data, options, error);
     }
     if (operation == "clip")
     {
@@ -572,7 +570,7 @@ bool operate(std::string_view operation, const Json& params, const MeshSelection
                boolean_field(params, "keepPositive", options.keep_positive) &&
                boolean_field(params, "cap", options.cap) &&
                uint_field(params, "materialSlot", options.cap_material_slot) &&
-               MeshGeometry::clip(data, options, error);
+               mesh::clip(data, options, error);
     }
     if (operation == "bevel")
     {
@@ -583,7 +581,7 @@ bool operate(std::string_view operation, const Json& params, const MeshSelection
                number_field(params, "profile", options.profile) &&
                uint_field(params, "segments", options.segments) &&
                uint_field(params, "materialSlot", options.material_slot) &&
-               MeshGeometry::bevel(data, options, error);
+               mesh::bevel(data, options, error);
     }
     if (operation == "project_uv")
     {
@@ -614,7 +612,7 @@ bool operate(std::string_view operation, const Json& params, const MeshSelection
                vec3_field(params, "normal", options.normal) &&
                vec2_field(params, "scale", options.scale) &&
                vec2_field(params, "offset", options.offset) &&
-               MeshGeometry::project_uv(data, faces, options, error);
+               mesh::project_uv(data, faces, options, error);
     }
     if (operation == "transform_uv")
     {
@@ -624,7 +622,7 @@ bool operate(std::string_view operation, const Json& params, const MeshSelection
                vec2_field(params, "offset", options.offset) &&
                vec2_field(params, "pivot", options.pivot) &&
                number_field(params, "rotationDegrees", options.rotation_degrees) &&
-               MeshGeometry::transform_uv(data, faces, options, error);
+               mesh::transform_uv(data, faces, options, error);
     }
     if (operation == "unwrap_uv" || operation == "unwrap_face_uv")
     {
@@ -633,7 +631,7 @@ bool operate(std::string_view operation, const Json& params, const MeshSelection
         {
             return fields(params, {"padding"}) &&
                    number_field(params, "padding", options.padding) &&
-                   MeshGeometry::unwrap_face_uv(data, faces, options, error);
+                   mesh::unwrap_face_uv(data, faces, options, error);
         }
         if (!fields(params, {"padding", "resolution", "iterations", "rotate",
                              "respectExistingSeams", "seams"}) ||
@@ -654,7 +652,7 @@ bool operate(std::string_view operation, const Json& params, const MeshSelection
             }
             options.seams = std::move(seams.edges);
         }
-        return MeshGeometry::unwrap_uv(data, faces, options, error);
+        return mesh::unwrap_uv(data, faces, options, error);
     }
     if (operation == "hotspot_uv")
     {
@@ -676,19 +674,19 @@ bool operate(std::string_view operation, const Json& params, const MeshSelection
             }
             options.rectangles.emplace_back(value[0], value[1], value[2], value[3]);
         }
-        return MeshGeometry::hotspot_uv(data, faces, options, error);
+        return mesh::hotspot_uv(data, faces, options, error);
     }
     if (operation == "smoothing")
     {
         std::uint32_t group = 0;
         return fields(params, {"group"}) && uint_field(params, "group", group) &&
-               MeshGeometry::set_smoothing(data, faces, group, error);
+               mesh::set_smoothing(data, faces, group, error);
     }
     if (operation == "auto_smooth")
     {
         double angle = 60;
         return fields(params, {"angleDegrees"}) && number_field(params, "angleDegrees", angle) &&
-               MeshGeometry::auto_smooth(data, angle, error);
+               mesh::auto_smooth(data, angle, error);
     }
     if (operation == "material" || operation == "color")
     {
@@ -706,8 +704,8 @@ bool operate(std::string_view operation, const Json& params, const MeshSelection
             return false;
         }
         return operation == "material"
-                   ? MeshTopology::set_material(data, faces, slot, error)
-                   : MeshTopology::set_color(
+                   ? mesh::set_material(data, faces, slot, error)
+                   : mesh::set_color(
                          data, faces,
                          Color(static_cast<float>(color[0]), static_cast<float>(color[1]),
                                static_cast<float>(color[2]), static_cast<float>(color[3])),
@@ -832,7 +830,11 @@ Json visual_snapshot(const Node& node)
     {
         return nullptr;
     }
-    const auto& settings = transform.settings();
+    TransformSettings settings;
+    if (!transform.get_settings(settings))
+    {
+        return nullptr;
+    }
     Json materials = Json::array();
     for (std::size_t slot = 0; slot < renderer.material_count(); ++slot)
     {
@@ -854,8 +856,8 @@ bool restore_visual(Node node, const Json& snapshot)
     }
     auto transform = node.get_component<Transform>();
     auto renderer = node.get_component<MeshRenderer>();
-    auto settings = transform.settings();
-    if (!vec3_field(snapshot, "position", settings.position) ||
+    TransformSettings settings;
+    if (!transform.get_settings(settings) || !vec3_field(snapshot, "position", settings.position) ||
         !vec3_field(snapshot, "rotation", settings.rotation) ||
         !vec3_field(snapshot, "scale", settings.scale) || !transform.set_settings(settings) ||
         !renderer.set_material_count(snapshot["materials"].size()))
@@ -1155,11 +1157,10 @@ Json mirror_json(const ModelRecord& record)
 bool prepare_record(ModelRecord& record, std::string& error)
 {
     auto render_source = record.source;
-    return EditableMesh::serialize(record.source, record.bytes, error) &&
-           (!record.mirror_enabled || MeshGeometry::mirror(render_source, record.mirror, error)) &&
-           EditableMesh::compile(render_source,
-                                 "builtin://modeling/" + std::to_string(record.model_id),
-                                 record.compiled, error);
+    return mesh::serialize(record.source, record.bytes, error) &&
+           (!record.mirror_enabled || mesh::mirror(render_source, record.mirror, error)) &&
+           mesh::compile(render_source, "builtin://modeling/" + std::to_string(record.model_id),
+                         record.compiled, error);
 }
 } // namespace
 
@@ -1216,7 +1217,7 @@ struct ModelingCommands::State
                 ModelRecord record;
                 if (!detail::safe_asset_path(project_root, renderer.mesh_path(), path, error) ||
                     !detail::load_source(path, record.source, error) ||
-                    !EditableMesh::serialize(record.source, record.bytes, error))
+                    !mesh::serialize(record.source, record.bytes, error))
                 {
                     continue;
                 }
@@ -1743,7 +1744,7 @@ struct ModelingCommands::State
                                                      : MeshFaceSelection::connected;
                 auto faces = face_selection(after->source, after->selection);
                 std::vector<std::uint64_t> selected;
-                if (!MeshTopology::select_faces(after->source, faces, kind, selected, error))
+                if (!mesh::select_faces(after->source, faces, kind, selected, error))
                 {
                     return false;
                 }
@@ -1755,10 +1756,10 @@ struct ModelingCommands::State
                 std::vector<MeshEdge> selected;
                 if (after->selection.edges.size() != 1 ||
                     !(mode == "edge_ring"
-                          ? MeshTopology::edge_ring(after->source, after->selection.edges[0],
-                                                    selected, error)
-                          : MeshTopology::edge_loop(after->source, after->selection.edges[0],
-                                                    selected, error)))
+                          ? mesh::edge_ring(after->source, after->selection.edges[0], selected,
+                                            error)
+                          : mesh::edge_loop(after->source, after->selection.edges[0], selected,
+                                            error)))
                 {
                     if (error.empty())
                     {
@@ -1808,7 +1809,7 @@ struct ModelingCommands::State
                 }
                 else if (action == "finish" && after->mirror_enabled)
                 {
-                    if (!MeshGeometry::mirror(after->source, after->mirror, error))
+                    if (!mesh::mirror(after->source, after->mirror, error))
                     {
                         return false;
                     }
@@ -1837,9 +1838,8 @@ struct ModelingCommands::State
                 }
                 auto other_source = other->second.source;
                 if ((other->second.mirror_enabled &&
-                     !MeshGeometry::mirror(other_source, other->second.mirror, error)) ||
-                    (after->mirror_enabled &&
-                     !MeshGeometry::mirror(after->source, after->mirror, error)))
+                     !mesh::mirror(other_source, other->second.mirror, error)) ||
+                    (after->mirror_enabled && !mesh::mirror(after->source, after->mirror, error)))
                 {
                     return false;
                 }
@@ -1852,7 +1852,7 @@ struct ModelingCommands::State
                 }
                 MeshSelection all;
                 all.all = true;
-                if (!MeshTopology::transform(other_source, all, relative, error))
+                if (!mesh::transform(other_source, all, relative, error))
                 {
                     return false;
                 }
@@ -1875,7 +1875,7 @@ struct ModelingCommands::State
                 }
                 for (const auto& [slot, faces] : slots)
                 {
-                    if (!MeshTopology::set_material(other_source, faces, slot + slot_offset, error))
+                    if (!mesh::set_material(other_source, faces, slot + slot_offset, error))
                     {
                         return false;
                     }
@@ -1885,7 +1885,7 @@ struct ModelingCommands::State
                                   : mode == "intersect" ? MeshBooleanOperation::intersect
                                                         : MeshBooleanOperation::subtract;
                 if ((mode != "union" && mode != "intersect" && mode != "subtract") ||
-                    !MeshGeometry::boolean_operation(after->source, other_source, kind, error))
+                    !mesh::boolean_operation(after->source, other_source, kind, error))
                 {
                     return false;
                 }
@@ -1992,8 +1992,8 @@ struct ModelingCommands::State
             }
             auto before = snapshot(*original, error);
             auto after = std::make_unique<ModelRecord>(*before);
-            if (!MeshTopology::erase_faces(copy->source, remainder, error) ||
-                !MeshTopology::erase_faces(after->source, selected, error))
+            if (!mesh::erase_faces(copy->source, remainder, error) ||
+                !mesh::erase_faces(after->source, selected, error))
             {
                 return false;
             }
@@ -2015,7 +2015,7 @@ struct ModelingCommands::State
             std::array<float, 16> world_matrix{};
             std::array<double, 16> matrix{};
             if (!original_node.get_component<Transform>().world_matrix(world_matrix.data()) ||
-                (copy->mirror_enabled && !MeshGeometry::mirror(copy->source, copy->mirror, error)))
+                (copy->mirror_enabled && !mesh::mirror(copy->source, copy->mirror, error)))
             {
                 error = "Cannot bake parented model transform";
                 return false;
@@ -2023,7 +2023,7 @@ struct ModelingCommands::State
             std::copy(world_matrix.begin(), world_matrix.end(), matrix.begin());
             MeshSelection all;
             all.all = true;
-            if (!MeshTopology::transform(copy->source, all, matrix, error))
+            if (!mesh::transform(copy->source, all, matrix, error))
             {
                 return false;
             }
@@ -2073,8 +2073,7 @@ struct ModelingCommands::State
                 return false;
             }
             auto source = found->second.source;
-            if (found->second.mirror_enabled &&
-                !MeshGeometry::mirror(source, found->second.mirror, error))
+            if (found->second.mirror_enabled && !mesh::mirror(source, found->second.mirror, error))
             {
                 return false;
             }
@@ -2088,7 +2087,7 @@ struct ModelingCommands::State
             std::copy(world_matrix.begin(), world_matrix.end(), matrix.begin());
             MeshSelection all;
             all.all = true;
-            if (!MeshTopology::transform(source, all, matrix, error))
+            if (!mesh::transform(source, all, matrix, error))
             {
                 return false;
             }
@@ -2103,7 +2102,7 @@ struct ModelingCommands::State
             {
                 materials.push_back(material);
             }
-            if (!MeshTopology::append(combined->source, source, error, offset))
+            if (!mesh::append(combined->source, source, error, offset))
             {
                 return false;
             }
@@ -2140,8 +2139,7 @@ struct ModelingCommands::State
             return false;
         }
         auto saved_source = record->source;
-        if ((record->mirror_enabled &&
-             !MeshGeometry::mirror(saved_source, record->mirror, error)) ||
+        if ((record->mirror_enabled && !mesh::mirror(saved_source, record->mirror, error)) ||
             !detail::save_source(path, saved_source, record->compiled, error))
         {
             return false;
@@ -2238,14 +2236,14 @@ bool ModelingCommands::export_mesh(const Node& node, const fs::path& path, std::
             return false;
         }
         source = record.source;
-        if (record.mirror_enabled && !MeshGeometry::mirror(source, record.mirror, error))
+        if (record.mirror_enabled && !mesh::mirror(source, record.mirror, error))
         {
             return false;
         }
         found = true;
         break;
     }
-    if (!found && !EditableMesh::from_mesh(*renderer.mesh_data(), source, error))
+    if (!found && !mesh::from_mesh(*renderer.mesh_data(), source, error))
     {
         return false;
     }

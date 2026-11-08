@@ -1,15 +1,22 @@
-import { Debug, Gameplay, Movie, MoviePlaybackHandle, MovieState, MovieStopReason, Scene, UiComponent } from "engine";
+import { Resources, ResourceHandle, Debug, Gameplay, Movie, MoviePlaybackHandle, MovieState, MovieStopReason, Scene, UiComponent } from "engine";
 import { LauncherController } from "../controllers/launcher_controller.js";
 import { LauncherChoice, LauncherModel } from "../models/launcher_model.js";
 import { ShowcaseGame } from "../models/showcase_cases.js";
 
 export default class Game extends Gameplay {
+    private readonly resources: ResourceHandle[] = [];
     private controller: LauncherController | null = null;
     private active: ShowcaseGame | null = null;
     private readonly model = new LauncherModel();
     private movie: MoviePlaybackHandle | null = null;
 
     override OnInitialize(): boolean {
+        for (const path of ["scenes/launcher.scene"]) {
+            const resource = Resources.Load(path);
+            if (!resource) { Debug.LogError(`Cannot load ${path}: ${Resources.lastError}`); return false; }
+            this.resources.push(resource);
+        }
+
         if (!this.open_menu()) return false;
         Debug.Log("Scene launcher ready: open a world and return with Back to scenes.");
         return true;
@@ -18,7 +25,9 @@ export default class Game extends Gameplay {
     override Update(): void {
         if (this.model.movie_requested) {
             this.model.movie_requested = false;
-            this.movie = Movie.Play("movies/lcals.mp4");
+            const resource = Resources.Load("movies/lcals.mp4");
+            this.movie = resource ? Movie.Play(resource) : null;
+            if (resource && !Resources.Release(resource)) Debug.LogError("Cannot release movie acquisition");
             this.model.movie_playing = this.movie !== null;
             this.model.error = this.movie ? null : `Cannot replay intro: ${Movie.lastError ?? "unavailable"}`;
             this.controller?.Refresh();
@@ -105,6 +114,10 @@ export default class Game extends Gameplay {
     }
 
     override OnShutdown(): void {
+        for (const resource of this.resources.splice(0)) {
+            if (!Resources.Release(resource)) Debug.LogError("Cannot release showcase resource");
+        }
+
         if (this.movie) {
             const status = Movie.Status(this.movie);
             if (status && (status.state === MovieState.preparing || status.state === MovieState.playing || status.state === MovieState.paused))

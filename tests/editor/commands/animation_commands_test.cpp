@@ -1,4 +1,5 @@
 #include "animation_fixture.hpp"
+#include "scene_snapshot.hpp"
 
 #include "editor/commands/editor_commands.hpp"
 #include "editor/commands/scene_commands.hpp"
@@ -46,7 +47,7 @@ bool commands()
         return false;
     }
     auto animator = node.get_component<engine::Animator>();
-    const auto before = animator.data();
+    const auto before = test_support::read_data(animator);
     const auto undo_count = editor.undo_count();
     for (const Json& invalid :
          {Json{{"speed", -1}}, Json{{"speed", 17}}, Json{{"speed", "fast"}}, Json{{"loop", 1}},
@@ -56,7 +57,8 @@ bool commands()
         auto request = target;
         request.update(invalid);
         if (!expect(!run("set_animator", request) && result.is_null() && !error.empty() &&
-                        animator.data() == before && editor.undo_count() == undo_count,
+                        test_support::read_data(animator) == before &&
+                        editor.undo_count() == undo_count,
                     "invalid edits preserve settings, identity and history"))
         {
             return false;

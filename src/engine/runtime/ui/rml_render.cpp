@@ -1,8 +1,11 @@
 #include "runtime/ui/rml_render.hpp"
+#include "runtime/resource/types/shader_resource.hpp"
+#include "runtime/resource/types/texture_resource.hpp"
+#include "runtime/resource/types/ui_resource.hpp"
 
 #include "fs_ui.bin.h"
 #include "runtime/resource/codecs/texture_resource_codec.hpp"
-#include "runtime/resource/resource_system.hpp"
+#include "runtime/scene/resource_binding.hpp"
 #include "runtime/ui/rml_font.hpp"
 #include "vs_ui.bin.h"
 #include <RmlUi/Core/Core.h>
@@ -10,6 +13,8 @@
 #include <SDL3/SDL_log.h>
 #include <algorithm>
 #include <basisu/transcoder/basisu_transcoder.h>
+#include <bimg/bimg.h>
+#include <bx/allocator.h>
 #include <bx/math.h>
 #include <charconv>
 #include <cmath>
@@ -25,15 +30,15 @@ constexpr auto sampler_flags = BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP;
 
 bool supported_texture(const Resource& resource)
 {
-    const auto* data = resource.texture();
+    const auto* data = resource_detail::data<TextureResource>(&resource);
     if (data && !data->cube_map && data->format != schema::TextureFormat::rgba16f &&
         data->format != schema::TextureFormat::rg16f &&
-        (data->encoding == schema::TextureEncoding::rgba8 ||
+        (data->encoding == schema::TextureEncoding::native ||
          data->encoding == schema::TextureEncoding::basis))
     {
         return true;
     }
-    SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "UI requires 2D LDR rgba8/Basis textures: %s",
+    SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "UI requires 2D LDR native/Basis textures: %s",
                  resource.info().path.c_str());
     return false;
 }
@@ -109,31 +114,38 @@ bool RmlRender::begin(std::uint32_t width, std::uint32_t height, int logical_wid
     bx::mtxIdentity(transform_.data());
     return true;
 }
-bool RmlRender::activate(const std::string& key, const ResourcePtr& document)
+bool RmlRender::activate(const std::string& key, const ResourceReference& document)
 {
     active_key_.clear();
-    if (!document || !document->ui())
+    if (!document || !document.data<UiResource>())
     {
         return false;
     }
     if (!documents_.contains(key))
     {
-        auto* resources = ResourceSystem::instance();
+        auto* resources = document.loader();
         if (!resources)
         {
             return false;
         }
         Document snapshot;
-        for (const auto& guid : document->ui()->texture_guids)
+        for (const auto& guid : document.data<UiResource>()->texture_guids)
         {
-            ResourcePtr texture;
-            if (!resources->loader().load(guid, texture) || !texture || !texture->texture() ||
+            ResourceReference texture;
+            if (!texture.dependency(resources, document.handle(), guid) || !texture ||
+                !texture.data<TextureResource>() ||
                 texture->generation() != document->generation() || !supported_texture(*texture))
             {
                 return false;
             }
-            snapshot.textures.emplace(guid, texture);
-            snapshot.textures.emplace(texture->info().path, texture);
+            ResourceReference alias;
+            if (!alias.retain(texture))
+            {
+                return false;
+            }
+            const auto path = texture->info().path;
+            snapshot.textures.emplace(guid, std::move(texture));
+            snapshot.textures.emplace(path, std::move(alias));
         }
         documents_.emplace(key, std::move(snapshot));
     }
@@ -246,12 +258,12 @@ void RmlRender::RenderGeometry(Rml::CompiledGeometryHandle handle, Rml::Vector2f
     bx::mtxTranslate(offset, translation.x, translation.y, 0.0F);
     std::array<float, 16> matrix{};
     bx::mtxMul(matrix.data(), offset, transform_.data());
-    if (image && image->font_size > 0 && image->resource && image->resource->font())
+    if (image && image->font_size > 0 && image->resource && image->resource.data<FontResource>())
     {
         FontGeometry geometry;
         geometry.indices = mesh.indices;
         geometry.vertices.reserve(mesh.vertices.size());
-        const auto& font = *image->resource->font();
+        const auto& font = *image->resource.data<FontResource>();
         for (const auto& vertex : mesh.vertices)
         {
             if (!std::isfinite(vertex.tex_coord.x) || !std::isfinite(vertex.tex_coord.y) ||
@@ -286,8 +298,8 @@ void RmlRender::RenderGeometry(Rml::CompiledGeometryHandle handle, Rml::Vector2f
         draw.transform = matrix;
         draw.use_scissor = scissor_enabled_;
         draw.scissor = scissor_;
-        draw.shader = image->shader;
-        healthy_ = fonts_.draw(image->resource, geometry, draw) && healthy_;
+        draw.shader = image->shader.handle();
+        healthy_ = fonts_.draw(image->resource.handle(), geometry, draw) && healthy_;
         return;
     }
     const auto vertex_count = static_cast<std::uint32_t>(mesh.vertices.size());
@@ -397,21 +409,46 @@ Rml::TextureHandle RmlRender::LoadTexture(Rml::Vector2i& dimensions, const Rml::
         healthy_ = false;
         return 0;
     }
-    const auto& data = *resource->texture();
+    const auto& data = *resource.data<TextureResource>();
     if (data.width == 0 || data.height == 0 || data.width > 8192 || data.height > 8192)
     {
         healthy_ = false;
         return 0;
     }
     std::vector<std::uint8_t> pixels(static_cast<std::size_t>(data.width) * data.height * 4);
-    if (data.encoding == schema::TextureEncoding::rgba8)
+    if (data.encoding == schema::TextureEncoding::native)
     {
-        if (data.data.size() < pixels.size())
+        const auto part =
+            std::find_if(data.subresources.begin(), data.subresources.end(),
+                         [](const auto& value) { return value.mip() == 0 && value.face() == 0; });
+        if (part == data.subresources.end() || part->offset() > data.data.size() ||
+            part->size() > data.data.size() - part->offset())
         {
             healthy_ = false;
             return 0;
         }
-        std::copy_n(data.data.begin(), pixels.size(), pixels.begin());
+        bimg::TextureFormat::Enum format;
+        switch (data.format)
+        {
+        case schema::TextureFormat::rgba8:
+            format = bimg::TextureFormat::RGBA8;
+            break;
+        case schema::TextureFormat::bc7:
+            format = bimg::TextureFormat::BC7;
+            break;
+        case schema::TextureFormat::astc4x4:
+            format = bimg::TextureFormat::ASTC4x4;
+            break;
+        case schema::TextureFormat::etc2:
+            format = bimg::TextureFormat::ETC2A;
+            break;
+        default:
+            healthy_ = false;
+            return 0;
+        }
+        bx::DefaultAllocator allocator;
+        bimg::imageDecodeToRgba8(&allocator, pixels.data(), data.data.data() + part->offset(),
+                                 data.width, data.height, data.width * 4, format);
     }
     else
     {
@@ -440,7 +477,12 @@ Rml::TextureHandle RmlRender::LoadTexture(Rml::Vector2i& dimensions, const Rml::
         GenerateTexture(Rml::Span<const Rml::byte>(pixels.data(), pixels.size()), dimensions);
     if (handle)
     {
-        textures_[handle].resource = resource;
+        if (!textures_[handle].resource.retain(resource))
+        {
+            ReleaseTexture(handle);
+            healthy_ = false;
+            return 0;
+        }
         textures_[handle].document_key = key;
     }
     return handle;

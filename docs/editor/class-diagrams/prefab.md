@@ -153,4 +153,6 @@ classDiagram
 - `componentType` 使用 get_scene 的生成枚举名称。省略时只接受节点 enabled/visible；组件 fields 使用 codec 键。材质覆盖指完整 material/additional_materials 绑定，不引入 Shader 参数继承。
 - link 的局部身份须对应原模板子树。链接动作对照当前值生成显式差异，保留根的外部父级与组件增删；普通运行改值及保存不执行差异推断。后续未知结构编辑明确拒绝，先解除关联再编辑。
 - 场景保存只导出覆盖明确引用的动态 Mesh/材质，导出的独立 GUID 写入此次保存副本，保持当前撤销历史。缺失映射节点必须已 retired 或明确 removed；部分 mapped 节点 transient 时拒绝，完整 transient 实例连同关联一起略过。从子树创建模板拒绝指向导出集合外的组件节点引用。
-- 本轮没有 ApplyToTemplate 命令。模板通过编辑 .prefab 源文件后按标准资源管线重建更新；实例恢复覆盖不会反写模板。
+- 未提供 ApplyToTemplate 命令。模板通过编辑 .prefab 源文件后按标准资源管线重建更新；实例恢复覆盖不会反写模板。
+
+当前 SceneData / PrefabData 二进制格式版本为 2；生成模型默认版本 0 无效。删除 CharacterController 的废弃相机字段后，读取拒绝旧版和未标记版本的数据；源描述通过当前导入器重新生成缓存和运行包，不保留旧布局读取分支。

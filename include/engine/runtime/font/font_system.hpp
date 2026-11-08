@@ -1,6 +1,7 @@
 #pragma once
 
-#include "runtime/resource/resource.hpp"
+#include "runtime/resource/resource_handle.hpp"
+#include "runtime/resource/types/font_resource.hpp"
 #include "runtime/schema/font_generated.h"
 #include "runtime/system/system.hpp"
 
@@ -15,6 +16,7 @@ namespace engine
 {
 
 class Scene;
+class ResourceLoader;
 
 struct FontVertex
 {
@@ -53,31 +55,29 @@ struct FontDraw
     // HDR scene targets require linear premultiplied color; UI keeps display color.
     bool linear_output = false;
     // The caller supplies the shader retained with this font/document generation.
-    ResourcePtr shader;
+    ResourceHandle shader;
 };
 
 class FontSystem final : public System
 {
 public:
-    FontSystem();
+    explicit FontSystem(ResourceLoader* resources = nullptr);
     ~FontSystem() noexcept override;
 
-    // A failed load or layout leaves the output empty.
-    [[nodiscard]] bool load_font(std::string_view path_or_guid, ResourcePtr& output);
     [[nodiscard]] static const schema::FontGlyphT* glyph(const schema::FontDataT& data,
                                                          std::uint32_t codepoint) noexcept;
     [[nodiscard]] static float kerning(const schema::FontDataT& data, std::uint32_t left,
                                        std::uint32_t right) noexcept;
     [[nodiscard]] static float measure(const schema::FontDataT& data, std::string_view text,
                                        float size, float letter_spacing = 0.0F) noexcept;
-    [[nodiscard]] static bool layout(const Resource& font, std::string_view text,
+    [[nodiscard]] static bool layout(const FontResource& font, std::string_view text,
                                      const FontLayout& settings, FontGeometry& output);
     // Appends one padded quad. x/y are its baseline origin, not its bounding-box origin.
     [[nodiscard]] static bool append_glyph(const schema::FontDataT& data,
                                            const schema::FontGlyphT& glyph, float x, float y,
                                            float size, std::uint32_t color, bool y_down,
                                            FontGeometry& output);
-    [[nodiscard]] bool draw(const ResourcePtr& font, const FontGeometry& geometry,
+    [[nodiscard]] bool draw(const ResourceHandle& font, const FontGeometry& geometry,
                             const FontDraw& settings);
     // The caller has already configured this view's camera and viewport.
     [[nodiscard]] bool render_scene(const Scene& scene, std::uint16_t view_id,
@@ -92,6 +92,7 @@ protected:
     void on_shutdown() noexcept override;
 
 private:
+    ResourceLoader* resources_ = nullptr;
     struct GpuState;
     std::unique_ptr<GpuState> gpu_;
     std::string last_error_;

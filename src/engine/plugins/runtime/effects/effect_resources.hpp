@@ -1,8 +1,9 @@
 #pragma once
 
 #include "plugins/runtime/effects/effect_resource_path.hpp"
-#include "runtime/render/resources/gpu_texture.hpp"
+#include "runtime/resource/resource_reference.hpp"
 
+#include <bgfx/bgfx.h>
 #include <bgfxrenderer.h>
 
 #include <map>
@@ -23,7 +24,8 @@ public:
     [[nodiscard]] EffekseerRendererBGFX::InitArgs renderer_arguments(std::uint16_t view_id);
     // 只在官方 Effect::Create 的同步加载回调期间借用；完成后立即清空。
     const EffectBindings* loading = nullptr;
-    [[nodiscard]] bool resolve(std::string_view path, schema::AssetKind kind, ResourcePtr& output);
+    [[nodiscard]] bool resolve(std::string_view path, schema::AssetKind kind,
+                               ResourceReference& output);
     void release_textures() noexcept;
     void release_shaders() noexcept;
     std::string error;
@@ -31,7 +33,8 @@ public:
 private:
     struct TextureEntry
     {
-        render_detail::GpuTexture gpu;
+        ResourceReference resource;
+        bgfx::TextureHandle handle = BGFX_INVALID_HANDLE;
         std::uint32_t references = 1;
     };
 

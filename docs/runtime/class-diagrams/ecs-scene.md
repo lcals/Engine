@@ -2,9 +2,7 @@
 
 [类图索引](../../class-diagrams/index.md) · [当前场景](scene.md) · [当前节点](node.md) · [当前组件](component.md)
 
-> 状态：2026-11-03 用户已批准实施。Node/Component 值句柄、Flecs 存储与系统查询已接入；验证结果统一记录在[测试与范例](../../testing.md)。
-
-已替换原来的 `Scene -> unique_ptr<Node> -> unique_ptr<Component>` 存储及各系统逐节点扫描。Node/Component 保留为可复制的值句柄；Flecs 保存唯一运行状态，既有 System 直接查询。复用已接入的 Flecs 4.2.0 与 oneTBB，不新增 ECS Manager、组件对象池、自制查询语言或第二套调度器。
+Node/Component 是可复制的值句柄；Flecs 保存唯一运行状态，既有 System 直接查询。复用已接入的 Flecs 4.2.0 与 oneTBB，不新增 ECS Manager、组件对象池、自制查询语言或第二套调度器。
 
 ## 1. 世界、场景与所有权
 
@@ -81,11 +79,11 @@ Node 只保存 WorldSystem 借用、世界生命周期代次及完整实体 ID�
 
 | 范围 | 目标接口或语义 |
 | --- | --- |
-| Node 身份 | `id()` 返回完整运行实体 ID；`build_info(NodeInfoT& output) -> bool` 生成独立快照，`info()` 同样返回独立值快照；`name() -> std::string` 返回值。 |
+| Node 身份 | `id()` 返回完整运行实体 ID；`local_id() -> uint64_t` 直接查询落盘局部 ID（无效为 0）；`build_info(NodeInfoT& output) -> bool` 生成独立快照；`name() -> std::string` 返回值。 |
 | Node 状态 | `enabled/active/visible/visible_in_hierarchy/transient/persistent() -> bool` 保留；`set_enabled/set_visible/set_transient/set_persistent(bool) -> bool` 都检查句柄及修改阶段。无效状态查询为 false，身份由 `valid()` 单独判断。 |
 | 父子关系 | `parent() -> Node`；默认空 `Node{}` 表示没有父节点/主动解绑；`set_parent(Node) -> bool` 保留局部变换，过期或跨世界的非空父句柄必须失败并保持原关系，不能当作解绑；同时拒绝跨场景、循环和将常驻根挂到其他节点。 |
 | 组件按类型操作 | `add_component<T>() / get_component<T>() -> T`；动态 `get_component(ComponentType) -> Component`。重复添加/缺失/失败返回无效句柄。`collect_components(vector<Component>& output) -> bool` 只构建调用方需要的身份快照。 |
-| Component 状态 | 保留 enabled/active/visible/visible_in_hierarchy/transient 查询；对应 setter 改为 bool。`data()` 返回独立存储快照，`build_data(ComponentDataT&) -> bool` 另完成资源引用和运行状态的保存转换。 |
+| Component 状态 | 保留 enabled/active/visible/visible_in_hierarchy/transient 查询；对应 setter 改为 bool。`get_data(ComponentDataT&) -> bool` 返回独立存储快照，`build_data(ComponentDataT&) -> bool` 另完成资源引用和运行状态的保存转换。 |
 | 具名组件 | 配置读取提供 `get_settings(GeneratedData& output) -> bool` 与返回独立值的 `settings()`，写入仍校验后提交；失败读取输出恢复为默认安全值，失败写入保持原状态。其他逐类型方法在迁移其所属类图时对应调整。 |
 | 原生资源借用 | 当前 Material、UI 文档、动画和动态网格的裸地址/引用逐项改为领域已有安全句柄、共享资源引用或显式复制；不能把搬移前的组件地址继续返回给调用者。 |
 | Scene 实例化 | `instantiate_model(path, name, vector<Node>* created = nullptr) -> Node` 和 `instantiate_prefab(...) -> Node`；可选输出精确记录本次创建集合，失败清空。编辑撤销不再用 nodes 数组长度差推算。 |

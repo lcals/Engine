@@ -1,4 +1,6 @@
 #include "plugins/editor/scene_bake/scene_bake_system.hpp"
+#include "editor/resource_access.hpp"
+#include "runtime/resource/types/texture_resource.hpp"
 
 #include "editor/asset_pipeline/asset_io.hpp"
 #include "editor/asset_pipeline/scene_importer.hpp"
@@ -169,7 +171,7 @@ struct SceneBakeSystem::State
     std::unique_ptr<LightingBakeJob> lighting;
     bool invalidated = false;
     SceneBakeFiles files;
-    ResourcePtr source;
+    engine::ResourceReference source;
     std::string job;
     std::string scene;
     std::string status = "idle";
@@ -344,8 +346,8 @@ bool SceneBakeSystem::register_commands(editor::EditorCommands& commands)
                    Guid guid;
                    if (!s.files.initialize(s.root, scene, input, s.job, s.resources, error) ||
                        !s.resources.catalog().identities().path_to_guid(input, guid) ||
-                       !s.resources.loader().load(guid, s.source) || s.source == nullptr ||
-                       s.source->texture() == nullptr)
+                       !editor::resource_access::load(s.world.resource_loader(), guid, s.source) ||
+                       !s.source || s.source.data<TextureResource>() == nullptr)
                    {
                        if (error.empty())
                        {
@@ -356,7 +358,8 @@ bool SceneBakeSystem::register_commands(editor::EditorCommands& commands)
                        return false;
                    }
                    s.gpu = std::make_unique<IblBakeJob>();
-                   if (!s.gpu->start(*s.source->texture(), resolution, samples, lut_size, error))
+                   if (!s.gpu->start(*s.source.data<TextureResource>(), resolution, samples,
+                                     lut_size, error))
                    {
                        s.error = error;
                        s.files.cleanup();

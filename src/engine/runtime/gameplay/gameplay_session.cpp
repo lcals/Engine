@@ -8,8 +8,14 @@
 #include "runtime/physics/physics_system.hpp"
 
 #include "runtime/render/render_system.hpp"
+#include "runtime/resource/builtin_resource_candidate.hpp"
+#include "runtime/resource/builtin_resources.hpp"
+#include "runtime/resource/resource_reference.hpp"
 #include "runtime/resource/resource_system.hpp"
+#include "runtime/resource/types/script_resource.hpp"
 #include "runtime/world/world_system.hpp"
+#include <cstdio>
+#include <map>
 
 #include "runtime/app/app.hpp"
 #include "runtime/gameplay/script_runtime.hpp"
@@ -91,15 +97,17 @@ struct GameplaySession::State
     std::uint32_t prepare_scene_completed = 0;
     std::unique_ptr<ResourceLoad> prepare_script_load;
     std::unique_ptr<ResourceLoad> prepare_scene_load;
-    ResourcePtr prepare_script;
-    ResourcePtr prepare_scene_resource;
+    ResourceReference prepare_script;
+    ResourceReference prepare_scene_resource;
     std::unique_ptr<Snapshot> prepare_snapshot;
+
+    std::vector<ResourceReference> builtins;
 
     explicit State(GameplaySession& session)
         : owner(session),
           persistent_root(App::is_initialized() ? App::persistent_data_path() : fs::path{})
     {
-        if (const auto* resources = ResourceSystem::instance())
+        if (const auto* resources = &owner.resources_)
         {
             target_platform = resources->catalog().data().target_platform;
         }
@@ -284,28 +292,125 @@ struct GameplaySession::State
         }
     }
 
-    bool apply(const Snapshot& snapshot)
+    bool prepare_builtins(std::vector<ResourceReference>& output)
     {
-        auto* resources = ResourceSystem::instance();
+        auto* loader = owner.world_.resource_loader();
+        if (!loader)
+        {
+            return fail("Resource loader is not available");
+        }
+        std::map<Guid, ResourceHandle> loaded;
+        std::vector<ResourceReference> candidate;
+        const auto& entries = builtin_resource_catalog().entries;
+        while (loaded.size() != entries.size())
+        {
+            const auto previous = loaded.size();
+            for (const auto& entry : entries)
+            {
+                if (loaded.contains(entry->guid))
+                {
+                    continue;
+                }
+                std::vector<ResourceHandle> dependencies;
+                for (const auto& guid : entry->dependencies)
+                {
+                    const auto found = loaded.find(guid);
+                    if (found == loaded.end())
+                    {
+                        break;
+                    }
+                    dependencies.push_back(found->second);
+                }
+                if (dependencies.size() != entry->dependencies.size())
+                {
+                    continue;
+                }
+                ResourceHandle handle;
+                if (!loader->acquire_loaded(entry->guid, handle))
+                {
+                    const auto* physical = owner.resources_.catalog().find(entry->guid);
+                    if (physical && physical->location)
+                    {
+                        if (!loader->load(entry->guid, handle))
+                        {
+                            return fail(std::string(loader->last_error()));
+                        }
+                    }
+                    else
+                    {
+                        std::unique_ptr<Resource> value;
+                        if (!resource_detail::builtin_candidate(entry->guid, value) ||
+                            !loader->load_memory(value, dependencies, handle))
+                        {
+                            return fail("Cannot prepare built-in resource: " + entry->path + ": " +
+                                        std::string(loader->last_error()));
+                        }
+                    }
+                }
+                ResourceReference reference;
+                if (!reference.adopt(loader, handle))
+                {
+                    (void)loader->release(handle);
+                    return false;
+                }
+                loaded.emplace(entry->guid, reference.handle());
+                candidate.push_back(std::move(reference));
+            }
+            if (loaded.size() == previous)
+            {
+                return fail("Built-in dependency graph is incomplete");
+            }
+        }
+        output = std::move(candidate);
+        return true;
+    }
+
+    bool apply(const Snapshot& snapshot, bool synchronous)
+    {
+        auto* resources = &owner.resources_;
         if (resources == nullptr ||
             snapshot.catalog.data().target_platform != resources->catalog().data().target_platform)
         {
             return fail("Runtime resource catalog targets a different platform");
         }
         const auto& entry = requested_entry.empty() ? snapshot.entry : requested_entry;
-        if (!owner.script_->prepare_gameplay(snapshot.catalog, snapshot.mounts, entry,
-                                             snapshot.revision))
+        if (!resources->update_catalog(snapshot.catalog.data(), snapshot.mounts))
+        {
+            return fail(std::string(resources->last_error()));
+        }
+        std::vector<ResourceReference> candidate_builtins;
+        if (!prepare_builtins(candidate_builtins))
+        {
+            return false;
+        }
+        auto* loader = owner.world_.resource_loader();
+        const schema::AssetEntryT* source = nullptr;
+        for (const auto& item : snapshot.catalog.data().entries)
+        {
+            if (item->kind == schema::AssetKind::script && item->module_path == entry)
+            {
+                source = item.get();
+                break;
+            }
+        }
+        ResourceHandle handle;
+        ResourceReference script;
+        if (!source || !loader->load(source->guid, handle) || !script.adopt(loader, handle))
+        {
+            (void)loader->release(handle);
+            return fail("Cannot load gameplay entry");
+        }
+        if (!owner.script_->prepare_gameplay(script.handle(), snapshot.revision))
         {
             return fail(owner.script_->status().last_error);
         }
         owner.script_->stop_gameplay();
         owner.release_scene();
-        if (!resources->update_catalog(snapshot.catalog.data(), snapshot.mounts))
-        {
-            gameplay_requested = false;
-            return fail(resources->last_error());
-        }
-        if (!owner.script_->start_prepared_gameplay() || !owner.renderer_.prepare_scene())
+        builtins = std::move(candidate_builtins);
+        RenderPrepareProgress progress;
+        if (!owner.script_->start_prepared_gameplay() ||
+            (synchronous && owner.renderer_.prepare_scene(RenderPrepareMode::synchronous,
+                                                          progress) != RenderPrepareStatus::ready))
         {
             const auto reason = owner.script_->status().last_error.empty()
                                     ? "Cannot prepare scene rendering resources"
@@ -313,18 +418,24 @@ struct GameplaySession::State
             owner.stop(reason);
             return false;
         }
+        if (!synchronous)
+        {
+            prepare_generation = resources->generation();
+            prepare_phase = PreparePhase::gpu;
+        }
         owner.last_error_.clear();
         gameplay_requested = true;
         return true;
     }
 };
 
-GameplaySession::GameplaySession(WorldSystem& world, RenderSystem& renderer, ScriptRuntime* script,
+GameplaySession::GameplaySession(ResourceSystem& resources, WorldSystem& world,
+                                 RenderSystem& renderer, ScriptRuntime* script,
                                  PhysicsSystem* physics, AudioSystem* audio,
                                  AnimationSystem* animation, FontSystem* fonts, UiSystem* ui,
                                  TaskSystem* background) noexcept
-    : world_(world), renderer_(renderer), script_(script), physics_(physics), audio_(audio),
-      animation_(animation), fonts_(fonts), ui_(ui), background_(background)
+    : resources_(resources), world_(world), renderer_(renderer), script_(script), physics_(physics),
+      audio_(audio), animation_(animation), fonts_(fonts), ui_(ui), background_(background)
 {
 }
 
@@ -349,7 +460,7 @@ GameplaySession::~GameplaySession() noexcept
 bool GameplaySession::set_resources(const schema::AssetCatalogDataT& data, const MountList& mounts,
                                     std::string_view entry)
 {
-    auto* resources = ResourceSystem::instance();
+    auto* resources = &resources_;
     if (resources == nullptr)
     {
         last_error_ = "Gameplay resource services are not initialized";
@@ -390,7 +501,12 @@ bool GameplaySession::set_resources(const schema::AssetCatalogDataT& data, const
     }
     if (!resources->update_catalog(data, mounts))
     {
-        last_error_ = "Cannot submit prepared resource directory: " + resources->last_error();
+        last_error_ =
+            "Cannot submit prepared resource directory: " + std::string(resources->last_error());
+        return false;
+    }
+    if (!candidate->prepare_builtins(candidate->builtins))
+    {
         return false;
     }
     if (state_ && state_->available && state_->available->catalog.revision() == data.revision)
@@ -412,7 +528,7 @@ bool GameplaySession::set_resources(const schema::AssetCatalogDataT& data, const
 bool GameplaySession::begin_prepare(const ResourceCatalog& catalog, const MountList& mounts,
                                     std::string_view entry, std::string_view scene)
 {
-    auto* resources = ResourceSystem::instance();
+    auto* resources = &resources_;
     if (!resources || !world_.is_initialized() || !renderer_.is_initialized() ||
         (script_ && (!script_->is_initialized() || script_->status().running)) ||
         (state_ && state_->prepare_phase != State::PreparePhase::idle))
@@ -441,6 +557,10 @@ bool GameplaySession::begin_prepare(const ResourceCatalog& catalog, const MountL
     state_->prepare_generation = resources->generation();
     state_->prepare_script_completed = 0;
     state_->prepare_scene_completed = 0;
+    if (!state_->prepare_builtins(state_->builtins))
+    {
+        return false;
+    }
     state_->prepare_phase = State::PreparePhase::load;
     last_error_.clear();
     return true;
@@ -450,7 +570,7 @@ GameplayPrepareStatus GameplaySession::step_prepare(std::uint32_t resource_budge
                                                     double max_seconds)
 {
     using Phase = State::PreparePhase;
-    auto* resources = ResourceSystem::instance();
+    auto* resources = &resources_;
     if (!state_ || !resources || !std::isfinite(max_seconds) || max_seconds <= 0 ||
         state_->prepare_phase == Phase::idle || state_->prepare_phase == Phase::failed ||
         state_->prepare_phase == Phase::active)
@@ -481,20 +601,23 @@ GameplayPrepareStatus GameplaySession::step_prepare(std::uint32_t resource_budge
         state_->prepare_phase = Phase::failed;
         return GameplayPrepareStatus::failed;
     };
-    if (resources->generation() != state_->prepare_generation)
-    {
-        return fail("Resource directory changed during gameplay preparation");
-    }
     if (resource_budget == 0)
     {
         return GameplayPrepareStatus::preparing;
+    }
+    if (resources->generation() != state_->prepare_generation)
+    {
+        return fail("Resource directory changed during gameplay preparation");
     }
     if (state_->prepare_phase == Phase::load)
     {
         const auto started = std::chrono::steady_clock::now();
         std::uint32_t remaining = resource_budget;
         auto begin = [&](std::string_view guid, std::unique_ptr<ResourceLoad>& load)
-        { return resources->loader().begin_load(guid, load) && load != nullptr; };
+        {
+            return world_.resource_loader() && world_.resource_loader()->begin_load(guid, load) &&
+                   load != nullptr;
+        };
         if (script_ && !state_->prepare_script && !state_->prepare_script_load)
         {
             const schema::AssetEntryT* entry = nullptr;
@@ -522,8 +645,8 @@ GameplayPrepareStatus GameplaySession::step_prepare(std::uint32_t resource_budge
                 return fail("Cannot begin asynchronous startup scene load");
             }
         }
-        auto advance =
-            [&](std::unique_ptr<ResourceLoad>& load, ResourcePtr& output, std::uint32_t& completed)
+        auto advance = [&](std::unique_ptr<ResourceLoad>& load, ResourceReference& output,
+                           std::uint32_t& completed)
         {
             if (!load || remaining == 0 ||
                 std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count() >=
@@ -532,19 +655,27 @@ GameplayPrepareStatus GameplaySession::step_prepare(std::uint32_t resource_budge
                 return true;
             }
             ResourceLoadProgress progress;
-            const auto status = load->step(remaining, progress);
+            const auto status = load->status(progress);
             const auto newly_completed =
                 progress.completed > completed ? progress.completed - completed : 0;
             remaining -= std::min(remaining, newly_completed);
             completed = progress.completed;
-            if (status == ResourceLoadStatus::failed)
+            if (status == ResourceLoadStatus::failed || status == ResourceLoadStatus::cancelled)
             {
                 last_error_ = load->last_error();
                 return false;
             }
             if (status == ResourceLoadStatus::ready)
             {
-                output = load->resource();
+                ResourceHandle handle;
+                if (!load->take(handle) || !output.adopt(world_.resource_loader(), handle))
+                {
+                    if (world_.resource_loader())
+                    {
+                        (void)world_.resource_loader()->release(handle);
+                    }
+                    return false;
+                }
                 load.reset();
                 return output && output->generation() == state_->prepare_generation;
             }
@@ -570,9 +701,8 @@ GameplayPrepareStatus GameplaySession::step_prepare(std::uint32_t resource_budge
     {
         const auto started = std::chrono::steady_clock::now();
         const bool ready =
-            !script_ || script_->prepare_gameplay(
-                            state_->prepare_snapshot->catalog, state_->prepare_snapshot->mounts,
-                            state_->prepare_entry, state_->prepare_snapshot->revision);
+            !script_ || script_->prepare_gameplay(state_->prepare_script.handle(),
+                                                  state_->prepare_snapshot->revision);
         LogSystem::write(LogLevel::info,
                          "Startup script precheck seconds: " +
                              std::to_string(std::chrono::duration<double>(
@@ -593,7 +723,7 @@ GameplayPrepareStatus GameplaySession::step_prepare(std::uint32_t resource_budge
             if (!state_->restore_request)
             {
                 state_->restore_request =
-                    world_.begin_restore_scene(state_->prepare_scene_resource);
+                    world_.begin_restore_scene(state_->prepare_scene_resource.handle());
                 if (!state_->restore_request)
                 {
                     return fail("Cannot begin startup scene restoration");
@@ -637,16 +767,16 @@ GameplayPrepareStatus GameplaySession::step_prepare(std::uint32_t resource_budge
     }
     if (state_->prepare_phase == Phase::gpu)
     {
-        const auto started = std::chrono::steady_clock::now();
-        const bool ready = renderer_.prepare_scene();
-        LogSystem::write(LogLevel::info,
-                         "Startup GPU preparation seconds: " +
-                             std::to_string(std::chrono::duration<double>(
-                                                std::chrono::steady_clock::now() - started)
-                                                .count()));
-        if (!ready)
+        RenderPrepareProgress progress;
+        const auto ready =
+            renderer_.prepare_scene(RenderPrepareMode::incremental, progress, max_seconds);
+        if (ready == RenderPrepareStatus::failed)
         {
-            return fail("Cannot prepare startup scene rendering resources");
+            return fail(renderer_.preparation_error());
+        }
+        if (ready != RenderPrepareStatus::ready)
+        {
+            return GameplayPrepareStatus::preparing;
         }
         state_->prepare_phase = Phase::ready;
         return GameplayPrepareStatus::ready;
@@ -712,7 +842,7 @@ bool GameplaySession::start(std::string_view entry)
     }
     const auto& selected = state_->available ? *state_->available : state_->builtin;
     state_->last_attempt = selected.revision;
-    const bool result = state_->apply(selected);
+    const bool result = state_->apply(selected, true);
     if (result && !deployment_error.empty())
     {
         last_error_ = deployment_error;
@@ -738,12 +868,21 @@ bool GameplaySession::tick()
         state_->gameplay_requested = false;
         release_scene();
     }
-    if (complete && state_->gameplay_requested && state_->hot_reload && state_->available &&
-        state_->available->revision != script_->status().active_revision &&
+    if (state_->gameplay_requested && state_->prepare_phase == State::PreparePhase::gpu)
+    {
+        const auto status = step_prepare(1, 0.002);
+        if (status == GameplayPrepareStatus::ready && !activate_prepared())
+        {
+            stop("Cannot activate reloaded gameplay");
+        }
+    }
+    if (complete && state_->gameplay_requested &&
+        state_->prepare_phase != State::PreparePhase::gpu && state_->hot_reload &&
+        state_->available && state_->available->revision != script_->status().active_revision &&
         state_->available->revision != state_->last_attempt)
     {
         state_->last_attempt = state_->available->revision;
-        (void)state_->apply(*state_->available);
+        (void)state_->apply(*state_->available, false);
     }
     state_->publish();
     state_->schedule_background();
@@ -820,7 +959,50 @@ bool GameplaySession::execute_project_script(const ProjectScriptRequest& request
         error = "Project script execution requires the script plugin";
         return false;
     }
-    return script_->execute_project_script(request, result_json, error);
+    auto* loader = world_.resource_loader();
+    if (!loader)
+    {
+        error = "Project script requires a resource loader";
+        return false;
+    }
+    static std::atomic<std::uint64_t> sequence{0};
+    auto identity = sequence.load(std::memory_order_relaxed);
+    do
+    {
+        if (identity == UINT64_MAX)
+        {
+            error = "Script identities exhausted";
+            return false;
+        }
+    } while (!sequence.compare_exchange_weak(identity, identity + 1, std::memory_order_relaxed));
+    ++identity;
+    char guid[37]{};
+    std::snprintf(guid, sizeof(guid), "653266a1-3c1e-40a5-%04x-%012llx",
+                  static_cast<unsigned int>(identity >> 48),
+                  static_cast<unsigned long long>(identity & 0x0000ffffffffffffULL));
+    schema::AssetEntryT entry;
+    entry.guid = guid;
+    entry.path = std::string("runtime/project-scripts/") + guid + ".js";
+    entry.module_path = request.module_path;
+    entry.kind = schema::AssetKind::script;
+    ByteBuffer bytes(request.javascript.size());
+    std::transform(request.javascript.begin(), request.javascript.end(), bytes.begin(),
+                   [](char value) { return static_cast<std::byte>(value); });
+    std::unique_ptr<Resource> value =
+        std::make_unique<ScriptResource>(std::move(entry), std::move(bytes));
+    ResourceHandle handle;
+    if (!loader->load_memory(value, {}, handle))
+    {
+        error = loader->last_error();
+        return false;
+    }
+    ResourceReference script;
+    if (!script.adopt(loader, handle))
+    {
+        (void)loader->release(handle);
+        return false;
+    }
+    return script_->execute_project_script(script.handle(), request, result_json, error);
 }
 
 const ScriptStatus* GameplaySession::script_status() const noexcept

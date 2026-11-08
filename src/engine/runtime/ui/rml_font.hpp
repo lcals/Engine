@@ -1,5 +1,7 @@
 #pragma once
 
+#include "runtime/resource/resource_reference.hpp"
+
 #include "runtime/font/font_system.hpp"
 #include <RmlUi/Core/FontEngineInterface.h>
 #include <map>
@@ -11,11 +13,11 @@ class RmlFont final : public Rml::FontEngineInterface
 {
 public:
     explicit RmlFont(FontSystem& fonts) noexcept;
-    [[nodiscard]] bool activate(const std::string& key, const ResourcePtr& document);
+    [[nodiscard]] bool activate(const std::string& key, const ResourceReference& document);
     void prune(std::span<const std::string> keys);
     [[nodiscard]] bool resolve_texture(std::string_view key, std::string_view font_guid,
-                                       std::string_view shader_guid, ResourcePtr& font,
-                                       ResourcePtr& shader) const;
+                                       std::string_view shader_guid, ResourceReference& font,
+                                       ResourceReference& shader) const;
     Rml::FontFaceHandle GetFontFaceHandle(const Rml::String& family, Rml::Style::FontStyle style,
                                           Rml::Style::FontWeight weight, int size) override;
     const Rml::FontMetrics& GetFontMetrics(Rml::FontFaceHandle handle) override;
@@ -32,15 +34,15 @@ public:
 private:
     struct Face
     {
-        ResourcePtr resource;
+        ResourceReference resource;
         std::string document_key;
         std::string shader_guid;
         Rml::FontMetrics metrics{};
     };
     struct Binding
     {
-        ResourcePtr font;
-        ResourcePtr shader;
+        ResourceReference font;
+        ResourceReference shader;
     };
     FontSystem& fonts_;
     using Bindings = std::map<std::string, Binding>;

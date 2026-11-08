@@ -12,12 +12,6 @@ bool PlanarReflectionComponent::register_type(ComponentRegistry& registry)
     return register_component_storage<PlanarReflectionComponent, Data>(registry);
 }
 
-PlanarReflectionSettings PlanarReflectionComponent::settings() const noexcept
-{
-    const auto* value = read_data<Data>();
-    return value ? *value : Data{};
-}
-
 bool PlanarReflectionComponent::get_settings(Data& output) const noexcept
 {
     const auto* value = read_data<Data>();

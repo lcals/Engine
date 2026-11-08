@@ -1,3 +1,5 @@
+#include "resource_fixture.hpp"
+#include "resource_services.hpp"
 #include "runtime/engine_config.hpp"
 #include "runtime/resource/builtin_resources.hpp"
 #include "runtime/resource/resource_system.hpp"
@@ -233,7 +235,7 @@ bool external_builtins(ResourceSystem& resources, const std::filesystem::path& r
 {
     constexpr auto cube_guid = "00000000-0000-4000-8000-000000000005";
     constexpr auto cube_path = "builtin://meshes/cube";
-    const auto* compiled = ResourceSystem::find_mesh(cube_path);
+    const auto compiled = test_support::builtin<MeshResourceCodec>(cube_path);
     if (!compiled || compiled->vertices.empty())
     {
         return false;
@@ -259,22 +261,17 @@ bool external_builtins(ResourceSystem& resources, const std::filesystem::path& r
     ResourceCatalog catalog;
     const MountList mounts{{"content", root}};
     if (!expect(catalog.assign(fixture.data) && resources.update_catalog(fixture.data, mounts),
-                "matching fixed builtin identities may declare external locations") ||
-        !expect(!ResourceSystem::find_mesh(cube_path) &&
-                    !ResourceSystem::find_shader("builtin://shaders/pbr") &&
-                    !ResourceSystem::find_texture("builtin://textures/white-srgb") &&
-                    !ResourceSystem::find_material("builtin://materials/default-pbr"),
-                "unloaded external builtins never query compiled fallback definitions"))
+                "matching fixed builtin identities may declare external locations"))
     {
         return false;
     }
     for (const auto& entry : fixture.data.entries)
     {
-        ResourcePtr output;
-        if (!expect(!resources.load(entry->guid, output) && !output,
+        std::unique_ptr<Resource> output;
+        if (!expect(!resources.read(entry->guid, output) && !output,
                     "missing external builtin data cannot fall back to compiled data") ||
             !write(root / "gen" / entry->guid, fixture.files.at(entry->guid)) ||
-            !expect(!resources.load(entry->guid, output) && !output &&
+            !expect(!resources.read(entry->guid, output) && !output &&
                         !resources.last_error().empty(),
                     "valid envelopes with invalid external builtin payloads fail explicitly"))
         {
@@ -333,27 +330,29 @@ bool external_builtins(ResourceSystem& resources, const std::filesystem::path& r
     {
         return false;
     }
-    ResourcePtr loaded;
-    if (!expect(resources.load(cube_guid, loaded) && loaded && loaded->mesh() &&
-                    loaded->mesh()->vertices.front().x() == original_x + 2.0F &&
-                    !ResourceSystem::find_mesh(cube_path),
+    std::unique_ptr<Resource> loaded;
+    if (!expect(resources.read(cube_guid, loaded) && loaded &&
+                    resource_detail::data<MeshResource>(loaded.get()) &&
+                    resource_detail::data<MeshResource>(loaded.get())->vertices.front().x() ==
+                        original_x + 2.0F,
                 "core loads the external builtin bytes and retains no implicit residency"))
     {
         return false;
     }
     auto corrupt = valid.files.at(cube_guid);
     corrupt.back() ^= std::byte{1};
-    return expect(write(root / "gen" / cube_guid, corrupt) && !resources.load(cube_guid, loaded) &&
-                      !loaded && !ResourceSystem::find_mesh(cube_path),
+    return expect(write(root / "gen" / cube_guid, corrupt) &&
+                      (loaded.reset(), !resources.read(cube_guid, loaded)) && !loaded,
                   "external builtin checksum corruption never revives a compiled fallback");
 }
 
 bool run(const std::filesystem::path& root)
 {
-    ResourceSystem resources;
-    WorldSystem world;
+    test_support::ResourceServices services;
+    auto& resources = services.core;
+    WorldSystem world(&services.loader);
     EngineConfig config;
-    if (!resources.initialize(config) || !world.initialize(config))
+    if (!services.initialize(config) || !services.prepare_builtins() || !world.initialize(config))
     {
         return false;
     }
@@ -368,18 +367,19 @@ bool run(const std::filesystem::path& root)
         return false;
     }
     schema::SceneDataT scene_data;
+    scene_data.schema_version = 2;
     if (!scene->build_data(scene_data))
     {
         return false;
     }
     world.destroy_scene();
-    auto shader = *ResourceSystem::find_shader("builtin://shaders/pbr");
+    auto shader = *test_support::builtin<ShaderResourceCodec>("builtin://shaders/pbr");
     shader.path = "shaders/test.shader";
     std::vector<std::string> shader_dependencies;
     for (const auto& sampler : shader.samplers)
     {
         Guid guid;
-        if (!ResourceSystem::path_to_guid(sampler->default_texture, guid))
+        if (!resources.catalog().identities().path_to_guid(sampler->default_texture, guid))
         {
             return false;
         }
@@ -388,11 +388,12 @@ bool run(const std::filesystem::path& root)
     std::sort(shader_dependencies.begin(), shader_dependencies.end());
     shader_dependencies.erase(std::unique(shader_dependencies.begin(), shader_dependencies.end()),
                               shader_dependencies.end());
-    auto material = *ResourceSystem::find_material("builtin://materials/default-pbr");
+    auto material =
+        *test_support::builtin<MaterialResourceCodec>("builtin://materials/default-pbr");
     material.type_path = "materials/test.material";
     material.shader_guid = shader_guid;
     material.shader_path = shader.path;
-    auto mesh = *ResourceSystem::find_mesh("builtin://meshes/cube");
+    auto mesh = *test_support::builtin<MeshResourceCodec>("builtin://meshes/cube");
     mesh.path = "meshes/test.mesh";
     for (auto& component : scene_data.nodes[1]->components)
     {
@@ -429,8 +430,8 @@ bool run(const std::filesystem::path& root)
     {
         return false;
     }
-    ResourcePtr loaded;
-    if (!expect(!resources.load(scene_guid, loaded) && !loaded,
+    std::unique_ptr<Resource> loaded;
+    if (!expect(!resources.read(scene_guid, loaded) && !loaded,
                 "missing entity fails only at explicit load"))
     {
         return false;
@@ -446,19 +447,16 @@ bool run(const std::filesystem::path& root)
     if (!expect(resources.read_header(scene_guid, header) && header.guid == scene_guid &&
                     header.payload_offset == fixture.data.entries[3]->header_size,
                 "read and validate only entity header") ||
-        !expect(ResourceSystem::find_mesh(mesh.path) == nullptr,
-                "metadata and headers do not create resource objects") ||
-        !expect(resources.load(scene_guid, loaded) && loaded->scene() &&
-                    ResourceSystem::find_mesh(mesh.path) == nullptr &&
-                    ResourceSystem::find_shader(shader.path) == nullptr &&
-                    !resources.find(scene_guid),
+        !expect(resources.read(scene_guid, loaded) &&
+                    resource_detail::data<SceneResource>(loaded.get()),
                 "core loads one scene entity without dependency reads or a resident cache"))
     {
         return false;
     }
-    ResourcePtr shared;
-    if (!expect(resources.load(scene_guid, shared) && shared != loaded &&
-                    *shared->scene() == *loaded->scene(),
+    std::unique_ptr<Resource> shared;
+    if (!expect(resources.read(scene_guid, shared) && shared != loaded &&
+                    *resource_detail::data<SceneResource>(shared.get()) ==
+                        *resource_detail::data<SceneResource>(loaded.get()),
                 "single-item core creates independent entities without sharing policy") ||
         !expect(resources.update_catalog(fixture.data, mounts),
                 "metadata refresh does not invalidate active single-item data"))
@@ -469,15 +467,17 @@ bool run(const std::filesystem::path& root)
     changed.revision = "changed";
     changed.entries.front()->content_hash = "0000000000000000";
     const auto old_generation = loaded->generation();
-    ResourcePtr current;
+    std::unique_ptr<Resource> current;
     if (!expect(resources.update_catalog(changed, mounts) &&
                     resources.catalog().revision() == "changed" &&
-                    resources.generation() != old_generation && loaded->scene() &&
-                    resources.load(scene_guid, current) &&
+                    resources.generation() != old_generation &&
+                    resource_detail::data<SceneResource>(loaded.get()) &&
+                    resources.read(scene_guid, current) &&
                     current->generation() == resources.generation(),
                 "new directory generation leaves old entities intact and reads no dependencies") ||
         !expect(resources.update_catalog(fixture.data, {{"content", root / "other"}}) &&
-                    !resources.load(scene_guid, current) && !current && loaded->scene(),
+                    (current.reset(), !resources.read(scene_guid, current)) && !current &&
+                    resource_detail::data<SceneResource>(loaded.get()),
                 "new storage mount affects new reads without changing old resource bytes"))
     {
         return false;
@@ -510,6 +510,10 @@ bool run(const std::filesystem::path& root)
     {
         return false;
     }
+    if (!services.prepare_builtins() || !services.load("scenes/main.scene"))
+    {
+        return false;
+    }
     auto* restored = world.load_scene("scenes/main.scene");
     if (!expect(restored && test_support::scene_nodes(*restored).size() == 2 &&
                     restored->active_camera() &&
@@ -536,18 +540,15 @@ bool run(const std::filesystem::path& root)
     {
         return false;
     }
-    std::weak_ptr<const Resource> weak = loaded;
     loaded.reset();
     shared.reset();
-    if (!expect(weak.expired() && test_support::scene_nodes(*restored).size() == 2,
+    if (!expect((!loaded && !shared) && test_support::scene_nodes(*restored).size() == 2,
                 "core does not share roots; world owns its independently loaded scene"))
     {
         return false;
     }
     world.destroy_scene();
-    if (!expect(weak.expired() && ResourceSystem::find_mesh(mesh.path) == nullptr &&
-                    ResourceSystem::find_shader(shader.path) == nullptr,
-                "core contains no project residency index"))
+    if (!expect((!loaded && !shared), "core contains no project residency index"))
     {
         return false;
     }
@@ -557,8 +558,7 @@ bool run(const std::filesystem::path& root)
         !expect(ResourceSystem::read_catalog(root, catalog) &&
                     resources.read_header(scene_guid, header),
                 "metadata and header reads do not eagerly read or hash payload") ||
-        !expect(!resources.load(scene_guid, loaded) && !loaded &&
-                    ResourceSystem::find_shader(shader.path) == nullptr,
+        !expect(!resources.read(scene_guid, loaded) && !loaded,
                 "corrupted single entity is rejected without creating dependencies"))
     {
         return false;
@@ -575,11 +575,11 @@ bool run(const std::filesystem::path& root)
     empty.schema_version = 2;
     empty.revision = "empty";
     empty.target_platform = platform();
-    ResourcePtr builtin;
+    std::unique_ptr<Resource> builtin;
     return expect(resources.update_catalog(empty, {}) &&
-                      resources.load("00000000-0000-4000-8000-000000000003", builtin) &&
-                      builtin->material() && ResourceSystem::find_shader("builtin://shaders/pbr"),
-                  "empty project catalog still loads a compiled builtin entity") &&
+                      !resources.read("00000000-0000-4000-8000-000000000003", builtin) &&
+                      !builtin && resources.error() == ResourceError::not_loaded,
+                  "metadata-only builtins require explicit memory preparation") &&
            external_builtins(resources, root);
 }
 

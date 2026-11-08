@@ -52,11 +52,15 @@ std::string Node::name() const
     const auto* info = current.entity(entity_id_).try_get<schema::NodePropertiesT>();
     return info ? info->name : std::string{};
 }
-schema::NodeInfoT Node::info() const
+std::uint64_t Node::local_id() const noexcept
 {
-    schema::NodeInfoT result;
-    (void)build_info(result);
-    return result;
+    if (!valid())
+    {
+        return 0;
+    }
+    flecs::world current(world_->native_world());
+    const auto* properties = current.entity(entity_id_).try_get<schema::NodePropertiesT>();
+    return properties ? properties->id : 0;
 }
 bool Node::build_info(schema::NodeInfoT& output) const
 {
@@ -109,6 +113,7 @@ bool Node::set_enabled(bool value) noexcept
     }
     info->enabled = value;
     world_->invalidate_scene_state();
+    current.event<Node>().id<ecs_detail::Published>().entity(entity_id_).ctx(*this).emit();
     return true;
 }
 bool Node::active() const noexcept
@@ -144,6 +149,7 @@ bool Node::set_visible(bool value) noexcept
     }
     info->visible = value;
     world_->invalidate_scene_state();
+    current.event<Node>().id<ecs_detail::Published>().entity(entity_id_).ctx(*this).emit();
     return true;
 }
 bool Node::visible_in_hierarchy() const noexcept
@@ -248,6 +254,7 @@ bool Node::set_parent(Node parent) noexcept
         entity.remove(flecs::ChildOf, flecs::Wildcard);
     }
     world_->invalidate_scene_state();
+    current.event<Node>().id<ecs_detail::Published>().entity(entity_id_).ctx(*this).emit();
     return true;
 }
 bool Node::transient() const noexcept

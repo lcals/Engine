@@ -1,6 +1,7 @@
 function(engine_configure_destruction_plugin)
     engine_add_system(plugins/runtime destruction)
     engine_enable_profiling(engine_destruction)
+    target_sources(engine_destruction PRIVATE src/engine/plugins/runtime/destruction/codecs/destruction_resource_codec.cpp)
     target_sources(engine_destruction PRIVATE
         src/engine/plugins/runtime/destruction/destruction_component.cpp
         src/engine/plugins/runtime/destruction/destruction_graph.cpp)

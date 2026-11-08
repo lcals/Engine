@@ -5,7 +5,8 @@ namespace engine::editor::components
 {
 namespace
 {
-bool read(const Json& arguments, schema::ColliderDataT& value, std::string& error)
+bool read(ResourceLoader* loader, const Json& arguments, schema::ColliderDataT& value,
+          std::vector<ResourceReference>& prepared, std::string& error)
 {
     if (!fields(arguments,
                 {"enabled", "shape", "mesh", "halfExtents", "radius", "halfHeight", "center",
@@ -46,7 +47,8 @@ bool read(const Json& arguments, schema::ColliderDataT& value, std::string& erro
             error = "mesh requires a resource path and shape mesh";
             return false;
         }
-        if (!ResourceSystem::path_to_guid(arguments["mesh"].get<std::string>(), value.mesh_guid))
+        if (!resource_access::prepare_guid(loader, arguments["mesh"].get<std::string>(),
+                                           value.mesh_guid, prepared))
         {
             error = "Mesh resource path not found";
             return false;
@@ -102,7 +104,7 @@ bool read(const Json& arguments, schema::ColliderDataT& value, std::string& erro
     }
     return true;
 }
-Json write(const schema::ColliderDataT& value)
+Json write(ResourceLoader* loader, const schema::ColliderDataT& value)
 {
     Json result = Json::object();
     result["shape"] = schema::EnumNameColliderShape(value.shape);
@@ -110,7 +112,7 @@ Json write(const schema::ColliderDataT& value)
     std::string path;
     if (!value.mesh_guid.empty())
     {
-        (void)ResourceSystem::guid_to_path(value.mesh_guid, path);
+        (void)resource_access::path(loader, value.mesh_guid, path);
     }
     result["mesh"] = std::move(path);
     result["halfExtents"] =
@@ -124,10 +126,13 @@ Json write(const schema::ColliderDataT& value)
     return result;
 }
 } // namespace
-bool register_collider(WorldSystem& world, EditorCommands& commands, NodeAliases& aliases)
+bool register_collider(WorldSystem& world, EditorCommands& commands, SceneCommands& scene_commands)
 {
-    if (!register_component<engine::Collider, schema::ColliderDataT>(world, commands, "collider",
-                                                                     aliases, read, write))
+    if (!register_component<engine::Collider, schema::ColliderDataT>(
+            world, scene_commands, commands, "collider",
+            [&world](Node, const auto& args, auto& data, auto& prepared, auto& error)
+            { return read(world.resource_loader(), args, data, prepared, error); },
+            [&world](auto, const auto& data) { return write(world.resource_loader(), data); }))
     {
         return false;
     }

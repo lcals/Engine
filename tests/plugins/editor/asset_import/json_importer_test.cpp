@@ -1,5 +1,7 @@
 #include "editor/asset_pipeline/asset_pipeline_system.hpp"
+#include "file_text.hpp"
 #include "plugins/editor/asset_import/json_importer.hpp"
+#include "resource_fixture.hpp"
 #include "runtime/engine_config.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/task/task_system.hpp"
@@ -47,12 +49,17 @@ bool write(const fs::path& path, std::string_view text)
 std::string read(const fs::path& path)
 {
     std::string output;
-    return ResourceSystem::read_text(path, output) ? output : std::string{};
+    return test_support::read_text(path, output) ? output : std::string{};
 }
 
 std::string payload(const Resource& resource)
 {
-    const auto bytes = resource.bytes();
+    const auto* data = engine::resource_detail::data<JsonResource>(&resource);
+    if (!data)
+    {
+        return {};
+    }
+    const auto& bytes = *data;
     return {reinterpret_cast<const char*>(bytes.data()), bytes.size()};
 }
 
@@ -173,7 +180,8 @@ bool pipeline_tests(const Fixture& fixture)
     editor::AssetPipelineSystem pipeline(tasks);
     std::unique_ptr<editor::asset_pipeline::AssetImporter> importer =
         std::make_unique<plugins::asset_import::JsonImporter>();
-    if (!expect(threads.initialize({}) && tasks.initialize({}) && resources.initialize({}) &&
+    if (!expect(threads.initialize({}) && tasks.initialize({}) &&
+                    test_support::register_resource_codecs(resources) && resources.initialize({}) &&
                     pipeline.initialize({}) && pipeline.add_importer(importer) && !importer &&
                     write(source, first) && pipeline.build_assets(fixture.root),
                 pipeline.last_error()))
@@ -191,14 +199,14 @@ bool pipeline_tests(const Fixture& fixture)
     }
     const auto guid = (*found)->guid;
     const auto metadata = read(fixture.root / "assets/config.json.meta");
-    ResourcePtr original;
+    std::unique_ptr<Resource> original;
     schema::ResourceHeaderDataT header;
     if (!expect(metadata.find(guid) != std::string::npos &&
                     metadata.find("importer = \"json\"") != std::string::npos &&
                     resources.update_catalog(pipeline.catalog(),
                                              {{"content", fixture.root / "cache"}}) &&
                     resources.read_header(guid, header) && header.kind == schema::AssetKind::json &&
-                    resources.load(guid, original) && original && payload(*original) == first,
+                    resources.read(guid, original) && original && payload(*original) == first,
                 "standard GUID metadata, catalog, envelope and binary codec retain JSON bytes") ||
         !expect(pipeline.build_assets(fixture.root) && pipeline.last_build().imported == 0 &&
                     pipeline.last_build().reused == 1,
@@ -230,8 +238,8 @@ bool pipeline_tests(const Fixture& fixture)
     {
         return false;
     }
-    ResourcePtr current;
-    return expect(resources.load(guid, current) && current && payload(*current) == changed &&
+    std::unique_ptr<Resource> current;
+    return expect(resources.read(guid, current) && current && payload(*current) == changed &&
                       payload(*original) == first,
                   "new catalog reads the new bytes while the old resource stays valid");
 }

@@ -1,4 +1,6 @@
 #include "editor/asset_pipeline/asset_io.hpp"
+#include "runtime/resource/virtual_file_system.hpp"
+#include "runtime/utils/hash_utils.hpp"
 
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/utils/path_utils.hpp"
@@ -39,15 +41,7 @@ bool unused_file(const fs::path& path, std::string& error)
 
 std::string hash_bytes(std::span<const std::byte> bytes)
 {
-    std::uint64_t hash = 14695981039346656037ULL;
-    for (const auto value : bytes)
-    {
-        hash ^= std::to_integer<unsigned char>(value);
-        hash *= 1099511628211ULL;
-    }
-    std::array<char, 17> text{};
-    std::snprintf(text.data(), text.size(), "%016llx", static_cast<unsigned long long>(hash));
-    return text.data();
+    return hash::hex(hash::fnv1a(bytes));
 }
 
 std::string hash_text(const std::string& text)
@@ -58,7 +52,7 @@ std::string hash_text(const std::string& text)
 bool read_bytes(const std::filesystem::path& path, std::vector<std::byte>& bytes,
                 std::string& error)
 {
-    if (!ResourceSystem::read_binary(path, bytes))
+    if (!VirtualFileSystem::read_file(path, bytes))
     {
         error = "cannot read file: " + PathUtils::to_utf8(path);
         return false;
@@ -208,56 +202,6 @@ bool create_source_with_meta(const fs::path& destination, const std::string& sou
         return false;
     }
     guid = candidate_guid;
-    return true;
-}
-
-bool run_process(const std::vector<std::string>& arguments, std::string& error,
-                 std::string* captured_output)
-{
-    std::vector<const char*> argv;
-    argv.reserve(arguments.size() + 1);
-    for (const auto& argument : arguments)
-    {
-        argv.push_back(argument.c_str());
-    }
-    argv.push_back(nullptr);
-    const SDL_PropertiesID properties = SDL_CreateProperties();
-    const bool configured =
-        properties != 0 &&
-        SDL_SetPointerProperty(properties, SDL_PROP_PROCESS_CREATE_ARGS_POINTER, argv.data()) &&
-        SDL_SetNumberProperty(properties, SDL_PROP_PROCESS_CREATE_STDIN_NUMBER,
-                              SDL_PROCESS_STDIO_NULL) &&
-        SDL_SetNumberProperty(properties, SDL_PROP_PROCESS_CREATE_STDOUT_NUMBER,
-                              SDL_PROCESS_STDIO_APP) &&
-        SDL_SetBooleanProperty(properties, SDL_PROP_PROCESS_CREATE_STDERR_TO_STDOUT_BOOLEAN, true);
-    SDL_Process* process = configured ? SDL_CreateProcessWithProperties(properties) : nullptr;
-    SDL_DestroyProperties(properties);
-    if (process == nullptr)
-    {
-        error = "cannot start tool: " + (arguments.empty() ? std::string{} : arguments[0]) + ": " +
-                SDL_GetError();
-        return false;
-    }
-    std::size_t output_size = 0;
-    int exit_code = -1;
-    void* output = SDL_ReadProcess(process, &output_size, &exit_code);
-    std::string diagnostics;
-    if (output != nullptr)
-    {
-        diagnostics.assign(static_cast<const char*>(output), output_size);
-    }
-    SDL_free(output);
-    const bool waited = SDL_WaitProcess(process, true, &exit_code);
-    SDL_DestroyProcess(process);
-    if (!waited || exit_code != 0)
-    {
-        error = "tool failed (exit " + std::to_string(exit_code) + "): " + diagnostics;
-        return false;
-    }
-    if (captured_output != nullptr)
-    {
-        *captured_output = std::move(diagnostics);
-    }
     return true;
 }
 

@@ -2,7 +2,6 @@
 
 #include <bgfx/bgfx.h>
 
-#include <array>
 #include <string>
 
 namespace engine::render_detail
@@ -13,7 +12,6 @@ struct GpuUniform
 {
     std::string name;
     bgfx::UniformHandle handle = BGFX_INVALID_HANDLE;
-    std::array<float, 4> values{};
 };
 
 } // namespace engine::render_detail

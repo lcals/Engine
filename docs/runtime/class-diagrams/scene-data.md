@@ -216,6 +216,8 @@ classDiagram
 
 ## 贴图
 
+**2026-11-07：以下格式 2 的大场景离线产物已实现。** 唯一字段定义在本页，导入和平台选择见[贴图导入](../../editor/class-diagrams/texture-importer.md#目标平台产物)。
+
 ```mermaid
 classDiagram
     class TextureDataT {
@@ -229,13 +231,20 @@ classDiagram
         +TextureFormat format
         +vector~uint8_t~ data
         +bool cube_map
+        +vector~TextureSubresourceData~ subresources
     }
     class MaterialTextureT
     class TextureEncoding {
-        <<enum class>>
+        <<enumeration>>
         basis
-        rgba8
-        ktx
+        native
+    }
+    class TextureSubresourceData {
+        <<generated struct>>
+        +uint32_t mip
+        +uint32_t face
+        +uint64_t offset
+        +uint64_t size
     }
     class TextureFormat {
         <<enum class>>
@@ -248,11 +257,16 @@ classDiagram
         rg16f
     }
     MaterialTextureT ..> TextureDataT : GUID引用
-    TextureDataT ..> TextureEncoding : 缓存编码
+    TextureDataT ..> TextureEncoding : 当前版本的两种真实存储策略
+    TextureDataT *-- TextureSubresourceData : 完整mip与face的紧密数据范围
     TextureDataT ..> TextureFormat : 目标GPU格式
 ```
 
-图片 `.meta` 声明格式、压缩模式、质量、颜色空间和 mipmap。编辑器调用 BasisU 生成缓存；运行时仅解析并按 GPU 能力转码。auto_format 由设备选择，明确指定但设备不支持的格式返回失败。内置默认贴图使用 RGBA8，避免运行时编码器参与生成。新增网格数组可省略，旧 MeshVertex 二进制布局不变；缺省 UV 为零、颜色为白色，切线按上游算法生成。
+图片 `.meta` 继续声明格式、压缩模式、质量、颜色空间和 mipmap，并用 storage 明确选择 basis 或 native。basis 保留压缩传输与运行时转码能力；native 在编辑器解析 auto，data 为明确 format 的 GPU 像素 / 块，运行时不转码。二者是同一当前版本的存储策略，不是旧格式兼容。native 禁止 auto_format；basis 的 auto_format 继续按既有设备能力选择转码目标。显式格式不支持时失败，不把 native 偷换成 basis 或另一种格式。
+
+TextureData 格式 2，Schema 版本默认 0。native 的 subresources 按 mip、face 唯一定位连续紧密数据，偏移 / 大小完整覆盖 data 且不得重叠、留洞或越界；二维每 mip 一面，cube 每 mip 六面。按 block 尺寸校验末端取整、每面尺寸、数量与精确字节数；不得仅相信生产者的 size。basis 的 subresources 必须为空，由编码头验证其原有 mip 信息，不允许伪造 native 范围。现有尺寸 / 总量上限继续约束单项资源，不因分帧上传取消校验。
+
+内置 / 程序化内存贴图也构造相同格式，像素候选使用 native 及明确的 RGBA8 / RGBA16F，不走编码器；显式提供的 basis 内存资源仍按相同 codec 校验。KTX 为编辑器源容器，导入后生成 native 范围；删除旧 rgba8 / ktx 编码枚举与旧格式分支，旧包拒绝并重建，GUID 保留。Mesh 的 UV / 颜色等语义不在本批调整。
 
 ## 音频
 
@@ -287,3 +301,5 @@ classDiagram
 `PostProcessData` 追加 `ao_enabled:bool=false`、`ao_radius:float=1`、`ao_strength:float=1`、`ao_power:float=1.5`、`ao_fade_start:float=80`、`ao_fade_end:float=150`。旧场景未存储 AO 字段时使用这些默认值。所有浮点值有限，半径 `(0,100]`、强度 `[0,2]`、指数 `[0.1,8]`、淡出距离 `0 <= start < end <= 100000`；具体组件整体校验，失败不部分改变。AO 结果来自当帧 GPU 计算，只有参数进入场景模型。
 
 `PostProcessData` 在末尾继续追加 `hdr_enabled:bool=false`、`bloom_enabled:bool=false`、`bloom_threshold:float=1`、`bloom_intensity:float=0.15`、`bloom_radius:float=1`。阈值范围 `[0,100]`、强度 `[0,10]`、半径 `[0.25,4]`，所有数值有限，且 `bloom_enabled` 为 true 时 `hdr_enabled` 必须为 true。旧数据按关闭的默认值读取；TOML、FlatBuffers、运行时组件和脚本使用同一模型，不自动改写请求中的另一开关。
+
+当前 SceneData / PrefabData 二进制格式版本为 2；生成模型默认版本 0 无效。删除 CharacterController 的废弃相机字段后，读取拒绝旧版和未标记版本的数据；源描述通过当前导入器重新生成缓存和运行包，不保留旧布局读取分支。

@@ -147,7 +147,7 @@ bool register_component_storage(ComponentRegistry& registry)
     {
         if constexpr (std::is_same_v<decltype(&T::build_data), decltype(&Component::build_data)>)
         {
-            return component.build_storage_data(output);
+            return component.get_data(output);
         }
         else
         {

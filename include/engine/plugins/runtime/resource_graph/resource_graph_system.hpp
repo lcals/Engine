@@ -3,43 +3,60 @@
 #include "runtime/resource/resource_loader.hpp"
 #include "runtime/system/system.hpp"
 
-#include <cstdint>
-#include <map>
 #include <memory>
-#include <string>
 
 namespace engine
 {
 class ResourceSystem;
+class TaskSystem;
 } // namespace engine
 
 namespace engine::plugins::resource_graph
 {
+struct ResourceGraphConfig
+{
+    std::uint32_t max_requests = 128;
+    std::uint32_t completion_budget = 16;
+    double coordination_budget_seconds = 0.002;
+};
 
 class ResourceGraphSystem final : public System, public ResourceLoader
 {
 public:
-    // 核心先初始化、后关闭；有效期须覆盖本系统。
-    explicit ResourceGraphSystem(ResourceSystem& resources) noexcept;
+    // 两个服务先初始化、后关闭；tasks 是资源组织专用域。
+    ResourceGraphSystem(ResourceSystem& resources, TaskSystem& tasks,
+                        const ResourceGraphConfig& config);
     ~ResourceGraphSystem() noexcept override;
 
-    [[nodiscard]] bool load(std::string_view guid, ResourcePtr& output) override;
-    [[nodiscard]] bool begin_load(std::string_view guid,
-                                 std::unique_ptr<ResourceLoad>& output) override;
-    [[nodiscard]] ResourcePtr find(std::string_view guid) const noexcept override;
-    [[nodiscard]] const std::string& last_error() const noexcept override;
+    using ResourceLoader::get;
+    [[nodiscard]] bool load(std::string_view path_or_guid, ResourceHandle& output) override;
+    [[nodiscard]] bool begin_load(std::string_view path_or_guid,
+                                  std::unique_ptr<ResourceLoad>& output) override;
+    [[nodiscard]] bool load_memory(std::unique_ptr<Resource>& candidate,
+                                   std::span<const ResourceHandle> dependencies,
+                                   ResourceHandle& output) override;
+    [[nodiscard]] bool begin_load_memory(std::unique_ptr<Resource>& candidate,
+                                         std::span<const ResourceHandle> dependencies,
+                                         std::unique_ptr<ResourceLoad>& output) override;
+    [[nodiscard]] bool acquire_loaded(std::string_view path_or_guid,
+                                      ResourceHandle& output) override;
+    [[nodiscard]] bool retain(const ResourceHandle& handle, ResourceHandle& output) override;
+    [[nodiscard]] bool retain_dependency(const ResourceHandle& owner, std::string_view path_or_guid,
+                                         ResourceHandle& output) override;
+    [[nodiscard]] bool release(ResourceHandle& handle) noexcept override;
+    [[nodiscard]] ResourceError get(const ResourceHandle& handle,
+                                    const Resource*& output) const noexcept override;
+    [[nodiscard]] ResourceError error() const noexcept override;
+    [[nodiscard]] std::string_view last_error() const noexcept override;
 
 protected:
     [[nodiscard]] bool on_initialize(const EngineConfig& config) override;
+    [[nodiscard]] bool on_tick(double delta_time) override;
     void on_shutdown() noexcept override;
 
 private:
     friend class GraphResourceLoad;
-
-    ResourceSystem& resources_;
-    std::uint64_t generation_ = 0;
-    std::map<std::string, std::weak_ptr<const Resource>, std::less<>> loaded_;
-    std::string last_error_;
+    struct State;
+    std::shared_ptr<State> state_;
 };
-
 } // namespace engine::plugins::resource_graph

@@ -13,6 +13,8 @@ classDiagram
     class RenderCommands
     register_render_tools --> EditorMcpTools : 借用编辑器通道
     register_render_tools ..> McpSystem : 注册工具及参数
+    class mcp_functions
+    register_render_tools ..> mcp_functions : 精简目标 共用命令登记
     register_render_tools ..> RenderCommands : 转发命令和原回执
 ```
 
@@ -24,13 +26,13 @@ HDR/Bloom 使用 `hdrEnabled`、`bloomEnabled`（布尔值）、`bloomThreshold`
 
 `set_render_stats {"enabled": true|false}` 只转发统计面板开关并返回保存的 `enabled` 状态。默认关闭，开关不区分待机、场景预览或玩法，也不修改场景和撤销历史；显示由 bgfx 自带的 `BGFX_DEBUG_STATS` 完成。
 
-渲染设置工具同时暴露三色环境光（ambientTricolor、ambientSkyColor、ambientEquatorColor、ambientGroundColor）与雾设置（fogMode、fogColor、fogStart、fogEnd、fogDensity），只转发编辑器命令；数值校验、原子提交和撤销继续走相同入口。颜色为线性 0..1，雾距离满足 0 <= start < end，density 为非负有限值。fogMode 支持 none、linear、exponential、exponential_squared；保留 linearFog 兼容入口，仅用于切换 linear/none，与显式 fogMode 同时提供时必须一致。查询中的 linearFog 是当前模式是否为 linear 的派生值，内部只保存一个模式。
+渲染设置工具同时暴露三色环境光（ambientTricolor、ambientSkyColor、ambientEquatorColor、ambientGroundColor）与雾设置（fogMode、fogColor、fogStart、fogEnd、fogDensity），只转发编辑器命令；数值校验、原子提交和撤销继续走相同入口。颜色为线性 0..1，雾距离满足 0 <= start < end，density 为非负有限值。fogMode 支持 none、linear、exponential、exponential_squared；输入和查询均只使用 fogMode，不提供旧布尔入口或重复派生字段。
 
 有活动场景时 set_render_settings 直接编辑并保存场景组件参数，修改标记场景未保存，支持撤销/重做；无场景时只允许修改 clearColor。MCP 不创建自己的场景参数状态，也不将参数写入脚本。
 
 方向光级联字段为 `shadowCascades`（整数 1、2、4）、`shadowDistance`（大于 0 且不超过 100000）、`shadowSplitLambda`（0..1）与 `shadowCascadeBlend`（0..0.3）。`shadowResolution` 表示灯请求的阴影尺寸，方向光级联在分配的区域内排布；完整 atlas 的预算由启动配置 `shadow_atlas_size` 决定。MCP 只转发和描述参数，组件校验、撤销以及保存仍由已有编辑器命令完成。
 
-## 本轮渲染能力的编辑入口
+## 渲染编辑入口
 
 以下增量已按评审接入现有编辑器命令；可用工具以当前构建的 `tools/list` 为准。底层能力沿用已批准的[渲染契约](../../../runtime/class-diagrams/forward-lighting-reflections.md)，不增加新的渲染类或全局参数副本。
 
@@ -125,3 +127,5 @@ classDiagram
 ```
 
 三个新增运行属性均默认 false；保存请求不要求 GPU 初始化，也不因设备暂不支持而拒绝。支持与实际使用独立查询。`wireframe/debug_draw/mesh_bounds/camera_frusta/stats` 五项诊断是临时状态，不进入保存、预制体或项目 TS。Frame/View uniforms 是只读实现能力，不提供假开关。
+
+**登记精简已实现：** 直接转发项使用[共用工具登记函数](editor-mcp-tools.md#共用工具登记目标)，工具名、schema、命令名和回执语义保持。原有特定参数转换仍由本模块执行，不迁入公共登记函数。

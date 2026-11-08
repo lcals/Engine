@@ -98,7 +98,7 @@ inline void basis(Point normal, Point& u, Point& v)
 
 inline Point position(const schema::EditableMeshDataT& data, std::uint64_t id)
 {
-    const auto* vertex = EditableMesh::find_vertex(data, id);
+    const auto* vertex = mesh::find_vertex(data, id);
     return vertex == nullptr ? Point{} : point(*vertex);
 }
 
@@ -145,7 +145,7 @@ inline void add_quad(schema::EditableMeshDataT& data, std::uint64_t a, std::uint
 inline bool commit(schema::EditableMeshDataT& output, schema::EditableMeshDataT&& candidate,
                    std::string& error)
 {
-    if (!EditableMesh::validate(candidate, error))
+    if (!mesh::validate(candidate, error))
     {
         return false;
     }
@@ -159,7 +159,7 @@ inline bool selected_faces(schema::EditableMeshDataT& data,
                            std::vector<schema::ModelingFaceT*>& output, std::string& error)
 {
     output.clear();
-    if (!EditableMesh::validate(data, error))
+    if (!mesh::validate(data, error))
     {
         return false;
     }
@@ -175,7 +175,7 @@ inline bool selected_faces(schema::EditableMeshDataT& data,
         std::set<std::uint64_t> ids;
         for (const auto id : selection)
         {
-            auto* face = EditableMesh::find_face(data, id);
+            auto* face = mesh::find_face(data, id);
             if (face == nullptr || !ids.insert(id).second)
             {
                 error = "Face selection contains a missing or duplicate identity";

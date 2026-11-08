@@ -39,7 +39,7 @@ classDiagram
 - `runtime-game.toml` 的 `[common].game_language` 是必填游戏语言字符串；汇总到 JSON 的 `game.game_language`，宿主传给 App，TS 通过只读 `App.gameLanguage` 获取。
 - `runtime-game.toml` 可选 `startup_movie`，汇总到 `game.startup_movie`；缺项或空字符串表示无片头，平台表可覆盖。播放器和资源自动收集尚未接入。
 - `runtime-engine.toml` 保存窗口等启动覆盖，`runtime-parallel.toml` 保存任务及领域预算覆盖。每个文件只拥有自己的模块。
-- 各模块统一使用 `[common]`、`[platform.<平台>]`；平台字段覆盖同名公共字段。品质分组约定为 `[quality.<档位>]`，目前业务没有使用，本轮不添加品质选择或切换接口；非空品质配置明确报错，避免静默丢弃。
+- 各模块统一使用 `[common]`、`[platform.<平台>]`；平台字段覆盖同名公共字段。品质分组约定为 `[quality.<档位>]`，未提供品质选择或切换接口；非空品质配置明确报错，避免静默丢弃。
 - 所有项目运行预算完整保存在 TOML 的公共配置与平台配置中；`RuntimeParallelConfig` 不再提供平台数值默认，Python 不复制 C++ 默认值。
 - `scripts/runtime_settings.py` 独立完成打包收集，只输出当前平台完整的 `settings/runtime.json`。运行包不包含 TOML、编辑器设置或 TS 工程。
 - 编辑器源配置和打包 JSON 均在 CLI 覆盖前应用；显式宽高与 worker 命令行参数最后覆盖。

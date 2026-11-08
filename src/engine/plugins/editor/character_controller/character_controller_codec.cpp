@@ -5,6 +5,8 @@
 #include "plugins/editor/character_controller/character_visual_codec.hpp"
 #include "plugins/runtime/character_controller/character_controller.hpp"
 
+#include <algorithm>
+#include <array>
 #include <memory>
 #include <utility>
 
@@ -37,13 +39,14 @@ bool CharacterControllerCodec::read(const toml::table& table, schema::ComponentD
                                     std::string& error) const
 {
     schema::CharacterControllerDataT value;
-    for (const auto name : {"mode", "eye_height", "camera_distance", "pitch_min", "pitch_max"})
+    constexpr std::array<std::string_view, 7> fields{
+        "type",       "enabled",          "visible",       "move_speed",
+        "jump_speed", "look_sensitivity", "camera_node_id"};
+    for (const auto& [key, field] : table)
     {
-        if (table.contains(name))
+        if (std::find(fields.begin(), fields.end(), key.str()) == fields.end())
         {
-            error = "character_controller." + std::string(name) +
-                    " moved to character_camera on the referenced Camera node; "
-                    "migrate the source scene";
+            error = "Unknown character_controller field: " + std::string(key.str());
             return false;
         }
     }

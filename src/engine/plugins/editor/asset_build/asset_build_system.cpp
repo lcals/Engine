@@ -1,4 +1,5 @@
 #include "plugins/editor/asset_build/asset_build_system.hpp"
+#include "editor/file_text.hpp"
 
 #include "plugins/editor/asset_build/builtin_resources.hpp"
 
@@ -43,6 +44,7 @@ struct BuildItem
 struct BuildManifest
 {
     bool all_resources = false;
+    std::string startup_movie;
     std::filesystem::path output;
     std::vector<BuildItem> items;
 };
@@ -97,6 +99,78 @@ bool item_name(std::string_view value)
                                                     (ch >= '0' && ch <= '9') || ch == '-' ||
                                                     ch == '_';
                                          });
+}
+
+bool read_startup_movie(const std::filesystem::path& root, std::string_view platform,
+                        std::string& output, std::string& error)
+{
+    output.clear();
+    const auto path = root / "settings/runtime-game.toml";
+    std::error_code code;
+    if (!inspect_path(path, error))
+    {
+        return false;
+    }
+    const bool exists = std::filesystem::exists(path, code);
+    if (code)
+    {
+        error = "cannot inspect runtime game settings: " + code.message();
+        return false;
+    }
+    if (!exists)
+    {
+        return true;
+    }
+    const auto size = std::filesystem::file_size(path, code);
+    std::string text;
+    if (code || size > 65536 || !engine::editor::file_detail::read_text(path, text))
+    {
+        error = "cannot read runtime game settings within 64 KiB";
+        return false;
+    }
+    auto parsed = toml::parse(text);
+    if (!parsed)
+    {
+        error = "invalid runtime game settings: " + std::string(parsed.error().description());
+        return false;
+    }
+    if (parsed.table().contains("platform") && !parsed["platform"].is_table())
+    {
+        error = "runtime game platform settings must be a table";
+        return false;
+    }
+    for (const auto* node : {parsed["common"].node(), parsed["platform"][platform].node()})
+    {
+        if (!node)
+        {
+            continue;
+        }
+        const auto* table = node->as_table();
+        if (!table)
+        {
+            error = "runtime game settings section must be a table";
+            return false;
+        }
+        if (const auto* movie = table->get("startup_movie"))
+        {
+            const auto value = movie->value<std::string>();
+            if (!value)
+            {
+                error = "startup_movie must be a string";
+                return false;
+            }
+            output = *value;
+        }
+    }
+    GuidMap identities;
+    if (!output.empty() && (output.starts_with("editor://") ||
+                            !identities.add(output, "00000000-0000-4000-8000-000000000001")))
+    {
+        error = "startup_movie must be a runtime resource path";
+        output.clear();
+        return false;
+    }
+    return true;
 }
 
 bool read_paths(const toml::table& table, std::string_view key, bool required,
@@ -154,7 +228,7 @@ bool read_manifest(const std::filesystem::path& root, const std::filesystem::pat
         return true;
     }
     std::string text;
-    if (!ResourceSystem::read_text(root / path, text))
+    if (!engine::editor::file_detail::read_text(root / path, text))
     {
         error = "cannot read resource build manifest";
         return false;
@@ -348,6 +422,35 @@ bool select_resources(const ResourceCatalog& catalog, BuildManifest& manifest, s
             {
                 item.resources.insert(guid);
             }
+        }
+    }
+    if (!manifest.startup_movie.empty())
+    {
+        Guid guid;
+        if (!catalog.identities().path_to_guid(manifest.startup_movie, guid) ||
+            !catalog.find(guid) || catalog.find(guid)->kind != schema::AssetKind::movie)
+        {
+            error = "startup_movie is absent or is not a movie: " + manifest.startup_movie;
+            return false;
+        }
+        BuildItem startup;
+        startup.name = "startup";
+        std::set<Guid> visited;
+        std::set<Guid> closure;
+        if (!collect(catalog, guid, visited, closure, error))
+        {
+            return false;
+        }
+        for (const auto& dependency : closure)
+        {
+            if (!storage.contains(dependency))
+            {
+                startup.resources.insert(dependency);
+            }
+        }
+        if (!startup.resources.empty())
+        {
+            manifest.items.push_back(std::move(startup));
         }
     }
     BuildItem builtin;
@@ -593,7 +696,9 @@ bool AssetBuildSystem::build(const std::filesystem::path& project_root,
         }
         return false;
     }
-    if (!select_resources(source, manifest, last_error_))
+    if (!read_startup_movie(root, source.data().target_platform, manifest.startup_movie,
+                            last_error_) ||
+        !select_resources(source, manifest, last_error_))
     {
         return false;
     }

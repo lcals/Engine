@@ -1,4 +1,5 @@
 #include "resource_fixture.hpp"
+#include "resource_services.hpp"
 #include "scene_snapshot.hpp"
 
 #include "runtime/engine_config.hpp"
@@ -53,10 +54,17 @@ bool near(float actual, float expected)
 bool add_scene_resource(test_support::ResourceFixture& fixture, std::string_view path,
                         const engine::schema::SceneDataT& data);
 
-bool scene_node_queries()
+engine::Scene* load_and_restore(test_support::ResourceServices& services,
+                                engine::WorldSystem& world, std::string_view path)
+{
+    engine::ResourceReference source;
+    return services.load(path, source) ? world.load_scene(path) : nullptr;
+}
+
+bool scene_node_queries(test_support::ResourceServices& services)
 {
     using namespace engine;
-    WorldSystem world;
+    WorldSystem world(&services.loader);
     if (!world.initialize({}))
     {
         return false;
@@ -76,7 +84,7 @@ bool scene_node_queries()
     {
         return false;
     }
-    const auto root_local_id = root.info().properties->id;
+    const auto root_local_id = root.local_id();
     if (!expect(first->find_node("Root") == root && first->find_node("") == empty &&
                     first->find_node("a/b") == slash && !first->find_node("root") &&
                     !first->find_node("missing") && !first->find_local_node(0) &&
@@ -119,8 +127,7 @@ bool scene_node_queries()
     world.unload_scene();
     auto* next = world.create_scene("Another query owner");
     auto replacement = next ? next->create_node("Root") : Node{};
-    if (!expect(replacement && next != first &&
-                    replacement.info().properties->id == root_local_id &&
+    if (!expect(replacement && next != first && replacement.local_id() == root_local_id &&
                     next->find_local_node(root_local_id) == replacement &&
                     first->find_local_node(root_local_id) == root &&
                     next->find_node("Root") == replacement && first->find_node("Root") == root &&
@@ -135,11 +142,11 @@ bool scene_node_queries()
                   "world reinitialization cannot revive query result identities");
 }
 
-bool node_component_state()
+bool node_component_state(test_support::ResourceServices& services)
 {
     test_support::ResourceFixture fixture;
-    auto* resources = engine::ResourceSystem::instance();
-    engine::WorldSystem world;
+    auto* resources = &services.core;
+    engine::WorldSystem world(&services.loader);
     if (!expect(resources && world.initialize({}), "initialize hierarchy state world"))
     {
         return false;
@@ -211,13 +218,14 @@ bool node_component_state()
     {
         return false;
     }
-    const auto child_id = child.info().properties->id;
-    if (!expect(add_scene_resource(fixture, "state.scene", snapshot) && fixture.publish(*resources),
+    const auto child_id = child.local_id();
+    if (!expect(add_scene_resource(fixture, "state.scene", snapshot) &&
+                    (fixture.publish(*resources) && services.prepare_builtins()),
                 "publish hierarchy state snapshot"))
     {
         return false;
     }
-    scene = world.load_scene("state.scene");
+    scene = load_and_restore(services, world, "state.scene");
     if (!expect(scene != nullptr, "restore flags through the scene resource"))
     {
         return false;
@@ -225,7 +233,7 @@ bool node_component_state()
     child = {};
     for (const auto& node : test_support::scene_nodes(*scene))
     {
-        if (node.info().properties->id == child_id)
+        if (node.local_id() == child_id)
         {
             child = node;
             break;
@@ -253,10 +261,10 @@ bool node_component_state()
                   "replacing the component does not resurrect old identity or local flags");
 }
 
-bool scene_lifecycle()
+bool scene_lifecycle(test_support::ResourceServices& services)
 {
     const engine::EngineConfig config;
-    engine::WorldSystem world;
+    engine::WorldSystem world(&services.loader);
     if (!expect(world.create_scene("Before init") == nullptr,
                 "scene creation requires initialized world") ||
         !expect(world.initialize(config), "initialize world"))
@@ -317,10 +325,10 @@ bool scene_lifecycle()
                   "scene identities survive world reinitialization");
 }
 
-bool hierarchy_and_transforms()
+bool hierarchy_and_transforms(test_support::ResourceServices& services)
 {
     const engine::EngineConfig config;
-    engine::WorldSystem world;
+    engine::WorldSystem world(&services.loader);
     engine::WorldSystem foreign_world;
     if (!expect(world.initialize(config) && foreign_world.initialize(config),
                 "initialize independent worlds"))
@@ -374,16 +382,19 @@ bool hierarchy_and_transforms()
     }
     engine::TransformSettings invalid = child_transform;
     invalid.scale.mutate_y(0.0);
-    if (!expect(!child.get_component<engine::Transform>().set_settings(invalid) &&
-                    child.get_component<engine::Transform>().settings().scale.y() == 1.0,
-                "zero scale rejected without altering transform"))
+    if (!expect(
+            !child.get_component<engine::Transform>().set_settings(invalid) &&
+                test_support::read_settings(child.get_component<engine::Transform>()).scale.y() ==
+                    1.0,
+            "zero scale rejected without altering transform"))
     {
         return false;
     }
     invalid = child_transform;
     invalid.position.mutate_y(std::numeric_limits<double>::quiet_NaN());
     if (!expect(!child.get_component<engine::Transform>().set_settings(invalid) &&
-                    child.get_component<engine::Transform>().settings().position.y() == 0.0,
+                    test_support::read_settings(child.get_component<engine::Transform>())
+                            .position.y() == 0.0,
                 "nonfinite transform rejected without altering transform") ||
         !expect(!child.get_component<engine::Transform>().world_matrix(nullptr),
                 "null matrix output rejected") ||
@@ -451,6 +462,7 @@ bool add_scene_resource(test_support::ResourceFixture& fixture, std::string_view
     entry->guid = guid.data();
     entry->path = path;
     entry->kind = schema::AssetKind::scene;
+    entry->dependencies = test_support::scene_dependencies(data.nodes);
     ByteBuffer entity;
     const ByteView payload(reinterpret_cast<const std::byte*>(builder.GetBufferPointer()),
                            builder.GetSize());
@@ -484,12 +496,12 @@ bool add_scene_resource(test_support::ResourceFixture& fixture, std::string_view
     return true;
 }
 
-bool indexed_scene_restore()
+bool indexed_scene_restore(test_support::ResourceServices& services)
 {
     using namespace engine;
     test_support::ResourceFixture fixture;
-    auto* resources = ResourceSystem::instance();
-    WorldSystem world;
+    auto* resources = &services.core;
+    WorldSystem world(&services.loader);
     if (!resources || !world.initialize({}))
     {
         return false;
@@ -508,6 +520,7 @@ bool indexed_scene_restore()
     }
     auto camera = test_support::scene_nodes(*original)[0].add_component<Camera>();
     schema::SceneDataT source;
+    source.schema_version = 2;
     if (!camera || !original->set_active_camera(camera) || !original->build_data(source))
     {
         return false;
@@ -521,11 +534,12 @@ bool indexed_scene_restore()
     source.nodes[0]->info->parent_id = 2;
     source.nodes[2]->info->parent_id = 1;
     source.info->active_camera_node = 42;
-    if (!add_scene_resource(fixture, "indexed.scene", source) || !fixture.publish(*resources))
+    if (!add_scene_resource(fixture, "indexed.scene", source) ||
+        !(fixture.publish(*resources) && services.prepare_builtins()))
     {
         return false;
     }
-    auto* loaded = world.load_scene("indexed.scene");
+    auto* loaded = load_and_restore(services, world, "indexed.scene");
     if (!expect(loaded && test_support::scene_nodes(*loaded).size() == ids.size(),
                 "restore sparse unordered IDs"))
     {
@@ -534,7 +548,7 @@ bool indexed_scene_restore()
     for (std::size_t i = 0; i < ids.size(); ++i)
     {
         auto node = test_support::scene_nodes(*loaded)[i];
-        if (!expect(node.info().properties->id == ids[i] && loaded->find_node(node.id()) == node &&
+        if (!expect(node.local_id() == ids[i] && loaded->find_node(node.id()) == node &&
                         std::as_const(*loaded).find_node(node.id()) == node &&
                         std::as_const(*loaded).find_local_node(ids[i]) == node &&
                         loaded->find_node(node.name()) == node,
@@ -579,8 +593,9 @@ bool indexed_scene_restore()
             invalid.nodes[3]->components.clear();
         }
         const auto path = "invalid-index-" + std::to_string(failure) + ".scene";
-        if (!add_scene_resource(fixture, path, invalid) || !fixture.publish(*resources) ||
-            !expect(!world.load_scene(path) && world.scene() == loaded &&
+        if (!add_scene_resource(fixture, path, invalid) ||
+            !(fixture.publish(*resources) && services.prepare_builtins()) ||
+            !expect(!load_and_restore(services, world, path) && world.scene() == loaded &&
                         loaded->find_node(leaf.id()) == leaf && leaf.parent() == branch &&
                         loaded->active_camera() == camera,
                     "failed candidate cleans its indices without changing the active scene"))
@@ -593,7 +608,7 @@ bool indexed_scene_restore()
     for (std::size_t i = 0; i < 256; ++i)
     {
         auto node = loaded->create_node("Indexed growth");
-        if (!expect(node && node.info().properties->id == 10001 + i && !node.parent(),
+        if (!expect(node && node.local_id() == 10001 + i && !node.parent(),
                     "new local IDs advance from the restored maximum"))
         {
             return false;
@@ -643,7 +658,7 @@ bool indexed_scene_restore()
             return false;
         }
     }
-    loaded = world.load_scene("indexed.scene");
+    loaded = load_and_restore(services, world, "indexed.scene");
     if (!expect(loaded && !spare && loaded->find_local_node(ids[3]) &&
                     loaded->find_local_node(ids[3]).id() != spare.id(),
                 "restoring the same local identity creates a fresh entity instead of reviving a "
@@ -653,11 +668,12 @@ bool indexed_scene_restore()
     }
     source.nodes[0]->info->properties->id = std::numeric_limits<std::uint64_t>::max();
     source.info->active_camera_node = source.nodes[0]->info->properties->id;
-    if (!add_scene_resource(fixture, "index-limit.scene", source) || !fixture.publish(*resources))
+    if (!add_scene_resource(fixture, "index-limit.scene", source) ||
+        !(fixture.publish(*resources) && services.prepare_builtins()))
     {
         return false;
     }
-    loaded = world.load_scene("index-limit.scene");
+    loaded = load_and_restore(services, world, "index-limit.scene");
     return expect(loaded && test_support::scene_nodes(*loaded).size() == ids.size() &&
                       loaded->active_camera() &&
                       loaded->find_local_node(std::numeric_limits<std::uint64_t>::max()) ==
@@ -668,12 +684,12 @@ bool indexed_scene_restore()
                   "maximum local ID may precede other nodes; automatic allocation never wraps");
 }
 
-bool active_camera_lifecycle()
+bool active_camera_lifecycle(test_support::ResourceServices& services)
 {
     using namespace engine;
-    WorldSystem world;
+    WorldSystem world(&services.loader);
     test_support::ResourceFixture fixture;
-    auto* resources = ResourceSystem::instance();
+    auto* resources = &services.core;
     if (!resources || !world.initialize({}))
     {
         return false;
@@ -698,11 +714,11 @@ bool active_camera_lifecycle()
                 "an omitted active Camera rejects the complete snapshot") ||
         !replacement.set_transient(false) || !scene->build_data(saved) ||
         !add_scene_resource(fixture, "camera-lifecycle.scene", saved) ||
-        !fixture.publish(*resources))
+        !(fixture.publish(*resources) && services.prepare_builtins()))
     {
         return false;
     }
-    auto* restored = world.load_scene("camera-lifecycle.scene");
+    auto* restored = load_and_restore(services, world, "camera-lifecycle.scene");
     if (!expect(restored && restored->active_camera() &&
                     restored->active_camera().node().name() == "Camera",
                 "the surviving active Camera round-trips through resource restoration"))
@@ -711,21 +727,22 @@ bool active_camera_lifecycle()
     }
     node = restored->active_camera().node();
     if (!node.remove_component(Camera::component_type) || !restored->build_data(saved) ||
-        !add_scene_resource(fixture, "removed-camera.scene", saved) || !fixture.publish(*resources))
+        !add_scene_resource(fixture, "removed-camera.scene", saved) ||
+        !(fixture.publish(*resources) && services.prepare_builtins()))
     {
         return false;
     }
-    restored = world.load_scene("removed-camera.scene");
+    restored = load_and_restore(services, world, "removed-camera.scene");
     return expect(restored && !restored->active_camera(),
                   "a scene saved after Camera removal remains restorable");
 }
 
-bool incremental_scene_restore()
+bool incremental_scene_restore(test_support::ResourceServices& services)
 {
     using namespace engine;
     test_support::ResourceFixture fixture;
-    auto* resources = ResourceSystem::instance();
-    WorldSystem world({2, 1.0});
+    auto* resources = &services.core;
+    WorldSystem world(&services.loader, {2, 1.0});
     if (!resources || !world.initialize({}))
     {
         return false;
@@ -734,23 +751,25 @@ bool incremental_scene_restore()
     auto child = active ? active->create_node("Child") : engine::Node{};
     auto parent = active ? active->create_node("Parent") : engine::Node{};
     schema::SceneDataT data;
+    data.schema_version = 2;
     if (!child || !parent || !child.set_parent(parent) ||
         !active->set_active_camera(child.add_component<Camera>()) || !active->build_data(data) ||
-        !add_scene_resource(fixture, "staged.scene", data) || !fixture.publish(*resources) ||
-        !world.set_paused(true))
+        !add_scene_resource(fixture, "staged.scene", data) ||
+        !(fixture.publish(*resources) && services.prepare_builtins()) || !world.set_paused(true))
     {
         return false;
     }
-    ResourcePtr resource;
-    if (!fixture.load("staged.scene", resource))
+    engine::ResourceReference resource;
+    if (!services.load("staged.scene", resource))
     {
         return false;
     }
-    const auto cancelled = world.begin_restore_scene(resource);
-    if (!expect(cancelled != 0 && world.begin_restore_scene(resource) == 0 &&
+    const auto cancelled = world.begin_restore_scene(resource.handle());
+    if (!expect(cancelled != 0 && world.begin_restore_scene(resource.handle()) == 0 &&
                     world.step_restore_scene(cancelled, 0) == SceneRestoreStatus::loading &&
                     world.step_restore_scene(cancelled, 100, -1.0) == SceneRestoreStatus::failed &&
-                    world.step_restore_scene(cancelled, 100, std::numeric_limits<double>::quiet_NaN()) ==
+                    world.step_restore_scene(cancelled, 100,
+                                             std::numeric_limits<double>::quiet_NaN()) ==
                         SceneRestoreStatus::failed &&
                     world.step_restore_scene(cancelled, 0, 0.001) == SceneRestoreStatus::loading &&
                     !world.commit_restore_scene(cancelled) && world.scene() == active,
@@ -759,7 +778,7 @@ bool incremental_scene_restore()
         return false;
     }
     world.cancel_restore_scene(cancelled);
-    const auto request = world.begin_restore_scene(resource);
+    const auto request = world.begin_restore_scene(resource.handle());
     world.cancel_restore_scene(cancelled);
     if (!expect(request > cancelled &&
                     world.step_restore_scene(cancelled, 100) == SceneRestoreStatus::failed &&
@@ -782,12 +801,18 @@ bool incremental_scene_restore()
     {
         return false;
     }
-    const auto stale = world.begin_restore_scene(resource);
-    if (!add_scene_resource(fixture, "another.scene", data) || !fixture.publish(*resources) ||
-        !expect(world.step_restore_scene(stale, 100) == SceneRestoreStatus::failed &&
+    const auto stale = world.begin_restore_scene(resource.handle());
+    if (!add_scene_resource(fixture, "another.scene", data) ||
+        !(fixture.publish(*resources) && services.prepare_builtins()) ||
+        !expect(world.step_restore_scene(stale, 100) == SceneRestoreStatus::loading &&
                     !world.commit_restore_scene(stale) && world.scene() == restored,
-                "directory replacement invalidates candidate without replacing scene") ||
-        !fixture.load("staged.scene", resource) || world.begin_restore_scene(resource) == 0)
+                "directory replacement preserves an already loaded candidate and active scene"))
+    {
+        return false;
+    }
+    world.cancel_restore_scene(stale);
+    if (!services.load("staged.scene", resource) ||
+        world.begin_restore_scene(resource.handle()) == 0)
     {
         return false;
     }
@@ -795,10 +820,10 @@ bool incremental_scene_restore()
     return expect(world.scene() == nullptr, "shutdown destroys candidate before ECS world");
 }
 
-bool persistent_nodes()
+bool persistent_nodes(test_support::ResourceServices& services)
 {
     using namespace engine;
-    WorldSystem world;
+    WorldSystem world(&services.loader);
     if (!world.initialize({}))
     {
         return false;
@@ -817,7 +842,7 @@ bool persistent_nodes()
     const auto child_id = child.id();
     const auto leaf_id = leaf.id();
     const auto ordinary_id = ordinary.id();
-    const auto root_local_id = root.info().properties->id;
+    const auto root_local_id = root.local_id();
     auto transform = root.get_component<Transform>();
     if (!expect(!root.persistent() && root.set_persistent(true) && root.set_persistent(true) &&
                     child.persistent() && leaf.persistent() && !child.set_persistent(false),
@@ -834,7 +859,7 @@ bool persistent_nodes()
                     world.find_node(root_id) == root && world.find_node(child_id) == child &&
                     std::as_const(world).find_node(leaf_id) == leaf &&
                     !world.find_node(ordinary_id) && root.scene() == scene &&
-                    root.info().properties->id == root_local_id &&
+                    root.local_id() == root_local_id &&
                     root.get_component<Transform>() == transform && child.parent() == root &&
                     leaf.parent() == child,
                 "unload preserves original owners and identities, including child-before-parent"))
@@ -908,32 +933,38 @@ bool persistent_nodes()
                   "complete cleanup releases persistent nodes even without an active scene");
 }
 
-bool persistent_scene_loading()
+bool persistent_scene_loading(test_support::ResourceServices& services)
 {
     using namespace engine;
     test_support::ResourceFixture fixture;
-    auto* resources = ResourceSystem::instance();
-    WorldSystem world({64, 1.0});
+    auto* resources = &services.core;
+    WorldSystem world(&services.loader, {64, 1.0});
     auto* source = resources && world.initialize({}) ? world.create_scene("Source") : nullptr;
     auto node = source ? source->create_node("Resource owner") : engine::Node{};
     schema::SceneDataT data;
+    data.schema_version = 2;
     if (!node || !source->build_data(data) ||
         !add_scene_resource(fixture, "persistent.scene", data))
     {
         return false;
     }
     data.info->name = "Replacement";
-    if (!add_scene_resource(fixture, "replacement.scene", data) || !fixture.publish(*resources))
+    if (!add_scene_resource(fixture, "replacement.scene", data) ||
+        !(fixture.publish(*resources) && services.prepare_builtins()))
     {
         return false;
     }
-    ResourcePtr resource;
-    if (!fixture.load("persistent.scene", resource))
+    engine::ResourceReference resource;
+    if (!services.load("persistent.scene", resource))
     {
         return false;
     }
-    const std::weak_ptr<const Resource> original_resource = resource;
-    const auto first = world.begin_restore_scene(resource);
+    const auto originally_loaded = [&]()
+    {
+        engine::ResourceReference current;
+        return current.acquire(&services.loader, "persistent.scene");
+    };
+    const auto first = world.begin_restore_scene(resource.handle());
     if (!first || world.step_restore_scene(first, 64) != SceneRestoreStatus::ready)
     {
         return false;
@@ -946,12 +977,12 @@ bool persistent_scene_loading()
     }
     resource.reset();
     const auto persistent_id = persistent.id();
-    if (!expect(!original_resource.expired(), "active scene owns its loaded root resource") ||
-        !fixture.load("replacement.scene", resource))
+    if (!expect(originally_loaded(), "active scene owns its loaded root resource") ||
+        !services.load("replacement.scene", resource))
     {
         return false;
     }
-    const auto cancelled = world.begin_restore_scene(resource);
+    const auto cancelled = world.begin_restore_scene(resource.handle());
     if (!cancelled || world.step_restore_scene(cancelled, 64) != SceneRestoreStatus::ready ||
         !expect(world.scenes().size() == 1 && world.scene() == loaded,
                 "restored candidates remain outside the published world"))
@@ -959,42 +990,43 @@ bool persistent_scene_loading()
         return false;
     }
     world.cancel_restore_scene(cancelled);
-    if (!expect(!world.commit_restore_scene(cancelled) && !world.load_scene("missing.scene") &&
-                    world.find_node(persistent_id) == persistent && !original_resource.expired(),
+    if (!expect(!world.commit_restore_scene(cancelled) &&
+                    !load_and_restore(services, world, "missing.scene") &&
+                    world.find_node(persistent_id) == persistent && originally_loaded(),
                 "cancellation and failed load keep the active scene and persistent objects"))
     {
         return false;
     }
-    const auto next_request = world.begin_restore_scene(resource);
+    const auto next_request = world.begin_restore_scene(resource.handle());
     if (!next_request || world.step_restore_scene(next_request, 64) != SceneRestoreStatus::ready)
     {
         return false;
     }
     auto* next = world.commit_restore_scene(next_request);
     if (!expect(next && next != loaded && world.scenes().size() == 2 &&
-                    world.find_node(persistent_id) == persistent && original_resource.expired(),
+                    world.find_node(persistent_id) == persistent && !originally_loaded(),
                 "commit preserves original nodes but releases the entire old scene resource root"))
     {
         return false;
     }
-    auto* synchronous = world.load_scene("replacement.scene");
+    auto* synchronous = load_and_restore(services, world, "replacement.scene");
     if (!expect(synchronous && world.scenes().size() == 2 &&
                     world.find_node(persistent_id) == persistent,
                 "synchronous replacement has the same persistence contract"))
     {
         return false;
     }
-    const auto pending = world.begin_restore_scene(resource);
+    const auto pending = world.begin_restore_scene(resource.handle());
     world.unload_scene();
     return expect(pending && world.step_restore_scene(pending, 64) == SceneRestoreStatus::failed &&
                       !world.scene() && world.find_node(persistent_id) == persistent,
                   "explicit unload cancels pending restore and keeps the persistent subtree");
 }
 
-bool component_contracts()
+bool component_contracts(test_support::ResourceServices& services)
 {
     const engine::EngineConfig config;
-    engine::WorldSystem world;
+    engine::WorldSystem world(&services.loader);
     engine::WorldSystem foreign_world;
     if (!expect(world.initialize(config) && foreign_world.initialize(config),
                 "initialize component worlds"))
@@ -1061,7 +1093,8 @@ bool component_contracts()
         return false;
     }
     camera_settings.far_clip = 0.1F;
-    if (!expect(!camera.set_settings(camera_settings) && camera.settings().far_clip == 50.0F,
+    if (!expect(!camera.set_settings(camera_settings) &&
+                    test_support::read_settings(camera).far_clip == 50.0F,
                 "invalid clipping plane leaves old camera settings"))
     {
         return false;
@@ -1073,7 +1106,8 @@ bool component_contracts()
         return false;
     }
     light_settings.color.mutate_r(std::numeric_limits<float>::infinity());
-    if (!expect(!light.set_settings(light_settings) && light.settings().color.r() == 1.0F,
+    if (!expect(!light.set_settings(light_settings) &&
+                    test_support::read_settings(light).color.r() == 1.0F,
                 "invalid light color leaves old settings"))
     {
         return false;
@@ -1192,7 +1226,7 @@ bool component_contracts()
                   "active camera can be cleared");
 }
 
-bool camera_rays()
+bool camera_rays(test_support::ResourceServices& services)
 {
     using namespace engine;
     const auto vector_near = [](const Vec3& actual, const Vec3& expected)
@@ -1202,7 +1236,7 @@ bool camera_rays()
                std::abs(actual.z() - expected.z()) < 0.0001;
     };
     const EngineConfig config;
-    WorldSystem world;
+    WorldSystem world(&services.loader);
     if (!expect(world.initialize(config), "initialize camera ray world without a window"))
     {
         return false;
@@ -1352,9 +1386,9 @@ bool camera_rays()
                   "unrepresentable world transform fails without partial ray outputs");
 }
 
-bool transient_nodes()
+bool transient_nodes(test_support::ResourceServices& services)
 {
-    engine::WorldSystem world;
+    engine::WorldSystem world(&services.loader);
     if (!world.initialize({}))
     {
         return false;
@@ -1380,7 +1414,7 @@ bool transient_nodes()
     engine::schema::SceneDataT saved;
     if (!expect(generated.transient() && child.transient() && !persistent.transient() &&
                     scene->build_data(saved) && saved.nodes.size() == 1 &&
-                    saved.nodes.front()->info->properties->id == persistent.info().properties->id &&
+                    saved.nodes.front()->info->properties->id == persistent.local_id() &&
                     test_support::scene_nodes(*scene).size() == 3,
                 "snapshot excludes generated subtree without changing live nodes"))
     {
@@ -1398,7 +1432,7 @@ bool transient_nodes()
         return false;
     }
     if (!expect(!child.transient() && scene->build_data(saved) && saved.nodes.size() == 3 &&
-                    saved.info->active_camera_node == child.info().properties->id,
+                    saved.info->active_camera_node == child.local_id(),
                 "clearing parent marker restores descendant persistence and camera identity"))
     {
         return false;
@@ -1432,15 +1466,15 @@ bool missing_material_resources()
                   "failed component initialization leaves the generic component list unchanged");
 }
 
-bool material_contracts()
+bool material_contracts(test_support::ResourceServices& services)
 {
     const engine::EngineConfig config;
     engine::ResourceSystem second_owner;
-    if (!expect(!second_owner.initialize(config), "only one resource host owns definitions"))
+    if (!expect(second_owner.initialize(config), "independent resource cores can coexist"))
     {
         return false;
     }
-    const auto* builtin = engine::ResourceSystem::find_shader("builtin://shaders/pbr");
+    const auto* builtin = services.loaded<engine::ShaderResource>("builtin://shaders/pbr");
     if (!expect(builtin != nullptr, "resource host installs default shader"))
     {
         return false;
@@ -1470,19 +1504,19 @@ bool material_contracts()
     position_default.value = {1.0, 2.0};
     override_value->value.Set(position_default);
     definition.parameters.push_back(std::move(override_value));
-    auto* resources = engine::ResourceSystem::instance();
+    auto* resources = &services.core;
     if (!expect(resources && fixture.add(shader) && fixture.add(definition) &&
-                    fixture.publish(*resources),
+                    (fixture.publish(*resources) && services.prepare_builtins()),
                 "submit custom shader and material entity directory") ||
-        !expect(engine::ResourceSystem::find_shader(shader.path) == nullptr &&
-                    engine::ResourceSystem::find_material(definition.type_path) == nullptr,
+        !expect(services.loaded<engine::ShaderResource>(shader.path) == nullptr &&
+                    services.loaded<engine::MaterialResource>(definition.type_path) == nullptr,
                 "directory submission does not load project definitions"))
     {
         return false;
     }
     shader.parameters.back()->name = "changed-source";
     definition.parameters[0]->value.AsVec2Value()->value = {99.0, 99.0};
-    engine::WorldSystem world;
+    engine::WorldSystem world(&services.loader);
     if (!world.initialize(config))
     {
         return false;
@@ -1500,7 +1534,8 @@ bool material_contracts()
     engine::Vec3 vector3;
     engine::Vec4 vector4;
     float scalar = 0.0F;
-    if (!expect(material.set_type("materials/tests/material-contracts") &&
+    if (!expect(services.load("materials/tests/material-contracts") &&
+                    material.set_type("materials/tests/material-contracts") &&
                     material.get_v2("pos", vector2) && vector2.x() == 1.0 && vector2.y() == 2.0 &&
                     material.get_v3("direction", vector3) && vector3.z() == 1.0,
                 "material merges custom shader defaults and definition overrides") ||
@@ -1559,9 +1594,11 @@ bool material_contracts()
     engine::schema::FloatValueT wrong_type;
     wrong_type.value = 1.0;
     definition.parameters.front()->value.Set(wrong_type);
-    engine::ResourcePtr invalid;
-    return expect(fixture.add(definition) && fixture.publish(*resources) &&
-                      fixture.load(definition.type_path, invalid) && invalid->material(),
+    std::unique_ptr<engine::Resource> invalid;
+    return expect(fixture.add(definition) &&
+                      (fixture.publish(*resources) && services.prepare_builtins()) &&
+                      fixture.read(*resources, definition.type_path, invalid) &&
+                      engine::resource_detail::data<engine::MaterialResource>(invalid.get()),
                   "core can read structurally valid material without loading its dependencies") &&
            expect(!material.set_type(definition.type_path) &&
                       material.type_path() == "builtin://materials/default-pbr" &&
@@ -1571,10 +1608,10 @@ bool material_contracts()
                   "without the dependency graph plugin");
 }
 
-bool resource_namespaces()
+bool resource_namespaces(test_support::ResourceServices& services)
 {
-    const auto* builtin = engine::ResourceSystem::find_shader("builtin://shaders/pbr");
-    auto* resources = engine::ResourceSystem::instance();
+    const auto* builtin = services.loaded<engine::ShaderResource>("builtin://shaders/pbr");
+    auto* resources = &services.core;
     if (!expect(builtin && resources, "built-in definitions survive material tests"))
     {
         return false;
@@ -1585,16 +1622,19 @@ bool resource_namespaces()
     engine::schema::MaterialDataT material;
     material.type_path = "materials/default-pbr";
     material.shader_path = shader.path;
-    engine::ResourcePtr held;
-    engine::ResourcePtr held_shader;
-    if (!expect(fixture.add(shader) && fixture.add(material) && fixture.publish(*resources) &&
-                    fixture.load(material.type_path, held),
+    engine::ResourceReference held;
+    engine::ResourceReference held_shader;
+    if (!expect(fixture.add(shader) && fixture.add(material) &&
+                    (fixture.publish(*resources) && services.prepare_builtins()) &&
+                    services.load(material.type_path, held),
                 "project namespace uses the same relative names as builtins") ||
-        !expect(held->material()->shader_path == shader.path &&
-                    engine::ResourceSystem::find_shader(shader.path) == nullptr &&
-                    fixture.load(shader.path, held_shader) && held_shader->shader() &&
-                    held_shader->shader()->path == shader.path && held_shader->shader() != builtin,
-                "core loads explicit material and shader entities without a dependency cache"))
+        !expect(held.data<engine::MaterialResource>()->shader_path == shader.path &&
+                    services.loaded<engine::ShaderResource>(shader.path) != nullptr &&
+                    services.load(shader.path, held_shader) &&
+                    held_shader.data<engine::ShaderResource>() &&
+                    held_shader.data<engine::ShaderResource>()->path == shader.path &&
+                    held_shader.data<engine::ShaderResource>() != builtin,
+                "plugin loads the declared dependency closure and exposes typed immutable values"))
     {
         return false;
     }
@@ -1602,33 +1642,36 @@ bool resource_namespaces()
     auto empty = fixture.catalog;
     empty.entries.clear();
     empty.revision = "empty";
-    engine::ResourcePtr missing = held;
+    engine::ResourceReference missing;
     if (!expect(resources->update_catalog(empty, {}) && resources->generation() > generation &&
                     held->generation() == generation &&
-                    held->material()->shader_path == shader.path &&
-                    held_shader->shader()->path == shader.path,
+                    held.data<engine::MaterialResource>()->shader_path == shader.path &&
+                    held_shader.data<engine::ShaderResource>()->path == shader.path,
                 "directory publication preserves held entities from the previous generation") ||
-        !expect(!resources->load(held->info().guid, missing) && !missing,
+        !expect(!services.load(held->info().guid, missing) && !missing,
                 "new loads use the current directory without falling back to a held old entity"))
     {
         return false;
     }
-    const std::weak_ptr<const engine::Resource> material_weak = held;
-    const std::weak_ptr<const engine::Resource> shader_weak = held_shader;
+    const auto material_identity = held.handle();
+    const auto shader_identity = held_shader.handle();
     held.reset();
     held_shader.reset();
-    return expect(material_weak.expired() && shader_weak.expired() &&
-                      engine::ResourceSystem::find_material(material.type_path) == nullptr &&
-                      engine::ResourceSystem::find_shader(shader.path) == nullptr,
-                  "each core entity is released with its final explicit owner") &&
-           expect(engine::ResourceSystem::find_shader("builtin://shaders/pbr") == builtin,
-                  "project removal preserves builtin identity");
+    const engine::Resource* released = nullptr;
+    return expect(services.loader.get(material_identity, released) ==
+                          engine::ResourceError::invalid_handle &&
+                      services.loader.get(shader_identity, released) ==
+                          engine::ResourceError::invalid_handle,
+                  "released acquisitions cannot be used after catalog replacement") &&
+           expect(services.prepare_builtins() &&
+                      services.loaded<engine::ShaderResource>("builtin://shaders/pbr"),
+                  "project removal allows explicit preparation of current builtin definitions");
 }
 
-bool baked_lighting_bindings()
+bool baked_lighting_bindings(test_support::ResourceServices& services)
 {
-    auto* resources = engine::ResourceSystem::instance();
-    engine::WorldSystem world;
+    auto* resources = &services.core;
+    engine::WorldSystem world(&services.loader);
     test_support::ResourceFixture fixture;
     engine::schema::MeshDataT mesh_data;
     mesh_data.path = "lighting/test.mesh";
@@ -1636,10 +1679,14 @@ bool baked_lighting_bindings()
     mesh_data.indices = {0, 2, 1};
     mesh_data.lightmap_texcoords = {{0.1, 0.1}, {0.9, 0.1}, {0.1, 0.9}};
     engine::schema::TextureDataT texture;
+    texture.schema_version = 2;
     texture.path = "lighting/test.texture";
     texture.width = 1;
     texture.height = 1;
-    texture.encoding = engine::schema::TextureEncoding::rgba8;
+    texture.encoding = engine::schema::TextureEncoding::native;
+    texture.format = engine::schema::TextureFormat::rgba8;
+    texture.subresources.emplace_back(
+        0, 0, 0, static_cast<std::uint64_t>(texture.width) * texture.height * 4);
     texture.srgb = false;
     texture.data = {128, 128, 128, 255};
     engine::schema::LightProbeDataT probes;
@@ -1652,7 +1699,9 @@ bool baked_lighting_bindings()
     probes.valid.resize(8, 1);
     probes.source_fingerprint = "0123456789abcdef";
     if (!expect(resources && fixture.add(mesh_data) && fixture.add(texture) &&
-                    fixture.add(probes) && fixture.publish(*resources) && world.initialize({}),
+                    fixture.add(probes) &&
+                    (fixture.publish(*resources) && services.prepare_builtins()) &&
+                    world.initialize({}),
                 "publish actual UV2, linear lightmap and probe resources"))
     {
         return false;
@@ -1664,11 +1713,14 @@ bool baked_lighting_bindings()
                       : engine::LightProbeVolumeComponent{};
     auto transform = node ? node.get_component<engine::Transform>() : engine::Transform{};
     engine::LightProbeVolumeSettings probe_settings;
-    if (!expect(mesh && probe && transform && mesh.set_mesh(mesh_data.path) &&
-                    mesh.set_bake_static(true) && mesh.set_lightmap(texture.path) &&
-                    mesh.lightmap_resource() && mesh.lightmap_path() == texture.path &&
-                    engine::ResourceSystem::path_to_guid(probes.path, probe_settings.probes_guid) &&
-                    probe.set_settings(probe_settings) && probe.resource(),
+    if (!expect(services.load(mesh_data.path) && services.load(texture.path) &&
+                    services.load(probes.path) && mesh && probe && transform &&
+                    mesh.set_mesh(mesh_data.path) && mesh.set_bake_static(true) &&
+                    mesh.set_lightmap(texture.path) && mesh.lightmap_resource().id != 0 &&
+                    mesh.lightmap_path() == texture.path &&
+                    resources->catalog().identities().path_to_guid(probes.path,
+                                                                   probe_settings.probes_guid) &&
+                    probe.set_settings(probe_settings) && probe.resource().id != 0,
                 "bind compiled baked resources through ordinary components"))
     {
         return false;
@@ -1678,28 +1730,30 @@ bool baked_lighting_bindings()
     if (!expect(mesh.build_data(saved) &&
                     !saved.payload.AsMeshRendererData()->lightmap_mesh_hash.empty() &&
                     saved.payload.AsMeshRendererData()->lightmap_transform.size() == 16 &&
-                    !mesh.set_lightmap("builtin://textures/white-srgb") && mesh.lightmap_resource(),
+                    !mesh.set_lightmap("builtin://textures/white-srgb") &&
+                    mesh.lightmap_resource().id != 0,
                 "persist bake fingerprint; invalid replacement preserves existing lightmap"))
     {
         return false;
     }
-    auto moved = transform.settings();
+    auto moved = test_support::read_settings(transform);
     moved.position = {2, 0, 0};
-    if (!expect(transform.set_settings(moved) && !mesh.lightmap_resource() && !probe.resource() &&
-                    mesh.restore_data(saved) && !mesh.lightmap_resource(),
+    if (!expect(transform.set_settings(moved) && mesh.lightmap_resource().id == 0 &&
+                    probe.resource().id == 0 && mesh.restore_data(saved) &&
+                    mesh.lightmap_resource().id == 0,
                 "moving geometry/probe invalidates bake and restoration cannot rebase fingerprint"))
     {
         return false;
     }
     moved.position = {0, 0, 0};
-    if (!expect(transform.set_settings(moved) && mesh.lightmap_resource() && probe.resource() &&
-                    mesh.set_mesh("builtin://meshes/cube") && !mesh.lightmap_resource() &&
-                    !mesh.set_lightmap(texture.path),
+    if (!expect(transform.set_settings(moved) && mesh.lightmap_resource().id != 0 &&
+                    probe.resource().id != 0 && mesh.set_mesh("builtin://meshes/cube") &&
+                    mesh.lightmap_resource().id == 0 && !mesh.set_lightmap(texture.path),
                 "matching baked pose restores validity; replacing geometry clears lightmap"))
     {
         return false;
     }
-    return expect(probe.set_settings({}) && !probe.resource() && mesh.set_lightmap(""),
+    return expect(probe.set_settings({}) && probe.resource().id == 0 && mesh.set_lightmap(""),
                   "clearing baked resource bindings releases held resources");
 }
 
@@ -1708,24 +1762,20 @@ bool baked_lighting_bindings()
 int main()
 {
     const engine::EngineConfig config;
-    engine::ResourceSystem resources;
-    if (!missing_material_resources() || !resources.initialize(config) || !scene_lifecycle() ||
-        !scene_node_queries() || !node_component_state() || !hierarchy_and_transforms() ||
-        !indexed_scene_restore() || !active_camera_lifecycle() || !incremental_scene_restore() ||
-        !persistent_nodes() || !persistent_scene_loading() || !component_contracts() ||
-        !camera_rays() || !transient_nodes() || !material_contracts() ||
-        !baked_lighting_bindings() || !resource_namespaces())
+    test_support::ResourceServices services;
+    if (!missing_material_resources() || !services.initialize(config) ||
+        !services.prepare_builtins() || !scene_lifecycle(services) ||
+        !scene_node_queries(services) || !node_component_state(services) ||
+        !hierarchy_and_transforms(services) || !indexed_scene_restore(services) ||
+        !active_camera_lifecycle(services) || !incremental_scene_restore(services) ||
+        !persistent_nodes(services) || !persistent_scene_loading(services) ||
+        !component_contracts(services) || !camera_rays(services) || !transient_nodes(services) ||
+        !material_contracts(services) || !baked_lighting_bindings(services) ||
+        !resource_namespaces(services))
     {
         return 1;
     }
-    resources.shutdown();
-    if (!expect(engine::ResourceSystem::find_shader("builtin://shaders/pbr") == nullptr &&
-                    engine::ResourceSystem::find_material("builtin://materials/default-pbr") ==
-                        nullptr,
-                "resource host shutdown clears all namespaces"))
-    {
-        return 1;
-    }
+    services.shutdown();
     std::puts("Scene, components, material parameters and resource namespaces passed.");
     return 0;
 }

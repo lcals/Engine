@@ -17,7 +17,6 @@ public:
     }
     [[nodiscard]] static bool register_type(ComponentRegistry& registry);
     [[nodiscard]] static bool valid_settings(const Data& data) noexcept;
-    [[nodiscard]] Data settings() const noexcept;
     [[nodiscard]] bool get_settings(Data& output) const noexcept;
     [[nodiscard]] bool set_settings(const Data& data);
     [[nodiscard]] bool set_source(Animator source);

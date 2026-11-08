@@ -1,13 +1,18 @@
 #include "animation_fixture.hpp"
+#include "scene_snapshot.hpp"
 
 #include "runtime/scene/bone_attachment.hpp"
 
 namespace
 {
 using namespace test_support::animation;
-bool add_skeleton(Fixture& fixture, std::string_view guid,
-                  const engine::schema::SkeletonDataT& data)
+bool add_skeleton(Fixture& fixture, std::string_view guid, engine::schema::SkeletonDataT data)
 {
+    std::string error;
+    if (!engine::editor::asset_pipeline::prepare_skeleton_sampling(data, error))
+    {
+        return false;
+    }
     flatbuffers::FlatBufferBuilder builder;
     engine::schema::FinishSkeletonDataBuffer(builder,
                                              engine::schema::SkeletonData::Pack(builder, &data));
@@ -41,7 +46,9 @@ bool rigging()
     target.two_bone_ik.push_back(std::move(chain));
     std::erase_if(fixture.files.catalog.entries,
                   [](const auto& entry) { return entry->guid == target_guid; });
-    if (!add_skeleton(fixture, target_guid, target) || !fixture.files.publish(fixture.resources))
+    if (!add_skeleton(fixture, target_guid, target) ||
+        !fixture.services.publish_and_load(fixture.files.catalog,
+                                           {{"content", fixture.files.root}}))
     {
         return false;
     }
@@ -50,7 +57,7 @@ bool rigging()
     auto transform = node.get_component<engine::Transform>();
     engine::AnimationPlayRequest request;
     request.animation_path = clip_path;
-    auto authored = transform.settings();
+    auto authored = test_support::read_settings(transform);
     authored.position = {10, 0, 0};
     if (!transform.set_settings(authored) || !animator.play_animation(request) ||
         !fixture.animation.tick(.25))
@@ -72,25 +79,25 @@ bool rigging()
         prop_transform = prop.get_component<engine::Transform>();
     }
     auto attachment = prop.add_component<engine::BoneAttachment>();
-    auto data = attachment.settings();
+    auto data = test_support::read_settings(attachment);
     data.socket_name = "hand";
     if (!expect(attachment.set_source(animator) && !attachment.following(),
                 "binding a source does not implicitly enable following"))
     {
         return false;
     }
-    data = attachment.settings();
+    data = test_support::read_settings(attachment);
     data.socket_name = "hand";
     data.follow_enabled = true;
     if (!attachment.set_settings(data))
     {
         return false;
     }
-    const auto before = prop_transform.data();
+    const auto before = test_support::read_data(prop_transform);
     std::array<float, 16> matrix{};
     if (!expect(animator.pause() && fixture.animation.tick(0) && attachment.following() &&
                     prop_transform.world_matrix(matrix.data()) && close(matrix[12], 12.5) &&
-                    prop_transform.data() == before,
+                    test_support::read_data(prop_transform) == before,
                 "attachment updates the shared world transform without mutating author TRS"))
     {
         return false;
@@ -112,7 +119,7 @@ bool rigging()
     {
         return false;
     }
-    auto settings = animator.settings();
+    auto settings = test_support::read_settings(animator);
     settings.ik_enabled = true;
     if (!expect(animator.set_settings(settings) && animator.seek(.25) &&
                     fixture.animation.tick(0) && animator.get_bone_pose("root/right", bone) &&
@@ -176,7 +183,11 @@ bool events()
     }
     engine::AnimatorPlaybackInfo info;
     if (!expect(received.size() == 1 && received[0].marker.marker_id == 1 &&
-                    animator.get_playback_info(info) && received[0].playback_id == info.playback_id,
+                    animator.get_playback_info(info) &&
+                    received[0].playback_id == info.playback_id &&
+                    received[0].animation_guid == info.animation_guid &&
+                    received[0].resource_generation == info.resource_generation &&
+                    received[0].track_revision == info.track_revision,
                 "zero marker fires once on actual start with matching committed playback identity"))
     {
         return false;
@@ -237,7 +248,8 @@ bool attachment_identity()
     std::erase_if(fixture.files.catalog.entries,
                   [](const auto& entry) { return entry->guid == target_guid; });
     if (!add_skeleton(fixture, target_guid, skeleton_data) ||
-        !fixture.files.publish(fixture.resources))
+        !fixture.services.publish_and_load(fixture.files.catalog,
+                                           {{"content", fixture.files.root}}))
     {
         return false;
     }
@@ -251,7 +263,7 @@ bool attachment_identity()
     {
         return false;
     }
-    auto settings = attachment.settings();
+    auto settings = test_support::read_settings(attachment);
     settings.socket_name = "hand";
     settings.follow_enabled = true;
     if (!attachment.set_settings(settings) || !animator.play_animation(request) ||
@@ -261,7 +273,7 @@ bool attachment_identity()
     }
     auto child = fixture.world.scene()->create_node("Child");
     auto child_transform = child.get_component<engine::Transform>();
-    auto child_settings = child_transform.settings();
+    auto child_settings = test_support::read_settings(child_transform);
     child_settings.position = {0, 2, 0};
     if (!child.set_parent(prop) || !child_transform.set_settings(child_settings))
     {
@@ -274,7 +286,7 @@ bool attachment_identity()
     {
         return false;
     }
-    const auto saved_animator = animator.settings();
+    const auto saved_animator = test_support::read_settings(animator);
     auto source_parent = fixture.world.scene()->create_node("Source parent");
     auto source_transform = actor.get_component<engine::Transform>();
     if (!source_parent || !actor.set_parent(source_parent) || !source_parent.set_enabled(false) ||
@@ -369,13 +381,38 @@ bool same_frame_attachment_ik()
             return false;
         }
     }
-    if (!fixture.files.publish(fixture.resources))
+    // 源骨架增加关节后，固定动画必须重新离线编译对应的采样轨道和通道掩码。
+    auto source_rig = skeleton(true);
+    source_rig.joints.push_back(joint("palm", 3, {0, 1, 0}, translation(0, -4, 0)));
+    for (int index = 0; index < 3; ++index)
+    {
+        const auto* path = index == 0 ? clip_path : index == 1 ? scale_path : reflected_path;
+        const auto* guid = index == 0 ? clip_guid : index == 1 ? scale_guid : reflected_guid;
+        auto data = clip(path, index != 0, index == 2);
+        std::string error;
+        if (!engine::editor::asset_pipeline::prepare_animation_sampling(data, source_rig, error))
+        {
+            return false;
+        }
+        flatbuffers::FlatBufferBuilder builder;
+        engine::schema::FinishAnimationDataBuffer(
+            builder, engine::schema::AnimationData::Pack(builder, &data));
+        std::erase_if(fixture.files.catalog.entries,
+                      [&](const auto& entry) { return entry->guid == guid; });
+        if (!add(fixture.files, guid, path, engine::schema::AssetKind::animation, builder,
+                 {source_guid}))
+        {
+            return false;
+        }
+    }
+    if (!fixture.services.publish_and_load(fixture.files.catalog,
+                                           {{"content", fixture.files.root}}))
     {
         return false;
     }
     auto actor = fixture.create(false);
     auto animator = actor.get_component<engine::Animator>();
-    auto settings = animator.settings();
+    auto settings = test_support::read_settings(animator);
     settings.ik_enabled = true;
     if (!animator.set_settings(settings))
     {
@@ -387,7 +424,7 @@ bool same_frame_attachment_ik()
     {
         return false;
     }
-    auto follow = attachment.settings();
+    auto follow = test_support::read_settings(attachment);
     follow.socket_name = "weapon";
     follow.follow_enabled = true;
     if (!attachment.set_settings(follow))

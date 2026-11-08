@@ -15,7 +15,7 @@ bool model_commands()
 {
     Fixture fixture;
     if (!fixture.initialize() || !add_model(fixture.files) ||
-        !fixture.files.publish(fixture.resources))
+        !(fixture.files.publish(fixture.resources) && fixture.services.prepare_builtins()))
     {
         return false;
     }
@@ -28,7 +28,14 @@ bool model_commands()
     Json result;
     std::string error;
     const auto run = [&editor, &result, &error](const char* name, const Json& arguments)
-    { return editor.execute(name, arguments, result, error); };
+    {
+        const bool success = editor.execute(name, arguments, result, error);
+        if (!success)
+        {
+            std::fprintf(stderr, "%s: %s\n", name, error.c_str());
+        }
+        return success;
+    };
     auto& scene = *fixture.world.scene();
     const Json identity = {{"sceneId", std::to_string(scene.id())}};
     auto request = identity;

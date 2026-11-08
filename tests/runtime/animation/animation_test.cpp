@@ -1,3 +1,5 @@
+#include "runtime/resource/codecs/animation_resource_codec.hpp"
+#include "runtime/resource/codecs/skeleton_resource_codec.hpp"
 #include "scene_snapshot.hpp"
 
 #include "animation_fixture.hpp"
@@ -29,7 +31,7 @@ bool sampling_and_controls()
         !expect(animator.playback() == engine::AnimationPlayback::playing &&
                     close(animator.time(), 0.25) && close(sampled_vertex(renderer).x(), 1),
                 "source indices map to target hierarchy and ozz DFS order") ||
-        !expect(renderer.mesh_data() == bind && animator.data() == saved,
+        !expect(renderer.mesh_data() == bind && test_support::read_data(animator) == saved,
                 "sampling does not mutate persisted component or bind mesh") ||
         !expect(animator.pause() && fixture.animation.tick(0.25) && close(animator.time(), 0.25) &&
                     close(sampled_vertex(renderer).x(), 1),
@@ -46,7 +48,7 @@ bool sampling_and_controls()
     {
         return false;
     }
-    auto settings = animator.settings();
+    auto settings = test_support::read_settings(animator);
     settings.loop = false;
     settings.speed = 2;
     if (!expect(animator.set_settings(settings) && animator.play() &&
@@ -70,9 +72,10 @@ bool sampling_and_controls()
     {
         return false;
     }
-    const auto valid = animator.settings();
+    const auto valid = test_support::read_settings(animator);
     settings.speed = std::numeric_limits<float>::quiet_NaN();
-    return expect(!animator.set_settings(settings) && animator.settings() == valid &&
+    return expect(!animator.set_settings(settings) &&
+                      test_support::read_settings(animator) == valid &&
                       !animator.set_animation("missing.animation") &&
                       !animator.set_animation("builtin://meshes/cube") &&
                       animator.animation_path() == clip_path && !animator.seek(-1) &&
@@ -292,14 +295,14 @@ bool blending_and_instances()
     {
         return false;
     }
-    const auto settings = animator.settings();
+    const auto settings = test_support::read_settings(animator);
     const auto time = animator.time();
     const auto palette = renderer.skinning_palette()[2];
     if (!expect(!animator.cross_fade("", 1) && !animator.cross_fade(scale_path, -1) &&
                     !animator.cross_fade(scale_path, std::numeric_limits<double>::infinity()) &&
                     !animator.cross_fade("missing.animation", 1) &&
                     !animator.cross_fade("builtin://meshes/cube", 1) &&
-                    animator.settings() == settings && animator.time() == time &&
+                    test_support::read_settings(animator) == settings && animator.time() == time &&
                     renderer.skinning_palette()[2] == palette,
                 "rejected transitions preserve settings, time and the displayed pose") ||
         !expect(animator.stop() && renderer.skinning_palette().empty() &&
@@ -315,6 +318,12 @@ bool blending_and_instances()
     // 同 GUID 新资源代际与旧场景引用共存，不能命中旧编译动作。
     auto replacement = clip(clip_path, false, false);
     replacement.tracks[0]->translations[1] = {1, {11, 0, 0}};
+    std::string sampling_error;
+    if (!engine::editor::asset_pipeline::prepare_animation_sampling(replacement, skeleton(true),
+                                                                    sampling_error))
+    {
+        return false;
+    }
     flatbuffers::FlatBufferBuilder builder;
     engine::schema::FinishAnimationDataBuffer(
         builder, engine::schema::AnimationData::Pack(builder, &replacement));
@@ -322,7 +331,8 @@ bool blending_and_instances()
                   [](const auto& entry) { return entry->guid == clip_guid; });
     if (!add(fixture.files, clip_guid, clip_path, engine::schema::AssetKind::animation, builder,
              {source_guid}) ||
-        !fixture.files.publish(fixture.resources))
+        !fixture.services.publish_and_load(fixture.files.catalog,
+                                           {{"content", fixture.files.root}}))
     {
         return false;
     }
@@ -366,10 +376,11 @@ bool world_pause_preserves_individual_playback()
 
 using Palettes = std::vector<std::vector<std::array<float, 16>>>;
 
-bool collect_sampling_results(engine::TaskSystem* tasks, Palettes& palettes)
+bool collect_sampling_results(engine::TaskSystem* tasks, Palettes& palettes,
+                              engine::ThreadSystem* threads = nullptr)
 {
     // 非整批数量覆盖尾批；每实例使用不同时间与状态，暴露错误共享采样上下文。
-    Fixture fixture(tasks, {.min_parallel_count = 2, .batch_size = 4});
+    Fixture fixture(tasks, {.min_parallel_count = 2, .batch_size = 4}, threads);
     if (!expect(fixture.initialize(), "initialize sampling comparison fixture"))
     {
         return false;
@@ -437,7 +448,7 @@ bool parallel_sampling_matches_serial()
         return false;
     }
     Palettes parallel;
-    if (!collect_sampling_results(&tasks, parallel) ||
+    if (!collect_sampling_results(&tasks, parallel, &threads) ||
         !expect(parallel.size() == serial.size(), "parallel animation publishes every palette"))
     {
         return false;
@@ -480,17 +491,67 @@ bool parallel_sampling_matches_serial()
         return false;
     }
     Palettes fallback;
-    const bool sampled = collect_sampling_results(&limited, fallback);
+    const bool sampled = collect_sampling_results(&limited, fallback, &threads);
     release.set_value();
     return expect(busy.get() && sampled && fallback == serial,
                   "saturated task domain falls back without dropping or duplicating poses");
+}
+
+bool offline_archive_contracts()
+{
+    auto rig = skeleton(true);
+    auto animation = clip(clip_path, false, false);
+    animation.tracks[0]->scales.clear();
+    std::string error;
+    if (!expect(
+            engine::editor::asset_pipeline::prepare_skeleton_sampling(rig, error) &&
+                engine::editor::asset_pipeline::prepare_animation_sampling(animation, rig, error) &&
+                engine::SkeletonResourceCodec::validate(rig) &&
+                engine::AnimationResourceCodec::validate(animation),
+            "offline archives validate with explicit missing-channel masks"))
+    {
+        return false;
+    }
+    auto bad_rig = rig;
+    bad_rig.sampling_joint_order[0] = bad_rig.sampling_joint_order[1];
+    auto bad_animation = animation;
+    bad_animation.sampling_archive.pop_back();
+    if (!expect(!engine::SkeletonResourceCodec::validate(bad_rig) &&
+                    !engine::AnimationResourceCodec::validate(bad_animation),
+                "reject duplicate DFS mapping and truncated archive before ozz reads"))
+    {
+        return false;
+    }
+    bad_animation = animation;
+    bad_animation.sampling_archive[0] = 0;
+    if (!expect(!engine::AnimationResourceCodec::validate(bad_animation),
+                "archive byte order is part of the current contract"))
+    {
+        return false;
+    }
+    auto structured = skeleton(true);
+    flatbuffers::FlatBufferBuilder bytes;
+    engine::schema::FinishSkeletonDataBuffer(
+        bytes, engine::schema::SkeletonData::Pack(bytes, &structured));
+    engine::schema::AssetEntryT entry;
+    entry.kind = engine::schema::AssetKind::skeleton;
+    std::unique_ptr<engine::Resource> output;
+    return expect(
+        engine::SkeletonResourceCodec::validate(structured) &&
+            !engine::SkeletonResourceCodec{}.decode(
+                entry,
+                {reinterpret_cast<const std::byte*>(bytes.GetBufferPointer()), bytes.GetSize()},
+                output, error) &&
+            !output,
+        "structured is an explicit memory input and is never accepted from disk");
 }
 
 } // namespace
 
 int main()
 {
-    return persistent_animation() && parallel_sampling_matches_serial() &&
+    return offline_archive_contracts() && persistent_animation() &&
+                   parallel_sampling_matches_serial() &&
                    world_pause_preserves_individual_playback() && sampling_and_controls() &&
                    skinning_and_lifecycle() && blending_and_instances()
                ? 0

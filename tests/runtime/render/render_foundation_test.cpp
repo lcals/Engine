@@ -1,3 +1,5 @@
+#include "animation_fixture.hpp"
+#include "resource_services.hpp"
 #include "scene_snapshot.hpp"
 
 #include "resource_fixture.hpp"
@@ -89,7 +91,7 @@ bool check_camera_and_light(engine::Scene& scene)
     {
         return false;
     }
-    auto camera_settings = camera.settings();
+    auto camera_settings = test_support::read_settings(camera);
     camera_settings.projection = engine::schema::Projection::orthographic;
     camera_settings.orthographic_size = 4;
     if (!expect(camera.set_settings(camera_settings), "accept orthographic projection"))
@@ -98,7 +100,8 @@ bool check_camera_and_light(engine::Scene& scene)
     }
     auto invalid_camera = camera_settings;
     invalid_camera.orthographic_size = 0;
-    if (!expect(!camera.set_settings(invalid_camera) && camera.settings() == camera_settings,
+    if (!expect(!camera.set_settings(invalid_camera) &&
+                    test_support::read_settings(camera) == camera_settings,
                 "invalid projection leaves previous camera settings intact"))
     {
         return false;
@@ -110,7 +113,7 @@ bool check_camera_and_light(engine::Scene& scene)
         return false;
     }
 
-    auto light_settings = light.settings();
+    auto light_settings = test_support::read_settings(light);
     for (const auto kind : {engine::schema::LightKind::directional,
                             engine::schema::LightKind::point, engine::schema::LightKind::spot})
     {
@@ -125,7 +128,8 @@ bool check_camera_and_light(engine::Scene& scene)
     }
     auto invalid_light = light_settings;
     invalid_light.range = -1;
-    if (!expect(!light.set_settings(invalid_light) && light.settings() == light_settings,
+    if (!expect(!light.set_settings(invalid_light) &&
+                    test_support::read_settings(light) == light_settings,
                 "invalid light range preserves previous settings"))
     {
         return false;
@@ -254,23 +258,24 @@ bool check_scene_render_settings(const engine::EngineConfig& config)
     if (!expect(
             camera.valid() && post_process.valid() && scene->set_active_camera(camera) &&
                 post_process.set_settings(changed) &&
-                environment.settings().ambient_intensity == 0.3F &&
-                post_process.settings().exposure == 2.0F && renderer.settings().ao_enabled &&
-                post_process.settings().ao_radius == 1.8F &&
+                test_support::read_settings(environment).ambient_intensity == 0.3F &&
+                test_support::read_settings(post_process).exposure == 2.0F &&
+                renderer.settings().ao_enabled &&
+                test_support::read_settings(post_process).ao_radius == 1.8F &&
                 renderer.settings().ao_strength == 0.8F && renderer.settings().ao_power == 1.4F &&
                 renderer.settings().ao_fade_start == 50.0F &&
                 renderer.settings().ao_fade_end == 120.0F && renderer.settings().hdr_enabled &&
                 renderer.settings().bloom_enabled && renderer.settings().bloom_threshold == 1.5F &&
                 renderer.settings().bloom_intensity == 0.4F &&
                 renderer.settings().bloom_radius == 1.2F && renderer.settings().ssr_enabled &&
-                post_process.settings().ssr_max_steps == 128,
+                test_support::read_settings(post_process).ssr_max_steps == 128,
             "render snapshots read the current scene's generated component data"))
     {
         return false;
     }
-    auto pending_ibl = environment.settings();
-    auto invalid_ao = post_process.settings();
-    auto invalid_hdr = post_process.settings();
+    auto pending_ibl = test_support::read_settings(environment);
+    auto invalid_ao = test_support::read_settings(post_process);
+    auto invalid_hdr = test_support::read_settings(post_process);
     invalid_hdr.hdr_enabled = false;
     if (!expect(!post_process.set_settings(invalid_hdr) && renderer.settings().hdr_enabled &&
                     renderer.settings().bloom_enabled,
@@ -284,7 +289,7 @@ bool check_scene_render_settings(const engine::EngineConfig& config)
     {
         return false;
     }
-    invalid_ao = post_process.settings();
+    invalid_ao = test_support::read_settings(post_process);
     invalid_ao.ao_fade_end = invalid_ao.ao_fade_start;
     if (!expect(!post_process.set_settings(invalid_ao) && renderer.settings().ao_fade_end == 120.0F,
                 "inverted AO fade is rejected atomically"))
@@ -302,7 +307,7 @@ bool check_scene_render_settings(const engine::EngineConfig& config)
     auto partial_ibl = pending_ibl;
     partial_ibl.ibl_irradiance_guid = "11111111-1111-1111-1111-111111111111";
     if (!expect(!environment.set_settings(partial_ibl) &&
-                    environment.settings().ibl_irradiance_guid.empty(),
+                    test_support::read_settings(environment).ibl_irradiance_guid.empty(),
                 "a partial IBL result is rejected without publishing incomplete references"))
     {
         return false;
@@ -335,8 +340,8 @@ bool check_scene_render_settings(const engine::EngineConfig& config)
                          ? duplicate_node.add_component<engine::EnvironmentComponent>()
                          : engine::EnvironmentComponent{};
     if (!expect(duplicate.valid() && renderer.settings().ambient_intensity == 0.0F &&
-                    environment.settings().ambient_intensity == 0.3F &&
-                    post_process.settings().exposure == 2.0F,
+                    test_support::read_settings(environment).ambient_intensity == 0.3F &&
+                    test_support::read_settings(post_process).exposure == 2.0F,
                 "ambiguous environments return fixed defaults without mutating components"))
     {
         return false;
@@ -428,13 +433,13 @@ bool check_scene_render_settings(const engine::EngineConfig& config)
     {
         return false;
     }
-    auto changed_shadows = second_light.settings();
+    auto changed_shadows = test_support::read_settings(second_light);
     changed_shadows.shadow_cascades = 4;
     changed_shadows.shadow_distance = 160.0F;
     if (!expect(second_light.set_settings(changed_shadows) &&
                     renderer.settings().shadow_cascades == 4 &&
                     renderer.settings().shadow_distance == 160.0F &&
-                    !first_light.settings().cast_shadows,
+                    !test_support::read_settings(first_light).cast_shadows,
                 "cascade snapshots follow the explicitly edited casting light"))
     {
         return false;
@@ -448,8 +453,9 @@ bool check_scene_render_settings(const engine::EngineConfig& config)
     }
     if (!first_light.set_settings(shadows) || !second_light.set_settings(shadows) ||
         !expect(!renderer.settings().directional_shadows &&
-                    environment.settings().ambient_intensity == 0.3F &&
-                    first_light.settings().cast_shadows && second_light.settings().cast_shadows,
+                    test_support::read_settings(environment).ambient_intensity == 0.3F &&
+                    test_support::read_settings(first_light).cast_shadows &&
+                    test_support::read_settings(second_light).cast_shadows,
                 "ambiguous shadow casters return defaults without modifying either light"))
     {
         return false;
@@ -581,8 +587,15 @@ bool check_mesh(engine::Scene& scene)
     const auto old_revision = renderer.mesh_revision();
     if (!expect(renderer.set_mesh_data(data) && renderer.mesh_revision() > old_revision,
                 "dynamic mesh submission advances its revision") ||
-        !expect(renderer.mesh_data() && *renderer.mesh_data() == data,
-                "dynamic mesh preserves UV, tangent, color and submesh data"))
+        !expect(
+            renderer.mesh_data() &&
+                [&]
+                {
+                    auto expected = data;
+                    expected.path = renderer.mesh_data()->path;
+                    return *renderer.mesh_data() == expected;
+                }(),
+            "dynamic mesh preserves UV, tangent, color and submesh data"))
     {
         return false;
     }
@@ -743,22 +756,31 @@ bool check_deformation(engine::Scene& scene)
                   "replacement component has distinct identity even on the same node");
 }
 
-bool check_skinning_palette(engine::Scene& scene)
+bool check_skinning_palette(test_support::ResourceServices& services, engine::Scene& scene)
 {
     auto node = scene.create_node("GPU pose owner");
     auto renderer = node ? node.add_component<engine::MeshRenderer>() : engine::MeshRenderer{};
     const std::array<float, 16> identity{1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
     std::array<std::array<float, 16>, 1> positions{identity};
     std::array<std::array<float, 16>, 1> normals{identity};
-    if (!expect(renderer && renderer.mesh_resource() &&
+    if (!expect(renderer && renderer.mesh_resource().id != 0 &&
                     !renderer.set_skinning_palette(positions, normals),
                 "immutable source ownership is exposed but unskinned meshes reject palettes"))
     {
         return false;
     }
+    test_support::ResourceFixture fixture;
+    const auto skeleton = test_support::animation::skeleton(false);
     auto mesh = quad();
+    if (!fixture.add(skeleton) ||
+        !services.publish_and_load(fixture.catalog, {{"content", fixture.root}}) ||
+        !services.core.catalog().identities().path_to_guid(skeleton.path, mesh.skeleton_guid))
+    {
+        return false;
+    }
+    mesh.mesh_to_skeleton.assign(identity.begin(), identity.end());
     mesh.skin.assign(mesh.vertices.size(), {0, 0, 0, 0, 1, 0, 0, 0});
-    if (!expect(renderer.set_mesh_data(mesh) && !renderer.mesh_resource() &&
+    if (!expect(renderer.set_mesh_data(mesh) && renderer.mesh_resource().id != 0 &&
                     renderer.set_skinning_palette(positions, normals),
                 "dynamic skinned mesh accepts a complete independent palette"))
     {
@@ -805,18 +827,28 @@ bool check_skinning_palette(engine::Scene& scene)
         "clear is repeatable and source replacement discards the old GPU pose");
 }
 
-bool check_textures(engine::ResourceSystem& resources, engine::Scene& scene, bool shared)
+bool check_textures(test_support::ResourceServices& services, engine::Scene& scene)
 {
+    auto& resources = services.core;
+    auto& loader = services.loader;
     test_support::ResourceFixture fixture;
     engine::schema::TextureDataT texture;
+    texture.schema_version = 2;
     texture.path = "textures/gray";
     texture.width = 1;
     texture.height = 1;
-    texture.encoding = engine::schema::TextureEncoding::rgba8;
+    texture.encoding = engine::schema::TextureEncoding::native;
     texture.format = engine::schema::TextureFormat::rgba8;
+    texture.subresources.emplace_back(
+        0, 0, 0, static_cast<std::uint64_t>(texture.width) * texture.height * 4);
     texture.data = {128, 128, 128, 255};
-    if (!expect(fixture.add(texture) && fixture.publish(resources),
+    if (!expect(fixture.add(texture) && fixture.publish(resources) && services.prepare_builtins(),
                 "publish a texture through the GUID resource catalog"))
+    {
+        return false;
+    }
+    engine::ResourceReference preload;
+    if (!services.load(texture.path, preload))
     {
         return false;
     }
@@ -835,13 +867,11 @@ bool check_textures(engine::ResourceSystem& resources, engine::Scene& scene, boo
     }
     auto first_texture = first.material().texture("baseColorTexture");
     auto second_texture = second.material().texture("baseColorTexture");
-    std::weak_ptr<const engine::Resource> first_held = first_texture;
-    std::weak_ptr<const engine::Resource> second_held = second_texture;
+    const auto* first_value = test_support::get_resource(loader, first_texture);
+    const auto* second_value = test_support::get_resource(loader, second_texture);
     std::string_view path;
-    if (!expect(first_texture && second_texture && first_texture->texture() &&
-                    second_texture->texture() && (first_texture == second_texture) == shared &&
-                    *first_texture->texture() == *second_texture->texture(),
-                "core loads distinct texture entities; injected graph shares matching entities") ||
+    if (!expect(first_value && first_value == second_value,
+                "independent acquisitions share the immutable texture payload") ||
         !expect(first.material().get_texture("baseColorTexture", path) && path == texture.path,
                 "query returns the resolved texture path") ||
         !expect(!first.material().set_texture("missingSampler", texture.path) &&
@@ -852,15 +882,26 @@ bool check_textures(engine::ResourceSystem& resources, engine::Scene& scene, boo
     {
         return false;
     }
-    first_texture.reset();
-    second_texture.reset();
+    preload.reset();
     const auto first_id = first_node.id();
     const auto second_id = second_node.id();
-    return expect(scene.destroy_node(first_id) && first_held.expired() != shared &&
-                      !second_held.expired(),
-                  "destroying a material releases only resources without remaining owners") &&
-           expect(scene.destroy_node(second_id) && first_held.expired() && second_held.expired(),
-                  "last material owner releases every loaded texture entity");
+    engine::ResourceHandle remaining;
+    if (!expect(scene.destroy_node(first_id) &&
+                    !test_support::get_resource(loader, first_texture) &&
+                    test_support::get_resource(loader, second_texture) &&
+                    loader.acquire_loaded(texture.path, remaining),
+                "destroying one owner invalidates its acquisition and preserves the other"))
+    {
+        return false;
+    }
+    if (!loader.release(remaining))
+    {
+        return false;
+    }
+    return expect(scene.destroy_node(second_id) &&
+                      !test_support::get_resource(loader, second_texture) &&
+                      !loader.acquire_loaded(texture.path, remaining),
+                  "the last owner unloads its texture");
 }
 
 } // namespace
@@ -868,12 +909,11 @@ bool check_textures(engine::ResourceSystem& resources, engine::Scene& scene, boo
 int main()
 {
     const engine::EngineConfig config;
-    engine::ResourceSystem resources;
-#if defined(ENGINE_TEST_RESOURCE_GRAPH)
-    engine::plugins::resource_graph::ResourceGraphSystem graph(resources);
-#endif
-    engine::WorldSystem world;
-    if (!expect(resources.initialize(config) && world.initialize(config),
+    test_support::ResourceServices services;
+    auto& resources = services.core;
+    engine::WorldSystem world(&services.loader);
+    if (!expect((services.initialize(config) && services.prepare_builtins()) &&
+                    world.initialize(config),
                 "initialize resource and world systems"))
     {
         return 1;
@@ -881,23 +921,12 @@ int main()
     auto* scene = world.create_scene("Render foundation");
     if (!expect(scene != nullptr, "create scene") || !check_tangent_aliasing() ||
         !check_camera_and_light(*scene) || !check_ecs_handle_lifetime(*scene) ||
-        !check_mesh(*scene) || !check_deformation(*scene) || !check_skinning_palette(*scene) ||
-        !check_textures(resources, *scene, false))
+        !check_mesh(*scene) || !check_deformation(*scene) ||
+        !check_skinning_palette(services, *scene) || !check_textures(services, *scene))
     {
         return 1;
     }
-#if defined(ENGINE_TEST_RESOURCE_GRAPH)
-    if (!expect(graph.initialize(config), "initialize optional dependency graph"))
-    {
-        return 1;
-    }
-    resources.set_loader(&graph);
-    if (!check_textures(resources, *scene, true))
-    {
-        return 1;
-    }
-    resources.set_loader(nullptr);
-#endif
+
     if (!check_scene_render_settings(config))
     {
         return 1;

@@ -1,8 +1,12 @@
 # 资源元数据目录
 
+统一资源设计保留本页目录职责和持久模型；目录仅查询元数据，不证明资源已加载、不维护业务引用。新的单项读取与高层生命周期分工见[统一生命周期](resource-lifecycle.md)。
+
 [类图索引](../../class-diagrams/index.md) · [设计说明](../resource-loading.md) · [资源系统](resource-system.md)
 
 ResourceCatalog 只保存元数据和索引，不保存产物载荷。
+
+**2026-11-07 已实现：内部存储改为共享不可变快照，公开方法不变。** 用于[大场景准备](large-scene-preparation.md)，不为每个加载请求深拷贝完整目录。
 
 ```mermaid
 classDiagram
@@ -16,13 +20,19 @@ classDiagram
     class GuidMap
     class AssetCatalogDataT
     class AssetEntryT
-    ResourceCatalog *-- GuidMap : 独占双向索引
-    ResourceCatalog *-- AssetCatalogDataT : 独占目录数据
+    class CatalogSnapshot {
+        <<private immutable struct>>
+    }
+    ResourceCatalog o-- CatalogSnapshot : 共享只读快照
+    CatalogSnapshot *-- GuidMap : 独占双向索引
+    CatalogSnapshot *-- AssetCatalogDataT : 独占目录数据及GUID索引
     ResourceCatalog ..> AssetEntryT : 返回可空只读借用
     ResourceCatalog ..> AssetCatalogDataT : 赋值输入
 ```
 
 - `assign()` 校验并复制元数据、建立 GUID/路径索引和必要依赖关系；失败保留旧值。不读取实体、不扫描源目录、不调用转换器。
+- `ResourceCatalog` 的复制 / 赋值通过 `shared_ptr<const CatalogSnapshot>` 共享已验证快照，不复制条目与索引。`assign()` 构造完整新快照后替换当前值；已有目录副本继续读旧快照，不原地修改共享数据。默认空目录也提供安全的空只读视图，不公开快照类或第二个 snapshot API。
+- 同一个 ResourceCatalog 对象的 assign / 读取仍由协调线程串行组织；worker 持有独立目录值，不能并发借用会被赋值的目录对象。快照引用计数只保活元数据，不参与资源载荷引用计数。
 - `find()` 优先返回目录实体；固定内置身份未外置时返回引擎 bootstrap 元数据，其他缺失返回空指针。外置内置条目的 GUID、路径、类型和必要依赖必须匹配引擎固定定义，项目不能占用这些身份。查询均为 const，借用在下次成功更新前有效；已加载对象不得长期借用清单条目。
 - 普通逻辑路径相对 `assets/`，引擎条目使用 `builtin://`，运行目录不接受 `editor://`。逻辑名与磁盘位置独立：项目实体使用 `gen/` 或 `packs/`，自动收集的引擎实体写入独立 `packs/builtin-*` 包。
 - 元数据查询不增加使用引用。目录不存 JS、网格、Shader 字节码或包载荷，不创建 GPU 资源。

@@ -1,66 +1,81 @@
-# 已加载资源
+# 资源对象与类型承载
 
-[类图索引](../../class-diagrams/index.md) · [资源系统](resource-system.md) · [目录](resource-catalog.md)
+[类图索引](../../class-diagrams/index.md) · [统一生命周期](resource-lifecycle.md) · [核心读取](resource-system.md) · [类型处理器](resource-codecs.md)
 
-Resource 表示已解析、可共享的 CPU 资源，不是节点、GPU 对象或新的序列化模型。
+当前契约已实现；验证范围见[测试文档](../../testing.md)。 Resource 使用统一类型承载，业务通过获取句柄管理生命周期；持久数据仍以现有 schema 为唯一来源。
+
+## 公共类型
 
 ```mermaid
 classDiagram
     class Resource {
+        <<abstract>>
         +~Resource()
         +info() const AssetEntryT&
+        +kind() AssetKind*
         +generation() uint64_t
-        +scene() const SceneDataT#42;
-        +prefab() const PrefabDataT#42;
-        +mesh() const MeshDataT#42;
-        +shader() const ShaderDataT#42;
-        +material() const MaterialDataT#42;
-        +texture() const TextureDataT#42;
-        +audio() const AudioClipDataT#42;
-        +model() const ModelDataT#42;
-        +skeleton() const SkeletonDataT#42;
-        +animation() const AnimationDataT#42;
-        +font() const FontDataT#42;
-        +ui() const UiDocumentDataT#42;
-        +light_probe() const LightProbeDataT#42;
-        +bytes() ByteView
+        #Resource(AssetEntryT info)
+    }
+    class ResourceValue~DataT_Kind~ {
+        <<final>>
+        +ResourceValue(AssetEntryT info, DataT data)
+        +kind() AssetKind
+        +data() const DataT&
     }
     class AssetEntryT
+    class DataT
     class ResourceSystem
-    Resource *-- AssetEntryT : 独立元数据值
-    ResourceSystem ..> Resource : 创建并输出共享引用
+    class ResourceCodec
+    Resource <|-- ResourceValue~DataT_Kind~
+    Resource *-- AssetEntryT : 独立元数据
+    ResourceValue~DataT_Kind~ *-- DataT : 唯一类型载荷
+    ResourceCodec ..> Resource : 创建独占候选
+    ResourceSystem ..> Resource : 校验并设置目录代际
 ```
+
+- Resource 为类型擦除的只读资源抽象基类，公共虚析构为 noexcept，kind 为纯虚查询；ResourceValue 以 override 返回模板规定的 Kind。构造仅建立安全数据状态。禁止复制/移动资源对象本身，所有权通过 unique_ptr 转移。
+- ResourceValue<DataT, Kind> 是一个简单 final 模板，保存一种载荷。MeshResource 等名字只是该模板的特化别名，不另外定义一份 MeshDataT，不给 Resource 追加 mesh()/movie()/terrain()。
+- 每个 AssetKind 规定唯一规范载荷类型；登记时用编译期映射约束，不能给同一 Kind 注册另一种 DataT。插件类型也遵守该映射。新增类型只增自身载荷声明、处理器和登记，不改基类或集中 store 重载。
+- DataT 使用 schema 生成的 native DataT；source/script/json 使用 ByteBuffer。ByteBuffer、ByteView 分别为标准 vector/span 别名；即使都是字节，Kind 仍不同，不得相互强转。
+- kind/info/generation/data 为 const noexcept 查询并标注 nodiscard。info 拥有独立元数据，不借用可替换的目录。generation 在核心成功读取/接纳时设置，候选发布后不可变。
+- ResourceSystem 以 friend 权限设置私有代际并校验元数据；处理器只创建规范候选，不得访问私有缓存或计数。
+- ResourceLoader::get<TResource> 先检验句柄，再按规范 Kind 映射返回只读借用，不使用 RTTI；不支持任意自定义派生类冒充同 Kind 的另一布局。
+
+## 所有权与借用
 
 ```mermaid
 classDiagram
-    direction TB
+    class ResourceSystem
+    class ResourceRead
+    class ResourceGraphSystem
+    class ResourceRecord
     class Resource
-    class SceneDataT
-    class PrefabDataT
-    class MeshDataT
-    class ShaderDataT
-    class MaterialDataT
-    class TextureDataT
-    class AudioClipDataT
-    class LightProbeDataT
-    Resource *-- SceneDataT : 场景类型时拥有
-    Resource *-- PrefabDataT : 预制体类型时拥有
-    Resource *-- MeshDataT : 网格类型时拥有
-    Resource *-- ShaderDataT : Shader 类型时拥有
-    Resource *-- MaterialDataT : 材质类型时拥有
-    Resource *-- TextureDataT : 贴图类型时拥有
-    Resource *-- AudioClipDataT : 音频类型时拥有
-    Resource *-- FontDataT : 字体类型时拥有
-    Resource *-- UiDocumentDataT : UI 文档类型时拥有
-    Resource *-- LightProbeDataT : 静态照明探针资源时拥有
+    class ResourceHandle
+    class ResourceLoader
+    ResourceSystem ..> ResourceRead : 单项异步操作
+    ResourceRead *-- Resource : 未取出的独占候选
+    ResourceGraphSystem *-- ResourceRecord : 插件私有 不进核心接口
+    ResourceRecord *-- Resource : 接收读取所有权
+    ResourceRecord --> ResourceRecord : 依赖引用
+    ResourceLoader ..> ResourceHandle : 获取身份
+    ResourceHandle ..> ResourceRecord : 经过加载器校验后访问
 ```
 
-- `ResourcePtr = std::shared_ptr<const Resource>` 只是标准类型别名，不另建句柄或引用计数。ResourceSystem 创建对象，构造权限仅向该系统开放；对象禁止复制和移动。
-- 对象只拥有与其类型对应的生成数据；脚本或原始二进制持有自己的字节缓冲。ByteView 是 `std::span<const std::byte>`，不新增类。不手写重复的持久字段。
-- 查询为 const noexcept 并标注 nodiscard。类型不匹配返回空指针，非字节型资源的 bytes 返回空视图。借用仅在调用者仍持有 ResourcePtr 时有效。
-- info 指向独立拥有的元数据，不借用可替换目录。资源数据只读；材质可修改参数和场景节点实例唯一存于 ECS，值句柄按身份访问。
-- Resource 只拥有本项元数据、目录代际和载荷，不拥有依赖或共享缓存。析构为 noexcept，不调用脚本或 GPU API。
-- 完整依赖闭包由运行时资源依赖图插件的私有 Bundle 保活；输出仍使用 ResourcePtr 标准别名，最后一个使用者释放时由插件按正确顺序释放资源和依赖。
-- `generation()` 标识创建时目录代际，const noexcept；目录更新不改变旧对象。当前代际查询与缓存隔离由加载器处理，不通过 GUID 强制删除其他使用者的对象。
+ResourceRecord 仅作跨图引用；私有字段和任务保活的精简目标统一定义在[资源插件](../../plugins/runtime/class-diagrams/resource-graph.md#记录获取和在途合并)，本页不重复维护。核心读取层只转交 unique_ptr；业务不能取得该所有权，也不持有公共 shared_ptr。
 
-Model、Skeleton、Animation 同样只拥有对应 FlatBuffers 生成载荷，结构与依赖见[模型资源](model-resources.md)。模型资源实例化在 Scene；骨架采样在 AnimationSystem；源文件转换在编辑器格式插件，均不进入 Resource 的只读实体职责。
+业务 get 返回的指针/数据视图仅在对应获取有效且加载器存活时有效。模块跨调用或跨帧使用，先 retain 得到自己的句柄。后台任务由所属模块保留独立获取至完成，只借用它保活的不可变数据；不能捕获活动系统或 ECS 列。释放某个获取后，即使另一获取仍保活同一对象，该获取导出的借用也必须停止使用。
+
+Resource 析构只释放本项 CPU 数据，不调用 GPU、音频设备或 VM。已发布资源由仍在运行的模块自身获取保活，最后获取退出后销毁本项，再释放其依赖引用。取消中的单项读取工作拥有尚未发布的独立数据，其寿命不由已撤出的插件记录承担。
+
+| 不可变资源数据 | 另属模块的运行状态 |
+| --- | --- |
+| SceneDataT / PrefabDataT / ModelDataT | ECS 实体、场景发布与实例映射 |
+| MeshDataT / ShaderDataT / TextureDataT / MaterialDataT | GPU 对象、设备上传、材质实例参数 |
+| AudioClipDataT / MovieDataT | 声部、解码器、播放位置与帧队列 |
+| SkeletonDataT / AnimationDataT / AnimationRetargetProfileDataT | 骨骼实例、采样任务与播放状态 |
+| FontDataT / UiDocumentDataT | 字形绘制缓存、UI 文档与控件身份 |
+| EffectAssetDataT / TerrainAssetDataT / DestructionAssetDataT | 插件运行实例和生成任务 |
+| LightProbeDataT | 场景绑定及 GPU 表示 |
+| script / json / source 的 ByteBuffer | VM 模块、业务解析结果或调用方处理流程 |
+
+完整 21 种类型及处理器归属见[类型处理器](resource-codecs.md)。

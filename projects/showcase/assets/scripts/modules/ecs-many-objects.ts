@@ -1,4 +1,4 @@
-import { Debug, Gameplay, MeshRenderer, Node, Scene, Transform, UiComponent } from "engine";
+import { Resources, ResourceHandle, Debug, Gameplay, MeshRenderer, Node, Scene, Transform, UiComponent } from "engine";
 import { EcsManyObjectsController } from "../controllers/ecs_many_objects_controller.js";
 import { EcsAction, EcsManyObjectsModel } from "../models/ecs_many_objects_model.js";
 
@@ -13,6 +13,7 @@ interface Entry {
 
 /** A functional ECS scene: independent entities, hierarchy and lifetime; no benchmark loop. */
 export default class EcsManyObjects extends Gameplay {
+    private readonly resources: ResourceHandle[] = [];
     scene: Scene | null = null;
     private readonly model = new EcsManyObjectsModel();
     private controller: EcsManyObjectsController | null = null;
@@ -25,6 +26,12 @@ export default class EcsManyObjects extends Gameplay {
     private readonly check_budget = 1024;
 
     override OnInitialize(): boolean {
+        for (const path of ["scenes/ecs-many-objects.scene", "ui/ecs-many-objects.rml", "meshes/cube.mesh", "materials/cube.material"]) {
+            const resource = Resources.Load(path);
+            if (!resource) { Debug.LogError(`Cannot load ${path}: ${Resources.lastError}`); return false; }
+            this.resources.push(resource);
+        }
+
         this.scene = Scene.Load("scenes/ecs-many-objects.scene");
         const view = this.scene?.CreateNode("ECS laboratory UI")?.AddComponent(UiComponent);
         if (!this.scene || !view || !view.SetDocument("ui/ecs-many-objects.rml")) return false;
@@ -186,6 +193,10 @@ export default class EcsManyObjects extends Gameplay {
     }
 
     override OnShutdown(): void {
+        for (const resource of this.resources.splice(0)) {
+            if (!Resources.Release(resource)) Debug.LogError("Cannot release showcase resource");
+        }
+
         this.controller?.Unbind();
         this.controller = null;
         this.model.pending = null;

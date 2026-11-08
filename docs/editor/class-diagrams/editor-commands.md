@@ -4,6 +4,8 @@
 
 编辑器主线程执行命令；业务模块自行注册名称和处理函数。JSON、批量事务、撤销和文件通道均留在编辑器层，运行时组件只提供既有公共读写接口。
 
+**精简状态：内部字段记录已按[合并目标](component-commands.md#字段编辑合并目标)调整类图，代码待迁移；公开命令、事务及历史契约不变。**
+
 ```mermaid
 classDiagram
     class EditorCommands {
@@ -76,26 +78,22 @@ EditorCommands 与 SceneCommands 明确禁止复制。EditorCommands 的析构�
 ```mermaid
 classDiagram
     class EditorEdit
-    class CameraEdit
-    class LightEdit
+    class PropertyEdit~DataT~
     class TextureEdit
     class MaterialEdit
-    class TransformEdit
     class StateEdit
     class AssetEntryT
     class WorldSystem
-    EditorEdit <|-- CameraEdit
-    EditorEdit <|-- LightEdit
+    EditorEdit <|-- PropertyEdit~DataT~
     EditorEdit <|-- TextureEdit
     EditorEdit <|-- MaterialEdit
-    EditorEdit <|-- TransformEdit
     EditorEdit <|-- StateEdit
     TextureEdit *-- AssetEntryT : 前后版本快照值
     TextureEdit --> WorldSystem : 场景身份解析
-    CameraEdit --> WorldSystem : 组件身份解析
-    LightEdit --> WorldSystem : 组件身份解析
+    class Target
+    PropertyEdit~DataT~ *-- Target : 共用字段编辑身份
+    Target --> WorldSystem : 场景与节点校验
     MaterialEdit --> WorldSystem : 组件身份解析
-    TransformEdit --> WorldSystem : 组件身份解析
     StateEdit --> WorldSystem : 节点及组件类型解析
 ```
 
@@ -103,7 +101,7 @@ classDiagram
 
 物理与音频组件使用独立的[按类型组件命令](component-commands.md)，共用 ComponentEdit 保存前后生成快照，并由 SceneCommands 显式登记。播放控制和冲量调用普通运行时接口，作为非撤销操作执行；不放进可撤销批次。
 
-`set_material_type(sceneId,nodeId,slot?,path)` 选择已有材质资源。内部 MaterialTypeEdit 保存前后参数与贴图快照和依赖版本；不在历史中保留 ResourcePtr，执行时重新校验并临时加载。撤销恢复原材质全部覆盖值，资源版本改变拒绝陈旧操作；普通参数修改仍只改变请求字段。
+`set_material_type(sceneId,nodeId,slot?,path)` 选择已有材质资源。内部 MaterialTypeEdit 保存前后参数与贴图快照和依赖版本；不在历史中持有资源获取，执行时重新校验并临时加载。撤销恢复原材质全部覆盖值，资源版本改变拒绝陈旧操作；普通参数修改仍只改变请求字段。
 
 创建命令在编辑器内部共享自身节点的当前运行时 ID，后续属性历史随重做重建重新定位；外部仍须使用 get_scene 得到的新 ID，旧 ID 不接受。映射随场景代次清理，不向 Node 增加编辑器身份字段。
 
@@ -118,6 +116,6 @@ Prefab 编辑登记一个 `EditWrapper = std::function<bool(std::string_view, co
 
 ## 内部命令实现归属
 
-`SceneCommands` 保留场景/节点生命周期、活动相机选择、节点身份单元和显式命令登记。Transform、Camera、Light 与材质编辑分别位于 `commands/components/` 的类型文件；具体 Edit 继续派生同一个 EditorEdit，只有 EditorCommands 拥有事务和历史。共享 Target 及 JSON 数值校验留在已有 component_edit 内部实现，继续借用同一 NodeAliases，不另建注册表、状态镜像或命令框架。
+`SceneCommands` 保留场景/节点生命周期、活动相机选择、节点身份单元和显式命令登记。Transform、Camera、Light 的字段记录统一为 PropertyEdit<DataT>，各类型文件只提供准备与字段变更函数；材质编辑保留自身槽位和资源版本语义。所有记录继续派生同一个 EditorEdit，只有 EditorCommands 拥有事务和历史。共享 Target 和 NodeAliases 留在 component_edit 私有实现；插件通过 component_commands 公开的参数工具、登记与准备函数接入同一事务，不另建注册表、状态镜像或命令框架。
 
 `get_scene` 的分页和诊断快照位于 `commands/scene_query.cpp`；它不承担运行时名称/路径查询。材质快照和恢复归材质命令文件，供预制体事务复用。拆分只改变源文件归属，命令名称、参数、回执、字段级陈旧检查、批次回滚及创建后重做的节点身份均保持。

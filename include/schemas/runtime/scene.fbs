@@ -122,14 +122,9 @@ table CharacterMotorData {
 
 enum CharacterView:ubyte { first_person, third_person }
 table CharacterControllerData {
-    mode:CharacterView = third_person (deprecated);
     move_speed:float = 4;
     jump_speed:float = 5;
     look_sensitivity:float = 0.12;
-    eye_height:float = 1.6 (deprecated);
-    camera_distance:float = 4 (deprecated);
-    pitch_min:float = -80 (deprecated);
-    pitch_max:float = 80 (deprecated);
     camera_node_id:ulong;
 }
 
@@ -337,7 +332,7 @@ table PrefabInstanceData {
 }
 
 table SceneData {
-    schema_version:uint = 1;
+    schema_version:uint = 0;
     info:SceneInfo (required);
     nodes:[NodeData];
     prefab_instances:[PrefabInstanceData];

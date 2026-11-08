@@ -1,6 +1,7 @@
 #include "runtime/scene/scene.hpp"
 
 #include "runtime/log/log_system.hpp"
+#include "runtime/resource/resource_loader.hpp"
 #include "runtime/scene/camera.hpp"
 #include "runtime/scene/ecs_storage.hpp"
 #include "runtime/scene/transform.hpp"
@@ -36,6 +37,10 @@ Scene::~Scene() noexcept
         ecs_is_alive(world_.native_world(), metadata_entity_))
     {
         ecs_delete(world_.native_world(), metadata_entity_);
+    }
+    if (auto* loader = world_.resource_loader())
+    {
+        (void)loader->release(resource_);
     }
 }
 std::uint64_t Scene::id() const noexcept
@@ -271,7 +276,10 @@ void Scene::retain_persistent()
             (void)destroy_node(node.id());
         }
     }
-    resource_.reset();
+    if (auto* loader = world_.resource_loader())
+    {
+        (void)loader->release(resource_);
+    }
 }
 Camera Scene::active_camera() const noexcept
 {
@@ -286,7 +294,7 @@ bool Scene::set_active_camera(Camera camera) noexcept
     {
         return false;
     }
-    info->active_camera_node = camera ? camera.node().info().properties->id : 0;
+    info->active_camera_node = camera ? camera.node().local_id() : 0;
     return true;
 }
 bool Scene::build_data(schema::SceneDataT& output) const
@@ -309,6 +317,7 @@ bool Scene::build_data(schema::SceneDataT& output) const
         return false;
     }
     schema::SceneDataT snapshot;
+    snapshot.schema_version = 2;
     snapshot.info = std::make_unique<schema::SceneInfoT>(*info);
     for (const auto node : nodes)
     {
@@ -374,7 +383,7 @@ bool Scene::build_data(schema::SceneDataT& output) const
 }
 bool Scene::restore_data(const schema::SceneDataT& data)
 {
-    if (!empty() || data.schema_version != 1 || !data.info)
+    if (!empty() || data.schema_version != 2 || !data.info)
     {
         return false;
     }

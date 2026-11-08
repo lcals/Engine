@@ -1,3 +1,7 @@
+#include "../../../support/render_fixture.hpp"
+#include "plugins/runtime/effects/codecs/effect_resource_codec.hpp"
+#include "resource_services.hpp"
+#include "runtime/resource/virtual_file_system.hpp"
 #include "scene_snapshot.hpp"
 
 #include "plugins/runtime/effects/effect_component.hpp"
@@ -116,11 +120,14 @@ bool prepare_effect(test_support::ResourceFixture& fixture, ByteView source,
             continue;
         }
         schema::TextureDataT texture;
+        texture.schema_version = 2;
         texture.path = std::string(folder) + "/texture-" + std::to_string(paths.size());
         texture.width = 1;
         texture.height = 1;
-        texture.encoding = schema::TextureEncoding::rgba8;
+        texture.encoding = schema::TextureEncoding::native;
         texture.format = schema::TextureFormat::rgba8;
+        texture.subresources.emplace_back(
+            0, 0, 0, static_cast<std::uint64_t>(texture.width) * texture.height * 4);
         texture.srgb = true;
         texture.data.assign(color.begin(), color.end());
         if (!fixture.add(texture))
@@ -174,7 +181,7 @@ bool advance(WindowSystem& windows, RenderSystem& renderer, EffectSystem& effect
             continue;
         }
         if (!expect(effects.tick(1.0 / 60.0), effects.last_error()) ||
-            !expect(renderer.render(), effects.last_error()))
+            !expect(test_support::render_frame(renderer), effects.last_error()))
         {
             return false;
         }
@@ -191,8 +198,9 @@ int main(int argc, char** argv)
     config.width = 640;
     config.height = 360;
     config.window_title = "Effects runtime integration";
-    ResourceSystem resources;
-    WorldSystem world;
+    test_support::ResourceServices services;
+    ResourceSystem& resources = services.core;
+    WorldSystem world{&services.loader};
     WindowSystem windows;
     RenderSystem renderer(windows, &world);
     EffectSystem effects(world, renderer);
@@ -203,7 +211,7 @@ int main(int argc, char** argv)
     Effekseer::EfkEfcProperty properties;
     Effekseer::EfkEfcProperty model_properties;
     if (!expect(argc == 2 &&
-                    ResourceSystem::read_binary(
+                    VirtualFileSystem::read_file(
                         PathUtils::from_utf8(argv[1]) /
                             "projects/showcase/assets/effects/laser/laser.efkefc",
                         source) &&
@@ -213,9 +221,9 @@ int main(int argc, char** argv)
                     properties.GetDistortionImages().empty() && properties.GetModels().empty(),
                 "read the official sprite fixture and its declared color textures") ||
         !expect(
-            ResourceSystem::read_binary(PathUtils::from_utf8(argv[1]) /
-                                            "projects/showcase/assets/effects/arrow/arrow.efkefc",
-                                        model_source) &&
+            VirtualFileSystem::read_file(PathUtils::from_utf8(argv[1]) /
+                                             "projects/showcase/assets/effects/arrow/arrow.efkefc",
+                                         model_source) &&
                 !model_source.empty() &&
                 model_properties.Load(model_source.data(),
                                       static_cast<std::int32_t>(model_source.size())) &&
@@ -223,7 +231,7 @@ int main(int argc, char** argv)
                 !model_properties.GetColorImages().empty() &&
                 model_properties.GetNormalImages().empty() &&
                 model_properties.GetDistortionImages().empty() &&
-                ResourceSystem::read_binary(
+                VirtualFileSystem::read_file(
                     PathUtils::from_utf8(argv[1]) /
                         "projects/showcase/assets/effects/arrow/models/arrow.efkmodel",
                     model_bytes) &&
@@ -234,14 +242,27 @@ int main(int argc, char** argv)
     }
     const std::map<std::u16string, ByteBuffer> models{
         {model_properties.GetModels().front(), std::move(model_bytes)}};
-    if (!expect(resources.initialize(config) && world.initialize(config) &&
-                    effects.initialize(config),
+    if (!expect((resources.add<engine::plugins::effects::EffectResourceCodec>() &&
+                 services.initialize(config)) &&
+                    world.initialize(config) && effects.initialize(config),
                 "initialize effect ownership and registration") ||
         !expect(prepare_effect(fixture, source, properties, "red", {255, 40, 40, 255}) &&
                     prepare_effect(fixture, source, properties, "green", {40, 255, 40, 255}) &&
                     prepare_effect(fixture, model_source, model_properties, "model",
                                    {90, 130, 255, 255}, models) &&
-                    add_effect(fixture, "invalid/effect", {}, {}) && fixture.publish(resources),
+                    add_effect(fixture, "invalid/effect", {}, {}) &&
+                    (fixture.publish(resources) && services.prepare_builtins() &&
+                     [&]
+                     {
+                         for (const auto& entry : fixture.catalog.entries)
+                         {
+                             if (entry->path != "invalid/effect" && !services.load(entry->path))
+                             {
+                                 return false;
+                             }
+                         }
+                         return true;
+                     }()),
                 "publish two effects with identical SDK paths"))
     {
         return 1;
@@ -270,7 +291,7 @@ int main(int argc, char** argv)
     {
         return 1;
     }
-    auto settings = first.settings();
+    auto settings = test_support::read_settings(first);
     settings.loop = true;
     if (!expect(first.set_settings(settings), "loop the independent first emitter") ||
         !advance(windows, renderer, effects) || !expect(first.playing(), "play-on-awake starts"))
@@ -313,8 +334,9 @@ int main(int argc, char** argv)
     auto cold_node = scene->create_node("Deferred across world pause");
     auto cold = cold_node ? cold_node.add_component<EffectComponent>() : EffectComponent{};
     if (!expect(cold && first.pause() && world.set_paused(true) && cold.set_effect("red/effect") &&
-                    effects.tick(120) && renderer.render() && renderer.render() &&
-                    !cold.playing() && !first.playing() && second.playing(),
+                    effects.tick(120) && test_support::render_frame(renderer) &&
+                    test_support::render_frame(renderer) && !cold.playing() && !first.playing() &&
+                    second.playing(),
                 "world pause blocks both tick and draw fallback emission, preserving individual "
                 "pause") ||
         !expect(world.set_paused(false), "resume effect world") ||
@@ -328,10 +350,22 @@ int main(int argc, char** argv)
     }
     auto stopped_node = scene->create_node("Stopped across resource refresh");
     auto stopped = stopped_node ? stopped_node.add_component<EffectComponent>() : EffectComponent{};
-    auto manual = second.settings();
+    auto manual = test_support::read_settings(second);
     manual.play_on_awake = false;
     if (!expect(stopped && stopped.set_settings(settings) && stopped.stop() && first.pause() &&
-                    second.set_settings(manual) && fixture.publish(resources),
+                    second.set_settings(manual) &&
+                    (fixture.publish(resources) && services.prepare_builtins() &&
+                     [&]
+                     {
+                         for (const auto& entry : fixture.catalog.entries)
+                         {
+                             if (entry->path != "invalid/effect" && !services.load(entry->path))
+                             {
+                                 return false;
+                             }
+                         }
+                         return true;
+                     }()),
                 "refresh catalog with paused, stopped and manually playing instances") ||
         !advance(windows, renderer, effects) ||
         !expect(!first.playing() && !stopped.playing() && second.playing(),
@@ -339,9 +373,9 @@ int main(int argc, char** argv)
     {
         return 1;
     }
-    auto paused_data = first.data();
-    auto stopped_data = stopped.data();
-    auto playing_data = second.data();
+    auto paused_data = test_support::read_data(first);
+    auto stopped_data = test_support::read_data(stopped);
+    auto playing_data = test_support::read_data(second);
     paused_data.payload.AsEffectData()->speed = 0.5F;
     stopped_data.payload.AsEffectData()->speed = 0.5F;
     playing_data.payload.AsEffectData()->speed = 0.5F;
@@ -370,7 +404,7 @@ int main(int argc, char** argv)
     {
         return 1;
     }
-    auto green = third.settings();
+    auto green = test_support::read_settings(third);
     green.loop = true;
     if (!expect(third.set_settings(green), "loop the second effect resource") ||
         !advance(windows, renderer, effects) ||
@@ -387,7 +421,7 @@ int main(int argc, char** argv)
     {
         return 1;
     }
-    auto model_settings = model.settings();
+    auto model_settings = test_support::read_settings(model);
     model_settings.loop = true;
     if (!expect(model.set_settings(model_settings), "loop the model effect") ||
         !advance(windows, renderer, effects, 16) ||
@@ -456,7 +490,7 @@ int main(int argc, char** argv)
     {
         return 1;
     }
-    auto retained_settings = retained.settings();
+    auto retained_settings = test_support::read_settings(retained);
     retained_settings.loop = true;
     if (!expect(retained.set_settings(retained_settings) && retained.play(),
                 "loop the retained effect") ||
@@ -504,7 +538,7 @@ int main(int argc, char** argv)
     effects.shutdown();
     windows.shutdown();
     world.shutdown();
-    resources.shutdown();
+    services.shutdown();
     std::puts("Effect playback, GUID isolation, shared assets, removal and GPU retirement passed.");
     return 0;
 }
