@@ -115,6 +115,10 @@
 - [TS 动画状态机](../plugins/runtime/class-diagrams/animation-state-machine.md)
 - [玩家控制、跟随相机与角色表现](../plugins/runtime/class-diagrams/character-controller.md)
 - [角色输入脚本接口](../plugins/runtime/class-diagrams/character-input-script-api.md)
+- [参数驱动相机插件](../plugins/runtime/class-diagrams/camera-controller.md)（设计草案，待评审）
+- [相机状态机与配置数据](../plugins/runtime/class-diagrams/camera-state-machine.md)（设计草案，待评审）
+- [相机 C++ 模块组合与扩展](../plugins/runtime/class-diagrams/camera-modules.md)（设计草案，待评审）
+- [相机控制脚本接口](../plugins/runtime/class-diagrams/camera-script-api.md)（设计草案，待评审）
 - [建筑破坏连通图](../plugins/runtime/class-diagrams/destruction-graph.md)
 - [破坏脚本接口](../plugins/runtime/class-diagrams/destruction-script-api.md)
 - [建筑破坏：Blast 计算与 Jolt 提交](../plugins/runtime/class-diagrams/destruction.md)
@@ -147,6 +151,7 @@
 - [统一资源导入插件](../plugins/editor/class-diagrams/asset-import.md)
 - [资源同步系统](../plugins/editor/class-diagrams/asset-sync-system.md)
 - [角色控制器编辑器插件](../plugins/editor/class-diagrams/character-controller.md)
+- [相机控制编辑器接入](../plugins/editor/class-diagrams/camera-controller.md)（设计草案，待评审）
 - [建筑破坏预处理](../plugins/editor/class-diagrams/destruction-authoring.md)
 - [建筑破坏资源与编辑器命令](../plugins/editor/class-diagrams/destruction-editor.md)
 - [可编辑多边形模型](../plugins/editor/class-diagrams/editable-mesh.md)
