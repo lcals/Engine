@@ -1,8 +1,8 @@
-# 角色物理固定步驱动（设计草案）
+# 角色物理固定步驱动
 
-[类图索引](../../class-diagrams/index.md) · [当前 CharacterMotor](character-motor.md) · [角色控制草案](../../plugins/runtime/class-diagrams/character-control-design.md)
+[类图索引](../../class-diagrams/index.md) · [当前 CharacterMotor](character-motor.md) · [角色控制契约](../../plugins/runtime/class-diagrams/character-control-design.md)
 
-**状态：设计草案，待评审，尚未实现。** 本页只定义角色扩展直接需要的核心契约。当前仍由 `CharacterMotor` 接收水平速度、跳跃及外部速度增量，PhysicsSystem 使用 Jolt CharacterVirtual 求解；新契约不能视为已可调用。
+**状态：已实现；验证范围见[测试文档](../../testing.md)。** 本页定义角色扩展直接使用的核心契约。PhysicsSystem 使用 Jolt CharacterVirtual 求解；未注入驱动时，CharacterMotor 继续接受调用方的直接速度与跳跃请求。
 
 本页新增接口与运行值位于核心命名空间 `engine`，不包含插件或 Jolt 类型。接口基线核对为项目已安装的 Jolt 5.6.0，与[上游正式发布版本](https://github.com/jrouwe/JoltPhysics/releases/tag/v5.6.0)一致。
 
@@ -129,7 +129,7 @@ classDiagram
 
 ground_state 表示接触分类，grounded 还要求角色没有正在离开支撑面；踩到陡面不能直接当作可跳跃的平地。support 是可再次校验的 PhysicsObject 值，不暴露 Jolt BodyID 或指针。没有有效支撑时相关字段清空；历史支撑的失效不能绑定到复用的对象身份。
 
-`CharacterMotor` 拟增加 `get_status(CharacterMotorStatus& output) -> bool`，读取最后已完成的物理状态，失败清空输出；原 velocity/grounded 查询继续作为各自明确用途的简便接口。它们均读取同一 Runtime，不形成另一份运行状态。
+`CharacterMotor::get_status(CharacterMotorStatus& output) -> bool` 读取最后已完成的物理状态，失败清空输出；velocity/grounded 查询作为各自明确用途的简便接口。它们均读取同一 Runtime，不形成另一份运行状态。
 
 ## 蹲起与形状切换
 

@@ -64,7 +64,7 @@ bool composition(const std::filesystem::path& directory)
 {
     std::string error;
     schema::PrefabDataT prefab;
-    prefab.schema_version = 2;
+    prefab.schema_version = 3;
     prefab.root_id = 1;
     prefab.nodes.push_back(node(1));
     prefab.nodes.push_back(node(2, 1));
@@ -103,7 +103,7 @@ bool composition(const std::filesystem::path& directory)
         return false;
     }
     schema::SceneDataT scene;
-    scene.schema_version = 2;
+    scene.schema_version = 3;
     scene.info = std::make_unique<schema::SceneInfoT>();
     scene.info->name = "Instances";
     scene.nodes = std::move(expanded);
@@ -183,7 +183,7 @@ bool model_identity()
         model.nodes.push_back(std::move(value));
     }
     schema::PrefabDataT prefab;
-    prefab.schema_version = 2;
+    prefab.schema_version = 3;
     prefab.root_id = 1;
     if (!expect(PrefabImporter::from_model(model, material_a, prefab, error),
                 "Model uses injected default material offline", error))
@@ -220,7 +220,7 @@ bool dependencies(const std::filesystem::path& directory)
     }
     ImportContext context{identities, kinds, directory, directory, directory, "test", nullptr, {}};
     schema::PrefabDataT prefab;
-    prefab.schema_version = 2;
+    prefab.schema_version = 3;
     prefab.root_id = 1;
     prefab.nodes.push_back(node(1));
     schema::MeshRendererDataT mesh;
@@ -261,7 +261,7 @@ bool dependencies(const std::filesystem::path& directory)
     override->components.push_back(std::move(text));
     placed.overrides.push_back(std::move(override));
     schema::SceneDataT scene;
-    scene.schema_version = 2;
+    scene.schema_version = 3;
     scene.info = std::make_unique<schema::SceneInfoT>();
     scene.info->name = "Dependency test";
     if (!PrefabImporter::expand_instance(prefab, placed, 11, scene.nodes, error))

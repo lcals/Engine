@@ -1,97 +1,73 @@
-#if defined(ENGINE_HAS_CHARACTER_CONTROLLER_PLUGIN) && ENGINE_HAS_CHARACTER_CONTROLLER_PLUGIN
-
+#if ENGINE_HAS_CHARACTER_CONTROLLER_PLUGIN
 #include "plugins/runtime/script/bindings/character_controller_binding.hpp"
-#include "plugins/runtime/script/bindings/binding_helpers.hpp"
-
 #include "plugins/runtime/character_controller/character_controller.hpp"
-#include "plugins/runtime/character_controller/character_input.hpp"
-#include "plugins/runtime/script/bindings/binding_context.hpp"
-#include "runtime/scene/node.hpp"
-
+#include "plugins/runtime/character_controller/character_input_json.hpp"
+#include "plugins/runtime/character_controller/character_status_json.hpp"
+#include "plugins/runtime/script/bindings/control_binding_helpers.hpp"
 namespace engine::plugins::script::bindings
 {
 namespace
 {
+using Controller = character_controller::CharacterController;
 constexpr std::string_view javascript = R"js(
 export class CharacterController extends Component {
-    constructor(token, scene, node) { super(token, scene, node, native.CharacterControllerKind); }
-    SetInput(moveX, moveY, lookX, lookY, jump, toggleView) {
-        const h = handles.get(this);
-        return native.CharacterControllerInput(
-            h.scene, h.node, moveX, moveY, lookX, lookY, jump, toggleView);
-    }
-    ClearInput() {
-        const h = handles.get(this);
-        return native.CharacterControllerClear(h.scene, h.node);
-    }
+    constructor(token,scene,node){super(token,scene,node,native.CharacterControllerKind);}
+    SetInput(input){const h=handles.get(this);return native.CharacterControllerInput(h.scene,h.node,JSON.stringify(input));}
+    ClearInput(){const h=handles.get(this);return native.CharacterControllerClear(h.scene,h.node);}
+    GetSettings(){const h=handles.get(this);return copyComponentData(native.CharacterControllerSettings(h.scene,h.node));}
+    SetSettings(settings){const h=handles.get(this);return native.CharacterControllerSetSettings(h.scene,h.node,JSON.stringify(settings,(_,v)=>typeof v==='bigint'?v.toString():v));}
+    GetStatus(){const h=handles.get(this);return native.CharacterControllerStatus(h.scene,h.node);}
 }
-componentTypes.set(CharacterController, {
-    add: native.CharacterControllerAdd, kind: native.CharacterControllerKind
-});
-Object.freeze(CharacterController.prototype);
-Object.freeze(CharacterController);
+componentTypes.set(CharacterController,{add:native.CharacterControllerAdd,kind:native.CharacterControllerKind});
+Object.freeze(CharacterController.prototype);Object.freeze(CharacterController);
 )js";
-
-void set_input(const Arguments& arguments)
+void input(const Arguments& a)
 {
-    arguments.set_return(false);
-    auto node = BindingContext::node(arguments);
-    auto controller = node.valid() ? node.get_component<character_controller::CharacterController>()
-                                   : character_controller::CharacterController{};
-    double move_x = 0;
-    double move_y = 0;
-    double look_x = 0;
-    double look_y = 0;
-    if (!controller || arguments.count() != 8 || !BindingContext::number(arguments, 2, move_x) ||
-        !BindingContext::number(arguments, 3, move_y) ||
-        !BindingContext::number(arguments, 4, look_x) ||
-        !BindingContext::number(arguments, 5, look_y) || !arguments.is_boolean(6) ||
-        !arguments.is_boolean(7))
+    auto c = binding_detail::component<Controller>(a, 3);
+    control_detail::Json j;
+    character_controller::CharacterInput value;
+    std::string error;
+    if (!c || !control_detail::argument(a, 2, j) ||
+        !character_controller::detail::read_input(j, value, error))
     {
         return;
     }
-    character_controller::CharacterInput input;
-    input.move = {move_x, move_y};
-    input.look = {look_x, look_y};
-    input.jump = arguments.boolean(6);
-    input.toggle_view = arguments.boolean(7);
-    arguments.set_return(controller.set_input(input));
+    a.set_return(c.set_input(value));
 }
-
-void clear_input(const Arguments& arguments)
+void clear(const Arguments& a)
 {
-    arguments.set_return(false);
-    auto node = BindingContext::node(arguments);
-    auto controller = node.valid() ? node.get_component<character_controller::CharacterController>()
-                                   : character_controller::CharacterController{};
-    if (controller.valid() && arguments.count() == 2)
+    auto c = binding_detail::component<Controller>(a, 2);
+    a.set_return(c && c.clear_input());
+}
+void status(const Arguments& a)
+{
+    auto c = binding_detail::component<Controller>(a, 2);
+    a.set_return({});
+    character_controller::CharacterStatus value;
+    if (c && c.get_status(value))
     {
-        controller.clear_input();
-        arguments.set_return(true);
+        a.set_return(control_detail::native(character_controller::detail::status_json(value)));
     }
 }
 } // namespace
-
 std::string_view CharacterControllerBinding::name() const noexcept
 {
     return "CharacterController";
 }
-
 std::string_view CharacterControllerBinding::source() const noexcept
 {
     return javascript;
 }
-
 bool CharacterControllerBinding::register_functions(vm::ScriptVm& vm) const
 {
-    return vm.integer(
-               "CharacterControllerKind",
-               static_cast<int>(character_controller::CharacterController::component_type)) &&
-           vm.function("CharacterControllerAdd",
-                       binding_detail::add_component<character_controller::CharacterController>) &&
-           vm.function("CharacterControllerInput", set_input) &&
-           vm.function("CharacterControllerClear", clear_input);
+    return vm.integer("CharacterControllerKind", static_cast<int>(Controller::component_type)) &&
+           vm.function("CharacterControllerAdd", binding_detail::add_component<Controller>) &&
+           vm.function("CharacterControllerInput", input) &&
+           vm.function("CharacterControllerClear", clear) &&
+           vm.function("CharacterControllerSettings", control_detail::get_settings<Controller>) &&
+           vm.function("CharacterControllerSetSettings",
+                       control_detail::set_settings<Controller>) &&
+           vm.function("CharacterControllerStatus", status);
 }
 } // namespace engine::plugins::script::bindings
-
 #endif

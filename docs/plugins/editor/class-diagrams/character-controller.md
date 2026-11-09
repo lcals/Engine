@@ -1,47 +1,11 @@
 # 角色控制器编辑器插件
 
-运行时组件与输入逻辑见[运行时插件](../../runtime/class-diagrams/character-controller.md)。编辑器插件按玩家输入、跟随相机和表现分类分别提供 TOML 编解码、可撤销编辑命令及 MCP 协议适配，每种类型独立文件。
+[完整 Codec 与命令契约](character-control-design.md) · [运行时角色](../../runtime/class-diagrams/character-control-design.md) · [通用相机编辑](camera-controller.md)
 
-```mermaid
-classDiagram
-    class CharacterControllerCodec {
-        <<final>>
-        +type() ComponentPayload
-        +name() string_view
-        +read(const table& table, ComponentDataT& component, string& error) bool
-        +validate(const ComponentDataT& component, string& error) bool
-        +write(const ComponentDataT& component, table& value) void
-    }
-    class SceneComponentCodec
-    class CharacterCameraCodec
-    class CharacterVisualCodec
-    class CharacterController
-    class CharacterCamera
-    class CharacterVisual
-    class ComponentDataT
-    class ComponentPayload
-    class TomlTable["toml::table"]
-    SceneComponentCodec <|-- CharacterControllerCodec
-    SceneComponentCodec <|-- CharacterCameraCodec
-    SceneComponentCodec <|-- CharacterVisualCodec
-    CharacterCameraCodec ..> CharacterCamera : 使用公开设置校验
-    CharacterVisualCodec ..> CharacterVisual : 使用公开设置校验
-    CharacterCameraCodec ..> ComponentDataT : 转换唯一持久模型
-    CharacterVisualCodec ..> ComponentDataT : 转换唯一持久模型
-    CharacterControllerCodec ..> CharacterController : 使用公开设置校验
-    CharacterControllerCodec ..> ComponentDataT : 转换唯一持久模型
-    CharacterControllerCodec ..> ComponentPayload : 类型登记
-    CharacterControllerCodec ..> TomlTable : 编辑器源文件
-```
+`plugins/editor/character_controller/` 提供 CharacterController、CharacterCamera 和 CharacterVisual 的独立 Codec、命令及可选 MCP 适配。Controller Codec 的公开方法、所有权与登记表借用关系只在完整契约中维护。
 
-插件入口：
+`register_controller_codec(const CharacterAbilityRegistry&)` 汇总三个 Codec，借用宿主冻结的能力类型表；表先构造、后释放，覆盖 Codec 与世界生命周期。基础编辑器不包含具体插件。CharacterCameraCodec 只保存角色适配参数，CharacterVisualCodec 保存 body/head/first_person 分类。
 
-- `register_controller_codec()` 汇总三个逐类型 Codec，各自实现图中同一组覆写方法，并独占交给资源管线的显式登记表；基础编辑器不 include 该插件。
-- `register_controller_commands(WorldSystem&, SceneCommands&, EditorCommands&)` 汇总 `set/get_character_controller`、`set/get_character_camera`、`set/get_character_visual`。各类型负责字段校验与读写，插件内部泛型函数复用已有 `ComponentEdit` 事务。借用的 SceneCommands 提供节点身份，使删除与撤销重建之后仍能正确撤销组件编辑。
-- `register_controller_mcp_tools(McpSystem&, EditorMcpTools&)` 汇总对应三个逐类型协议适配；在启用 MCP 时单独链接，不承担运动、碰撞或相机逻辑。
+设置命令的 `settings` 使用完整生成结构：TOML/MCP 字段为 snake_case、枚举为名称、持久节点引用为场景 local ID 的十进制字符串。设置通过 ComponentEdit 校验并参与撤销；不再接收旧的 cameraNodeId、targetNodeId 或散列相机算法参数。运行目标覆盖仅通过相机的 set_camera_target 命令传当前 Node ID。
 
-命令中的 `cameraNodeId` 是当前场景运行节点身份，编辑时转换为组件持久的 `camera_node_id = NodeInfo.id`；查询同时返回运行身份和 `cameraLocalId`。TOML 使用 `camera_node_id`，跨场景恢复后通过本地身份重新定位。
-
-`character_controller` 只保存速度、跳跃、观察灵敏度和可空相机引用，MCP 以 `cameraNodeId: "0"` 清除。TOML 只接受当前字段集合，未知字段明确报错；相机参数由对应 Camera 节点的 `character_camera` 保存。新相机组件保存 `target_node_id`、模式、距离、俯仰范围、碰撞半径与余量；命令 `targetNodeId` 同样转换运行身份与持久身份，返回 `targetLocalId`，传 `"0"` 解除跟随。编辑器内部命令也接受 null 清除引用。表现组件用 `kind` 指定 `body/head/first_person`，不把分类写入核心网格。
-
-核心 CharacterMotor 的 `external_damping` 随场景保存，MCP 使用 `externalDamping`，范围为有限值 `[0,1000]`。场景导入指纹包含 `scene.fbs`，schema 变化会令既有场景缓存重新生成。
+运行输入与状态工具不进入撤销或场景保存。未知字段和未登记能力直接失败，失败保留原数据。场景与预制体缓存指纹包括 scene.fbs、camera.fbs、character_controller.fbs；当前二进制版本为 3，旧缓存经正常导入重建。

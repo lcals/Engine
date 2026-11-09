@@ -42,7 +42,7 @@ bool SceneResourceCodec::decode(const schema::AssetEntryT& entry, ByteView paylo
 bool SceneResourceCodec::validate_data(const Resource& resource, std::string& error) const
 {
     const auto* data = resource_detail::data<ResourceType>(&resource);
-    if (!data || !(!resource.info().path.starts_with("builtin://") && data->schema_version == 2 &&
+    if (!data || !(!resource.info().path.starts_with("builtin://") && data->schema_version == 3 &&
                    data->info && validate_nodes(resource, data->nodes)))
     {
         error = "Invalid Scene data or declared dependencies";
@@ -226,7 +226,7 @@ bool SceneResourceCodec::validate_nodes(
 }
 
 bool SceneResourceCodec::validate_dependencies(const Resource& resource, ResourceView dependencies,
-                                               std::string& error) const
+                                               std::string&) const
 {
     const auto* scene = resource_detail::data<SceneResource>(&resource);
     if (!scene)

@@ -132,8 +132,7 @@ bool MaterialResourceCodec::validate_data(const Resource& resource, std::string&
 }
 
 bool MaterialResourceCodec::validate_dependencies(const Resource& resource,
-                                                  ResourceView dependencies,
-                                                  std::string& error) const
+                                                  ResourceView dependencies, std::string&) const
 {
     const auto* material = resource_detail::data<MaterialResource>(&resource);
     if (!material)

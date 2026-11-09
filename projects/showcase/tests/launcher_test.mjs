@@ -243,7 +243,7 @@ try {
         "unassigned gamepad and physical keyboard insertion do not replace held touch mappings",
     );
     assert.equal(
-        controller.inputs.at(-1)[0],
+        controller.inputs.at(-1).move[0],
         0.5,
         "the existing input snapshot continues driving the character",
     );

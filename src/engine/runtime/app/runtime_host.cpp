@@ -259,7 +259,10 @@ bool RuntimeHost::initialize_gameplay(const EngineConfig& config,
         reset_gameplay();
         return false;
     }
-    if (!engine_.initialize(config) || !renderer_->bind_world(world_, fonts_, ui_))
+    if (!engine_.initialize(config) ||
+        (setup && !setup(RuntimeStage::initialized, *world_, *window_, *physics_, *navigation_ptr,
+                         *renderer_, *background_tasks_)) ||
+        !renderer_->bind_world(world_, fonts_, ui_))
     {
         reset_gameplay();
         return false;

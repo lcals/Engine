@@ -1,8 +1,8 @@
-# 角色能力组合（设计草案）
+# 角色能力组合
 
 [角色控制总图](character-control-design.md) · [固定步物理接口](../../../runtime/class-diagrams/character-motor-control.md)
 
-**状态：设计草案，待评审，尚未实现。** 能力是 C++ 算法类型、生成配置和实例 Runtime 的组合，保存在一个 CharacterController 的内部。场景只配置类型、参数、启用关系、输入动作和优先级，不为每项能力创建 Node、Component 或脚本实例。
+**状态：已实现；验证范围见[测试文档](../../../testing.md)。** 能力是 C++ 算法类型、生成配置和实例 Runtime 的组合，保存在一个 CharacterController 的内部。场景只配置类型、参数、启用关系、输入动作和优先级，不为每项能力创建 Node、Component 或脚本实例。
 
 ## 配置与登记
 

@@ -1,128 +1,100 @@
 #include "plugins/editor/character_controller/character_controller_codec.hpp"
-
-#include "editor/asset_pipeline/toml_helpers.hpp"
+#include "editor/asset_pipeline/control_toml.hpp"
 #include "plugins/editor/character_controller/character_camera_codec.hpp"
 #include "plugins/editor/character_controller/character_visual_codec.hpp"
 #include "plugins/runtime/character_controller/character_controller.hpp"
-
-#include <algorithm>
-#include <array>
-#include <memory>
-#include <utility>
-
 namespace engine::plugins::character_controller
 {
-
 schema::ComponentPayload CharacterControllerCodec::type() const noexcept
 {
     return schema::ComponentPayload::CharacterControllerData;
 }
-
 std::string_view CharacterControllerCodec::name() const noexcept
 {
     return "character_controller";
 }
-
-bool CharacterControllerCodec::validate(const schema::ComponentDataT& component,
-                                        std::string& error) const
+bool CharacterControllerCodec::validate(const schema::ComponentDataT& c, std::string& e) const
 {
-    const auto* value = component.payload.AsCharacterControllerData();
-    if (value == nullptr || !CharacterController::valid_settings(*value))
+    const auto* d = c.payload.AsCharacterControllerData();
+    if (!d)
     {
-        error = "invalid character_controller settings";
+        e = "invalid character_controller payload";
         return false;
     }
+    return CharacterController::valid_settings(*d, types_, e);
+}
+bool CharacterControllerCodec::read(const toml::table& t, schema::ComponentDataT& c,
+                                    std::string& e) const
+{
+    nlohmann::json j;
+    schema::CharacterControllerDataT d;
+    if (!editor::asset_pipeline::control_toml::read(t, j, e) ||
+        !schema::control_json::read(j, d, e))
+    {
+        return false;
+    }
+    schema::ComponentDataT candidate;
+    candidate.payload.Set(std::move(d));
+    if (!validate(candidate, e))
+    {
+        return false;
+    }
+    c.payload = std::move(candidate.payload);
     return true;
 }
-
-bool CharacterControllerCodec::read(const toml::table& table, schema::ComponentDataT& component,
-                                    std::string& error) const
+void CharacterControllerCodec::write(const schema::ComponentDataT& c, toml::table& t) const
 {
-    schema::CharacterControllerDataT value;
-    constexpr std::array<std::string_view, 7> fields{
-        "type",       "enabled",          "visible",       "move_speed",
-        "jump_speed", "look_sensitivity", "camera_node_id"};
-    for (const auto& [key, field] : table)
+    const auto* d = c.payload.AsCharacterControllerData();
+    if (!d)
     {
-        if (std::find(fields.begin(), fields.end(), key.str()) == fields.end())
-        {
-            error = "Unknown character_controller field: " + std::string(key.str());
-            return false;
-        }
+        return;
     }
-    const auto read_number = [&](std::string_view name, float& output)
-    {
-        if (table.contains(name) && !editor::asset_pipeline::float_number(table.get(name), output))
-        {
-            error = "invalid character_controller." + std::string(name);
-            return false;
-        }
-        return true;
-    };
-    if (!read_number("move_speed", value.move_speed) ||
-        !read_number("jump_speed", value.jump_speed) ||
-        !read_number("look_sensitivity", value.look_sensitivity))
-    {
-        return false;
-    }
-    if (table.contains("camera_node_id") &&
-        !editor::asset_pipeline::identifier(table.get("camera_node_id"), value.camera_node_id))
-    {
-        error = "invalid character_controller.camera_node_id";
-        return false;
-    }
-    if (!CharacterController::valid_settings(value))
-    {
-        error = "invalid character_controller settings";
-        return false;
-    }
-    component.payload.Set(std::move(value));
-    return true;
+    t.insert_or_assign("type", "character_controller");
+    editor::asset_pipeline::control_toml::write_table(schema::control_json::write(*d), t);
 }
-
-void CharacterControllerCodec::write(const schema::ComponentDataT& component,
-                                     toml::table& table) const
-{
-    const auto* value = component.payload.AsCharacterControllerData();
-    table.insert("type", "character_controller");
-    table.insert("move_speed", value->move_speed);
-    table.insert("jump_speed", value->jump_speed);
-    table.insert("look_sensitivity", value->look_sensitivity);
-    table.insert("camera_node_id", std::to_string(value->camera_node_id));
-}
-
 bool CharacterControllerCodec::remap_node_references(
-    schema::ComponentDataT& component, std::span<const schema::NodeIdMappingT> mapping,
-    std::string& error) const
+    schema::ComponentDataT& c, std::span<const schema::NodeIdMappingT> mappings,
+    std::string& e) const
 {
-    auto* data = component.payload.AsCharacterControllerData();
-    if (!data)
+    auto* d = c.payload.AsCharacterControllerData();
+    if (!d)
     {
         return false;
     }
-    if (data->camera_node_id == 0)
+    const auto remap = [&](std::uint64_t& id)
     {
-        return true;
-    }
-    for (const auto& value : mapping)
-    {
-        if (value.source_id == data->camera_node_id)
+        if (!id)
         {
-            data->camera_node_id = value.target_id;
             return true;
         }
-    }
-    error = "Prefab has an external node reference: camera_node_id";
-    return false;
+        for (const auto& m : mappings)
+        {
+            if (m.source_id == id)
+            {
+                if (!m.target_id || m.retired)
+                {
+                    break;
+                }
+                id = m.target_id;
+                return true;
+            }
+        }
+        e = "unmapped control node reference";
+        return false;
+    };
+    return remap(d->camera_node_id);
 }
-
-bool register_controller_codec()
+bool register_controller_codec(const CharacterAbilityRegistry& types)
 {
+    if (!types.frozen())
+    {
+        return false;
+    }
     if (!editor::asset_pipeline::find_scene_component_codec(
             schema::ComponentPayload::CharacterControllerData))
     {
         std::unique_ptr<editor::asset_pipeline::SceneComponentCodec> codec =
-            std::make_unique<CharacterControllerCodec>();
+            std::make_unique<CharacterControllerCodec>(types);
         if (!editor::asset_pipeline::register_scene_component_codec(codec))
         {
             return false;
@@ -130,5 +102,4 @@ bool register_controller_codec()
     }
     return register_character_camera_codec() && register_character_visual_codec();
 }
-
 } // namespace engine::plugins::character_controller

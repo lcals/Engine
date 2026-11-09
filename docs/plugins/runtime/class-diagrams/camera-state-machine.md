@@ -2,11 +2,11 @@
 
 [相机插件总图](camera-controller.md) · [C++ 模块组合](camera-modules.md) · [TS 接口](camera-script-api.md)
 
-**状态：设计草案，待评审，尚未实现。** 状态机定义向场景、预制体、C++、TS 和 MCP 开放；执行过程、当前状态和混合缓存由 C++ 管理。只使用命名参数、声明式条件及显式登记的 C++ 条件类型，不保存脚本回调或虚拟机对象。
+**状态：已实现；验证范围见[测试文档](../../../testing.md)。** 状态机定义向场景、预制体、C++、TS 和 MCP 开放；执行过程、当前状态和混合缓存由 C++ 管理。只使用命名参数、声明式条件及显式登记的 C++ 条件类型，不保存脚本回调或虚拟机对象。
 
 ## 唯一持久模型
 
-以下 `*DataT` / `*ValueT` 均拟由 `include/schemas/runtime/camera.fbs` 生成，组件载荷接入当前运行时场景 Schema。字段内容直接存 ECS 生成数据列，不另建手写的持久 C++ 或 TS 模型。
+以下 `*DataT` / `*ValueT` 均由 `include/schemas/runtime/camera.fbs` 生成，组件载荷接入当前运行时场景 Schema。字段内容直接存 ECS 生成数据列，不另建手写的持久 C++ 或 TS 模型。
 
 ```mermaid
 classDiagram
@@ -178,6 +178,9 @@ classDiagram
         <<private transient data>>
         +state_id string
         +source_state_id string
+        +state_scope string
+        +source_scope string
+        +entry_sequence uint64_t
         +state_seconds double
         +blend_seconds double
         +blend_duration double
@@ -205,6 +208,8 @@ classDiagram
 ```
 
 `select` 返回 bool 表示评估过程是否成功；成功且 `selected == false` 表示本帧没有转换。条件评估错误不是条件为假。`commit` 只写候选运行记录，真实发布由 CameraSystem 在所有输出预检成功后完成；失败不推进原状态或消费触发器。
+
+每次进入状态递增 `entry_sequence` 并产生新的 `state_scope`；混合期间保留 `source_scope`，保证重入相同状态也不复用上次的模块历史。成功提交后清理已退出的作用域。
 
 转换规则统一如下。
 

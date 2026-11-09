@@ -1,8 +1,8 @@
-# 角色扩展编辑器接入（设计草案）
+# 角色扩展编辑器接入
 
 [运行时角色设计](../../runtime/class-diagrams/character-control-design.md) · [能力组合](../../runtime/class-diagrams/character-abilities.md) · [当前角色编辑器插件](character-controller.md)
 
-**状态：设计草案，待评审，尚未实现。** 复用已有 `plugins/editor/character_controller/`，升级逐组件 Codec、可撤销命令及 MCP 参数。运行时角色插件不链接编辑器或 MCP；制作接口继续由宿主登记。
+**状态：已实现；验证范围见[测试文档](../../../testing.md)。** 复用已有 `plugins/editor/character_controller/`，升级逐组件 Codec、可撤销命令及 MCP 参数。运行时角色插件不链接编辑器或 MCP；制作接口继续由宿主登记。
 
 ```mermaid
 classDiagram
@@ -38,7 +38,7 @@ Codec 独占交给现有登记表；能力登记表由宿主拥有并覆盖 Code
 
 CharacterCameraCodec 按[新角色相机契约](../../runtime/class-diagrams/character-integration-design.md)升级生成字段；CharacterVisual 的分类 Schema 与 Codec 保持原职责。组件引用、相机命名目标槽、动作名称和参数名各自按所属数据校验；离线 Codec 不借用运行世界或偷偷创建默认角色／镜头。
 
-| 入口 | 拟议行为 |
+| 入口 | 当前行为 |
 | --- | --- |
 | `get/set_character_controller` | 完整读取／替换移动、朝向、输入动作声明、能力列表及类型化配置，设置走既有 ComponentEdit 事务 |
 | `get_character_status` | 返回实际物理快照、姿态、动作、能力及事件序列，只读 |

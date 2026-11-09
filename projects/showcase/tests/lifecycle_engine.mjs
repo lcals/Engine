@@ -157,7 +157,7 @@ export class NavigationAgent {}
 export class CharacterController {
     constructor() { this.inputs = []; this.cancellations = 0; }
     IsValid() { return true; }
-    SetInput(...input) { this.inputs.push(input); return true; }
+    SetInput(input) { this.inputs.push(input); return true; }
     ClearInput() { ++this.cancellations; return true; }
 }
 export const InputDeviceKind = { keyboard: 0, mouse: 1, gamepad: 2, touch: 4 };

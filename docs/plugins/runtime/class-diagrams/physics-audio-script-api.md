@@ -66,6 +66,10 @@ classDiagram
         +SetStepHeight(number value) boolean
         +SetGroundSnapDistance(number value) boolean
         +SetGravityFactor(number value) boolean
+        +SetExternalDamping(number value) boolean
+        +ClearInput() boolean
+        +AddVelocity(number x, number y, number z) boolean
+        +GetStatus() CharacterMotorStatusOrNull
         +SetVelocity(number x, number z) boolean
         +GetVelocity() vector_or_null
         +Jump(number speed) boolean
@@ -73,6 +77,8 @@ classDiagram
     }
     Component <|-- CharacterMotor
 ```
+
+GetStatus 返回最近完成固定步的独立只读快照；字段见[角色物理状态](../../../runtime/class-diagrams/character-motor-control.md)。驱动持有控制权时，SetVelocity、Jump、ClearInput 返回 false；AddVelocity 仍可提交外力。
 
 CharacterMotor 的脚底原点、设置校验与碰撞由[核心组件](../../../runtime/class-diagrams/character-motor.md)定义。SetVelocity 只提交水平请求；GetVelocity 返回最后物理结果，失效对象为 null。Jump 仅在地面时接受一次请求；grounded 对失效或禁用对象为 false。
 

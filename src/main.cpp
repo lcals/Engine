@@ -172,6 +172,42 @@ int main(int argc, char* argv[])
         return 1;
     }
 #endif
+#if ENGINE_HAS_CAMERA
+    static engine::plugins::camera::CameraTypeRegistry camera_types;
+    if (!camera_types.frozen() &&
+        (!engine::plugins::camera::register_builtin_camera_types(camera_types) ||
+         !camera_types.freeze()))
+    {
+        return 1;
+    }
+#endif
+#if ENGINE_HAS_CHARACTER_CONTROLLER
+    static engine::plugins::character_controller::CharacterAbilityRegistry character_abilities;
+    if (!character_abilities.frozen() &&
+        (!engine::plugins::character_controller::register_builtin_character_abilities(
+             character_abilities) ||
+         !character_abilities.freeze()))
+    {
+        return 1;
+    }
+#endif
+    const engine::RuntimeSetup configure_runtime_plugins =
+        [](engine::RuntimeStage stage, engine::WorldSystem& world, engine::WindowSystem& window,
+           engine::PhysicsSystem& physics, engine::NavigationSystem& navigation,
+           engine::RenderSystem& renderer, engine::TaskSystem& tasks)
+    {
+        return assemble_runtime_plugins(stage, world, window, physics, navigation, renderer, tasks,
+#if ENGINE_HAS_CAMERA
+                                        &camera_types,
+#else
+                                        nullptr,
+#endif
+#if ENGINE_HAS_CHARACTER_CONTROLLER
+                                        &character_abilities);
+#else
+                                        nullptr);
+#endif
+    };
     engine::RuntimeHost engine;
     engine::AnimationRetargeterFactory retargeter_factory = nullptr;
 #if ENGINE_HAS_ANIMATION_RETARGET_PLUGIN

@@ -8,7 +8,9 @@
 | --- | --- | --- |
 | 运行时资源依赖图 | `plugins/runtime/resource_graph/` | 必要依赖加载、共享缓存及按引用反向释放，实现核心加载接口 |
 | 运行时脚本 | `plugins/runtime/script/` | QuickJS/V8 二选一、JS 模块与玩法执行、共享逐类绑定，实现核心 ScriptRuntime |
-| 运行时角色控制器 | `plugins/runtime/character_controller/` | 输入与第一/第三人称相机策略，调用核心 CharacterMotor |
+| 运行时相机 | `plugins/runtime/camera/` | 参数状态机、Rig 与 C++ 模块、混合、碰撞和边界约束 |
+| 编辑器相机 | `plugins/editor/camera/` | 完整配置编解码、可撤销编辑及运行参数 MCP |
+| 运行时角色控制器 | `plugins/runtime/character_controller/` | 固定步移动、Sprint/Jump/Crouch 能力与角色相机适配，通过 CharacterMotorDriver 接入物理 |
 | 运行时多角色导航 | `plugins/runtime/navigation_crowd/` | NavigationAgent、原生目标消费与 Transform 同步，调用核心 DetourCrowd |
 | 编辑器多角色导航 | `plugins/editor/navigation_crowd/` | 导航代理配置的 TOML 编解码 |
 | 运行时特效 | `plugins/runtime/effects/` | 独立 EffectSystem、节点 EffectComponent、官方 Effekseer 模拟与 efkbgfx 绘制 |
@@ -45,7 +47,8 @@
 | 插件 | 默认加入条件 | 声明的插件依赖 |
 | --- | --- | --- |
 | `runtime/resource_graph` | `ENGINE_ENABLE_RUNTIME_DEPS=ON` | 无 |
-| `runtime/character_controller` | `ENGINE_ENABLE_RUNTIME_DEPS=ON` | 无；调用核心世界、物理和窗口 |
+| `runtime/camera` | 由 `character_controller` 的依赖闭包加入，或显式选择 | 无；调用核心世界、场景和物理 |
+| `runtime/character_controller` | `ENGINE_ENABLE_RUNTIME_DEPS=ON` | `runtime/camera` |
 | `runtime/navigation_crowd` | `ENGINE_ENABLE_RUNTIME_DEPS=ON` | 无；调用核心世界与导航，不依赖玩家控制器或 Jolt |
 | `editor/navigation_crowd` | 非设备构建，资源管线依赖开启 | `runtime/navigation_crowd` |
 | `runtime/effects` | `ENGINE_ENABLE_RUNTIME_DEPS=ON` | 无；固定版本 Effekseer 和 efkbgfx，复用核心渲染扩展 |
@@ -57,7 +60,8 @@
 | `editor/asset_import` | 非设备构建，资源管线依赖开启 | 无；统一声明 ufbx、OpenUSD、FreeType 与格式校验依赖，vcpkg features 为 `font-import`、`usd-import` |
 | `editor/ui` | 桌面编辑器，运行时及资源管线依赖开启 | `editor/asset_import`；选中 MCP 时额外生成 UI 工具适配目标 |
 | `editor/scene_bake` | 桌面编辑器，运行时及资源管线依赖开启 | 无；通过核心 `ResourceLoader` 加载输入，不强制装配依赖图；运行包不包含此插件 |
-| `editor/character_controller` | 非设备构建，资源管线依赖开启 | `runtime/character_controller` |
+| `editor/camera` | 由编辑器 `character_controller` 的依赖闭包加入，或显式选择 | `runtime/camera` |
+| `editor/character_controller` | 非设备构建，资源管线依赖开启 | `runtime/character_controller`、`editor/camera` |
 | `runtime/script` | `ENGINE_ENABLE_SCRIPT_RUNTIME=ON` | 无；需要运行时依赖和所选 JS 后端，默认 QuickJS |
 | `editor/modeling` | 非设备构建，编辑器或资源管线依赖开启 | 无；需要运行时及建模第三方依赖 |
 | `editor/asset_build` | 非设备构建，资源管线依赖开启 | 无；需要资源管线基础 |
@@ -147,3 +151,5 @@ CMake 的其余职责分别位于 `install/`、`dependencies/`、`core/`、`edit
 - [特效](runtime/effects.md)、[体积地形](runtime/terrain.md)、[建筑破坏](runtime/destruction.md)。
 - [MCP 场景编辑](editor/mcp.md)、[模型导入](editor/model-import.md)、[光照烘焙](editor/scene-bake.md)。
 - [完整资源同步](editor/resource-sync.md)、[公开范例与验证](../testing.md)。
+
+`character_controller` 明确依赖 `camera`；编辑器对应插件也通过依赖闭包装配。仅选 `camera` 可以运行普通镜头，无需角色或脚本插件。相机与角色类型登记表由可执行宿主持有并冻结，库不使用隐式进程全局类型表。

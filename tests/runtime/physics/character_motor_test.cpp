@@ -155,7 +155,10 @@ bool input_and_damping()
     {
         return false;
     }
-    motor.clear_input();
+    if (!motor.clear_input())
+    {
+        return false;
+    }
     if (!expect(fixture.advance(1) && motor.grounded() && close(motor.velocity().x(), 6) &&
                     close(motor.velocity().z(), 0),
                 "clear_input cancels active movement and jump but preserves pending knockback") ||
@@ -170,7 +173,10 @@ bool input_and_damping()
     double previous = motor.velocity().x();
     for (unsigned int index = 0; index < 60; ++index)
     {
-        motor.clear_input();
+        if (!motor.clear_input())
+        {
+            return false;
+        }
         if (!expect(motor.set_velocity({0, 0, 0}) && fixture.advance(1) &&
                         motor.velocity().x() > 0 && motor.velocity().x() < previous &&
                         close(motor.velocity().z(), 0),

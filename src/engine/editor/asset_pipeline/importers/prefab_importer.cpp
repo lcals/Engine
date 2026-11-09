@@ -24,7 +24,8 @@ bool PrefabAssetImporter::matches(const std::filesystem::path& source) const
 bool PrefabAssetImporter::inspect_batch(const ImportContext&, std::string& fingerprint,
                                         std::string& error)
 {
-    return schema_fingerprint({"runtime/scene.fbs", "runtime/prefab.fbs", "runtime/model.fbs"},
+    return schema_fingerprint({"runtime/scene.fbs", "runtime/prefab.fbs", "runtime/model.fbs",
+                               "runtime/camera.fbs", "runtime/character_controller.fbs"},
                               fingerprint, error);
 }
 

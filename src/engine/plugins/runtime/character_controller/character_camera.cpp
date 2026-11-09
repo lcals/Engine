@@ -1,171 +1,180 @@
 #include "plugins/runtime/character_controller/character_camera.hpp"
-
-#include "plugins/runtime/character_controller/character_camera_runtime.hpp"
-
+#include "plugins/runtime/camera/camera_controller.hpp"
 #include "runtime/scene/ecs_storage.hpp"
-
-#include "runtime/scene/node.hpp"
-#include "runtime/scene/transform.hpp"
-
-#include <algorithm>
 #include <cmath>
-
+#include <set>
 namespace engine::plugins::character_controller
 {
-bool CharacterCamera::register_type(ComponentRegistry& registry)
+bool CharacterCamera::register_type(ComponentRegistry& r)
 {
-    return register_component_storage<CharacterCamera, Data, Runtime>(registry);
+    return register_component_storage<CharacterCamera, Data>(r);
 }
-
-CharacterCamera::Runtime* CharacterCamera::runtime() const noexcept
+bool CharacterCamera::valid_settings(const Data& d) noexcept
 {
-    return runtime_state<Runtime>();
-}
-
-bool CharacterCamera::valid_settings(const schema::CharacterCameraDataT& value) noexcept
-{
-    const auto bounded = [](float v, float low, float high)
-    { return std::isfinite(v) && v >= low && v <= high; };
-    return value.mode >= schema::CharacterView::MIN && value.mode <= schema::CharacterView::MAX &&
-           bounded(value.eye_height, 0.01F, 1000.0F) &&
-           bounded(value.camera_distance, 0.01F, 10000.0F) &&
-           bounded(value.pitch_min, -89.0F, 89.0F) && bounded(value.pitch_max, -89.0F, 89.0F) &&
-           value.pitch_min <= value.pitch_max && bounded(value.collision_radius, 0.01F, 100.0F) &&
-           bounded(value.collision_margin, 0.0F, 100.0F);
-}
-
-bool CharacterCamera::get_settings(Data& output) const noexcept
-{
-    const auto* value = read_data<Data>();
-    output = value ? *value : Data{};
-    return value != nullptr;
-}
-
-bool CharacterCamera::set_settings(const schema::CharacterCameraDataT& value) noexcept
-{
-    if (!writable())
+    const auto finite = [](const Vec2& v) { return std::isfinite(v.x()) && std::isfinite(v.y()); };
+    if (!finite(d.pointer_scale_degrees) || !finite(d.rate_degrees_per_second))
     {
         return false;
     }
-    if (!valid_settings(value))
+    if (d.subject_slot.empty() || d.yaw_parameter.empty() || d.pitch_parameter.empty())
+    {
+        return d.subject_slot.empty() && d.yaw_parameter.empty() && d.pitch_parameter.empty() &&
+               d.first_person_parameter.empty() && d.status_bindings.empty() &&
+               d.first_person_states.empty();
+    }
+    std::set<std::string> names;
+    names.insert(d.yaw_parameter);
+    if (!names.insert(d.pitch_parameter).second)
     {
         return false;
     }
-    *write_data<Data>() = value;
-    modified();
-    runtime()->pitch_ = std::clamp(runtime()->pitch_, static_cast<double>(value.pitch_min),
-                                   static_cast<double>(value.pitch_max));
-    return true;
-}
-
-bool CharacterCamera::restore_data(const schema::ComponentDataT& value)
-{
-    if (!value.flags)
+    if (!d.first_person_parameter.empty() && !names.insert(d.first_person_parameter).second)
     {
         return false;
     }
-    if (!writable())
+    for (const auto& b : d.status_bindings)
     {
-        return false;
-    }
-    const auto* settings = value.payload.AsCharacterCameraData();
-    if (settings == nullptr || !set_settings(*settings))
-    {
-        return false;
-    }
-    runtime()->angles_initialized_ = false;
-    if (!restore_flags(value))
-    {
-        return false;
-    }
-    return true;
-}
-
-bool CharacterCamera::remap_node_references(schema::ComponentDataT& data,
-                                            std::span<const schema::NodeIdMappingT> mapping) const
-{
-    auto* settings = data.payload.AsCharacterCameraData();
-    if (!settings)
-    {
-        return false;
-    }
-    if (settings->target_node_id == 0)
-    {
-        return true;
-    }
-    for (const auto& entry : mapping)
-    {
-        if (entry.source_id == settings->target_node_id)
+        if (b.parameter.empty() || !names.insert(b.parameter).second ||
+            b.source < schema::CharacterCameraSource::MIN ||
+            b.source > schema::CharacterCameraSource::MAX || !std::isfinite(b.scale) ||
+            !std::isfinite(b.offset))
         {
-            if (entry.target_id == 0 || entry.retired)
-            {
-                return false;
-            }
-            settings->target_node_id = entry.target_id;
-            return true;
+            return false;
+        }
+        bool named = b.source == schema::CharacterCameraSource::action_held ||
+                     b.source == schema::CharacterCameraSource::ability_active;
+        if (named == b.source_name.empty())
+        {
+            return false;
+        }
+        if (b.source >= schema::CharacterCameraSource::grounded && (b.scale != 1 || b.offset != 0))
+        {
+            return false;
         }
     }
-    return false;
-}
-
-bool CharacterCamera::synchronize_angles() noexcept
-{
-    if (!writable())
+    std::set<std::string> states;
+    for (const auto& state : d.first_person_states)
     {
-        return false;
+        if (state.empty() || !states.insert(state).second)
+        {
+            return false;
+        }
     }
-    if (runtime()->angles_initialized_)
-    {
-        return true;
-    }
-    auto transform = node().get_component<Transform>();
-    TransformSettings pose;
-    if (!transform.get_settings(pose))
-    {
-        return false;
-    }
-    const auto& rotation = pose.rotation;
-    return set_angles(rotation.y(), rotation.x());
-}
-
-bool CharacterCamera::set_angles(double yaw, double pitch) noexcept
-{
-    if (!writable())
-    {
-        return false;
-    }
-    if (!std::isfinite(yaw) || !std::isfinite(pitch))
-    {
-        return false;
-    }
-    Data data;
-    if (!get_settings(data))
-    {
-        return false;
-    }
-    runtime()->yaw_ = std::remainder(yaw, 360.0);
-    runtime()->pitch_ =
-        std::clamp(pitch, static_cast<double>(data.pitch_min), static_cast<double>(data.pitch_max));
-    runtime()->angles_initialized_ = true;
     return true;
 }
-
-double CharacterCamera::yaw() const noexcept
+bool CharacterCamera::get_settings(Data& out) const
 {
-    if (!valid())
-    {
-        return {};
-    }
-    return runtime()->yaw_;
+    const auto* d = read_data<Data>();
+    out = d ? *d : Data{};
+    return d;
 }
-
-double CharacterCamera::pitch() const noexcept
+bool CharacterCamera::set_settings(const Data& d)
 {
-    if (!valid())
+    if (!writable() || !valid_settings(d))
     {
-        return {};
+        return false;
     }
-    return runtime()->pitch_;
+    *write_data<Data>() = d;
+    modified();
+    return true;
 }
-
+bool CharacterCamera::restore_data(const schema::ComponentDataT& d)
+{
+    const auto* data = d.payload.AsCharacterCameraData();
+    return d.flags && data && set_settings(*data) && restore_flags(d);
+}
+bool CharacterCamera::get_angles(double& yaw, double& pitch) const
+{
+    yaw = 0;
+    pitch = 0;
+    if (!active())
+    {
+        return false;
+    }
+    const auto* d = read_data<Data>();
+    auto solver = node().get_component<camera::CameraController>();
+    schema::CameraParameterValueT a, b;
+    if (!solver.active() || !solver.get_parameter(d->yaw_parameter, a) ||
+        !solver.get_parameter(d->pitch_parameter, b) ||
+        a.type != schema::CameraParameterType::float_value || b.type != a.type)
+    {
+        return false;
+    }
+    yaw = a.float_value;
+    pitch = b.float_value;
+    return true;
+}
+bool CharacterCamera::set_angles(double yaw, double pitch)
+{
+    if (!writable() || !active() || !std::isfinite(yaw) || !std::isfinite(pitch))
+    {
+        return false;
+    }
+    const auto& d = *read_data<Data>();
+    auto solver = node().get_component<camera::CameraController>();
+    camera::CameraController::Data config;
+    if (!solver.active() || !solver.get_settings(config))
+    {
+        return false;
+    }
+    const schema::CameraParameterDataT *y = nullptr, *p = nullptr;
+    for (const auto& v : config.parameters)
+    {
+        if (v.name == d.yaw_parameter)
+        {
+            y = &v;
+        }
+        if (v.name == d.pitch_parameter)
+        {
+            p = &v;
+        }
+    }
+    if (!y || !p || y->type != schema::CameraParameterType::float_value || p->type != y->type ||
+        (y->has_range && (y->minimum > -180 || y->maximum < 180)) || !p->has_range)
+    {
+        return false;
+    }
+    schema::CameraParameterValueT values[2];
+    values[0].name = y->name;
+    values[1].name = p->name;
+    values[0].type = values[1].type = schema::CameraParameterType::float_value;
+    double angle = std::fmod(yaw + 180, 360);
+    if (angle < 0)
+    {
+        angle += 360;
+    }
+    values[0].float_value = static_cast<float>(angle - 180);
+    values[1].float_value = static_cast<float>(std::clamp(pitch, p->minimum, p->maximum));
+    return solver.set_parameters(values);
+}
+bool CharacterCamera::apply_look(const Vec2& delta, const Vec2& rate, double dt)
+{
+    double yaw, pitch;
+    if (!std::isfinite(dt) || dt < 0 || !get_angles(yaw, pitch))
+    {
+        return false;
+    }
+    const auto& d = *read_data<Data>();
+    return set_angles(yaw + delta.x() * d.pointer_scale_degrees.x() +
+                          rate.x() * d.rate_degrees_per_second.x() * dt,
+                      pitch + delta.y() * d.pointer_scale_degrees.y() +
+                          rate.y() * d.rate_degrees_per_second.y() * dt);
+}
+bool CharacterCamera::toggle_view()
+{
+    if (!writable() || !active())
+    {
+        return false;
+    }
+    auto solver = node().get_component<camera::CameraController>();
+    const auto& d = *read_data<Data>();
+    schema::CameraParameterValueT value;
+    if (!solver.active() || !solver.get_parameter(d.first_person_parameter, value) ||
+        value.type != schema::CameraParameterType::bool_value)
+    {
+        return false;
+    }
+    value.bool_value = !value.bool_value;
+    return solver.set_parameters({&value, 1});
+}
 } // namespace engine::plugins::character_controller

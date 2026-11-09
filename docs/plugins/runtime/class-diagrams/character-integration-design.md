@@ -1,8 +1,8 @@
-# 角色与镜头、动画、脚本衔接（设计草案）
+# 角色与镜头、动画、脚本衔接
 
 [角色控制](character-control-design.md) · [角色能力](character-abilities.md) · [相机插件](camera-controller.md) · [当前动画状态机](animation-state-machine.md) · [编辑器接入](../../editor/class-diagrams/character-control-design.md)
 
-**状态：设计草案，待评审，尚未实现。** 本页明确角色扩展与已提交相机草案的结合方式。相机算法归 camera 插件，角色插件只提交观察参数和角色事实、维护角色视图过滤；动画仍使用现有 Animator 与状态机。
+**状态：已实现；验证范围见[测试文档](../../../testing.md)。** 本页明确角色与通用相机的结合方式。相机算法归 camera 插件，角色插件只提交观察参数和角色事实、维护角色视图过滤；动画仍使用现有 Animator 与状态机。
 
 ## 角色相机适配
 
@@ -74,7 +74,7 @@ apply_look 按 `delta * pointer_scale_degrees + rate * rate_degrees_per_second *
 
 绑定使用同节点且启用的 CameraController，动作方向对应的 CharacterController.camera_node_id 必须指向此节点，subject_slot 必须解析为该角色。引用错误不自动重绑。普通非角色跟随镜头可以使用 CameraController 而不添加 CharacterCamera。
 
-角色模板对同一输入轴使用一致的参数范围与 Rig 限制，避免镜头已到限制而输入仍在不可见范围内累计。拟议偏航按 [-180,180) 归一化，参数声明须接受这一范围；俯仰以声明的有限上下限为准。
+角色模板对同一输入轴使用一致的参数范围与 Rig 限制，避免镜头已到限制而输入仍在不可见范围内累计。当前偏航按 [-180,180) 归一化，参数声明须接受这一范围；俯仰以声明的有限上下限为准。
 
 ## 参数发布与视图过滤
 
@@ -133,7 +133,7 @@ CharacterVisual 的子树分类、每镜头隐藏及角色阴影契约保持。�
 flowchart TD
     A[Gameplay 读取输入并提交角色意图] --> B[现有脚本动画状态机更新]
     B --> C[CharacterControllerSystem 采集输入和观察角]
-    C --> D[PhysicsSystem 固定步：能力 → Motor → 实际回执]
+    C --> D["PhysicsSystem 固定步：能力 → Motor → 实际回执"]
     D --> E[AnimationSystem 更新骨架和挂点]
     E --> F[CharacterCameraParameterSystem 发布角色事实]
     F --> G[CameraSystem 求解与混合镜头]
@@ -147,7 +147,7 @@ flowchart TD
 
 本轮角色模块发布实际速度、支撑、姿态、能力阶段及起跳／落地序列；项目把这些值送到现有动画状态机，Animator 继续完成动作播放、混合、重定向、IK、挂点与事件。原地动画不写角色根节点位移，Motor 是运动来源。
 
-现有 TS 动画状态机在脚本阶段执行，所以读取的是最近已完成的物理快照；本草案没有把它描述成同帧物理之后的原生状态机。C++ 调用方同样可以读 CharacterStatus 并调用 Animator 的公开播放接口；一个 Animator 明确选用一种播放驱动，不能同时由手动播放与已绑定状态机轮流覆盖。
+现有 TS 动画状态机在脚本阶段执行，所以读取的是最近已完成的物理快照；本契约没有把它描述成同帧物理之后的原生状态机。C++ 调用方同样可以读 CharacterStatus 并调用 Animator 的公开播放接口；一个 Animator 明确选用一种播放驱动，不能同时由手动播放与已绑定状态机轮流覆盖。
 
 起跳与落地使用单调序列检测新事件，不把一帧的 grounded 布尔反复当作新事件。角色删除／替换后重置观察身份，不能将旧实例序列用于新角色。Root Motion、脚锁、攀爬对位、全身 IK 及同帧原生动画图需要另行设计，首批继续采用现有 InPlace 资源。
 
@@ -186,7 +186,7 @@ interface CharacterInput {
 }
 ```
 
-GetSettings/SetSettings 使用 Schema 生成的对象数据，运行查询返回独立只读快照，失败为 null；修改操作返回 boolean 并遵循原生原子校验。TS 不推进固定步、不求碰撞、不自行推进能力计时。模板由 MCP 配置组件及能力列表；运行输入由 C++ 或 TS 提交，关闭脚本插件仍能运行原生角色控制。
+GetSettings/SetSettings 使用 Schema 生成的对象数据，GetSettings 返回可编辑的独立配置副本，GetStatus 返回独立只读快照，失败为 null；修改操作返回 boolean 并遵循原生原子校验。TS 不推进固定步、不求碰撞、不自行推进能力计时。模板由 MCP 配置组件及能力列表；运行输入由 C++ 或 TS 提交，关闭脚本插件仍能运行原生角色控制。
 
 现有 NavigationCrowdSystem 自己写节点位置，并明确拒绝同节点启用 CharacterMotor。首批保持这一边界；普通 AI 可以提交角色意图，但将群体导航的路径与避让结果接成 Motor 输入需要独立设计，不能把现有导航代理直接叠到该角色节点。
 

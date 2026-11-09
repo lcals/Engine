@@ -2,7 +2,7 @@
 
 [相机插件总图](camera-controller.md) · [状态机与配置](camera-state-machine.md)
 
-**状态：设计草案，待评审，尚未实现。** Rig 是一份可复用的生成配置，模块是独立 C++ 算法类型；两者均不展开为新的场景 Node 或 Component。场景上的入口保持一个 `CameraController`，没有脚本依赖或逐实例虚函数对象。
+**状态：已实现；验证范围见[测试文档](../../../testing.md)。** Rig 是一份可复用的生成配置，模块是独立 C++ 算法类型；两者均不展开为新的场景 Node 或 Component。场景上的入口保持一个 `CameraController`，没有脚本依赖或逐实例虚函数对象。
 
 ## 方案和类型化配置
 
@@ -35,6 +35,7 @@ classDiagram
         +id uint64_t
         +follow_slot string
         +pivot_offset Vec3
+        +height_offset CameraFloatInputDataT
         +distance CameraFloatInputDataT
         +yaw CameraFloatInputDataT
         +pitch CameraFloatInputDataT
@@ -173,7 +174,7 @@ classDiagram
 
 ## 首批模块与参数范围
 
-下表描述拟议职责和主要参数分组；所有类型各自独立文件并满足上图契约。各效果只有显式添加并启用后才执行。此处不是已实现功能清单。
+下表列出已实现模块的职责和主要参数分组；所有类型各自独立文件并满足上图契约。各效果只有显式添加并启用后才执行。
 
 | C++ 类型 | 阶段及职责 | 主要参数 |
 | --- | --- | --- |
@@ -190,20 +191,20 @@ classDiagram
 
 Lens 只写其声明的投影字段；Camera 的视锥裁剪开关仍使用核心组件上的设置。CameraPose 携带完整 CameraSettings 时，求解器从实际相机保留这些非投影字段，避免每帧被默认值覆盖。
 
-状态图中 Parameter、Trigger、TargetValid、StateTime 四类条件分别对应 `ParameterCameraCondition`、`TriggerCameraCondition`、`TargetCameraCondition`、`StateTimeCameraCondition`，共用相同登记方式。轨道、多目标自动构图、复杂视线绕行和专用后坐力模型可以增加具体 C++ 类型，但不作为这批草案的内置实现承诺。
+状态图中 Parameter、Trigger、TargetValid、StateTime 四类条件分别对应 `ParameterCameraCondition`、`TriggerCameraCondition`、`TargetCameraCondition`、`StateTimeCameraCondition`，共用相同登记方式。轨道、多目标自动构图、复杂视线绕行和专用后坐力模型可以增加具体 C++ 类型，但不作为这批契约的内置实现承诺。
 
 ## 固定阶段与最终安全检查
 
 ```mermaid
 flowchart TD
     A[本帧参数与目标快照] --> B[求解当前及目的 Rig]
-    B --> C[投影 → 位置 → 瞄准]
+    B --> C["投影 → 位置 → 瞄准"]
     C --> D[状态过渡混合]
     D --> E[公共晃动与冲击]
     E --> F[公共空间约束与碰撞检查]
     F --> G{输出与所有约束有效}
-    G -->|是| H[提交相机与候选运行状态]
-    G -->|否| I[保留已提交输出并报告原因]
+    G -->|"是"| H[提交相机与候选运行状态]
+    G -->|"否"| I[保留已提交输出并报告原因]
 ```
 
 Rig 列表按 lens、position、aim 阶段执行，顺序不能倒置，使屏幕构图使用本帧投影参数。控制器的 `output_modules` 只接受 modifier、constraint，保证混合之后仍处理噪声位移和穿墙风险。相同阶段遵守配置顺序；调度器不擅自重排。
@@ -212,14 +213,16 @@ Rig 列表按 lens、position、aim 阶段执行，顺序不能倒置，使屏�
 
 相机穿入碰撞体与相机到目标之间被遮挡是两项不同查询。首批 Collision 的视线策略限于向目标收缩并按延迟／阻尼恢复，不承诺自动绕复杂建筑找到最佳视角；更复杂的搜索作为独立模块扩展。忽略主体使用已有 `PhysicsQueryFilter` 的节点及后代过滤，默认不查询 sensor；不在相机插件内另写物理场景。
 
-碰撞模块的运动扫掠不依赖跟随目标。目标失效时，目标相关的视线与距离约束标为不可评估，运动碰撞检查继续执行；状态图可以据此进入不依赖目标的固定方案。需要目标的 Follow、Orbit 或 Aim 仍须报告目标缺失，不能把原点当作目标。
+仅启用运动扫掠时，碰撞模块不依赖跟随目标。启用视线检测后，主体目标失效会使本次求解失败；状态图可以据此进入不依赖目标的固定方案。需要目标的 Follow、Orbit 或 Aim 同样报告目标缺失，不能把原点当作目标。
 
 起点重叠、移动障碍挤压以及多个约束冲突可能没有可行结果。模块必须明确失败或给出经过复核的结果；保留上一输出只是确定的失败行为，不能据此宣称上一位置在变化后的世界里仍安全。未启用碰撞约束时不提供防穿墙保证。
 
-混合所需的两个 Rig 最多各求解一次；公共效果与约束每帧只执行一次。查找与字段绑定在配置成功时准备，候选存储复用已有容量，不在逐帧路径扫描整张状态图的所有方案或复制全部持久配置。
+混合所需的两个 Rig 最多各求解一次；公共效果与约束每帧只执行一次。配置成功时准备按状态归组的出边索引，逐帧只评估当前需要的方案，不复制全部持久配置。
 
 ## 增加一种类型
 
 新增模块时，补充其 FlatBuffers 生成配置、具体 C++ 类型及 Runtime、逐类型字段校验，再由宿主 `add_module<T>()` 登记；条件同理。扩展保持单一版本，一次同步 Schema、生成数据、编解码、绑定、MCP 参数说明和所属类图，不支持任意二进制插件在运行中注入未知 Schema。
 
-设计参考采用公开文档中的职责划分：[Cinemachine 相机组合](https://docs.unity3d.com/Packages/com.unity.cinemachine@6.7/manual/CinemachineCamera.html)、[Decollider](https://docs.unity3d.com/Packages/com.unity.cinemachine@6.7/manual/CinemachineDecollider.html)、[Deoccluder](https://docs.unity3d.com/Packages/com.unity.cinemachine@6.7/manual/CinemachineDeoccluder.html)、[Unreal Gameplay Camera System](https://dev.epicgames.com/documentation/en-us/unreal-engine/gameplay-camera-system-overview)、[Phantom Camera](https://phantom-camera.dev/overview/what-is-this)、[Dolly drivers](https://docs.rs/dolly/0.6.0/dolly/drivers/index.html)。本草案采用本引擎的 C++、Schema 和 ECS 契约，不引入这些项目的源码或私有参考内容。
+设计参考采用公开文档中的职责划分：[Cinemachine 相机组合](https://docs.unity3d.com/Packages/com.unity.cinemachine@6.7/manual/CinemachineCamera.html)、[Decollider](https://docs.unity3d.com/Packages/com.unity.cinemachine@6.7/manual/CinemachineDecollider.html)、[Deoccluder](https://docs.unity3d.com/Packages/com.unity.cinemachine@6.7/manual/CinemachineDeoccluder.html)、[Unreal Gameplay Camera System](https://dev.epicgames.com/documentation/en-us/unreal-engine/gameplay-camera-system-overview)、[Phantom Camera](https://phantom-camera.dev/overview/what-is-this)、[Dolly drivers](https://docs.rs/dolly/0.6.0/dolly/drivers/index.html)。本契约采用本引擎的 C++、Schema 和 ECS 契约，不引入这些项目的源码或私有参考内容。
+
+Orbit 的 height_offset 与 Collision 的同名输入按世界 Y 轴叠加高度，供角色实际胶囊高度驱动眼高；Collision 另有 subject_offset 作为固定偏移。未配置该输入时高度增量为零。

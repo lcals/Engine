@@ -1,5 +1,6 @@
 #include "runtime/physics/physics_system.hpp"
 
+#include "runtime/physics/character_motor_driver.hpp"
 #include "runtime/scene/character_motor_runtime.hpp"
 #include "runtime/scene/collider_runtime.hpp"
 #include "runtime/scene/rigid_body_runtime.hpp"
@@ -535,6 +536,7 @@ struct CharacterSnapshot
     schema::CharacterMotorDataT settings;
     JPH::Vec3 position = JPH::Vec3::sZero();
     bool reset_velocity = false;
+    float yaw_degrees = 0;
 };
 
 bool read_character(Node node, CharacterMotor motor, CharacterSnapshot& output)
@@ -557,6 +559,7 @@ bool read_character(Node node, CharacterMotor motor, CharacterSnapshot& output)
     output.scene_id = node.scene()->id();
     output.node_id = node.id();
     output.position = vector(pose.position);
+    output.yaw_degrees = static_cast<float>(pose.rotation.y());
     return true;
 }
 
@@ -1025,7 +1028,96 @@ struct PhysicsSystem::State final : JPH::ContactListener, JPH::CharacterContactL
         JPH::Ref<JPH::CharacterVirtual> character;
         JPH::Vec3 external_velocity = JPH::Vec3::sZero();
         std::uint64_t seen_frame = 0;
+        Component owner{};
+        JPH::Vec3 carried_velocity = JPH::Vec3::sZero();
+        float active_half_height = 0;
+        float yaw_degrees = 0;
+        CharacterMotorStepResult result{};
+        std::map<float, JPH::RefConst<JPH::Shape>> shapes;
     };
+
+    WorldSystem* world = nullptr;
+    CharacterMotorDriver* driver = nullptr;
+    bool in_callback = false;
+    void callback(bool active)
+    {
+        in_callback = active;
+        if (world && world->native_world())
+        {
+            auto* binding =
+                flecs::world(world->native_world()).try_get_mut<CharacterMotorWorldRuntime>();
+            if (binding)
+            {
+                binding->in_callback = active;
+            }
+        }
+    }
+    void reset_owner(CharacterEntry& entry)
+    {
+        auto motor = world
+                         ? world->find_node(entry.snapshot.node_id).get_component<CharacterMotor>()
+                         : CharacterMotor{};
+        if (motor.instance_id() != entry.snapshot.instance_id)
+        {
+            motor = {};
+        }
+        if (driver && entry.owner != Component{})
+        {
+            callback(true);
+            driver->reset(entry.owner, motor);
+            callback(false);
+        }
+        if (motor)
+        {
+            auto* r = ecs_detail::component_runtime(motor);
+            r->desired_velocity_ = {};
+            r->pending_jump_ = 0;
+            r->owner = {};
+        }
+        entry.owner = {};
+    }
+    CharacterMotorStatus status(const CharacterEntry& entry, bool simulated) const
+    {
+        CharacterMotorStatus out;
+        const auto& c = *entry.character;
+        out.step = step;
+        out.simulation_time = step * fixed_step;
+        out.has_simulated = simulated;
+        out.feet_position = vector(JPH::Vec3(c.GetPosition()));
+        out.yaw_degrees = entry.yaw_degrees;
+        out.velocity = vector(c.GetLinearVelocity());
+        out.active_half_height = entry.active_half_height;
+        out.external_planar_velocity = vector(entry.external_velocity);
+        out.carried_planar_velocity = vector(entry.carried_velocity);
+        switch (c.GetGroundState())
+        {
+        case JPH::CharacterBase::EGroundState::OnGround:
+            out.ground_state = CharacterGroundState::supported;
+            break;
+        case JPH::CharacterBase::EGroundState::OnSteepGround:
+            out.ground_state = CharacterGroundState::steep;
+            break;
+        case JPH::CharacterBase::EGroundState::NotSupported:
+            out.ground_state = CharacterGroundState::unsupported;
+            break;
+        case JPH::CharacterBase::EGroundState::InAir:
+            out.ground_state = CharacterGroundState::airborne;
+            break;
+        }
+        out.grounded = out.ground_state == CharacterGroundState::supported &&
+                       c.GetLinearVelocity().GetY() - c.GetGroundVelocity().GetY() < 0.1F;
+        if (out.grounded)
+        {
+            const auto found = body_objects.find(c.GetGroundBodyID());
+            if (found != body_objects.end())
+            {
+                out.support = found->second;
+            }
+            out.support_normal = vector(c.GetGroundNormal());
+            out.support_velocity = vector(c.GetGroundVelocity());
+        }
+        return out;
+    }
 
     BroadPhaseLayers layers;
     BroadPhaseFilter broad_filter;
@@ -1066,7 +1158,7 @@ struct PhysicsSystem::State final : JPH::ContactListener, JPH::CharacterContactL
 
     bool can_query(const WorldSystem* world) const noexcept
     {
-        return world != nullptr &&
+        return !in_callback && world != nullptr &&
                std::any_of(world->scenes().begin(), world->scenes().end(),
                            [&](const auto& scene)
                            {
@@ -1817,6 +1909,7 @@ struct PhysicsSystem::State final : JPH::ContactListener, JPH::CharacterContactL
         {
             if (iterator->second.seen_frame != frame)
             {
+                reset_owner(iterator->second);
                 body_objects.erase(iterator->second.character->GetInnerBodyID());
                 character_objects.erase(iterator->second.character->GetID());
                 character_collisions.Remove(iterator->second.character.GetPtr());
@@ -1841,6 +1934,7 @@ struct PhysicsSystem::State final : JPH::ContactListener, JPH::CharacterContactL
             {
                 if (found != characters.end())
                 {
+                    reset_owner(found->second);
                     body_objects.erase(found->second.character->GetInnerBodyID());
                     character_objects.erase(found->second.character->GetID());
                     character_collisions.Remove(found->second.character.GetPtr());
@@ -1871,6 +1965,9 @@ struct PhysicsSystem::State final : JPH::ContactListener, JPH::CharacterContactL
                 configuration.mSupportingVolume = JPH::Plane(JPH::Vec3::sAxisY(), -settings.radius);
                 CharacterEntry entry;
                 entry.snapshot = snapshot;
+                entry.active_half_height = settings.half_height;
+                entry.yaw_degrees = snapshot.yaw_degrees;
+                entry.shapes.emplace(settings.half_height, shape.Get());
                 entry.character =
                     new JPH::CharacterVirtual(&configuration, JPH::RVec3(snapshot.position),
                                               JPH::Quat::sIdentity(), snapshot.node_id, &physics);
@@ -1894,6 +1991,9 @@ struct PhysicsSystem::State final : JPH::ContactListener, JPH::CharacterContactL
             else if (snapshot.reset_velocity || !found->second.character->GetPosition().IsClose(
                                                     JPH::RVec3(snapshot.position), 1.0e-10F))
             {
+                reset_owner(found->second);
+                found->second.carried_velocity = JPH::Vec3::sZero();
+                found->second.result = {};
                 found->second.character->SetPosition(JPH::RVec3(snapshot.position));
                 found->second.character->SetLinearVelocity(JPH::Vec3::sZero());
                 found->second.external_velocity = JPH::Vec3::sZero();
@@ -1903,6 +2003,7 @@ struct PhysicsSystem::State final : JPH::ContactListener, JPH::CharacterContactL
                     allocator);
             }
             found->second.snapshot = snapshot;
+            found->second.yaw_degrees = snapshot.yaw_degrees;
         }
         return true;
     }
@@ -1916,6 +2017,16 @@ PhysicsSystem::PhysicsSystem(WorldSystem* world, TaskSystem* tasks) noexcept
 PhysicsSystem::~PhysicsSystem() noexcept
 {
     shutdown();
+}
+
+bool PhysicsSystem::set_character_motor_driver(CharacterMotorDriver* driver) noexcept
+{
+    if (state_ || is_initialized())
+    {
+        return false;
+    }
+    character_driver_ = driver;
+    return true;
 }
 
 bool PhysicsSystem::on_initialize(const EngineConfig&)
@@ -1943,6 +2054,10 @@ bool PhysicsSystem::on_initialize(const EngineConfig&)
     state_->physics.SetContactListener(state_.get());
     if (world_)
     {
+        state_->world = world_;
+        state_->driver = character_driver_;
+        flecs::world(world_->native_world())
+            .set<CharacterMotorWorldRuntime>({character_driver_, false});
         state_->bind_queries(*world_);
     }
     return true;
@@ -1950,6 +2065,13 @@ bool PhysicsSystem::on_initialize(const EngineConfig&)
 
 void PhysicsSystem::clear() noexcept
 {
+    if (state_)
+    {
+        for (auto& [id, entry] : state_->characters)
+        {
+            state_->reset_owner(entry);
+        }
+    }
     if (state_ && world_ && world_->is_initialized())
     {
         state_->bind_queries(*world_);
@@ -1966,6 +2088,8 @@ void PhysicsSystem::clear() noexcept
                     motor.pending_jump_ = 0.0F;
                     motor.grounded_ = false;
                     motor.reset_pending_ = false;
+                    motor.status = {};
+                    motor.owner = {};
                 });
     }
     if (state_)
@@ -2588,6 +2712,27 @@ bool PhysicsSystem::on_tick(double delta_time)
             }
         }
     }
+    for (auto& [id, entry] : state_->characters)
+    {
+        auto motor = world_->find_node(id).get_component<CharacterMotor>();
+        Component owner;
+        if (character_driver_)
+        {
+            state_->callback(true);
+            owner = character_driver_->control_owner(motor);
+            state_->callback(false);
+            if (!owner.active() || owner.node().world() != world_)
+            {
+                owner = {};
+            }
+        }
+        if (entry.owner != owner)
+        {
+            state_->reset_owner(entry);
+            entry.owner = owner;
+        }
+        ecs_detail::component_runtime(motor)->owner = owner;
+    }
     ENGINE_PROFILE_PLOT("Physics.bodies", static_cast<double>(state_->bodies.size()));
     ENGINE_PROFILE_PLOT("Physics.characters", static_cast<double>(state_->characters.size()));
     ENGINE_PROFILE_PLOT(
@@ -2621,32 +2766,129 @@ bool PhysicsSystem::on_tick(double delta_time)
                     return false;
                 }
                 auto& character = *entry.character;
+                auto& runtime = *ecs_detail::component_runtime(motor);
                 character.UpdateGroundVelocity();
+                auto before = state_->status(entry, runtime.status.has_simulated);
+                before.step = runtime.status.step;
+                before.simulation_time = runtime.status.simulation_time;
                 const auto ground_velocity = character.GetGroundVelocity();
-                const bool on_ground =
-                    character.GetGroundState() == JPH::CharacterBase::EGroundState::OnGround;
-                const bool toward_ground =
-                    character.GetLinearVelocity().GetY() - ground_velocity.GetY() < 0.1F;
-                JPH::Vec3 velocity(0, character.GetLinearVelocity().GetY(), 0);
-                if (on_ground && toward_ground)
+                CharacterMotorCommand command;
+                command.yaw_degrees = entry.yaw_degrees;
+                command.half_height = motor_settings.half_height;
+                command.planar_velocity = runtime.desired_velocity_;
+                command.vertical_impulse = before.grounded ? runtime.pending_jump_ : 0;
+                command.detach_support = command.vertical_impulse > 0;
+                bool control_error = false;
+                if (entry.owner && character_driver_)
                 {
-                    velocity = ground_velocity;
-                    if (engine::ecs_detail::component_runtime(motor)->pending_jump_ > 0.0F)
+                    command.planar_velocity = {};
+                    command.vertical_impulse = 0;
+                    command.detach_support = false;
+                    command.half_height = entry.active_half_height;
+                    CharacterMotorStepContext context{state_->step, fixed_step,
+                                                      (state_->step - 1) * fixed_step,
+                                                      &motor_settings, before};
+                    state_->callback(true);
+                    control_error =
+                        !character_driver_->prepare_step(entry.owner, motor, context, command);
+                    state_->callback(false);
+                }
+                const bool valid_command =
+                    finite(vector(command.planar_velocity)) && command.planar_velocity.y() == 0 &&
+                    vector(command.planar_velocity).Abs().ReduceMax() <= 10000 &&
+                    std::isfinite(command.yaw_degrees) && std::abs(command.yaw_degrees) <= 360000 &&
+                    std::isfinite(command.vertical_impulse) &&
+                    std::abs(command.vertical_impulse) <= 1000 &&
+                    std::isfinite(command.gravity_scale) && command.gravity_scale >= 0 &&
+                    command.gravity_scale <= 16 && std::isfinite(command.half_height) &&
+                    command.half_height >= 0.01F && command.half_height <= 1000;
+                if (control_error || !valid_command)
+                {
+                    command = {};
+                    command.yaw_degrees = entry.yaw_degrees;
+                    command.half_height = entry.active_half_height;
+                    control_error = true;
+                }
+                auto shape_result = CharacterShapeResult::unchanged;
+                if (command.half_height != entry.active_half_height)
+                {
+                    auto shape = entry.shapes.find(command.half_height);
+                    if (shape == entry.shapes.end())
                     {
-                        velocity += JPH::Vec3(
-                            0, engine::ecs_detail::component_runtime(motor)->pending_jump_, 0);
+                        auto capsule =
+                            JPH::CapsuleShapeSettings(command.half_height, motor_settings.radius)
+                                .Create();
+                        if (capsule.HasError())
+                        {
+                            clear();
+                            return false;
+                        }
+                        auto result =
+                            JPH::RotatedTranslatedShapeSettings(
+                                JPH::Vec3(0, command.half_height + motor_settings.radius, 0),
+                                JPH::Quat::sIdentity(), capsule.Get().GetPtr())
+                                .Create();
+                        if (result.HasError())
+                        {
+                            clear();
+                            return false;
+                        }
+                        shape = entry.shapes.emplace(command.half_height, result.Get()).first;
+                    }
+                    if (character.SetShape(
+                            shape->second.GetPtr(), 0.02F,
+                            state_->physics.GetDefaultBroadPhaseLayerFilter(moving_layer),
+                            state_->physics.GetDefaultLayerFilter(moving_layer),
+                            CharacterBodyFilter{}, {}, state_->allocator))
+                    {
+                        character.SetInnerBodyShape(shape->second.GetPtr());
+                        entry.active_half_height = command.half_height;
+                        shape_result = CharacterShapeResult::applied;
+                    }
+                    else
+                    {
+                        shape_result = CharacterShapeResult::blocked;
+                        if (!entry.owner)
+                        {
+                            command.planar_velocity = {};
+                        }
                     }
                 }
-                engine::ecs_detail::component_runtime(motor)->pending_jump_ = 0.0F;
-                const auto delta =
-                    vector(engine::ecs_detail::component_runtime(motor)->pending_velocity_);
-                engine::ecs_detail::component_runtime(motor)->pending_velocity_ = {};
+                entry.yaw_degrees = command.yaw_degrees;
+                character.SetRotation(JPH::Quat::sRotation(
+                    JPH::Vec3::sAxisY(), entry.yaw_degrees * std::numbers::pi_v<float> / 180.0F));
+                if (before.grounded)
+                {
+                    entry.carried_velocity = JPH::Vec3::sZero();
+                }
+                if (command.inherit_support_planar_velocity &&
+                    ((before.grounded && command.detach_support) ||
+                     (!before.grounded && runtime.status.grounded)))
+                {
+                    const auto support =
+                        before.grounded ? ground_velocity : vector(runtime.status.support_velocity);
+                    entry.carried_velocity = JPH::Vec3(support.GetX(), 0, support.GetZ());
+                }
+                JPH::Vec3 velocity(0, character.GetLinearVelocity().GetY(), 0);
+                if (before.grounded)
+                {
+                    velocity = ground_velocity;
+                }
+                if (command.detach_support)
+                {
+                    velocity.SetX(0);
+                    velocity.SetZ(0);
+                }
+                runtime.pending_jump_ = 0;
+                const auto delta = vector(runtime.pending_velocity_);
+                runtime.pending_velocity_ = {};
                 entry.external_velocity += JPH::Vec3(delta.GetX(), 0, delta.GetZ());
-                const auto gravity = state_->physics.GetGravity() * motor_settings.gravity_factor;
-                velocity +=
-                    gravity * static_cast<float>(fixed_step) +
-                    vector(engine::ecs_detail::component_runtime(motor)->desired_velocity_) +
-                    entry.external_velocity + JPH::Vec3(0, delta.GetY(), 0);
+                const auto gravity = state_->physics.GetGravity() * motor_settings.gravity_factor *
+                                     command.gravity_scale;
+                velocity += gravity * static_cast<float>(fixed_step) +
+                            vector(command.planar_velocity) + entry.external_velocity +
+                            entry.carried_velocity +
+                            JPH::Vec3(0, delta.GetY() + command.vertical_impulse, 0);
                 if (!finite(velocity) || !finite(entry.external_velocity))
                 {
                     clear();
@@ -2654,8 +2896,8 @@ bool PhysicsSystem::on_tick(double delta_time)
                 }
                 character.SetLinearVelocity(velocity);
                 JPH::CharacterVirtual::ExtendedUpdateSettings settings;
-                settings.mStickToFloorStepDown =
-                    JPH::Vec3(0, -motor_settings.ground_snap_distance, 0);
+                settings.mStickToFloorStepDown = JPH::Vec3(
+                    0, command.detach_support ? 0 : -motor_settings.ground_snap_distance, 0);
                 settings.mWalkStairsStepUp = JPH::Vec3(0, motor_settings.step_height, 0);
                 character.ExtendedUpdate(
                     static_cast<float>(fixed_step), gravity, settings,
@@ -2693,6 +2935,10 @@ bool PhysicsSystem::on_tick(double delta_time)
                 character.SetLinearVelocity(resolved);
                 entry.external_velocity *=
                     std::exp(-motor_settings.external_damping * static_cast<float>(fixed_step));
+                entry.result.status = state_->status(entry, true);
+                entry.result.status.shape_result = shape_result;
+                entry.result.status.control_error = control_error;
+                entry.result.impulse_applied = command.vertical_impulse != 0;
             }
         }
         {
@@ -2702,6 +2948,20 @@ bool PhysicsSystem::on_tick(double delta_time)
             {
                 clear();
                 return false;
+            }
+        }
+        for (auto& [id, entry] : state_->characters)
+        {
+            auto motor = world_->find_node(id).get_component<CharacterMotor>();
+            auto& runtime = *ecs_detail::component_runtime(motor);
+            runtime.status = entry.result.status;
+            runtime.velocity_ = runtime.status.velocity;
+            runtime.grounded_ = runtime.status.grounded;
+            if (entry.owner && character_driver_)
+            {
+                state_->callback(true);
+                character_driver_->finish_step(entry.owner, motor, entry.result);
+                state_->callback(false);
             }
         }
         state_->publish_contacts();
@@ -2722,6 +2982,7 @@ bool PhysicsSystem::on_tick(double delta_time)
                 return false;
             }
             pose.position = vector(JPH::Vec3(entry.character->GetPosition()));
+            pose.rotation = Vec3(0, entry.yaw_degrees, 0);
             if (!transform.set_settings(pose))
             {
                 clear();
@@ -2811,6 +3072,10 @@ void PhysicsSystem::on_shutdown() noexcept
     {
         clear();
         state_.reset();
+        if (world_ && world_->native_world())
+        {
+            flecs::world(world_->native_world()).set<CharacterMotorWorldRuntime>({});
+        }
         release_jolt();
     }
 }

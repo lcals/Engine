@@ -85,6 +85,8 @@ function(engine_add_scene_schema)
         _name
         common
         input
+        camera
+        character_controller
         scene
         prefab
         mesh
@@ -142,7 +144,18 @@ function(engine_add_scene_schema)
         DEPENDS ${_schemas} "${_ts_schema}" "${ENGINE_FLATC_EXECUTABLE}"
         COMMENT "Generating runtime C++ and TypeScript data from FlatBuffers"
         VERBATIM)
-    add_custom_target(engine_scene_schema DEPENDS ${_cpp_headers} "${_stamp}" "${_ts_barrel}")
+    find_package(Python3 REQUIRED COMPONENTS Interpreter)
+    set(_control_json "${_cpp_dir}/control_json_generated.hpp")
+    add_custom_command(
+        OUTPUT "${_control_json}"
+        COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/scripts/generate_control_codecs.py"
+                --schema-dir "${_schema_dir}" --output "${_control_json}"
+                --declarations "${PROJECT_SOURCE_DIR}/include/engine.d.ts" --check-declarations
+        DEPENDS "${PROJECT_SOURCE_DIR}/scripts/generate_control_codecs.py"
+                "${PROJECT_SOURCE_DIR}/include/engine.d.ts"
+                "${_schema_dir}/camera.fbs" "${_schema_dir}/character_controller.fbs"
+        VERBATIM)
+    add_custom_target(engine_scene_schema DEPENDS ${_cpp_headers} "${_stamp}" "${_ts_barrel}" "${_control_json}")
     add_library(engine_scene_data INTERFACE ${_schemas})
     add_library(engine::scene_data ALIAS engine_scene_data)
     add_dependencies(engine_scene_data engine_scene_schema)

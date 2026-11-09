@@ -109,7 +109,7 @@ bool ModelResourceCodec::validate_data(const Resource& resource, std::string& er
 }
 
 bool ModelResourceCodec::validate_dependencies(const Resource& resource, ResourceView dependencies,
-                                               std::string& error) const
+                                               std::string&) const
 {
     const auto* data = resource_detail::data<ModelResource>(&resource);
     if (!data)

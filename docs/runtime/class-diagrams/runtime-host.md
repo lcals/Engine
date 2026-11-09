@@ -81,6 +81,7 @@ classDiagram
         <<enumeration>>
         before_physics
         after_physics
+        initialized
     }
     class AnimationSystem
     class EngineConfig
@@ -170,7 +171,7 @@ classDiagram
 渲染器在装配回调前已经初始化；宿主可登记 [RenderExtension](render-extension.md)，将具体插件所有权移交世界。核心不识别插件类型，扩展 GPU 准备在后续绘制阶段执行。
 对象先构造，世界尚未初始化时分别以 `before_physics` 和 `after_physics` 调用一次；窗口已就绪，
 物理实例已存在，但初始化前不得使用其运行能力。回调只追加对应位置的可选子系统，不在每帧调用。
-可选组件由附属系统的 `on_initialize()` 登记，避免被世界初始化时的基础组件表替换。
+世界及其子系统全部初始化后，再调用 `initialized`，由宿主关联冻结类型表和登记组件。此时尚未绑定场景或启动 Gameplay；登记失败仍回滚整个宿主。既有自行登记的子系统继续在 on_initialize 完成其登记。
 返回 false 则按现有生命周期清理；核心不解析插件名，也不执行插件策略。
 
 世界子系统的登记、初始化和更新顺序统一如下，关闭时反序执行：
@@ -183,13 +184,13 @@ flowchart TD
     S --> B[before_physics：地形、破坏、玩家意图、多人导航]
     B --> P[PhysicsSystem：同帧消费移动意图]
     P --> A[AnimationSystem：消费物理后的状态]
-    A --> C[after_physics：宿主追加相机跟随系统]
+    A --> C[after_physics：角色参数、通用镜头、角色视图过滤]
 ```
 
 世界更新结束后，RuntimeHost 单独更新 AudioSystem，使场景声部读取最终空间位置。
 字体与 UI 先初始化，脚本和插件均借用已构造的对象；整个世界初始化成功后才允许玩法与逐帧调用。
 具体玩家控制器和相机插件只由可执行宿主装配，RuntimeHost 不包含插件头文件。
-阶段枚举仅决定一次性的子系统登记位置，不增加 System 的逐帧阶段、事件总线或额外调度器。
+阶段枚举仅决定一次性的子系统装配与登记时机，不增加 System 的逐帧阶段、事件总线或额外调度器。
 
 脚本工厂借用已构造的物理系统，用于读取上一物理帧撞击快照；工厂不调用尚未初始化的物理能力，玩法结束后才释放该借用。
 

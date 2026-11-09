@@ -1033,6 +1033,13 @@ if(TARGET engine_editor AND TARGET engine_animation)
     endif()
 endif()
 
+if(TARGET engine_character_controller AND TARGET engine_camera)
+    add_executable(engine_camera_test plugins/runtime/camera/camera_test.cpp)
+    target_link_libraries(engine_camera_test PRIVATE engine::character_controller engine::camera)
+    engine_apply_options(engine_camera_test)
+    add_test(NAME engine.camera COMMAND engine_camera_test)
+endif()
+
 if(TARGET engine_character_controller)
     if(TARGET engine_resource_graph)
         add_executable(engine_character_controller_test
@@ -1050,7 +1057,7 @@ if(TARGET engine_character_controller)
                                                    engine::resource engine::render SDL3::SDL3)
             target_include_directories(engine_character_host_test PRIVATE "${PROJECT_SOURCE_DIR}/src")
             target_compile_definitions(engine_character_host_test
-                                       PRIVATE ENGINE_HAS_CHARACTER_CONTROLLER=1
+                                       PRIVATE ENGINE_HAS_CHARACTER_CONTROLLER=1 ENGINE_HAS_CAMERA=1
                                        ENGINE_TEST_RUNTIME_SETTINGS="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/runtime-settings.json")
             engine_apply_options(engine_character_host_test)
             if(ENGINE_ENABLE_GPU_TESTS)
@@ -1132,7 +1139,7 @@ if(TARGET engine_character_controller_editor AND TARGET engine_editor)
     add_executable(engine_character_controller_editor_test
                    plugins/editor/character_controller/character_controller_editor_test.cpp)
     target_link_libraries(engine_character_controller_editor_test
-                          PRIVATE engine::character_controller_editor engine::editor)
+                          PRIVATE engine::character_controller_editor engine::camera_editor engine::editor)
     engine_apply_options(engine_character_controller_editor_test)
     add_test(NAME editor.character_controller COMMAND engine_character_controller_editor_test)
 endif()
@@ -1297,6 +1304,16 @@ if(TARGET engine_navigation_crowd)
     engine_apply_options(engine_navigation_crowd_test)
     add_test(NAME engine_navigation_crowd COMMAND engine_navigation_crowd_test)
     set_tests_properties(engine_navigation_crowd PROPERTIES TIMEOUT 60)
+endif()
+
+if(TARGET engine_character_controller AND TARGET engine_script AND TARGET engine_resource_graph)
+    add_executable(engine_control_script_test plugins/runtime/script/control_script_test.cpp)
+    target_link_libraries(engine_control_script_test PRIVATE engine::script
+        engine::character_controller engine::resource_graph engine::app engine::log)
+    target_include_directories(engine_control_script_test PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+    engine_apply_options(engine_control_script_test)
+    add_test(NAME engine.control_script COMMAND engine_control_script_test)
+    set_tests_properties(engine.control_script PROPERTIES TIMEOUT 60)
 endif()
 
 if(TARGET engine_navigation_crowd AND TARGET engine_script)

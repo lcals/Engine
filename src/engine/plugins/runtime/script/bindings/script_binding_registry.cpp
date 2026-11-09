@@ -1,4 +1,7 @@
 #include "plugins/runtime/script/bindings/script_binding_registry.hpp"
+#if ENGINE_HAS_CAMERA_PLUGIN
+#include "plugins/runtime/script/bindings/camera_controller_binding.hpp"
+#endif
 #include "plugins/runtime/script/bindings/animation_state_machine_binding.hpp"
 #include "plugins/runtime/script/bindings/animator_binding.hpp"
 #include "plugins/runtime/script/bindings/bone_attachment_binding.hpp"
@@ -43,6 +46,7 @@
 #include "plugins/runtime/script/bindings/terrain_binding.hpp"
 #endif
 #if defined(ENGINE_HAS_CHARACTER_CONTROLLER_PLUGIN) && ENGINE_HAS_CHARACTER_CONTROLLER_PLUGIN
+#include "plugins/runtime/script/bindings/character_camera_binding.hpp"
 #include "plugins/runtime/script/bindings/character_controller_binding.hpp"
 #endif
 #if defined(ENGINE_HAS_NAVIGATION_CROWD_PLUGIN) && ENGINE_HAS_NAVIGATION_CROWD_PLUGIN
@@ -94,8 +98,15 @@ bool ScriptBindingRegistry::initialize()
         return false;
     }
 #endif
+#if ENGINE_HAS_CAMERA_PLUGIN
+    if (!add<CameraControllerBinding>())
+    {
+        bindings_.clear();
+        return false;
+    }
+#endif
 #if defined(ENGINE_HAS_CHARACTER_CONTROLLER_PLUGIN) && ENGINE_HAS_CHARACTER_CONTROLLER_PLUGIN
-    if (!add<CharacterControllerBinding>())
+    if (!add<CharacterControllerBinding>() || !add<CharacterCameraBinding>())
     {
         bindings_.clear();
         return false;

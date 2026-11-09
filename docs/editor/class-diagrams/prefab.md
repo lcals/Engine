@@ -155,4 +155,4 @@ classDiagram
 - 场景保存只导出覆盖明确引用的动态 Mesh/材质，导出的独立 GUID 写入此次保存副本，保持当前撤销历史。缺失映射节点必须已 retired 或明确 removed；部分 mapped 节点 transient 时拒绝，完整 transient 实例连同关联一起略过。从子树创建模板拒绝指向导出集合外的组件节点引用。
 - 未提供 ApplyToTemplate 命令。模板通过编辑 .prefab 源文件后按标准资源管线重建更新；实例恢复覆盖不会反写模板。
 
-当前 SceneData / PrefabData 二进制格式版本为 2；生成模型默认版本 0 无效。删除 CharacterController 的废弃相机字段后，读取拒绝旧版和未标记版本的数据；源描述通过当前导入器重新生成缓存和运行包，不保留旧布局读取分支。
+场景与预制体共用当前二进制版本，版本要求见[共享数据模型](../../runtime/class-diagrams/scene-data.md)。源描述通过当前导入器重新生成缓存和运行包，不保留旧布局读取分支。

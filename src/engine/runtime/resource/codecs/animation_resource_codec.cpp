@@ -178,8 +178,7 @@ bool AnimationResourceCodec::validate_data(const Resource& resource, std::string
 }
 
 bool AnimationResourceCodec::validate_dependencies(const Resource& resource,
-                                                   ResourceView dependencies,
-                                                   std::string& error) const
+                                                   ResourceView dependencies, std::string&) const
 {
     const auto* data = resource_detail::data<AnimationResource>(&resource);
     const auto* skeleton = data ? dependency(dependencies, data->skeleton_guid) : nullptr;

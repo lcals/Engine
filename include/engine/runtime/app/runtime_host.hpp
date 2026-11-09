@@ -56,10 +56,12 @@ using ScriptRuntimeFactory = std::unique_ptr<ScriptRuntime> (*)(WorldSystem&, Re
 enum class RuntimeStage
 {
     before_physics,
-    after_physics
+    after_physics,
+    initialized
 };
 
-// 世界初始化前按两个位置各调用一次；物理和导航已构造，失败按已有生命周期回滚。
+// 装配阶段在世界初始化前调用；initialized 在所有系统初始化后、场景加载前调用。
+// initialized 用于宿主显式登记生成组件及借用的冻结类型表；失败仍完整回滚。
 using RuntimeSetup = bool (*)(RuntimeStage, WorldSystem&, WindowSystem&, PhysicsSystem&,
                               NavigationSystem&, RenderSystem&, TaskSystem&);
 

@@ -2,7 +2,7 @@
 
 [类图索引](../../../class-diagrams/index.md) · [状态机与配置](camera-state-machine.md) · [C++ 模块组合](camera-modules.md) · [TS 接口](camera-script-api.md) · [编辑器接入](../../editor/class-diagrams/camera-controller.md)
 
-**状态：设计草案，待评审，尚未实现。** 本页及关联相机草案共同定义拟议契约。当前实现仍以[玩家控制、跟随相机与角色表现](character-controller.md)为准；本次只整理类图，不改变现有代码、Schema 或脚本声明。
+**状态：已实现；验证范围见[测试文档](../../../testing.md)。** 本页及关联图定义当前契约。Schema、原生插件、编辑器、MCP、TS 与公开范例使用同一版本。
 
 相机能力归独立运行时插件 `engine::plugins::camera`。普通相机节点组合 `Transform`、核心 `Camera` 和 `CameraController`；控制组件保存完整配置，C++ 根据参数评估状态机、组合镜头模块并提交最终视角。没有脚本插件时，同一份场景配置也能直接运行。
 
@@ -50,7 +50,7 @@ classDiagram
     CameraSystem --> WorldSystem : 借用
     CameraSystem --> PhysicsSystem : 可空借用
     CameraSystem ..> CameraWorldRuntime : 初始化时校验关联
-    CameraSystem *-- CameraStateMachine : 无逐实例状态的执行器
+    CameraSystem ..> CameraStateMachine : 本帧使用的无状态执行器
     CameraSystem ..> CameraControllerDataT : 查询已发布且启用的组件
     CameraSystem ..> CameraControllerRuntime : 准备并提交下一帧
     CameraSystem ..> CameraTypeRegistry : 按类型调度模块
@@ -131,11 +131,15 @@ classDiagram
     class CameraControllerRuntime {
         <<private ECS runtime column>>
         -parameter_values CameraParameterValueT[]
-        -target_overrides Node[]
+        -target_overrides map
+        -default_targets Node[]
+        -default_resolved bool[]
         -machine CameraMachineRuntime
+        -outgoing map
         -committed_base_pose CameraPose
-        -committed_pose CameraPose
         -status CameraStatus
+        -was_active bool
+        -reseed bool
         -definition_revision uint64_t
     }
     class CameraPose {
@@ -173,7 +177,7 @@ classDiagram
     CameraControllerRuntime *-- CameraMachineRuntime : 实例状态机运行数据
     CameraControllerRuntime *-- CameraParameterValueT : 运行参数与触发器值
     CameraControllerRuntime *-- Node : 只保存值句柄
-    CameraControllerRuntime *-- CameraPose : 最后成功输出
+    CameraControllerRuntime *-- CameraPose : 未叠加公共效果的基础姿态
     CameraControllerRuntime *-- CameraStatus : 诊断快照
     CameraStatus *-- CameraPose : 输出副本
     CameraStatus ..> CameraRunState : 运行结果
@@ -182,6 +186,8 @@ classDiagram
 ```
 
 `rotation_xyzw` 使用 `std::array<float, 4>` 保存归一化四元数，默认是单位旋转，不能用 Euler 角直接线性混合。`CameraSettings` 沿用核心生成类型；投影模式等离散项不做数值插值。`has_output` 在控制器首次成功提交前为 false，此时 output 只是安全默认值。
+
+`committed_base_pose` 保存混合后、公共效果之前的基础姿态；最终成功输出只存于 `status.output`。目标覆盖按槽名索引，默认目标另存 Node 值句柄与解析标记；目标失效不会重新绑定同名实体。`outgoing` 是配置提交时按状态准备的转换索引。
 
 `CameraRunState` 描述本控制器执行结果，属于运行诊断。`blocked` 表示约束未得到有效解，`error` 表示配置能力、查询或输出提交错误；`get_status` 成功只表示快照读取成功，不代表镜头当前可正常求解。目标缺失且尚未得到可用输出时为 `waiting`。各具体模块的阻尼、噪声等历史另存[类型化模块 Runtime 列](camera-modules.md)，不复制到配置中。
 
@@ -217,8 +223,8 @@ classDiagram
 
 评审通过后，通用跟随、距离、俯仰约束、投影、避障和相机 Transform 写入从 `character_controller` 移到本插件。角色插件声明对相机契约的单向依赖；相机插件不引用角色、输入或脚本插件。
 
-`CharacterCamera` 保留角色适配：命名主体槽、同帧观察角提交、角色状态到镜头参数的映射，以及第一人称表现分类。完整配置、角度接口与两个装配阶段统一见[角色与镜头衔接草案](character-integration-design.md)。观察角直接读写控制器已声明的 float 参数，输入适配按声明范围处理俯仰，缺少绑定或类型不匹配明确失败。
+`CharacterCamera` 保留角色适配：命名主体槽、同帧观察角提交、角色状态到镜头参数的映射，以及第一人称表现分类。完整配置、角度接口与两个装配阶段统一见[角色与镜头衔接契约](character-integration-design.md)。观察角直接读写控制器已声明的 float 参数，输入适配按声明范围处理俯仰，缺少绑定或类型不匹配明确失败。
 
 `CharacterCameraSystem` 仅根据已提交状态及绑定对象更新 `CharacterVisual` 对应的每镜头隐藏列表，不写 Transform 或投影。进入映射为第一人称的状态时即采用第一人称隐藏策略，离开时立即采用目的状态策略；切换失败保持原策略。角色身体继续投射阴影。无 CharacterCamera 的普通镜头仍隐藏仅供第一人称使用的部件，沿用现有角色可见性语义。
 
-上述角色公开契约的精确变更须同步到其所属类图后再实现；不能同时保留旧求解器与新系统驱动同一相机。现有动画状态机仍是 TS 功能，本方案只借鉴参数与转换语义，不迁移它，也不新增跨领域通用状态机框架。
+角色公开契约见所属图；旧求解器与旧字段已删除，同一相机只由 CameraSystem 提交。现有动画状态机仍是 TS 功能，本方案只借鉴参数与转换语义，不迁移它，也不新增跨领域通用状态机框架。

@@ -89,7 +89,7 @@ def scene():
             bloom_enabled=True, bloom_threshold=1.0, bloom_intensity=0.17, bloom_radius=1.0)
         node["components"].append(
             {"type": "audio_listener", "enabled": identity == 1, "volume": 0.8})
-    component(nodes[2], "character_camera")["target_node_id"] = 4
+    component(nodes[2], "camera_controller")["targets"][0]["node_local_id"] = "4"
     player = cloned("terrain.scene", "Player", 4)
     component(player, "transform")["position"] = [15, 3, 14]
     component(player, "character_controller")["camera_node_id"] = 3

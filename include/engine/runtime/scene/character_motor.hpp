@@ -10,6 +10,7 @@ namespace engine
 class PhysicsSystem;
 
 struct CharacterMotorRuntime;
+struct CharacterMotorStatus;
 
 class CharacterMotor final : public Component
 {
@@ -29,12 +30,13 @@ public:
     // 世界空间水平速度请求，Y 必须为零；不进入持久数据。
     [[nodiscard]] bool set_velocity(const Vec3& velocity) noexcept;
     // 清除主动移动及未消费跳跃，保留外部速度和待消费速度增量。
-    void clear_input() noexcept;
+    [[nodiscard]] bool clear_input() noexcept;
     // 世界空间速度增量（m/s）；下一固定步消费一次，与主动输入独立。
     [[nodiscard]] bool add_velocity(const Vec3& delta) noexcept;
     [[nodiscard]] Vec3 velocity() const noexcept;
     [[nodiscard]] bool jump(float speed) noexcept;
     [[nodiscard]] bool grounded() const noexcept;
+    [[nodiscard]] bool get_status(CharacterMotorStatus& output) const noexcept;
 
 private:
     template <class T> friend auto engine::ecs_detail::component_runtime(T component) noexcept;

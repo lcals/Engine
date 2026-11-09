@@ -291,18 +291,24 @@ bool exercise()
         return false;
     }
 
-    const Json schema = {{"type", "object"},
-                         {"properties",
-                          {{"values",
-                            {{"type", "array"},
-                             {"minItems", 1},
-                             {"maxItems", 3},
-                             {"items", {{"type", "integer"}, {"minimum", -10}, {"maximum", 10}}}}},
-                           {"label", {{"type", "string"}, {"minLength", 1}, {"maxLength", 2}}},
-                           {"mode", {{"type", "string"}, {"enum", Json::array({"add", "ignore"})}}},
-                           {"custom", Json::object()}}},
-                         {"required", Json::array({"values"})},
-                         {"additionalProperties", false}};
+    const Json schema = {
+        {"type", "object"},
+        {"properties",
+         {{"values",
+           {{"type", "array"},
+            {"minItems", 1},
+            {"maxItems", 3},
+            {"items", {{"type", "integer"}, {"minimum", -10}, {"maximum", 10}}}}},
+          {"label", {{"type", "string"}, {"minLength", 1}, {"maxLength", 2}}},
+          {"mode", {{"type", "string"}, {"enum", Json::array({"add", "ignore"})}}},
+          {"config",
+           {{"type", Json::array({"object", "null"})},
+            {"properties", {{"speed", {{"type", "number"}}}}},
+            {"additionalProperties", false}}},
+          {"actions", {{"type", "object"}, {"additionalProperties", {{"type", "boolean"}}}}},
+          {"custom", Json::object()}}},
+        {"required", Json::array({"values"})},
+        {"additionalProperties", false}};
     auto calls = std::make_shared<int>(0);
     std::weak_ptr<int> callback_lifetime = calls;
     engine::plugins::mcp::McpTool sum{"fake.sum", "Sum bounded input values.", schema,
@@ -361,6 +367,9 @@ bool exercise()
           Json{{"values", Json::array({11})}},
           Json{{"values", Json::array({1})}, {"unknown", true}},
           Json{{"values", Json::array({1})}, {"label", "三个字"}},
+          Json{{"values", Json::array({1})}, {"config", {{"unknown", true}}}},
+          Json{{"values", Json::array({1})}, {"config", 7}},
+          Json{{"values", Json::array({1})}, {"actions", {{"jump", "yes"}}}},
           Json{{"values", Json::array({1})}, {"mode", "invalid"}}})
     {
         if (!check(mcp.call_tool("fake.sum", invalid, result) ==
@@ -378,6 +387,8 @@ bool exercise()
         !check(mcp.call_tool("fake.sum",
                              {{"values", Json::array({2, 3})},
                               {"label", "节点"},
+                              {"config", nullptr},
+                              {"actions", {{"jump", true}, {"sprint", false}}},
                               {"custom", Json::array({1.0, 2.0, 3.0})}},
                              result) == engine::plugins::mcp::McpCallStatus::success &&
                    result == Json{{"total", 5}} && *calls == 1,

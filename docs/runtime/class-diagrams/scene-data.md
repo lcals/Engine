@@ -52,7 +52,7 @@ classDiagram
     ComponentPayloadUnion *-- MeshRendererDataT : 可选载荷之一
 ```
 
-`SceneInfoT`、`NodeInfoT` 与各组件载荷分别见[场景](scene.md)、[节点](node.md)、[渲染基础组件](component.md)、[物理组件](physics-components.md)和[音频组件](audio-components.md)。`scene.fbs` 只含场景、节点、组件及资源引用；数值类型来自 `common.fbs`。`MeshRendererDataT` 的 GUID 引用下方网格与材质定义，`AudioSourceDataT::clip_guid` 引用独立音频实体，不复制资源内容。组件 union 增加独立载荷，不在 Node 中保存具体类型字段。
+`SceneInfoT`、`NodeInfoT` 与各组件载荷分别见[场景](scene.md)、[节点](node.md)、[渲染基础组件](component.md)、[物理组件](physics-components.md)和[音频组件](audio-components.md)。`scene.fbs` 组织场景、节点、组件及资源引用；相机和角色配置分别来自 `camera.fbs`、`character_controller.fbs`，数值类型来自 `common.fbs`。`MeshRendererDataT` 的 GUID 引用下方网格与材质定义，`AudioSourceDataT::clip_guid` 引用独立音频实体，不复制资源内容。组件 union 增加独立载荷，不在 Node 中保存具体类型字段。
 
 上图 SceneDataT/NodeDataT/ComponentDataT 为保存、加载和撤销快照。运行时 NodePropertiesT、ComponentFlagsT 与各具体 Data 唯一存于 ECS；运行层级为 Flecs ChildOf，快照按需组装 parent_id，不维护两份权威层级。
 
@@ -302,4 +302,4 @@ classDiagram
 
 `PostProcessData` 在末尾继续追加 `hdr_enabled:bool=false`、`bloom_enabled:bool=false`、`bloom_threshold:float=1`、`bloom_intensity:float=0.15`、`bloom_radius:float=1`。阈值范围 `[0,100]`、强度 `[0,10]`、半径 `[0.25,4]`，所有数值有限，且 `bloom_enabled` 为 true 时 `hdr_enabled` 必须为 true。旧数据按关闭的默认值读取；TOML、FlatBuffers、运行时组件和脚本使用同一模型，不自动改写请求中的另一开关。
 
-当前 SceneData / PrefabData 二进制格式版本为 2；生成模型默认版本 0 无效。删除 CharacterController 的废弃相机字段后，读取拒绝旧版和未标记版本的数据；源描述通过当前导入器重新生成缓存和运行包，不保留旧布局读取分支。
+当前 SceneData / PrefabData 二进制格式版本为 3；生成模型默认版本 0 无效。组件载荷包含参数化 CameraController 与角色能力配置，读取拒绝其他版本和未标记版本的数据；源描述通过当前导入器重新生成缓存和运行包，不保留旧布局读取分支。

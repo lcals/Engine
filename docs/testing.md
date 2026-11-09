@@ -76,6 +76,20 @@ CI 仍仅手动触发，默认执行基础集合；跨平台或完整功能验�
 
 通过编辑器启动、MCP 控制和退出的操作见[编辑器](editor/editor.md)与[MCP](plugins/editor/mcp.md)。运行前核对项目、运行目录和编辑器会话；只关闭本次测试拥有的进程。脚本后端、资源目录、分辨率和设备必须在结果中说明。
 
+## 镜头与角色模块验证
+
+2026-11-09，macOS arm64 / Metal / QuickJS。使用继承根 `ninja-engine-debug`、`ninja-engine-release` 的本地预设，Ninja 与 ccache；`editor_app`、`engine_app`、`mcp_app`、`asset_build_app` 及受影响模块测试目标的 Debug / Release 构建通过。Debug 仅编译，未运行测试。
+
+Release 的 13 项 CTest 全部通过（9.06 秒）：`engine.character_motor`、`engine.mcp_registry`、`engine.scene`、`engine.prefab`、`engine.plugin_selection`、`engine.architecture_boundaries`、`engine.architecture_rules`、`resource.codecs`、`engine.camera`、`engine.character_controller`、`engine.character_host`、`editor.character_controller`、`engine.control_script`。
+
+相机用例覆盖目标失效、失败不消费触发器、参数原子修改、混合与四元数旋转、约束冲突、碰撞收缩和延迟恢复。角色用例覆盖多实例、固定步动作缓冲与到期、加减速、控制权独占、外力保留、蹲起净空、暂停／禁用／传送、观察增量与速率，以及实际姿态向镜头参数的映射。编辑器与脚本用例覆盖完整设置、撤销、瞬态输入、BigInt 身份、可编辑配置快照、旧字段拒绝和失效句柄。
+
+关闭全部运行时／编辑器插件及脚本运行后，独立 Release 配置中的 `editor_app`、`engine_app` 编译链接通过；未创建 camera、character_controller、script 插件目标，运行宿主未链接相机和角色插件实现。插件选择用例同时检查依赖闭包与条件装配。
+
+公开范例 TypeScript 构建及 `launcher_test.mjs` 的 8 项检查通过。实际编辑器窗口使用 `projects/showcase` 源资源导入缓存，逻辑尺寸 960×540、Metal 后缓冲 1920×1080；通过真实菜单按钮进入角色庭院，确认角色就绪、接地和镜头 ready。调用角色镜头接口切换第一／第三人称，截图确认第一人称隐藏自身身体、保留其他角色与自身阴影；随后恢复第三人称并正常关闭测试编辑器。项目配置、控制方式与复现入口见[角色与镜头范例](../projects/showcase/docs/character-control.md)。
+
+此结果不包含实体手柄操作、移动平台场景验收、Windows／Android／iOS、V8 后端、旧版 macOS 发行验证或性能采样，不代表所有范例均已实窗验收。场景／预制体只接受版本 3，旧二进制需通过当前源描述重新导入和打包。
+
 ## 渲染性能基线
 
 2026-11-08，Windows x64 / Release / DirectX 12 / QuickJS，RTX 4070 Laptop，驱动 `31.0.15.4601`；1280×720、MSAA 1、VSync 关闭、Tracy OFF。优化前源码为 `5070daf9`，实现和当时完整夹具见 `ec7d74d7`。

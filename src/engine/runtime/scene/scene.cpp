@@ -317,7 +317,7 @@ bool Scene::build_data(schema::SceneDataT& output) const
         return false;
     }
     schema::SceneDataT snapshot;
-    snapshot.schema_version = 2;
+    snapshot.schema_version = 3;
     snapshot.info = std::make_unique<schema::SceneInfoT>(*info);
     for (const auto node : nodes)
     {
@@ -383,7 +383,7 @@ bool Scene::build_data(schema::SceneDataT& output) const
 }
 bool Scene::restore_data(const schema::SceneDataT& data)
 {
-    if (!empty() || data.schema_version != 2 || !data.info)
+    if (!empty() || data.schema_version != 3 || !data.info)
     {
         return false;
     }

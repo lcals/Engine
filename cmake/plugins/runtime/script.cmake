@@ -52,6 +52,12 @@ function(engine_configure_script_plugin)
     else()
         target_compile_definitions(engine_script PRIVATE ENGINE_HAS_NAVIGATION_CROWD_PLUGIN=0)
     endif()
+    if("runtime/camera" IN_LIST ENGINE_SELECTED_PLUGINS)
+        target_link_libraries(engine_script PRIVATE engine::camera)
+        target_compile_definitions(engine_script PRIVATE ENGINE_HAS_CAMERA_PLUGIN=1)
+    else()
+        target_compile_definitions(engine_script PRIVATE ENGINE_HAS_CAMERA_PLUGIN=0)
+    endif()
     if("runtime/character_controller" IN_LIST ENGINE_SELECTED_PLUGINS)
         target_link_libraries(engine_script PRIVATE engine::character_controller)
         target_compile_definitions(engine_script PRIVATE ENGINE_HAS_CHARACTER_CONTROLLER_PLUGIN=1)
@@ -81,6 +87,13 @@ endfunction()
 # Bindings depend only on explicitly selected/default terrain, without forcing it into a
 # script-only plugin selection. The dependency is owned by this plugin manifest.
 set(_script_plugin_dependencies)
+if((NOT DEFINED ENGINE_RUNTIME_PLUGINS AND ENGINE_ENABLE_RUNTIME_DEPS)
+   OR "camera" IN_LIST ENGINE_RUNTIME_PLUGINS
+   OR "camera" IN_LIST ENGINE_EDITOR_PLUGINS
+   OR "character_controller" IN_LIST ENGINE_RUNTIME_PLUGINS
+   OR "character_controller" IN_LIST ENGINE_EDITOR_PLUGINS)
+    list(APPEND _script_plugin_dependencies runtime/camera)
+endif()
 if((NOT DEFINED ENGINE_RUNTIME_PLUGINS AND ENGINE_ENABLE_RUNTIME_DEPS)
    OR (NOT DEFINED ENGINE_EDITOR_PLUGINS AND ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
    OR "navigation_crowd" IN_LIST ENGINE_RUNTIME_PLUGINS

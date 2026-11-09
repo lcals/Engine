@@ -251,7 +251,7 @@ bool check()
     mismatch.flags = std::make_unique<engine::schema::ComponentFlagsT>();
     mismatch.payload.Set(engine::schema::CameraDataT{});
     engine::schema::SceneDataT scene_data;
-    scene_data.schema_version = 2;
+    scene_data.schema_version = 3;
     if (!expect(!component.restore_data(mismatch), "reject incompatible payload") ||
         !expect(scene->build_data(scene_data),
                 "scene snapshots registered components without type dispatch"))

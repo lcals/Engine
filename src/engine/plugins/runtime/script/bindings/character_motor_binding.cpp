@@ -2,6 +2,7 @@
 #include "plugins/runtime/script/bindings/binding_helpers.hpp"
 
 #include "plugins/runtime/script/bindings/binding_context.hpp"
+#include "runtime/physics/character_motor_driver.hpp"
 #include "runtime/scene/character_motor.hpp"
 #include "runtime/scene/node.hpp"
 
@@ -52,6 +53,10 @@ export class CharacterMotor extends Component {
     GetVelocity() {
         const h = handles.get(this);
         return native.CharacterMotorGetVelocity(h.scene, h.node);
+    }
+    GetStatus() {
+        const h = handles.get(this);
+        return native.CharacterMotorGetStatus(h.scene, h.node);
     }
     Jump(speed) {
         const h = handles.get(this);
@@ -159,9 +164,44 @@ void clear_input(const Arguments& arguments)
     auto value = binding_detail::component<CharacterMotor>(arguments, 2);
     if (value.valid())
     {
-        value.clear_input();
-        arguments.set_return(true);
+        arguments.set_return(value.clear_input());
     }
+}
+
+void get_status(const Arguments& arguments)
+{
+    const auto motor = binding_detail::component<CharacterMotor>(arguments, 2);
+    CharacterMotorStatus s;
+    arguments.set_return({});
+    if (!motor.get_status(s))
+    {
+        return;
+    }
+    using Object = vm::NativeValue::Object;
+    const auto vector = [](const Vec3& v) -> vm::NativeValue
+    { return Object{{"x", v.x()}, {"y", v.y()}, {"z", v.z()}}; };
+    static constexpr const char* ground[] = {"supported", "steep", "unsupported", "airborne"};
+    static constexpr const char* shape[] = {"unchanged", "applied", "blocked"};
+    arguments.set_return(
+        Object{{"step", s.step},
+               {"simulationTime", s.simulation_time},
+               {"hasSimulated", s.has_simulated},
+               {"feetPosition", vector(s.feet_position)},
+               {"yawDegrees", s.yaw_degrees},
+               {"velocity", vector(s.velocity)},
+               {"groundState", std::string(ground[static_cast<int>(s.ground_state)])},
+               {"grounded", s.grounded},
+               {"support", Object{{"sceneId", s.support.scene_id},
+                                  {"nodeId", s.support.node_id},
+                                  {"kind", static_cast<std::int32_t>(s.support.kind)},
+                                  {"instanceId", s.support.instance_id}}},
+               {"supportNormal", vector(s.support_normal)},
+               {"supportVelocity", vector(s.support_velocity)},
+               {"carriedPlanarVelocity", vector(s.carried_planar_velocity)},
+               {"externalPlanarVelocity", vector(s.external_planar_velocity)},
+               {"activeHalfHeight", s.active_half_height},
+               {"shapeResult", std::string(shape[static_cast<int>(s.shape_result)])},
+               {"controlError", s.control_error}});
 }
 
 void add_velocity(const Arguments& arguments)
@@ -218,6 +258,7 @@ bool CharacterMotorBinding::register_functions(vm::ScriptVm& vm) const
            vm.function("CharacterMotorClearInput", clear_input) &&
            vm.function("CharacterMotorAddVelocity", add_velocity) &&
            vm.function("CharacterMotorGetVelocity", get_velocity) &&
+           vm.function("CharacterMotorGetStatus", get_status) &&
            vm.function("CharacterMotorJump", jump) &&
            vm.function("CharacterMotorGrounded", grounded);
 }

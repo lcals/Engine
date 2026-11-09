@@ -112,7 +112,7 @@ bool AnimationRetargetResourceCodec::validate_data(const Resource& resource,
 
 bool AnimationRetargetResourceCodec::validate_dependencies(const Resource& resource,
                                                            ResourceView dependencies,
-                                                           std::string& error) const
+                                                           std::string&) const
 {
     const auto* data = resource_detail::data<AnimationRetargetResource>(&resource);
     const auto* source = data ? dependency(dependencies, data->source_skeleton_guid) : nullptr;

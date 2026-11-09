@@ -64,7 +64,7 @@
 - [音频组件](../runtime/class-diagrams/audio-components.md)
 - [音频系统](../runtime/class-diagrams/audio-system.md)
 - [角色物理组件](../runtime/class-diagrams/character-motor.md)
-- [角色物理固定步驱动](../runtime/class-diagrams/character-motor-control.md)（设计草案，待评审）
+- [角色物理固定步驱动](../runtime/class-diagrams/character-motor-control.md)
 - [组件类型登记](../runtime/class-diagrams/component-registry.md)
 - [节点组件](../runtime/class-diagrams/component.md)
 - [ECS 场景与虚拟节点](../runtime/class-diagrams/ecs-scene.md)
@@ -114,15 +114,15 @@
 - [动画重定向插件](../plugins/runtime/class-diagrams/animation-retarget.md)
 - [动画脚本接口](../plugins/runtime/class-diagrams/animation-script-api.md)
 - [TS 动画状态机](../plugins/runtime/class-diagrams/animation-state-machine.md)
-- [玩家控制、跟随相机与角色表现](../plugins/runtime/class-diagrams/character-controller.md)
+- [角色控制、镜头适配与角色表现](../plugins/runtime/class-diagrams/character-controller.md)
 - [角色输入脚本接口](../plugins/runtime/class-diagrams/character-input-script-api.md)
-- [参数化角色控制](../plugins/runtime/class-diagrams/character-control-design.md)（设计草案，待评审）
-- [角色能力组合](../plugins/runtime/class-diagrams/character-abilities.md)（设计草案，待评审）
-- [角色与镜头、动画、脚本衔接](../plugins/runtime/class-diagrams/character-integration-design.md)（设计草案，待评审）
-- [参数驱动相机插件](../plugins/runtime/class-diagrams/camera-controller.md)（设计草案，待评审）
-- [相机状态机与配置数据](../plugins/runtime/class-diagrams/camera-state-machine.md)（设计草案，待评审）
-- [相机 C++ 模块组合与扩展](../plugins/runtime/class-diagrams/camera-modules.md)（设计草案，待评审）
-- [相机控制脚本接口](../plugins/runtime/class-diagrams/camera-script-api.md)（设计草案，待评审）
+- [参数化角色控制](../plugins/runtime/class-diagrams/character-control-design.md)
+- [角色能力组合](../plugins/runtime/class-diagrams/character-abilities.md)
+- [角色与镜头、动画、脚本衔接](../plugins/runtime/class-diagrams/character-integration-design.md)
+- [参数驱动相机插件](../plugins/runtime/class-diagrams/camera-controller.md)
+- [相机状态机与配置数据](../plugins/runtime/class-diagrams/camera-state-machine.md)
+- [相机 C++ 模块组合与扩展](../plugins/runtime/class-diagrams/camera-modules.md)
+- [相机控制脚本接口](../plugins/runtime/class-diagrams/camera-script-api.md)
 - [建筑破坏连通图](../plugins/runtime/class-diagrams/destruction-graph.md)
 - [破坏脚本接口](../plugins/runtime/class-diagrams/destruction-script-api.md)
 - [建筑破坏：Blast 计算与 Jolt 提交](../plugins/runtime/class-diagrams/destruction.md)
@@ -155,8 +155,8 @@
 - [统一资源导入插件](../plugins/editor/class-diagrams/asset-import.md)
 - [资源同步系统](../plugins/editor/class-diagrams/asset-sync-system.md)
 - [角色控制器编辑器插件](../plugins/editor/class-diagrams/character-controller.md)
-- [角色扩展编辑器接入](../plugins/editor/class-diagrams/character-control-design.md)（设计草案，待评审）
-- [相机控制编辑器接入](../plugins/editor/class-diagrams/camera-controller.md)（设计草案，待评审）
+- [角色扩展编辑器接入](../plugins/editor/class-diagrams/character-control-design.md)
+- [相机控制编辑器接入](../plugins/editor/class-diagrams/camera-controller.md)
 - [建筑破坏预处理](../plugins/editor/class-diagrams/destruction-authoring.md)
 - [建筑破坏资源与编辑器命令](../plugins/editor/class-diagrams/destruction-editor.md)
 - [可编辑多边形模型](../plugins/editor/class-diagrams/editable-mesh.md)

@@ -16,6 +16,7 @@ namespace engine
 class WorldSystem;
 class TaskSystem;
 class Collider;
+class CharacterMotorDriver;
 struct MeshCollisionData;
 namespace schema
 {
@@ -31,6 +32,9 @@ public:
     // tick 在本帧完成求解与结果提交；查询、修改及关闭仍由主线程步进外调用。
     explicit PhysicsSystem(WorldSystem* world = nullptr, TaskSystem* tasks = nullptr) noexcept;
     ~PhysicsSystem() noexcept override;
+
+    // 初始化之前设置；借用覆盖物理系统整个运行期。
+    [[nodiscard]] bool set_character_motor_driver(CharacterMotorDriver* driver) noexcept;
 
     void clear() noexcept;
     [[nodiscard]] std::size_t body_count() const noexcept;
@@ -85,6 +89,7 @@ private:
     struct State;
     WorldSystem* world_ = nullptr;
     TaskSystem* tasks_ = nullptr;
+    CharacterMotorDriver* character_driver_ = nullptr;
     std::unique_ptr<State> state_;
 };
 

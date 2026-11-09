@@ -44,7 +44,6 @@ private:
         ResourceReference font;
         ResourceReference shader;
     };
-    FontSystem& fonts_;
     using Bindings = std::map<std::string, Binding>;
     std::map<std::string, Bindings> documents_;
     const Bindings* active_ = nullptr;

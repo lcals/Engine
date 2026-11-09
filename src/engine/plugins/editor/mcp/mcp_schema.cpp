@@ -44,20 +44,46 @@ bool typed_value(std::string_view type, const Json& value)
     return type == "null" && value.is_null();
 }
 
+bool allows_type(const Json& type, std::string_view name)
+{
+    return type.is_string() ? type == name
+                            : std::find(type.begin(), type.end(), name) != type.end();
+}
+
+bool typed_value(const Json& type, const Json& value)
+{
+    if (type.is_string())
+    {
+        return typed_value(std::string_view(type.get_ref<const std::string&>()), value);
+    }
+    return std::any_of(type.begin(), type.end(),
+                       [&](const auto& item)
+                       {
+                           return typed_value(
+                               std::string_view(item.template get_ref<const std::string&>()),
+                               value);
+                       });
+}
+
 bool inspect_schema(const Json& schema, std::size_t depth)
 {
     if (schema.is_object() && schema.empty())
     {
         return true;
     }
-    if (depth > 16 || !schema.is_object() || !schema.contains("type") ||
-        !schema["type"].is_string())
+    if (depth > 16 || !schema.is_object() || !schema.contains("type"))
     {
         return false;
     }
-    const auto& type = schema["type"].get_ref<const std::string&>();
-    if (type != "object" && type != "array" && type != "string" && type != "boolean" &&
-        type != "integer" && type != "number" && type != "null")
+    const auto& type = schema["type"];
+    const auto known = [](const Json& item)
+    {
+        return item.is_string() &&
+               (item == "object" || item == "array" || item == "string" || item == "boolean" ||
+                item == "integer" || item == "number" || item == "null");
+    };
+    if (!(known(type) ||
+          (type.is_array() && !type.empty() && std::all_of(type.begin(), type.end(), known))))
     {
         return false;
     }
@@ -99,7 +125,7 @@ bool inspect_schema(const Json& schema, std::size_t depth)
                 return false;
             }
         }
-        else if (key == "properties" && type == "object")
+        else if (key == "properties" && allows_type(type, "object"))
         {
             if (!value.is_object())
             {
@@ -113,7 +139,7 @@ bool inspect_schema(const Json& schema, std::size_t depth)
                 }
             }
         }
-        else if (key == "required" && type == "object")
+        else if (key == "required" && allows_type(type, "object"))
         {
             if (!value.is_array() || !schema.contains("properties") ||
                 !schema["properties"].is_object())
@@ -128,22 +154,22 @@ bool inspect_schema(const Json& schema, std::size_t depth)
                 }
             }
         }
-        else if (key == "additionalProperties" && type == "object")
+        else if (key == "additionalProperties" && allows_type(type, "object"))
         {
-            if (!value.is_boolean())
+            if (!value.is_boolean() && !inspect_schema(value, depth + 1))
             {
                 return false;
             }
         }
-        else if (key == "items" && type == "array")
+        else if (key == "items" && allows_type(type, "array"))
         {
             if (!inspect_schema(value, depth + 1))
             {
                 return false;
             }
         }
-        else if (((key == "minItems" || key == "maxItems") && type == "array") ||
-                 ((key == "minLength" || key == "maxLength") && type == "string"))
+        else if (((key == "minItems" || key == "maxItems") && allows_type(type, "array")) ||
+                 ((key == "minLength" || key == "maxLength") && allows_type(type, "string")))
         {
             if (!value.is_number_integer() || value < 0)
             {
@@ -152,7 +178,7 @@ bool inspect_schema(const Json& schema, std::size_t depth)
         }
         else if ((key == "minimum" || key == "maximum" || key == "exclusiveMinimum" ||
                   key == "exclusiveMaximum") &&
-                 (type == "integer" || type == "number"))
+                 (allows_type(type, "integer") || allows_type(type, "number")))
         {
             if (!value.is_number() || !std::isfinite(value.get<double>()))
             {
@@ -182,7 +208,7 @@ bool matches(const Json& schema, const Json& value)
     {
         return true;
     }
-    const auto& type = schema["type"].get_ref<const std::string&>();
+    const auto& type = schema["type"];
     if (!typed_value(type, value))
     {
         return false;
@@ -198,7 +224,7 @@ bool matches(const Json& schema, const Json& value)
     {
         return false;
     }
-    if (type == "object")
+    if (value.is_object())
     {
         if (schema.contains("required"))
         {
@@ -219,13 +245,17 @@ bool matches(const Json& schema, const Json& value)
                     return false;
                 }
             }
-            else if (!schema.value("additionalProperties", true))
+            else if (schema.contains("additionalProperties"))
             {
-                return false;
+                const auto& extra = schema["additionalProperties"];
+                if (extra.is_boolean() ? !extra.get<bool>() : !matches(extra, argument))
+                {
+                    return false;
+                }
             }
         }
     }
-    else if (type == "array")
+    else if (value.is_array())
     {
         if ((schema.contains("minItems") && value.size() < schema["minItems"].get<std::size_t>()) ||
             (schema.contains("maxItems") && value.size() > schema["maxItems"].get<std::size_t>()))
@@ -243,7 +273,7 @@ bool matches(const Json& schema, const Json& value)
             }
         }
     }
-    else if (type == "string")
+    else if (value.is_string())
     {
         const auto& text = value.get_ref<const std::string&>();
         const auto length = static_cast<std::size_t>(std::count_if(
@@ -254,7 +284,7 @@ bool matches(const Json& schema, const Json& value)
             return false;
         }
     }
-    else if (type == "number" || type == "integer")
+    else if (value.is_number())
     {
         if ((schema.contains("minimum") && value < schema["minimum"]) ||
             (schema.contains("maximum") && value > schema["maximum"]) ||

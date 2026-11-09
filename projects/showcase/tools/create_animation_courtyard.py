@@ -381,9 +381,10 @@ def setup_player(session, scene_id, enabled):
     player = require_unique_node(scene, "Player")
     camera = require_unique_node(scene, "Camera")
     identity = {"sceneId": scene_id, "nodeId": player}
+    settings = session.call("get_character_controller", identity)["settings"]
     session.batch(
         [
-            {"command": "set_character_controller", "arguments": identity | {"enabled": False}},
+            {"command": "set_character_controller", "arguments": identity | {"enabled": False, "settings": settings}},
             {"command": "set_character_motor", "arguments": identity | {"enabled": False}},
             {
                 "command": "set_transform",
@@ -396,9 +397,7 @@ def setup_player(session, scene_id, enabled):
                 "arguments": identity
                 | {
                     "enabled": enabled,
-                    "mode": "third_person",
-                    "cameraNodeId": camera,
-                    "cameraDistance": 4.6,
+                    "settings": settings,
                 },
             },
         ]

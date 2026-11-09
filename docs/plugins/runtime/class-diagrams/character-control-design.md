@@ -1,8 +1,8 @@
-# 参数化角色控制（设计草案）
+# 参数化角色控制
 
 [类图索引](../../../class-diagrams/index.md) · [当前实现](character-controller.md) · [能力组合](character-abilities.md) · [固定步物理接口](../../../runtime/class-diagrams/character-motor-control.md) · [镜头、动画与脚本衔接](character-integration-design.md)
 
-**状态：设计草案，待评审，尚未实现。** 目标是可复用的第一／第三人称基础角色。运动与能力由 C++ 实现，配置随普通组件保存到场景／预制体，C++ 与 TS 通过相同契约提交输入。继续扩展运行时 `character_controller` 插件，复杂资产制作归 DCC，角色控制不接管动画资源制作。
+**状态：已实现；验证范围见[测试文档](../../../testing.md)。** 目标是可复用的第一／第三人称基础角色。运动与能力由 C++ 实现，配置随普通组件保存到场景／预制体，C++ 与 TS 通过相同契约提交输入。继续扩展运行时 `character_controller` 插件，复杂资产制作归 DCC，角色控制不接管动画资源制作。
 
 原生控制与能力类型位于 `engine::plugins::character_controller`；Schema 生成数据继续位于 `engine::schema`。
 
@@ -186,7 +186,7 @@ classDiagram
     CharacterFacingDataT ..> CharacterFacingMode
 ```
 
-这些结构拟由 `include/schemas/runtime/character_controller.fbs` 统一生成，直接存 ECS Data 列。名字与模块 id 在所属集合内唯一；配置中的相机引用是所属场景 local ID，复制预制体时重映射。view 空间或 view 朝向明确要求有效的 CharacterCamera 绑定；缺少引用时报告并暂停主动控制，不转向新场景同 local ID 对象，也不自动改用另一种坐标系。
+这些结构由 `include/schemas/runtime/character_controller.fbs` 统一生成，直接存 ECS Data 列。名字与模块 id 在所属集合内唯一；配置中的相机引用是所属场景 local ID，复制预制体时重映射。view 空间或 view 朝向明确要求有效的 CharacterCamera 绑定；缺少引用时报告并暂停主动控制，不转向新场景同 local ID 对象，也不自动改用另一种坐标系。
 
 首批加速度和制动为 m/s²，转向为度/秒；ground/air 两种物理条件选择相应参数。空中改变方向只能通过配置的加速度改变主动速度，不能覆盖外部冲量和平台携带速度。停止输入使用制动，clear_input 表示明确取消主动意图，不再执行一段隐式滑行。
 
@@ -260,8 +260,8 @@ classDiagram
 
 ## 首批范围与验收边界
 
-首批设计覆盖行走加减速、空中控制、移动／观察方向朝向、显式快跑、跳跃缓冲与离地宽限、可控跳跃时长、蹲起净空检查，以及支撑平台速度与外部击退的分离。第一人称／第三人称是输入、朝向和镜头方案组合，复用同一个 Motor 与 Controller。
+当前实现覆盖行走加减速、空中控制、移动／观察方向朝向、显式快跑、跳跃缓冲与离地宽限、可控跳跃时长、蹲起净空检查，以及支撑平台速度与外部击退的分离。第一人称／第三人称是输入、朝向和镜头方案组合，复用同一个 Motor 与 Controller。
 
 攀爬、游泳、飞行、翻越、战斗数值、装备、网络预测、Root Motion 和完整动画图不纳入首批。能力扩展受当前物理请求契约约束，新增运动种类先评审需要的物理能力。
 
-实现阶段复用现有 physics 与 character_controller 用例，补充真实缺口：零／多物理子步的动作消费、不同渲染步长下相同固定输入序列、缓冲到期、受阻站起、平台离地速度、控制权交接及击退保留。最后在同一个第一／第三人称场景实际行走验收；本次仅设计，不记录未执行的构建或测试为通过。
+模块用例覆盖固定步动作消费、缓冲到期、受阻站起、控制权交接及击退保留；原生、脚本、编辑器和实际窗口的已执行范围统一见[测试文档](../../../testing.md#镜头与角色模块验证)。

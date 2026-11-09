@@ -41,7 +41,7 @@ mesh = "<独立 Mesh 资源的完整 GUID>"
 
 外部水平速度属于单个 Jolt 角色实例，禁用、删除、普通节点卸载和物理角色重建时清除；常驻角色切场景继续保留。胶囊尺寸或坡度限制变化重建物理角色；修改阻尼、重力倍率、台阶高度和贴地距离直接应用，不丢弃已有速度。`restore_data` 清除输入与待消费增量，并在下一次同步复位 Jolt 速度；没有新输入时不会继承恢复前的运动。`instance_id` 是组件只读且不复用的身份，插件可据此丢弃同一节点上旧组件的状态。脚本使用 `CharacterMotor.ClearInput()`、`AddVelocity(x, y, z)`、`SetExternalDamping(value)` 访问相同能力。
 
-`cast_sphere()` 查询已同步的物理世界，返回状态与可通行比例，忽略触发器。第一/第三人称输入和相机防穿墙策略由可选运行时[角色控制器插件](../plugins/runtime/class-diagrams/character-controller.md)负责，核心不读取键鼠、不引用该插件。
+`cast_sphere()` 查询已同步的物理世界，返回状态与可通行比例，忽略触发器。角色输入由[角色控制器插件](../plugins/runtime/class-diagrams/character-controller.md)负责，镜头防穿墙归[相机插件](../plugins/runtime/class-diagrams/camera-controller.md)，核心不读取键鼠、不引用该插件。
 
 `cast_ray(collider, origin, displacement, fraction)` 只查询指定 Collider 已提交的碰撞体，复用 Jolt 射线查询和 BodyID 过滤，其他碰撞体不会遮挡目标。源点与位移使用世界坐标；凸体视为实体、三角形允许双面命中。无命中、合法空网格、尚未同步或禁用目标返回 `true/1`；非法输入、外部世界组件返回 `false/0`。它不隐式创建碰撞或推进模拟，目标是否能作为某种玩法支撑由调用方决定。
 

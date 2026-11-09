@@ -1,138 +1,67 @@
 #include "plugins/editor/character_controller/character_camera_codec.hpp"
-
-#include "editor/asset_pipeline/toml_helpers.hpp"
+#include "editor/asset_pipeline/control_toml.hpp"
 #include "plugins/runtime/character_controller/character_camera.hpp"
-
-#include <memory>
-#include <utility>
-
 namespace engine::plugins::character_controller
 {
-
 schema::ComponentPayload CharacterCameraCodec::type() const noexcept
 {
     return schema::ComponentPayload::CharacterCameraData;
 }
-
 std::string_view CharacterCameraCodec::name() const noexcept
 {
     return "character_camera";
 }
-
-bool CharacterCameraCodec::validate(const schema::ComponentDataT& component,
-                                    std::string& error) const
+bool CharacterCameraCodec::validate(const schema::ComponentDataT& c, std::string& e) const
 {
-    const auto* value = component.payload.AsCharacterCameraData();
-    if (value == nullptr || !CharacterCamera::valid_settings(*value))
+    const auto* d = c.payload.AsCharacterCameraData();
+    if (!d)
     {
-        error = "invalid character_camera settings";
+        e = "invalid character_camera payload";
         return false;
     }
+    return CharacterCamera::valid_settings(*d) || (e = "invalid character camera settings", false);
+}
+bool CharacterCameraCodec::read(const toml::table& t, schema::ComponentDataT& c,
+                                std::string& e) const
+{
+    nlohmann::json j;
+    schema::CharacterCameraDataT d;
+    if (!editor::asset_pipeline::control_toml::read(t, j, e) ||
+        !schema::control_json::read(j, d, e))
+    {
+        return false;
+    }
+    schema::ComponentDataT candidate;
+    candidate.payload.Set(std::move(d));
+    if (!validate(candidate, e))
+    {
+        return false;
+    }
+    c.payload = std::move(candidate.payload);
     return true;
 }
-
-bool CharacterCameraCodec::read(const toml::table& table, schema::ComponentDataT& component,
-                                std::string& error) const
+void CharacterCameraCodec::write(const schema::ComponentDataT& c, toml::table& t) const
 {
-    schema::CharacterCameraDataT value;
-    if (table.contains("target_node_id") &&
-        !editor::asset_pipeline::identifier(table.get("target_node_id"), value.target_node_id))
+    const auto* d = c.payload.AsCharacterCameraData();
+    if (!d)
     {
-        error = "invalid character_camera.target_node_id";
-        return false;
+        return;
     }
-    if (table.contains("mode"))
-    {
-        const auto mode = table["mode"].value<std::string_view>();
-        if (mode == "first_person")
-        {
-            value.mode = schema::CharacterView::first_person;
-        }
-        else if (mode == "third_person")
-        {
-            value.mode = schema::CharacterView::third_person;
-        }
-        else
-        {
-            error = "invalid character_camera.mode";
-            return false;
-        }
-    }
-    const auto number = [&](std::string_view name, float& output)
-    {
-        if (table.contains(name) && !editor::asset_pipeline::float_number(table.get(name), output))
-        {
-            error = "invalid character_camera." + std::string(name);
-            return false;
-        }
-        return true;
-    };
-    if (!number("eye_height", value.eye_height) ||
-        !number("camera_distance", value.camera_distance) ||
-        !number("pitch_min", value.pitch_min) || !number("pitch_max", value.pitch_max) ||
-        !number("collision_radius", value.collision_radius) ||
-        !number("collision_margin", value.collision_margin))
-    {
-        return false;
-    }
-    if (!CharacterCamera::valid_settings(value))
-    {
-        error = "invalid character_camera settings";
-        return false;
-    }
-    component.payload.Set(std::move(value));
-    return true;
+    t.insert_or_assign("type", "character_camera");
+    editor::asset_pipeline::control_toml::write_table(schema::control_json::write(*d), t);
 }
-
-void CharacterCameraCodec::write(const schema::ComponentDataT& component, toml::table& table) const
-{
-    const auto* value = component.payload.AsCharacterCameraData();
-    table.insert("type", "character_camera");
-    table.insert("target_node_id", std::to_string(value->target_node_id));
-    table.insert("mode", schema::EnumNameCharacterView(value->mode));
-    table.insert("eye_height", value->eye_height);
-    table.insert("camera_distance", value->camera_distance);
-    table.insert("pitch_min", value->pitch_min);
-    table.insert("pitch_max", value->pitch_max);
-    table.insert("collision_radius", value->collision_radius);
-    table.insert("collision_margin", value->collision_margin);
-}
-
-bool CharacterCameraCodec::remap_node_references(schema::ComponentDataT& component,
-                                                 std::span<const schema::NodeIdMappingT> mapping,
-                                                 std::string& error) const
-{
-    auto* data = component.payload.AsCharacterCameraData();
-    if (!data)
-    {
-        return false;
-    }
-    if (data->target_node_id == 0)
-    {
-        return true;
-    }
-    for (const auto& value : mapping)
-    {
-        if (value.source_id == data->target_node_id)
-        {
-            data->target_node_id = value.target_id;
-            return true;
-        }
-    }
-    error = "Prefab has an external node reference: target_node_id";
-    return false;
-}
-
 bool register_character_camera_codec()
 {
-    if (editor::asset_pipeline::find_scene_component_codec(
+    if (!editor::asset_pipeline::find_scene_component_codec(
             schema::ComponentPayload::CharacterCameraData))
     {
-        return true;
+        std::unique_ptr<editor::asset_pipeline::SceneComponentCodec> codec =
+            std::make_unique<CharacterCameraCodec>();
+        if (!editor::asset_pipeline::register_scene_component_codec(codec))
+        {
+            return false;
+        }
     }
-    std::unique_ptr<editor::asset_pipeline::SceneComponentCodec> codec =
-        std::make_unique<CharacterCameraCodec>();
-    return editor::asset_pipeline::register_scene_component_codec(codec);
+    return true;
 }
-
 } // namespace engine::plugins::character_controller

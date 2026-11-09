@@ -2,7 +2,7 @@
 
 [原生相机类图](camera-controller.md) · [状态机与配置](camera-state-machine.md) · [逐类绑定](script-bindings.md)
 
-**状态：设计草案，待评审，尚未实现。** 本页定义拟议 TS 外观，不向 `include/engine.d.ts` 提前加入未实现声明。相机的执行与运行状态仍由原生插件管理；TS 只读取配置、提交参数、绑定目标或显式替换定义。
+**状态：已实现；验证范围见[测试文档](../../../testing.md)。** 本页定义当前 TS 外观；`include/engine.d.ts` 只声明已实现的绑定。相机的执行与运行状态仍由原生插件管理；TS 只读取配置、提交参数、绑定目标或显式替换定义。
 
 ```mermaid
 classDiagram

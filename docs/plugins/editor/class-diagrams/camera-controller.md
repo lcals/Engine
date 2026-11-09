@@ -1,8 +1,8 @@
 # 相机控制编辑器接入
 
-[运行时相机草案](../../runtime/class-diagrams/camera-controller.md) · [状态机与配置](../../runtime/class-diagrams/camera-state-machine.md) · [类图索引](../../../class-diagrams/index.md)
+[运行时相机契约](../../runtime/class-diagrams/camera-controller.md) · [状态机与配置](../../runtime/class-diagrams/camera-state-machine.md) · [类图索引](../../../class-diagrams/index.md)
 
-**状态：设计草案，待评审，尚未实现。** 制作能力归可选编辑器插件 `engine::plugins::camera_editor`，依赖运行时相机契约及编辑器基础；运行时插件不依赖该模块或 MCP。沿用逐组件编解码、事务命令和 MCP 适配，不开发相机图形编辑界面。
+**状态：已实现；验证范围见[测试文档](../../../testing.md)。** 制作能力归可选编辑器插件 `engine::plugins::camera_editor`，依赖运行时相机契约及编辑器基础；运行时插件不依赖该模块或 MCP。沿用逐组件编解码、事务命令和 MCP 适配，不开发相机图形编辑界面。
 
 ```mermaid
 classDiagram
@@ -41,7 +41,7 @@ Codec 独占交给已有资源管线的登记表；借用的类型表由宿主�
 - `register_camera_commands(WorldSystem&, SceneCommands&, EditorCommands&) -> bool`：登记设置、查询及运行参数命令，复用 `ComponentEdit` 事务。
 - `register_camera_mcp_tools(McpSystem&, EditorMcpTools&) -> bool`：同时启用 MCP 时创建单独适配目标并登记工具，不让原生相机系统链接 MCP。
 
-| 命令及拟议 MCP 工具 | 行为与保存边界 |
+| 命令及当前 MCP 工具 | 行为与保存边界 |
 | --- | --- |
 | `get_camera_controller` | 返回完整配置，包括参数声明、状态、转换、Rig、模块及目标默认引用 |
 | `set_camera_controller` | 完整校验后原子替换；编辑操作进入既有撤销／重做及场景保存流程 |
