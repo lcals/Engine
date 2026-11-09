@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""通过真实引擎 MCP 创建现代庭院、碰撞与灯光，再保存场景及建模源。"""
+"""Create a courtyard, collisions and lights through actual engine MCP, then save scene and modeling sources."""
 
 import argparse
 from collections import Counter
@@ -346,9 +346,9 @@ def courtyard_plan():
 
     names = [piece.name for piece in p.pieces]
     if len(names) != len(set(names)):
-        raise RuntimeError("庭院模型名称重复")
+        raise RuntimeError("Duplicate courtyard model name")
     if any(piece.material not in MATERIAL_ROLES for piece in p.pieces):
-        raise RuntimeError("庭院存在未知材质角色")
+        raise RuntimeError("Courtyard contains an unknown material role")
     return p
 
 
@@ -357,7 +357,7 @@ def material_paths(path):
     if path is not None:
         supplied = json.loads(path.read_text(encoding="utf-8"))
         if not isinstance(supplied, dict) or set(supplied) - set(MATERIAL_ROLES):
-            raise RuntimeError("材质映射必须是已知角色到资源路径的 JSON 对象")
+            raise RuntimeError("Material map must be a JSON object from known roles to resource paths")
         paths.update(supplied)
     for role, value in paths.items():
         if (
@@ -365,14 +365,14 @@ def material_paths(path):
             or not value.startswith("")
             or ".." in value.split("/")
         ):
-            raise RuntimeError(f"材质 {role} 必须指向项目资源路径")
+            raise RuntimeError(f"Material {role} must reference a project resource path")
     return paths
 
 
 def require_unique_node(scene, name):
     matches = [node for node in scene["nodes"] if node["name"] == name]
     if len(matches) != 1:
-        raise RuntimeError(f"建图场景必须有且只有一个 {name}")
+        raise RuntimeError(f"Authoring scene must contain exactly one {name}")
     return matches[0]["nodeId"]
 
 
@@ -466,7 +466,7 @@ def build_models(session, scene_id, plan, materials):
     models = session.call("modeling_get", identity).get("models", [])
     by_name = {model["name"]: model for model in models}
     if len(by_name) != len(models):
-        raise RuntimeError("场景中建模名称重复，无法按名称继续")
+        raise RuntimeError("Duplicate modeling names prevent resuming by name")
     for offset in range(0, len(plan.pieces), 8):
         chunk = plan.pieces[offset : offset + 8]
         missing = [piece for piece in chunk if piece.name not in by_name]
@@ -570,14 +570,14 @@ def build_models(session, scene_id, plan, materials):
                 )
         session.batch(appearance)
         print(
-            f"{min(offset + 8, len(plan.pieces))}/{len(plan.pieces)} 庭院模型完成（{chunk[-1].group}）",
+            f"{min(offset + 8, len(plan.pieces))}/{len(plan.pieces)} courtyard models completed ({chunk[-1].group})",
             flush=True,
         )
     return session.call("modeling_get", identity)["models"]
 
 
 def leaf_matrix(position, rotation, scale):
-    """列主序仿射矩阵，仅作为 MCP transform 操作的参数。"""
+    """Column-major affine matrix used only as an MCP transform argument."""
     rx, ry, rz = (math.radians(value) for value in rotation)
     cx, sx = math.cos(rx), math.sin(rx)
     cy, sy = math.cos(ry), math.sin(ry)
@@ -595,7 +595,7 @@ def leaf_matrix(position, rotation, scale):
 
 
 def refine_foliage(session, scene_id, materials):
-    """用已有复制面/变换操作生成叶簇，每棵树只保留一个 Mesh。"""
+    """Build foliage with existing face duplication and transform operations, retaining one Mesh per tree."""
     identity = {"sceneId": scene_id}
     crowns = (
         (-0.65, 2.65, 0.22, 0.85, 0.65, 0.74),
@@ -636,7 +636,7 @@ def refine_foliage(session, scene_id, materials):
             seed = [face["id"] for face in topology["faces"]]
             face_count = topology["model"]["faceCount"]
             if len(seed) != face_count:
-                raise RuntimeError("叶片种子拓扑分页不完整")
+                raise RuntimeError("Foliage seed topology paging is incomplete")
             generator = random.Random(8201 + tree_index)
             for index in range(280):
                 center_x, center_y, center_z, radius_x, radius_y, radius_z = crowns[index // 40]
@@ -668,7 +668,7 @@ def refine_foliage(session, scene_id, materials):
                 )
                 faces = [face["id"] for face in page["faces"]]
                 if len(faces) != len(seed):
-                    raise RuntimeError("MCP 未返回完整的新叶片 face ID")
+                    raise RuntimeError("MCP did not return all new foliage face IDs")
                 face_count += len(faces)
                 shade = generator.uniform(0.58, 1.0)
                 session.batch(
@@ -696,7 +696,7 @@ def refine_foliage(session, scene_id, materials):
                     ]
                 )
                 if (index + 1) % 40 == 0:
-                    print(f"{tree}：{index + 1}/280 叶片合入单个 Mesh", flush=True)
+                    print(f"{tree}: {index + 1}/280 leaves merged into one Mesh", flush=True)
             session.call(
                 "modeling_edit", target | {"operation": "erase_faces", "selection": {"faces": seed}}
             )
@@ -756,11 +756,11 @@ def refresh_soil(session, scene_id, plan, materials):
 
 
 def import_saved_scene(session):
-    """保存只写源文件；同步并重启项目后才验证运行缓存。"""
+    """Saving writes source files only; validate runtime cache after syncing and restarting the project."""
     session.call("stop_project")
     result, _ = session.request_tool("sync_assets")
     if result.get("isError"):
-        raise RuntimeError("场景同步失败：" + json.dumps(result, ensure_ascii=False))
+        raise RuntimeError("Scene synchronization failed: " + json.dumps(result, ensure_ascii=False))
     receipts = [
         json.loads(item["text"]) for item in result.get("content", []) if item.get("type") == "text"
     ]
@@ -768,7 +768,7 @@ def import_saved_scene(session):
         receipt.get("runtimeDir") == session.runtime and receipt.get("availableRevision")
         for receipt in receipts
     ):
-        raise RuntimeError("同步回执未确认目标运行目录与版本")
+        raise RuntimeError("Sync receipt did not confirm the target runtime directory and revision")
     session.call("start_project")
     scene = scene_nodes(session)
     setup_lighting(session, scene["sceneId"])
@@ -785,23 +785,23 @@ def main():
     parser.add_argument(
         "--report", type=Path, default=Path("build/animation-courtyard/mcp-receipts.jsonl")
     )
-    parser.add_argument("--material-map", type=Path, help="材质角色到项目资源路径的 JSON 映射")
+    parser.add_argument("--material-map", type=Path, help="JSON map of material roles to project resource paths")
     parser.add_argument("--timeout", type=float, default=180)
     parser.add_argument(
-        "--dry-run", action="store_true", help="只检查构图、节点及材质列表，不连接引擎"
+        "--dry-run", action="store_true", help="Only check composition, nodes and materials without connecting to the engine"
     )
-    parser.add_argument("--start", action="store_true", help="没有活动场景时调用 start_project")
-    parser.add_argument("--no-save", action="store_true", help="只构建内存场景，暂不写源资源")
+    parser.add_argument("--start", action="store_true", help="Call start_project when no scene is active")
+    parser.add_argument("--no-save", action="store_true", help="Build only the in-memory scene without writing source resources")
     parser.add_argument(
-        "--lighting-only", action="store_true", help="仅恢复灯光与本次会话的渲染设置"
+        "--lighting-only", action="store_true", help="Restore only lighting and this session's render settings"
     )
     parser.add_argument(
-        "--foliage-only", action="store_true", help="细化已保存庭院的叶簇与碎石材质"
+        "--foliage-only", action="store_true", help="Refine foliage and gravel materials in the saved courtyard"
     )
     parser.add_argument("--save-path", default="scenes/playground.scene")
     args = parser.parse_args()
     if args.timeout <= 0:
-        parser.error("--timeout 必须大于零")
+        parser.error("--timeout must be greater than zero")
     try:
         plan = courtyard_plan()
         materials = material_paths(args.material_map)
@@ -839,14 +839,14 @@ def main():
             }
             if not required.issubset(session.tools):
                 raise RuntimeError(
-                    "当前 MCP 缺少庭院建图命令：" + ", ".join(sorted(required - session.tools))
+                    "Current MCP is missing courtyard authoring commands: " + ", ".join(sorted(required - session.tools))
                 )
             scene = session.call("get_scene").get("scene")
             if not scene and args.start:
                 session.call("start_project")
                 scene = scene_nodes(session)
             if not scene:
-                raise RuntimeError("项目没有活动场景；先启动编辑器与项目")
+                raise RuntimeError("Project has no active scene; start the editor and project first")
             scene_id = scene["sceneId"]
             if args.lighting_only:
                 setup_lighting(session, scene_id)
@@ -859,7 +859,7 @@ def main():
                 return 0
             if any(node["name"] == "Avatar" for node in scene["nodes"]):
                 raise RuntimeError(
-                    "请使用只加载场景、不动态生成 Avatar 的建图项目，避免把运行角色重复保存"
+                    "Use an authoring project that only loads the scene without generating an Avatar, to avoid saving runtime characters twice"
                 )
             if any(
                 node["name"]
@@ -875,7 +875,7 @@ def main():
                 }
                 for node in scene["nodes"]
             ):
-                raise RuntimeError("建图项目仍有旧灰盒，请先准备仅保留 Player/Camera/灯光的场景")
+                raise RuntimeError("Authoring project still contains old blockout geometry; keep only Player, Camera and lights first")
             setup_player(session, scene_id, False)
             setup_lighting(session, scene_id)
             if not args.foliage_only:
@@ -897,7 +897,7 @@ def main():
                     or {model["name"]: model["triangleCount"] for model in models}
                     != expected_models
                 ):
-                    raise RuntimeError("保存后重载的节点或模型拓扑与保存前不一致")
+                    raise RuntimeError("Reloaded node or model topology differs from the saved state")
             print(
                 json.dumps(
                     {
@@ -919,7 +919,7 @@ def main():
         return 0
     except (OSError, ValueError, RuntimeError, KeyError, subprocess.TimeoutExpired) as error:
         print(
-            f"庭院创建未完成：{error}\n已完成操作保留在 MCP 回执中，修复后可按名称继续。",
+            f"Courtyard creation did not complete: {error}\nCompleted operations remain in the MCP receipts; fix the problem and resume by name.",
             file=sys.stderr,
         )
         return 1

@@ -1,4 +1,4 @@
-"""关闭脚本插件后仍可导入资源、运行编辑器，并明确拒绝脚本玩法启动。"""
+"""Without the script plugin, asset import and editor operation remain available while script gameplay is explicitly rejected."""
 
 import argparse
 from pathlib import Path

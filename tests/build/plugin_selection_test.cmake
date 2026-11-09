@@ -214,7 +214,7 @@ run_case(
     plugin_features_disabled
     ""
     [=[
-# 同一配置目录真实重配：插件自动增加普通变量，不污染用户 feature 的 CACHE 初值。
+# Reconfigure the same directory: plugins extend ordinary variables without changing cached user features.
 file(MAKE_DIRECTORY "${CASE_ROOT}/source")
 file(WRITE "${CASE_ROOT}/source/CMakeLists.txt"
     "cmake_minimum_required(VERSION 3.25)\n"
@@ -427,7 +427,7 @@ run_case(
     asset_import_target_toggle
     ""
     [=[
-# 使用真实统一插件与宿主装配函数；仅外部依赖用接口桩，不安装或编译第三方。
+# Use actual unified plugin and host assembly functions; stub external dependencies without building them.
 set(_source "${CASE_ROOT}/source")
 file(MAKE_DIRECTORY "${_source}/src/engine/plugins/editor/asset_import"
                     "${_source}/third_party/ufbx")

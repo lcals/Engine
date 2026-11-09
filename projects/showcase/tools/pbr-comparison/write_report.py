@@ -57,44 +57,44 @@ def main():
     transfer = manifest.get('display_transfer', 'gamma-2.2')
     if transfer not in ('srgb-iec-61966-2-1', 'gamma-2.2'):
         raise SystemExit(f'unsupported display transfer: {transfer}')
-    transfer_label = '精确 sRGB' if transfer == 'srgb-iec-61966-2-1' else 'gamma 2.2'
+    transfer_label = 'exact sRGB' if transfer == 'srgb-iec-61966-2-1' else 'gamma 2.2'
     comparisons = json.loads((source.parent / 'comparisons.json').read_text())
     parts = ['''<!doctype html><html lang="zh-CN"><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>PBR 实测像素对照</title><style>
+<title>PBR measured pixel comparison</title><style>
 :root{color-scheme:light dark}body{font:16px/1.6 system-ui,sans-serif;max-width:1200px;margin:24px auto;padding:0 16px}
 h1{font-size:28px}h2{margin-top:48px}h3{font-size:18px}p{max-width:85ch}.images{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
 figure{margin:0}figcaption{font-weight:600;margin:8px 0}img{display:block;width:100%;height:auto}
 table{border-collapse:collapse;width:100%;font-size:14px}th,td{padding:8px;text-align:left;border-bottom:1px solid GrayText}code{overflow-wrap:anywhere}
 details{margin:16px 0}summary{cursor:pointer}nav{display:flex;flex-wrap:wrap;gap:12px}
 @media(max-width:650px){.images{grid-template-columns:1fr}body{padding:0 10px}th,td{padding:5px;font-size:12px}}
-</style><h1>PBR 实测像素对照</h1>
-<p>2026-11-04 · macOS Metal Release · 引擎与 Blender 原生图像均为 1280×720。
-保留原材质、光照、相机和 Blender 默认凹凸校正；Blender 线性 EXR 使用与引擎一致的曝光 1、Reinhard、{transfer} 显示编码。</p>
-<p>本页嵌入原始截图及绝对差图，没有缩放重采样、自动对齐或色彩拟合。
-浏览器显示时可自适应大小，图片文件仍为原分辨率。每球测量中心半径 72 像素区域；MAE、RMSE 单位均为 8 位 RGB 的 0–255。
-这是显示编码对照，不是线性 HDR 缓冲读回，也不是“全部物理材质完全一致”的证明。</p>
-<p>SpecGloss 与 Blender Principled 只匹配灰度正入射 F0，其漫反射和掠射模型不完全等价。
-旧镜面 RGB 贴图组是线性数据夹具；标准 sRGB RGB／线性 alpha 已由独立 GPU 回归覆盖，不用此组代替。
-AO 没有 Principled 同义输入，另由引擎直接／间接光回归验证。</p>'''.replace('{transfer}', transfer_label)]
+</style><h1>PBR measured pixel comparison</h1>
+<p>2026-11-04 · macOS Metal Release · Engine and Blender native images are both 1280×720.
+Original materials, lighting, camera and Blender default bump correction are preserved. Blender linear EXR uses matching exposure 1, Reinhard and {transfer} display encoding.</p>
+<p>This page embeds original captures and absolute differences without resampling, automatic alignment or color fitting.
+Browser display can resize images, but files retain their original resolution. Each sphere is measured within a 72-pixel center radius; MAE and RMSE use 8-bit RGB values from 0 to 255.
+This compares display-encoded values, not linear HDR readback, and does not prove equivalence for all physical materials.</p>
+<p>SpecGloss and Blender Principled match only grayscale normal-incidence F0; their diffuse and grazing-angle models are not equivalent.
+The earlier specular RGB texture set is a linear-data fixture. Standard sRGB RGB/linear alpha is covered separately by GPU regression tests.
+Principled has no equivalent AO input; engine direct/indirect lighting tests cover it separately.</p>'''.replace('{transfer}', transfer_label)]
     parts.append('<nav>' + ''.join(f'<a href="#{html.escape(name)}">{html.escape(name)}</a>'
                                   for name in comparisons) + '</nav>')
     for name, data in comparisons.items():
         parts.append(f'<section id="{html.escape(name)}"><h2>{html.escape(name)}</h2>')
-        parts.append('<div class="images">' + picture(data['engine'], '引擎：当前 PBR') +
-                     picture(data['blender'], 'Blender：统一显示编码，默认凹凸校正') + '</div>')
-        parts.append('<details><summary>查看绝对像素差图（不放大差值）</summary>' +
+        parts.append('<div class="images">' + picture(data['engine'], 'Engine: current PBR') +
+                     picture(data['blender'], 'Blender: matching display encoding and default bump correction') + '</div>')
+        parts.append('<details><summary>Absolute pixel difference without amplification</summary>' +
                      picture(source.parent / 'comparison' / name / 'absolute-difference.png',
-                             '逐像素绝对差') + '</details>')
-        parts.append('<table><thead><tr><th>参数</th><th>MAE</th><th>RMSE</th>'
-                     '<th>引擎亮度</th><th>Blender 亮度</th></tr></thead><tbody>')
+                             'Absolute per-pixel difference') + '</details>')
+        parts.append('<table><thead><tr><th>Parameter</th><th>MAE</th><th>RMSE</th>'
+                     '<th>Engine luminance</th><th>Blender luminance</th></tr></thead><tbody>')
         for case in data['cases']:
             parts.append(f'<tr><td>{html.escape(case["label"])}</td>'
                          f'<td>{case["mae_rgb_255"]:.3f}</td><td>{case["rmse_rgb_255"]:.3f}</td>'
                          f'<td>{case["engine"]["mean_luma_255"]:.3f}</td>'
                          f'<td>{case["blender"]["mean_luma_255"]:.3f}</td></tr>')
         parts.append('</tbody></table></section>')
-    parts.append('<details><summary>本次采集与实现指纹</summary><pre><code>' +
+    parts.append('<details><summary>Capture and implementation fingerprints</summary><pre><code>' +
                  html.escape(json.dumps({'run_id': manifest['run_id'],
                                          'shader_sha256': manifest['shader_sha256'],
                                          'editor_exit': manifest['exit']}, indent=2)) +

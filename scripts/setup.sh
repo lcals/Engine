@@ -5,11 +5,11 @@ set -o pipefail
 usage()
 {
     cat <<'EOF'
-用法：bash scripts/setup.sh [--check | --install] [--cache ccache|sccache|none]
-检查 CMake >= 3.30、Git、Ninja 和所选编译缓存；macOS/Linux 默认 ccache。
-安装源：macOS Homebrew；Linux 当前系统的 apt-get、dnf 或 pacman 仓库。
-编译器、平台 SDK 和 vcpkg 仍按 README 准备。
-退出码：0 工具可用；1 缺失、安装或版本检查失败；2 参数或宿主环境不支持。
+Usage: bash scripts/setup.sh [--check | --install] [--cache ccache|sccache|none]
+Check CMake >= 3.30, Git, Ninja and the selected compiler cache; macOS/Linux default to ccache.
+Install from Homebrew on macOS or the host apt-get, dnf or pacman repositories on Linux.
+Prepare compilers, platform SDKs and vcpkg as described in README.
+Exit codes: 0 ready; 1 missing tools, installation or version failure; 2 unsupported arguments or host.
 EOF
 }
 
@@ -20,7 +20,7 @@ while (($# > 0)); do
     case "$1" in
         --check|--install)
             if $mode_selected && [[ "$mode" != "${1#--}" ]]; then
-                printf '%s\n' '--check 与 --install 不能同时使用。' >&2
+                printf '%s\n' '--check and --install cannot be combined.' >&2
                 exit 2
             fi
             mode=${1#--}
@@ -36,7 +36,7 @@ while (($# > 0)); do
             case "$cache_tool" in ccache|sccache|none) ;; *) usage >&2; exit 2 ;; esac
             ;;
         --help|-h) usage; exit 0 ;;
-        *) printf '未知参数：%s\n' "$1" >&2; usage >&2; exit 2 ;;
+        *) printf 'Unknown argument: %s\n' "$1" >&2; usage >&2; exit 2 ;;
     esac
     shift
 done
@@ -44,7 +44,7 @@ done
 platform=$(uname -s)
 case "$platform" in
     Darwin|Linux) ;;
-    *) printf '当前宿主 %s 不支持此入口；Windows 请运行 scripts/setup.ps1。\n' "$platform" >&2
+    *) printf 'This entry point does not support host %s; on Windows run scripts/setup.ps1.\n' "$platform" >&2
        exit 2 ;;
 esac
 
@@ -60,7 +60,7 @@ inspect_tools()
     for tool in "${tools[@]}"; do
         executable=$(command -v "$tool")
         if [[ -z "$executable" ]] || ! output=$("$executable" --version 2>&1); then
-            printf '缺失或不可执行：%s\n' "$tool" >&2
+            printf 'Missing or not executable: %s\n' "$tool" >&2
             missing+=("$tool")
             continue
         fi
@@ -69,17 +69,17 @@ inspect_tools()
                 major=${BASH_REMATCH[1]}
                 minor=${BASH_REMATCH[2]}
                 if ((major < 3 || (major == 3 && minor < 30))); then
-                    printf '版本过低：%s；要求 CMake >= 3.30。\n' "${output%%$'\n'*}" >&2
+                    printf 'Version too old: %s; CMake >= 3.30 is required.\n' "${output%%$'\n'*}" >&2
                     missing+=("$tool")
                     continue
                 fi
             else
-                printf '无法识别 CMake 版本：%s\n' "$executable" >&2
+                printf 'Cannot identify CMake version: %s\n' "$executable" >&2
                 missing+=("$tool")
                 continue
             fi
         fi
-        printf '可用：%s [%s]\n' "${output%%$'\n'*}" "$executable"
+        printf 'Available: %s [%s]\n' "${output%%$'\n'*}" "$executable"
     done
     ((${#missing[@]} == 0))
 }
@@ -91,7 +91,7 @@ run_as_root()
     elif command -v sudo >/dev/null 2>&1; then
         sudo "$@"
     else
-        printf '%s\n' '缺少安装权限：请由管理员安装所列工具，或准备 sudo 后重试。' >&2
+        printf '%s\n' 'Installation permission is unavailable: ask an administrator to install the tools, or prepare sudo and retry.' >&2
         return 2
     fi
 }
@@ -111,17 +111,17 @@ install_tools()
             done
         fi
         if [[ -z "$brew_path" ]]; then
-            printf '%s\n' '缺少 Homebrew。请按 https://brew.sh/ 的官方说明安装，再重试。' >&2
+            printf '%s\n' 'Homebrew is missing. Install it using the official instructions at https://brew.sh/ and retry.' >&2
             return 2
         fi
         if ! prefix=$("$brew_path" --prefix); then
-            printf '%s\n' '无法读取 Homebrew 安装位置，请修复 Homebrew 后重试。' >&2
+            printf '%s\n' 'Cannot read the Homebrew installation path; repair Homebrew and retry.' >&2
             return 1
         fi
         # 本进程识别现有 Homebrew 工具，避免 PATH 未刷新时重复安装。
         export PATH="$prefix/bin:$PATH"
         if inspect_tools; then
-            printf '当前脚本已使用 %s/bin；请确保调用终端的 PATH 也包含该目录。\n' "$prefix"
+            printf 'This script uses %s/bin; ensure the calling terminal PATH also contains it.\n' "$prefix"
             return 0
         fi
         for tool in "${missing[@]}"; do
@@ -131,7 +131,7 @@ install_tools()
                 "$brew_path" install "$tool" || return 1
             fi
         done
-        printf '请确保调用终端的 PATH 包含 %s/bin。\n' "$prefix"
+        printf 'Ensure the calling terminal PATH contains %s/bin.\n' "$prefix"
         return 0
     fi
 
@@ -152,28 +152,28 @@ install_tools()
         # 不自动升级整个发行版；管理员负责保持仓库与已安装系统同步。
         run_as_root pacman -S --needed --noconfirm "${packages[@]}"
     else
-        printf '%s\n' '未找到支持的包管理器（apt-get、dnf、pacman）。请手动安装工具后运行 --check。' >&2
+        printf '%s\n' 'No supported package manager found (apt-get, dnf, pacman). Install the tools manually and run --check.' >&2
         return 2
     fi
 }
 
 if inspect_tools; then
-    printf '%s\n' '宿主构建工具检查通过。'
+    printf '%s\n' 'Host build tool checks passed.'
     exit 0
 fi
 if [[ "$mode" == check ]]; then
-    printf '%s\n' '请先运行 bash scripts/setup.sh --install（保留需要的 --cache 参数），再重新检查。' >&2
+    printf '%s\n' 'Run bash scripts/setup.sh --install with the desired --cache option, then check again.' >&2
     exit 1
 fi
 if install_tools; then
     hash -r
 else
     status=$?
-    printf '%s\n' '工具安装未完成。请检查上方包管理器错误、网络或权限后重试。' >&2
+    printf '%s\n' 'Tool installation did not complete. Inspect package manager errors, network and permissions before retrying.' >&2
     exit "$status"
 fi
 if ! inspect_tools; then
-    printf '%s\n' '安装后检查仍失败；请检查 PATH 和发行版仓库版本，准备 CMake >= 3.30 后重试。' >&2
+    printf '%s\n' 'Post-install checks failed; inspect PATH and repository versions, then prepare CMake >= 3.30 and retry.' >&2
     exit 1
 fi
-printf '%s\n' '宿主构建工具安装与检查完成。'
+printf '%s\n' 'Host build tool installation and checks completed.'

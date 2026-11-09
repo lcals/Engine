@@ -1,4 +1,4 @@
-"""架构规则的独立正反例，不配置或编译引擎。"""
+"""Independent positive and negative architecture checks without configuring or compiling the engine."""
 
 from pathlib import Path
 import subprocess

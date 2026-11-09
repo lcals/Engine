@@ -35,8 +35,9 @@ bool register_scene_bake_tools(mcp::McpSystem& system, mcp::EditorMcpTools& edit
          {"grid", vector({{"type", "integer"}, {"minimum", 2}, {"maximum", 64}})}},
         {"nodeId", "boundsMin", "boundsMax", "grid"});
     return add("bake_scene",
-               "异步烘焙 IBL 或固定几何的多次反弹 Lightmap/SH9 探针；仅完整成功后发布。lighting "
-               "使用 bake_static 标记，固定灯通过 lightNodeIds 白名单选择。",
+               "Asynchronously bake IBL or multibounce Lightmaps/SH9 probes for fixed geometry; "
+               "publish only on full success. lighting "
+               "uses bake_static tags; lightNodeIds selects fixed lights explicitly.",
                mcp::object_schema(
                    {{"scene", path},
                     {"environment", path},
@@ -57,9 +58,13 @@ bool register_scene_bake_tools(mcp::McpSystem& system, mcp::EditorMcpTools& edit
                     {"lightNodeIds", {{"type", "array"}, {"items", node_id}, {"maxItems", 1024}}},
                     {"probeVolumes", {{"type", "array"}, {"items", probe}, {"maxItems", 64}}}},
                    {"scene", "effects"})) &&
-           add("get_scene_bake", "查询 GPU 烘焙状态；complete 表示资源与场景已发布并刷新。",
+           add("get_scene_bake",
+               "Query GPU bake status; complete means resources and the scene have been published "
+               "and refreshed.",
                mcp::object_schema({{"job", job}}, Json::array())) &&
-           add("cancel_scene_bake", "取消当前烘焙；在途 GPU 读回完成后释放，不发布部分资源。",
+           add("cancel_scene_bake",
+               "Cancel the bake; release resources after in-flight GPU readback completes, without "
+               "publishing partial output.",
                mcp::object_schema({{"job", job}}, {"job"}));
 }
 } // namespace engine::plugins::scene_bake

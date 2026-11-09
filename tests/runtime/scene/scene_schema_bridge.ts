@@ -14,6 +14,8 @@ declare function require(name: string): {
 };
 declare const process: { argv: string[] };
 const fs = require("node:fs");
+const unicode = Object.fromEntries(new TextDecoder().decode(fs.readFileSync(process.argv[4]))
+    .trimEnd().split("\n").map(line => line.split("\t"))) as Record<string, string>;
 
 function expect(condition: unknown, message: string): asserts condition {
     if (!condition) {
@@ -114,7 +116,7 @@ expect(
     "read external resource GUID references without embedding material definitions",
 );
 
-scene.info.name = "TypeScript 场景";
+scene.info.name = unicode.scene_name;
 transform.position.x = 42.5;
 cameraData.fovDegrees = 55;
 lightData.intensity = 7.5;
@@ -125,7 +127,7 @@ const builder = new flatbuffers.Builder();
 SceneData.finishSceneDataBuffer(builder, scene.pack(builder));
 const changed = builder.asUint8Array();
 const reread = SceneData.getRootAsSceneData(new flatbuffers.ByteBuffer(changed)).unpack();
-expect(reread.info?.name === "TypeScript 场景", "generated pack preserves UTF8 edits");
+expect(reread.info?.name === unicode.scene_name, "generated pack preserves UTF8 edits");
 reread.nodes.forEach((value, index) => {
     expect(
         value.info &&

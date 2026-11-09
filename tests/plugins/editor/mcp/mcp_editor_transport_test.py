@@ -1,4 +1,4 @@
-"""真实 MCP 进程配合文件传输替身，验证等待、回执身份和未完成请求保护。"""
+"""Use a real MCP process and transport fixture to validate waits, receipt identity and pending-request protection."""
 
 import argparse
 from contextlib import contextmanager
@@ -6,6 +6,13 @@ import errno
 import json
 import os
 from pathlib import Path
+
+UNICODE = dict(
+    line.split("\t", 1) for line in
+    (Path(__file__).resolve().parents[4] / "tests/support/fixtures/unicode.tsv")
+    .read_text(encoding="utf-8").splitlines()
+)
+
 import sys
 import tempfile
 import threading
@@ -76,7 +83,7 @@ def response(mcp, project, runtime, name, arguments=None):
 
 
 class EditorFixture:
-    """只模拟传输心跳，不模拟场景执行；原生修改另由 GPU 集成测试验证。"""
+    """Simulate transport heartbeats only; GPU integration tests validate native scene edits separately."""
 
     def __init__(self, project, runtime):
         self.project = project
@@ -142,7 +149,7 @@ class EditorFixture:
 
 
 def test(mcp, temporary):
-    project = temporary / "project 中文"
+    project = temporary / UNICODE["project_name"]
     for name in ("settings", "cache", "assets"):
         (project / name).mkdir(parents=True)
     command_runtime = temporary / "commands-runtime"
@@ -291,7 +298,7 @@ def test(mcp, temporary):
                 "folder\\file",
                 "/absolute",
                 "bad\x00id",
-                "错",
+                UNICODE["invalid_receipt_identity"],
                 "a" * 129,
             )
         ]

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""验证奇数尺寸 HDR 立方图经正式 IBL 烘焙后的方向与能量。"""
+"""Validate direction and energy after production IBL baking of odd-sized HDR cubemaps."""
 from __future__ import annotations
 
 import argparse
@@ -22,7 +22,7 @@ WORK = fixture.ROOT / 'build' / 'ibl-npot-cube'
 
 
 def check_odd_mip_reference():
-    """5→2 的中心源列与目标半面的交集可由立体角积分解析求得。"""
+    """The 5-to-2 center-column intersection with a destination half-face has an analytic solid-angle integral."""
     def area_element(x, y):
         return math.atan2(x * y, math.sqrt(x*x + y*y + 1.0))
 
@@ -61,7 +61,7 @@ def make_cube(path):
 
 
 def reference(normal, roughness):
-    """以立方图细分独立积分离散输入；不调用烘焙或 mip 生成代码。"""
+    """Independently integrate discrete input through cube subdivision without calling bake or mip-generation code."""
     n = SIZE * SUBDIVISIONS
     alpha2 = roughness ** 4
     weighted = total = 0.0

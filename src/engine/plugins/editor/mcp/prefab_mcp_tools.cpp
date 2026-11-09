@@ -23,37 +23,42 @@ bool register_prefab_tools(McpSystem& system, EditorMcpTools& editor)
     const Json override_properties = {
         {"fields", fields},
         {"componentType", {{"type", "string"}, {"minLength", 1}, {"maxLength", 128}}}};
-    return add("instantiate_prefab", "实例化独立预制体节点树并保留来源；支持撤销。",
+    return add("instantiate_prefab",
+               "Instantiate an independent prefab node tree and retain its source; supports undo.",
                {{"sceneId", identity},
                 {"path", path},
                 {"name", {{"type", "string"}, {"minLength", 1}, {"maxLength", 128}}}},
                {"sceneId", "path", "name"}) &&
            add("create_prefab_from_model",
-               "从已导入 Model 创建关联预制体；model 为资源路径，path 为新的 .prefab 路径。",
+               "Create a linked prefab from an imported Model; model is a resource path and path "
+               "is a new .prefab path.",
                {{"model", path}, {"path", path}}, {"model", "path"}) &&
+           tools::component_tool(system, editor, "create_prefab",
+                                 "Save the selected subtree as an independent prefab; keep the "
+                                 "original nodes and the scene's unsaved state.",
+                                 {{"path", path}}, {"path"}) &&
            tools::component_tool(
-               system, editor, "create_prefab",
-               "将选中节点子树保存为独立预制体；不替换原节点，不把场景标记为已保存。",
-               {{"path", path}}, {"path"}) &&
-           tools::component_tool(system, editor, "get_prefab_instance",
-                                 "查询节点所属预制体、源节点身份和显式覆盖字段。",
-                                 Json::object()) &&
+               system, editor, "get_prefab_instance",
+               "Query the prefab source, source node identity and explicit overrides of a node.",
+               Json::object()) &&
            tools::component_tool(system, editor, "set_prefab_override",
-                                 "把当前字段值明确登记为实例覆盖，包括与模板相同的值；componentType"
-                                 " 省略时编辑节点状态。",
+                                 "Register current field values as instance overrides, including "
+                                 "values equal to the template; omit componentType"
+                                 " to edit node state.",
                                  override_properties, {"fields"}) &&
            tools::component_tool(
                system, editor, "revert_prefab_override",
-               "清除指定覆盖并恢复最新模板字段值；componentType 使用组件生成类型名。支持撤销。",
+               "Clear an override and restore the latest template value; componentType is the "
+               "generated component type name. Supports undo.",
                override_properties, {"fields"}) &&
-           tools::component_tool(
-               system, editor, "link_prefab",
-               "将原样导出模板的源子树关联到该模板；要求保留稳定节点身份。支持撤销。",
-               {{"path", path}}, {"path"}) &&
-           tools::component_tool(
-               system, editor, "unlink_prefab",
-               "解除实例根的模板关联并保留现有节点；后续修改不再跟随模板。支持撤销。",
-               Json::object());
+           tools::component_tool(system, editor, "link_prefab",
+                                 "Link an unchanged exported source subtree to its template; "
+                                 "stable node identities are required. Supports undo.",
+                                 {{"path", path}}, {"path"}) &&
+           tools::component_tool(system, editor, "unlink_prefab",
+                                 "Unlink an instance root from its template and keep its nodes; "
+                                 "later template changes no longer propagate. Supports undo.",
+                                 Json::object());
 }
 
 } // namespace engine::plugins::mcp

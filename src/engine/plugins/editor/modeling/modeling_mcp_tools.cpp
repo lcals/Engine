@@ -131,32 +131,49 @@ bool register_modeling_tools(engine::plugins::mcp::McpSystem& system,
     auto save = target;
     save["path"] = {{"type", "string"}, {"minLength", 1}, {"maxLength", 4096}};
     const auto load = Json{{"sceneId", id()}, {"path", save["path"]}, {"name", duplicate["name"]}};
-    return add("modeling_help", "发现全部建模操作的参数契约、示例和限制；无需启动项目。",
+    return add("modeling_help",
+               "Discover parameter contracts, examples and limits for all modeling operations; no "
+               "running project is required.",
                mcp::object_schema({{"operation", {{"type", "string"}}},
                                    {"shape", {{"type", "string"}, {"enum", shapes}}}},
                                   Json::array())) &&
-           add("modeling_create", "创建可编辑模型；返回稳定 modelId，再查询当前 nodeId。",
+           add("modeling_create",
+               "Create an editable model; returns a stable modelId. Query its current nodeId "
+               "separately.",
                std::move(create)) &&
            add("modeling_rebuild",
-               "按保存参数重建，重置几何、UV和面编辑，保留节点及材质绑定；可撤销。",
+               "Rebuild from saved parameters, resetting geometry, UVs and face edits while "
+               "preserving the node and material bindings. Supports undo.",
                mcp::object_schema(rebuild, {"sceneId", "modelId", "parameters"})) &&
-           add("modeling_get", "查询模型与分页拓扑；省略 modelId 列出全部模型。",
+           add("modeling_get", "Query models and paged topology; omit modelId to list all models.",
                mcp::object_schema(get, {"sceneId"})) &&
-           add("modeling_select", "设置顶点、边或面选择；选择支持撤销和批量事务。",
+           add("modeling_select",
+               "Select vertices, edges or faces; supports undo and batch transactions.",
                mcp::object_schema(select, {"sceneId", "modelId"})) &&
-           add("modeling_edit", "对可编辑模型执行 C++ 几何操作；失败保持源数据与场景不变。",
+           add("modeling_edit",
+               "Apply a C++ geometry operation to an editable model; failure preserves source data "
+               "and the scene.",
                mcp::object_schema(edit, {"sceneId", "modelId", "operation"})) &&
-           add("modeling_delete", "删除模型；撤销保留 modelId，恢复节点的 nodeId 会改变。",
+           add("modeling_delete",
+               "Delete a model; undo preserves modelId, but the restored node receives a new "
+               "nodeId.",
                mcp::object_schema(target, required)) &&
-           add("modeling_duplicate", "复制可编辑模型与当前变换、材质。",
+           add("modeling_duplicate",
+               "Duplicate an editable model with its current transform and materials.",
                mcp::object_schema(duplicate, required)) &&
-           add("modeling_combine", "按场景变换合并模型为新对象，原对象保持不变。",
+           add("modeling_combine",
+               "Merge models using their scene transforms into a new object, preserving the "
+               "originals.",
                mcp::object_schema(combine, {"sceneId", "modelIds"})) &&
-           add("modeling_separate", "把选择的面分离到新模型；整次修改可撤销。",
+           add("modeling_separate",
+               "Detach selected faces into a new model; the entire change supports undo.",
                mcp::object_schema(separate, required)) &&
-           add("modeling_save", "将模型保存为 assets 内 .mesh 源资源，meta 由导入管线维护。",
+           add("modeling_save",
+               "Save the model as a .mesh source under assets; the import pipeline manages its "
+               "meta.",
                mcp::object_schema(save, {"sceneId", "modelId", "path"})) &&
-           add("modeling_load", "读取 assets 内含建模源数据的 .mesh 并创建可编辑模型。",
+           add("modeling_load",
+               "Load modeling source data from a .mesh under assets and create an editable model.",
                mcp::object_schema(load, {"sceneId", "path"}));
 }
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""导出官方 Tracy 数据，按明确时间窗口生成可复用的离线性能摘要。"""
+"""Export official Tracy data and produce reusable offline summaries for an explicit time window."""
 from __future__ import annotations
 
 import argparse
@@ -23,7 +23,7 @@ def read_rows(path: Path, delimiter: str = "\t") -> list[dict[str, str]]:
         reader = csv.DictReader(stream, delimiter=delimiter, quoting=csv.QUOTE_NONE)
         rows = list(reader)
     if any(None in row or any(value is None for value in row.values()) for row in rows):
-        raise ValueError(f"官方导出包含未转义的分隔符或换行：{path.name}")
+        raise ValueError(f"Official export contains an unescaped delimiter or newline: {path.name}")
     return rows
 
 
@@ -75,7 +75,7 @@ def event_end(row: dict) -> int:
 
 
 def task_queue_summary(events: list[dict]) -> dict:
-    """Task.execute 可有动态名称；从官方 value 列读取单行排队注释。"""
+    """Task.execute may have a dynamic name; read single-line queue annotations from the official value column."""
     groups = defaultdict(list)
     missing = invalid = 0
     pattern = re.compile(r"domain=(.*?); task=(.*); priority=(low|normal|high); queued_ns=(\d+)")
@@ -116,7 +116,7 @@ def messages_window(args, messages: list[dict], zones: list[dict]) -> tuple[int,
             continue
         payload = json.loads(text[len(args.message_prefix):].strip())
         if not isinstance(payload, dict):
-            raise ValueError("匹配的 Tracy 消息必须包含 JSON 对象")
+            raise ValueError("Matching Tracy messages must contain JSON objects")
         if first is None:
             if args.start_field and payload.get(args.start_field) != expected:
                 continue
@@ -125,14 +125,14 @@ def messages_window(args, messages: list[dict], zones: list[dict]) -> tuple[int,
             last = int(row["total_ns"])
             break
     if first is None or last is None or last <= first:
-        raise ValueError("找不到完整的开始/结束消息；请检查 prefix、start-field 和 complete-field")
+        raise ValueError("Complete start/end messages were not found; check prefix, start-field and complete-field")
     frames = [row for row in zones if row["name"] == args.frame_zone]
     containing_first = [row for row in frames if event_start(row) <= first < event_end(row)]
     containing_last = [row for row in frames if event_start(row) <= last < event_end(row)]
     if len(containing_first) != 1 or len(containing_last) != 1:
-        raise ValueError("开始或结束消息没有唯一的完整 frame-zone；请延长采集边界或显式指定窗口")
+        raise ValueError("Start or end message has no unique complete frame-zone; extend capture boundaries or specify the window explicitly")
     if containing_first[0]["thread"] != containing_last[0]["thread"]:
-        raise ValueError("开始和结束消息位于不同的 frame-zone 线程")
+        raise ValueError("Start and end messages belong to different frame-zone threads")
     return event_start(containing_first[0]), event_end(containing_last[0]), {
         "mode": "messages", "prefix": args.message_prefix,
         "first_message_ns": first, "complete_message_ns": last,
@@ -143,16 +143,16 @@ def messages_window(args, messages: list[dict], zones: list[dict]) -> tuple[int,
 def analyze(args) -> Path:
     output = args.output_dir.resolve()
     if not output.is_relative_to((ROOT / "build").resolve()):
-        raise ValueError("分析产物目录必须位于仓库 build/ 下")
+        raise ValueError("Analysis artifacts must be under the repository build/ directory")
     if output.exists() and any(output.iterdir()):
-        raise ValueError("输出目录非空；请选新的分析目录，避免覆盖已有结果")
+        raise ValueError("Output directory is not empty; select a new analysis directory to preserve earlier results")
     trace = args.trace.resolve(strict=True)
     csvexport = args.csvexport.resolve(strict=True)
     frameexport = args.frameexport.resolve(strict=True)
     version = subprocess.run([str(csvexport), "--version"], capture_output=True, text=True,
                              check=True, timeout=10).stdout.strip()
     if not version.startswith("tracy-csvexport 0.14.1 "):
-        raise ValueError(f"需要官方 Tracy 0.14.1 导出器，实际为：{version}")
+        raise ValueError(f"Official Tracy 0.14.1 exporter is required; found: {version}")
     output.mkdir(parents=True, exist_ok=True)
     export(output / "zones.tsv", [str(csvexport), "-s", "\t", "-u", "-p", str(trace)])
     export(output / "self.tsv", [str(csvexport), "-s", "\t", "-u", "-e", str(trace)])
@@ -165,14 +165,14 @@ def analyze(args) -> Path:
     messages = read_rows(output / "messages.tsv")
     zones = [row for row in events if row["exec_time_ns"] and int(row["exec_time_ns"]) >= 0]
     if not frames:
-        raise ValueError("采集没有完整 FrameMark 区间，不能生成帧时长统计")
+        raise ValueError("Capture has no complete FrameMark interval for frame-duration statistics")
     window = {"mode": "explicit" if args.start_ns is not None or args.end_ns is not None else "complete_frames"}
     start = args.start_ns if args.start_ns is not None else min(int(r["start_ns"]) for r in frames)
     end = args.end_ns if args.end_ns is not None else max(int(r["end_ns"]) for r in frames)
     if args.message_prefix:
         start, end, window = messages_window(args, messages, zones)
     if start < 0 or end <= start:
-        raise ValueError("时间窗口必须满足 0 <= start-ns < end-ns")
+        raise ValueError("Time window must satisfy 0 <= start-ns < end-ns")
     window.update(start_ns=start, end_ns=end, seconds=(end - start) / 1e9)
     inclusive = defaultdict(list)
     self_times = defaultdict(list)
@@ -185,7 +185,7 @@ def analyze(args) -> Path:
             if start <= timestamp < end:
                 value = float(row["value"])
                 if not math.isfinite(value):
-                    raise ValueError(f"plot 含非有限值：{row['name']}")
+                    raise ValueError(f"Plot contains a nonfinite value: {row['name']}")
                 plots[row["name"]].append((timestamp, value))
             continue
         duration = int(row["exec_time_ns"])
@@ -200,7 +200,7 @@ def analyze(args) -> Path:
         if key + (event_start(row),) in allowed:
             duration = int(row["exec_time_ns"])
             if duration < 0:
-                raise ValueError("完整 zone 的 self time 小于零，拒绝生成误导统计")
+                raise ValueError("Complete zone has negative self time; refusing to produce misleading statistics")
             self_times[key].append(duration / 1e6)
     plot_stats = {}
     for name, samples in plots.items():
@@ -213,7 +213,7 @@ def analyze(args) -> Path:
     for key, values in inclusive.items():
         name, source, line, thread = key
         if len(values) != len(self_times[key]):
-            raise ValueError(f"inclusive/self 事件数量不一致：{name}")
+            raise ValueError(f"Inclusive/self event counts differ: {name}")
         value = {"name": name, "source": source, "line": int(line), "thread": thread,
                  "inclusive_ms": statistics_of(values), "self_ms": statistics_of(self_times[key])}
         if host_work is not None and host_work > 0:
@@ -224,7 +224,7 @@ def analyze(args) -> Path:
     frame_values = [int(row["duration_ns"]) / 1e6 for row in frames
                     if int(row["start_ns"]) >= start and int(row["end_ns"]) <= end]
     if not frame_values:
-        raise ValueError("所选窗口内没有完整 FrameMark 区间")
+        raise ValueError("Selected window has no complete FrameMark interval")
     worst = sorted((row for row in selected if row["name"] == args.frame_zone),
                    key=lambda row: int(row["exec_time_ns"]), reverse=True)[:args.worst_frames]
     worst_frames = []
@@ -267,28 +267,28 @@ def main() -> int:
     parser.add_argument("--trace", type=Path, required=True)
     parser.add_argument("--csvexport", type=Path, required=True)
     parser.add_argument("--frameexport", type=Path, required=True)
-    parser.add_argument("--output-dir", type=Path, required=True, help="仓库 build/ 下的空目录")
+    parser.add_argument("--output-dir", type=Path, required=True, help="Empty directory under the repository build/ directory")
     parser.add_argument("--start-ns", type=int)
     parser.add_argument("--end-ns", type=int)
-    parser.add_argument("--message-prefix", help="前缀后是 JSON 对象的 Tracy 消息，例如 Rocket range sample")
-    parser.add_argument("--start-field", help="可选：只将此字段等于 start-value 的消息作为起点")
-    parser.add_argument("--start-value", default="1", help="JSON 值，默认 1")
-    parser.add_argument("--complete-field", default="complete", help="此字段为 JSON true 时结束")
+    parser.add_argument("--message-prefix", help="Tracy message prefix followed by a JSON object, for example Rocket range sample")
+    parser.add_argument("--start-field", help="Optional field that must equal start-value for a starting message")
+    parser.add_argument("--start-value", default="1", help="JSON value; defaults to 1")
+    parser.add_argument("--complete-field", default="complete", help="Finish when this field is JSON true")
     parser.add_argument("--frame-zone", default="Host.frame")
     parser.add_argument("--host-work-plot", default="Host work ms")
     parser.add_argument("--worst-frames", type=int, default=3)
     args = parser.parse_args()
     if args.message_prefix and (args.start_ns is not None or args.end_ns is not None):
-        parser.error("message-prefix 与显式时间窗口不能同时使用")
+        parser.error("message-prefix cannot be combined with an explicit time window")
     if args.start_field and not args.message_prefix:
-        parser.error("start-field 需要 message-prefix")
+        parser.error("start-field requires message-prefix")
     if not 0 <= args.worst_frames <= 20:
-        parser.error("worst-frames 必须在 0..20 之间")
+        parser.error("worst-frames must be between 0 and 20")
     try:
         print(analyze(args))
     except (OSError, ValueError, KeyError, subprocess.SubprocessError) as error:
         detail = getattr(error, "stderr", None)
-        print(f"分析失败：{error}" + (f"\n{detail.strip()}" if detail else ""), file=sys.stderr)
+        print(f"Analysis failed: {error}" + (f"\n{detail.strip()}" if detail else ""), file=sys.stderr)
         return 1
     return 0
 

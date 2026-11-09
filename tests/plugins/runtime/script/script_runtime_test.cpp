@@ -3,6 +3,7 @@
 #include "plugins/runtime/script/script_system.hpp"
 #include "resource_services.hpp"
 #include "scene_snapshot.hpp"
+#include "utf8_fixture.hpp"
 #if defined(ENGINE_TEST_EFFECTS_PLUGIN)
 #include "plugins/runtime/effects/effect_component.hpp"
 #endif
@@ -2190,14 +2191,14 @@ function checkValues(revision) {
     const value = readJson('config/maps.json');
     const array = readJson('config/array.json');
     return value !== null && Object.getPrototypeOf(value) === Object.prototype &&
-        value.title === '场景😀' && value.revision === revision && value.enabled === true &&
+        value.title === unicode.title && value.revision === revision && value.enabled === true &&
         value.none === null && Array.isArray(value.maps) && value.maps[0].id === 'sample' &&
         value.settings.exposure === 1.2 &&
         Array.isArray(array) && array.length === 5 && array[0] === 7 &&
         array[1] === false && array[2] === 'label' && array[3] === null &&
         array[4].nested === 8 && readJson('config/number.json') === 42 &&
         readJson('config/false.json') === false && readJson('config/null.json') === null &&
-        readJson('config/string.json') === 'text 中文' &&
+        readJson('config/string.json') === unicode.text &&
         readJson('config/nul-string.json') === 'a\u0000b' &&
         readJson('config/maximum.json') === true;
 }
@@ -2278,13 +2279,18 @@ export default class extends Gameplay {
     std::string oversized(maximum_bytes + 1U, ' ');
     oversized.replace(0, 4, "true");
     std::map<std::string, std::string> json_resources{
-        {"config/maps.json",
-         R"json({"title":"场景😀","revision":1,"enabled":true,"none":null,"maps":[{"id":"sample"}],"settings":{"exposure":1.2}})json"},
+        {"config/maps.json", Json{{"title", test_support::utf8_fixture("json_title")},
+                                  {"revision", 1},
+                                  {"enabled", true},
+                                  {"none", nullptr},
+                                  {"maps", Json::array({Json{{"id", "sample"}}})},
+                                  {"settings", {{"exposure", 1.2}}}}
+                                 .dump()},
         {"config/array.json", R"json([7,false,"label",null,{"nested":8}])json"},
         {"config/number.json", "42"},
         {"config/false.json", "false"},
         {"config/null.json", "null"},
-        {"config/string.json", R"json("text \u4e2d\u6587")json"},
+        {"config/string.json", test_support::utf8_fixture("json_escaped_text")},
         {"config/nul-string.json", R"json("a\u0000b")json"},
         {"config/invalid.json", R"json({"broken":)json"},
         {"config/invalid-utf8.json", std::string("\x22\xc0\xaf\x22", 4)},
@@ -2295,7 +2301,11 @@ export default class extends Gameplay {
     const auto physical_json = workspace / "loose.json";
     const auto make_source = [&](int revision)
     {
-        return "const expectedRevision = " + std::to_string(revision) +
+        return "const unicode = " +
+               Json{{"title", test_support::utf8_fixture("json_title")},
+                    {"text", test_support::utf8_fixture("json_text")}}
+                   .dump() +
+               "; const expectedRevision = " + std::to_string(revision) +
                "; const physicalJsonPath = " +
                Json(engine::PathUtils::to_utf8(physical_json)).dump() + ";\n" + std::string(source);
     };
@@ -2309,8 +2319,13 @@ export default class extends Gameplay {
     {
         return false;
     }
-    json_resources["config/maps.json"] =
-        R"json({"title":"场景😀","revision":2,"enabled":true,"none":null,"maps":[{"id":"sample"}],"settings":{"exposure":1.2}})json";
+    json_resources["config/maps.json"] = Json{
+        {"title", test_support::utf8_fixture("json_title")},
+        {"revision", 2},
+        {"enabled", true},
+        {"none", nullptr},
+        {"maps", Json::array({Json{{"id", "sample"}}})},
+        {"settings", {{"exposure", 1.2}}}}.dump();
     if (!fixture(workspace, "json-next",
                  {{"scripts/game.js", make_source(2)},
                   {"scripts/looks-like-json.js", R"js("not a JSON resource")js"}},
@@ -2519,6 +2534,13 @@ bool run_storage_binding_cases(test_support::ResourceServices& services, const f
     engine::plugins::script::ScriptSystem script(&services.loader);
     const auto directory = engine::App::persistent_data_path() / "userdata";
     const auto path = directory / "kv.json";
+    const std::string unicode_source = "const unicode = " +
+                                       Json{{"key", test_support::utf8_fixture("storage_key")},
+                                            {"player", test_support::utf8_fixture("player_name")},
+                                            {"sword", test_support::utf8_fixture("sword")},
+                                            {"shield", test_support::utf8_fixture("shield")}}
+                                           .dump() +
+                                       ";\n";
     constexpr std::string_view first_source = R"js(
 import { Gameplay, Storage } from 'engine';
 const topLevelBlocked = !Storage.isReady && Storage.lastError === null &&
@@ -2528,19 +2550,19 @@ function checkStorageArguments(kept) {
     const oversized = 'x'.repeat(4 * 1024 * 1024 + 1);
     const invalid = [
         [() => Storage.GetString(), null],
-        [() => Storage.GetString('存档🔑', 'extra'), null],
+        [() => Storage.GetString(unicode.key, 'extra'), null],
         [() => Storage.GetString(true), null],
         [() => Storage.GetString(oversized), null],
-        [() => Storage.SetString('存档🔑'), false],
-        [() => Storage.SetString('存档🔑', 'changed', 'extra'), false],
-        [() => Storage.SetString('存档🔑', 7), false],
-        [() => Storage.SetString('存档🔑', oversized), false],
+        [() => Storage.SetString(unicode.key), false],
+        [() => Storage.SetString(unicode.key, 'changed', 'extra'), false],
+        [() => Storage.SetString(unicode.key, 7), false],
+        [() => Storage.SetString(unicode.key, oversized), false],
         [() => Storage.HasKey(), false],
-        [() => Storage.HasKey('存档🔑', 'extra'), false],
+        [() => Storage.HasKey(unicode.key, 'extra'), false],
         [() => Storage.HasKey(true), false],
         [() => Storage.HasKey(oversized), false],
         [() => Storage.DeleteKey(), false],
-        [() => Storage.DeleteKey('存档🔑', 'extra'), false],
+        [() => Storage.DeleteKey(unicode.key, 'extra'), false],
         [() => Storage.DeleteKey(true), false],
         [() => Storage.DeleteKey(oversized), false],
         [() => Storage.Save('extra'), false],
@@ -2550,7 +2572,7 @@ function checkStorageArguments(kept) {
             Storage.lastError.length === 0) return false;
         const error = Storage.lastError;
         if (!Storage.isReady || Storage.lastError !== error ||
-            Storage.GetString('存档🔑') !== kept || Storage.lastError !== '' ||
+            Storage.GetString(unicode.key) !== kept || Storage.lastError !== '' ||
             Storage.GetString('missing') !== null || Storage.lastError !== '') return false;
     }
     return true;
@@ -2559,15 +2581,15 @@ export default class extends Gameplay {
     constructor() {
         super();
         this.constructorBlocked = !Storage.isReady && Storage.lastError === null &&
-            Storage.GetString('存档🔑') === null && !Storage.SetString('blocked', 'value') &&
+            Storage.GetString(unicode.key) === null && !Storage.SetString('blocked', 'value') &&
             !Storage.Save();
     }
     OnInitialize() {
-        const value = JSON.stringify({ name: '玩家😀', coins: 7, items: ['剑', '盾'] });
+        const value = JSON.stringify({ name: unicode.player, coins: 7, items: [unicode.sword, unicode.shield] });
         return topLevelBlocked && this.constructorBlocked && Object.isFrozen(Storage) && Storage.isReady &&
             Storage.lastError === '' && Storage.GetString('missing') === null &&
-            Storage.lastError === '' && Storage.SetString('存档🔑', value) &&
-            Storage.HasKey('存档🔑') && Storage.GetString('存档🔑') === value &&
+            Storage.lastError === '' && Storage.SetString(unicode.key, value) &&
+            Storage.HasKey(unicode.key) && Storage.GetString(unicode.key) === value &&
             Storage.SetString('empty', '') && Storage.GetString('empty') === '' &&
             Storage.SetString('delete-me', 'value') && Storage.DeleteKey('delete-me') &&
             !Storage.HasKey('delete-me') && Storage.DeleteKey('missing') &&
@@ -2586,9 +2608,9 @@ export default class extends Gameplay {
     OnInitialize() {
         const shutdownValue = Storage.GetString('shutdown-saved');
         if (shutdownValue === 'saved by the old run') Debug.Log('storage:read-old-shutdown-save');
-        const value = JSON.parse(Storage.GetString('存档🔑'));
-        return Storage.isReady && Storage.lastError === '' && value.name === '玩家😀' &&
-            value.coins === 7 && value.items.join(',') === '剑,盾' &&
+        const value = JSON.parse(Storage.GetString(unicode.key));
+        return Storage.isReady && Storage.lastError === '' && value.name === unicode.player &&
+            value.coins === 7 && value.items.join(',') === unicode.sword + ',' + unicode.shield &&
             Storage.HasKey('empty') && Storage.GetString('empty') === '' &&
             !Storage.HasKey('delete-me') && Storage.GetString('unsaved') === null &&
             Storage.GetString('shutdown-unsaved') === null && Storage.lastError === '' &&
@@ -2604,9 +2626,9 @@ export default class extends Gameplay {
 import { Gameplay, Storage, Debug } from 'engine';
 function unavailable() {
     return !Storage.isReady && typeof Storage.lastError === 'string' &&
-        Storage.lastError.length > 0 && Storage.GetString('存档🔑') === null &&
-        !Storage.SetString('overwrite', 'forbidden') && !Storage.HasKey('存档🔑') &&
-        !Storage.DeleteKey('存档🔑') && !Storage.Save() && Storage.lastError.length > 0;
+        Storage.lastError.length > 0 && Storage.GetString(unicode.key) === null &&
+        !Storage.SetString('overwrite', 'forbidden') && !Storage.HasKey(unicode.key) &&
+        !Storage.DeleteKey(unicode.key) && !Storage.Save() && Storage.lastError.length > 0;
 }
 export default class extends Gameplay {
     OnInitialize() {
@@ -2628,12 +2650,12 @@ export default class extends Gameplay {
     std::error_code error;
     if (!expect(!fs::exists(directory, error) && !error, "storage starts without user data") ||
         !script.initialize({}) ||
-        !fixture(workspace, "storage-first", {{"scripts/game.js", std::string(first_source)}},
-                 first) ||
-        !fixture(workspace, "storage-restored", {{"scripts/game.js", std::string(restored_source)}},
-                 restored) ||
-        !fixture(workspace, "storage-failed", {{"scripts/game.js", std::string(failed_source)}},
-                 failed) ||
+        !fixture(workspace, "storage-first",
+                 {{"scripts/game.js", unicode_source + std::string(first_source)}}, first) ||
+        !fixture(workspace, "storage-restored",
+                 {{"scripts/game.js", unicode_source + std::string(restored_source)}}, restored) ||
+        !fixture(workspace, "storage-failed",
+                 {{"scripts/game.js", unicode_source + std::string(failed_source)}}, failed) ||
         !expect(prepare(services, script, first.catalog, first.mounts) &&
                     !fs::exists(directory, error) && !error,
                 "storage precheck does not create or load user data") ||
@@ -3234,9 +3256,12 @@ int main(int argc, char** argv)
     }
     engine::AppConfig app;
     app.application_name = "engine-script-runtime-test";
-    app.assets_path = workspace / fs::path(u8"builtin-资源");
-    app.persistent_data_path = workspace / fs::path(u8"data-持久");
-    app.cache_path = workspace / fs::path(u8"cache-缓存");
+    app.assets_path =
+        workspace / engine::PathUtils::from_utf8(test_support::utf8_fixture("builtin_directory"));
+    app.persistent_data_path = workspace / engine::PathUtils::from_utf8(
+                                               test_support::utf8_fixture("persistent_directory"));
+    app.cache_path =
+        workspace / engine::PathUtils::from_utf8(test_support::utf8_fixture("cache_directory"));
     if (!engine::App::initialize(app) || !engine::App::game_language().empty())
     {
         return 1;

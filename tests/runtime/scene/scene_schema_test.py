@@ -74,7 +74,8 @@ def main():
         run([str(args.binary.resolve()), "--write-buffer", str(original)])
         # 输出与源文件继续读取工作目录内同一份固定版本运行库。
         (output / "package.json").write_text('{"type":"commonjs"}\n', encoding="utf-8")
-        run([args.node, str(output / "bridge.js"), str(original), str(changed)])
+        run([args.node, str(output / "bridge.js"), str(original), str(changed),
+             str(Path(__file__).resolve().parents[2] / "support/fixtures/unicode.tsv")])
         run([str(args.binary.resolve()), "--read-buffer", str(changed), str(original)])
     print("Generated C++/TypeScript schema, all component payloads, edits and 64-bit IDs passed.")
 

@@ -1,4 +1,4 @@
-"""从统一示例项目准备临时最小夹具，不引入模型导入器或建模插件依赖。"""
+"""Prepare a minimal temporary fixture from the shared sample project without model import or modeling plugin dependencies."""
 
 import json
 from pathlib import Path

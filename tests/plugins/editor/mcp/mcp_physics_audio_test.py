@@ -1,4 +1,4 @@
-"""在真实编辑器中经 MCP 添加物理/音频，验证运行与保存重载；音频使用 dummy 设备。"""
+"""Add physics/audio through MCP in an actual editor and verify execution and save/reload; use a dummy audio device."""
 
 import argparse
 import math

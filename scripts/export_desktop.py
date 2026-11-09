@@ -1,4 +1,4 @@
-"""导出桌面程序和独立资源；macOS 默认原生程序、可选 .app，不在启动时解包。"""
+"""Export desktop programs and separate resources; macOS defaults to native executables with optional .app packaging and no startup extraction."""
 
 import argparse
 import json
@@ -41,7 +41,7 @@ def build_resources(args):
         check=False,
     )
     if result.returncode != 0:
-        raise ValueError(f"项目资源构建失败：\n{result.stdout}\n{result.stderr}")
+        raise ValueError(f"Project resource build failed: \n{result.stdout}\n{result.stderr}")
     return plain_path(parse_build_output(result.stdout, args.platform))
 
 
@@ -72,7 +72,7 @@ def macos_bundle(args, stage):
 
 def export(args):
     if not re.fullmatch(r"[a-z][a-z0-9_-]*", args.product):
-        raise ValueError("产品名称必须为小写英文标识")
+        raise ValueError("Product name must be a lowercase English identifier")
     args.executable = plain_path(args.executable)
     sources = [args.executable]
     if args.icu:
@@ -80,7 +80,7 @@ def export(args):
         sources.append(args.icu)
     if args.kind == "runtime":
         if not args.project or not args.builder:
-            raise ValueError("运行包需要 --project 和 --builder")
+            raise ValueError("Runtime packages require --project and --builder")
         args.project, args.builder = plain_path(args.project), plain_path(args.builder)
         sources.extend([args.project, args.builder])
     for origin, relative in args.support_file + args.support_directory:
@@ -102,7 +102,7 @@ def export(args):
         for origin, relative in args.support_file:
             target = stage / relative
             if target.exists():
-                raise ValueError(f"工具路径与已部署文件冲突：{relative}")
+                raise ValueError(f"Tool path conflicts with a deployed file: {relative}")
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(origin, target)
         for origin, relative in args.support_directory:
@@ -164,7 +164,7 @@ def main():
     parser.add_argument("--icu", type=Path)
     parser.add_argument("--cmake", default="cmake")
     parser.add_argument(
-        "--app-bundle", action="store_true", help="macOS 可选 .app；默认直接运行原生程序"
+        "--app-bundle", action="store_true", help="Optional macOS .app packaging; defaults to a directly runnable native executable"
     )
     parser.add_argument("--library-dir", action="append", default=[])
     parser.add_argument("--support-file", nargs=2, action="append", default=[])
@@ -173,7 +173,7 @@ def main():
         export(parser.parse_args())
         return 0
     except (OSError, ValueError, KeyError, subprocess.SubprocessError) as error:
-        print(f"桌面导出未完成：{error}", file=sys.stderr)
+        print(f"Desktop export did not complete: {error}", file=sys.stderr)
         return 1
 
 

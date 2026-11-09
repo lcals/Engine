@@ -1,4 +1,4 @@
-"""通过真实编辑器主线程验证 MCP 场景修改、事务与撤销历史。"""
+"""Validate scene edits, transactions and undo history through MCP on the actual editor main thread."""
 
 import argparse
 import json

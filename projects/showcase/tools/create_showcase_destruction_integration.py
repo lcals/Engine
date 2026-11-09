@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""生成 showcase 综合破坏场景与原创音效；不执行引擎导入或修改其他示例。"""
+"""Generate the showcase destruction scene and original audio without importing assets or changing other examples."""
 
 import argparse
 import copy
@@ -26,7 +26,7 @@ def meta(path, importer, extra=""):
 
 
 def sound(burst):
-    """原创低通噪声、下滑正弦与衰减碎石脉冲，无录音采样。"""
+    """Original low-pass noise, descending sine and decaying debris pulses without recorded samples."""
     rate, duration = 48000, 1.8 if burst else 0.85
     rng = random.Random(87031 if burst else 37013)
     filtered, frames = 0.0, bytearray()
@@ -55,7 +55,7 @@ def sound(burst):
 
 
 def scene():
-    """复用当前两个独立实验场的声明，输出第三个独立场景。"""
+    """Reuse definitions from two existing test areas to produce a third independent scene."""
     source = {}
     for filename in ("destruction.scene", "terrain.scene"):
         data = tomllib.loads((ASSETS / "scenes" / filename).read_text())

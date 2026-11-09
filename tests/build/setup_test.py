@@ -1,4 +1,4 @@
-"""在隔离 PATH 中验证宿主安装脚本；不调用真实包管理器。"""
+"""Validate host setup scripts in an isolated PATH without invoking real package managers."""
 
 import os
 from pathlib import Path

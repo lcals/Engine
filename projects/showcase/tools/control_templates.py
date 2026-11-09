@@ -1,4 +1,4 @@
-"""范例角色与参数化镜头的源配置；字段直接对应运行时 Schema。"""
+"""Source settings for showcase characters and parameterized cameras, matching runtime schemas."""
 def scalar(value=0, parameter="", scale=1, offset=0):
     return {"constant": value, "parameter": parameter, "scale": scale, "offset": offset}
 

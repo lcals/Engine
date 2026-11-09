@@ -573,7 +573,7 @@ bool mesh::create(const schema::ModelingPrimitiveDataT& input, schema::EditableM
         icosphere(result, options);
         break;
     default:
-        return fail(error, "基本体类型未知");
+        return fail(error, "Unknown primitive type");
     }
     metric_uv(result, options);
     if (!mesh::validate(result, error))
@@ -592,7 +592,9 @@ bool mesh::polygon(std::span<const schema::Vec3> points,
     error.clear();
     if (points.size() < 3 || points.size() > 65536 || holes.size() > 1024)
     {
-        return fail(error, "多边形外环至少需要 3 个点，且不得超过模型限制");
+        return fail(
+            error,
+            "The polygon outer loop requires at least 3 points and must fit within model limits");
     }
     schema::EditableMeshDataT result;
     result.schema_version = 2;

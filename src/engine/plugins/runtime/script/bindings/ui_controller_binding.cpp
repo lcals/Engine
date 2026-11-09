@@ -90,7 +90,7 @@ export class UiController {
     OnRefresh() { return true; }
     OnUnbind() {}
 }
-// 只由 ScriptSystem 在当前 Run 的可调用作用域中使用；不进入公开类型声明。
+// Used only by ScriptSystem inside the current Run callback scope; excluded from public declarations.
 function uiEventTargetReady(target) {
     if (!target.isValid) return false;
     const h = handles.get(target);
@@ -125,7 +125,7 @@ function dispatchUiEvents() {
                 uiPruneSubscriptions();
             }
         }
-        // 目标卸载或文档替换后停止旧事件；常驻文档继续保留有效订阅。
+        // Stop old events when targets unload or documents change; persistent documents retain valid subscriptions.
         if (!uiEventTargetReady(target)) break;
     }
     uiPruneSubscriptions();
@@ -138,7 +138,7 @@ function clearUiControllers() {
             catch (error) { if (!failed) { failed = true; failure = error; } }
         }
     } finally {
-        // 某个项目钩子抛错也不能留下其他控制器和普通 On 订阅。
+        // A failing project hook must not leave other controllers or ordinary On subscriptions behind.
         for (const controller of uiControllers) {
             const state = uiControllerStates.get(controller);
             state.document = 0n;

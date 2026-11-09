@@ -1,4 +1,4 @@
-"""真实 MCP → 编辑器主线程 → C++ 建模核心的操作、持久化与撤销测试。"""
+"""Test modeling operations, persistence and undo through actual MCP, editor main thread and C++ modeling code."""
 
 import argparse
 import math

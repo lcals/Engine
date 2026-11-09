@@ -56,15 +56,18 @@ bool register_ui_editor_tools(mcp::McpSystem& system, mcp::EditorMcpTools& edito
     const Json textures{{"type", "array"}, {"maxItems", 256}, {"items", path}};
     const Json hash{{"type", "string"}, {"maxLength", 128}};
     return add("get_ui_documents",
-               "查询所有已发布场景（包含常驻节点）的 UI 绑定、真实文档身份及逻辑/像素窗口尺寸。",
+               "Query UI bindings, document identities and logical/pixel window sizes across "
+               "published scenes, including persistent nodes.",
                mcp::object_schema(Json::object(), Json::array())) &&
            add("set_ui_document",
-               "在可编辑预览中添加或修改 UiComponent 文档绑定；支持撤销和场景保存。",
+               "Add or edit a UiComponent document binding in an editable preview; supports undo "
+               "and scene saving.",
                mcp::object_schema(
                    {{"sceneId", id}, {"nodeId", id}, {"document", path}, {"enabled", boolean}},
                    {"sceneId", "nodeId", "document"})) &&
            add("get_ui_tree",
-               "按实际文档代次读取 RmlUi 树、布局和控件身份；分页不保证跨 View 变更的同一快照。",
+               "Read the RmlUi tree, layout and element identities for the current document "
+               "generation; pages may span View changes.",
                mcp::object_schema(
                    {{"nodeId", id},
                     {"documentId", id},
@@ -74,14 +77,17 @@ bool register_ui_editor_tools(mcp::McpSystem& system, mcp::EditorMcpTools& edito
                     {"depth", {{"type", "integer"}, {"minimum", 0}, {"maximum", 64}}}},
                    {"nodeId", "documentId"})) &&
            add("get_ui_element",
-               "读取完整控件句柄的文字、有效可见/启用、焦点、逻辑矩形及计算样式；密码值返回掩码。",
+               "Read text, effective visibility/enabled state, focus, logical bounds and computed "
+               "styles using a full element handle; password values are masked.",
                mcp::object_schema(
                    {{"target", target},
                     {"styles", {{"type", "array"}, {"maxItems", 64}, {"items", short_text}}}},
                    {"target"})) &&
            add("set_ui_element",
-               "仅修改当前 View。text/value/visible/enabled/image 使用 value；class 使用 "
-               "name+active；style 使用 name+value。不改变 TS Model，不保存源文档。",
+               "Modify only the current View. text/value/visible/enabled/image use value; class "
+               "uses "
+               "name+active; style uses name+value. Does not change the TS Model or save the "
+               "source document.",
                mcp::object_schema(
                    {{"target", target},
                     {"operation",
@@ -93,13 +99,16 @@ bool register_ui_editor_tools(mcp::McpSystem& system, mcp::EditorMcpTools& edito
                     {"active", boolean}},
                    {"target", "operation"})) &&
            add("get_ui_source",
-               "path 提交异步原始 RML/meta 读取；job "
-               "查询读或保存结果。不存在的新路径返回空哈希，不能从运行 DOM 保存源。",
+               "path starts an asynchronous read of raw RML/meta; job "
+               "queries read or save results. A missing new path returns empty hashes. Runtime DOM "
+               "cannot be saved as source.",
                mcp::object_schema({{"path", path}, {"job", id}}, Json::array())) &&
            add("save_ui_source",
-               "异步校验并原子保存项目内 RML 与相邻 meta，保留 "
-               "GUID。必须传入读取得到的两个哈希；返回 job 用 get_ui_source "
-               "查询。source_saved/import:pending 尚未表示 View 已刷新。",
+               "Asynchronously validate and atomically save project RML and adjacent meta, "
+               "preserving the "
+               "GUID. Supply both hashes from the read operation; query the returned job with "
+               "get_ui_source "
+               "for results. source_saved/import:pending does not yet mean the View has refreshed.",
                mcp::object_schema({{"path", path},
                                    {"source", {{"type", "string"}, {"maxLength", 1048576}}},
                                    {"expectedSourceHash", hash},
@@ -108,25 +117,30 @@ bool register_ui_editor_tools(mcp::McpSystem& system, mcp::EditorMcpTools& edito
                                    {"textures", textures}},
                                   {"path", "source", "expectedSourceHash", "expectedMetaHash"})) &&
            add("ui_input",
-               "真实 UI 输入序列，最多 256 事件/10 秒；down/up "
-               "必须配对，逻辑坐标。支持拖动、滚轮、focus、Unicode text、组合键和非阻塞 "
-               "wait；真人输入优先取消。键名为 A-Z/0-9 或 "
+               "Real UI input sequence, at most 256 events over 10 seconds; down/up "
+               "must be paired and coordinates are logical. Supports dragging, wheel, focus, "
+               "Unicode text, chords and nonblocking "
+               "wait; real user input cancels the sequence. Key names are A-Z/0-9 or "
                "Enter/Tab/Space/Left/Right/Up/Down/Home/End/PageUp/PageDown/Delete/Backspace/"
                "Insert/Escape/Shift/Control/Alt/Meta/RightShift/RightControl/RightAlt/RightMeta/"
-               "F1-F12。",
+               "F1-F12.",
                mcp::object_schema(
                    {{"documentId", id},
                     {"events",
                      {{"type", "array"}, {"minItems", 1}, {"maxItems", 256}, {"items", event}}}},
                    {"documentId", "events"})) &&
            add("get_ui_input",
-               "查询输入作业的状态、已完成事件数、失败位置和最后焦点/命中，不消费 TS 业务事件。",
+               "Query input job status, completed event count, failure index and last focus/hit; "
+               "does not consume TS business events.",
                mcp::object_schema({{"job", id}}, {"job"})) &&
-           add("cancel_ui_input", "停止待执行输入并安全释放模拟按压；已经发送的合法输入不会回滚。",
+           add("cancel_ui_input",
+               "Stop pending input and safely release simulated presses; already delivered input "
+               "is not rolled back.",
                mcp::object_schema({{"job", id}}, {"job"})) &&
            add("click_ui",
-               "用同一输入作业组合 "
-               "move/down/up；目标中心被遮挡或不可交互时失败，不直接调用业务点击处理器。",
+               "Compose move/down/up using the same input job; "
+               "fails if the target center is obscured or not interactive. Does not call business "
+               "click handlers directly.",
                mcp::object_schema({{"target", target},
                                    {"x", point},
                                    {"y", point},

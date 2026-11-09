@@ -31,21 +31,27 @@ bool register_scene_preview_tools(McpSystem& system, EditorMcpTools& editor)
                                             std::move(schema), command);
     };
     return add("open_scene_preview",
-               "在编辑器窗口预览场景资源，不启动玩法；替换当前场景并丢弃其未保存内存编辑。"
-               "可指定独立镜头位置、角度和移动速度。",
+               "Preview a scene resource in the editor without starting gameplay; replaces the "
+               "current scene and discards unsaved edits."
+               " Camera position, rotation and movement speed can be specified independently.",
                object_schema({{"path", {{"type", "string"}, {"minLength", 1}, {"maxLength", 4096}}},
                               {"camera", camera}},
                              {"path"})) &&
-           add("close_scene_preview", "关闭场景预览，丢弃未保存内存编辑并释放资源，恢复空白窗口。",
+           add("close_scene_preview",
+               "Close the scene preview, discard unsaved edits and release resources, restoring an "
+               "empty window.",
                object_schema(Json::object(), Json::array())) &&
-           add("get_scene_preview", "查询预览、独立镜头、未保存编辑及等待刷新的状态。",
+           add("get_scene_preview",
+               "Query preview, camera, unsaved edit and pending refresh status.",
                object_schema(Json::object(), Json::array())) &&
            add("set_preview_camera",
-               "修改独立预览镜头，不写入场景；至少一项 position/rotation/speed。"
-               "角度为度，速度为 0.01..1000 米/秒。",
+               "Change the preview camera without saving it to the scene; provide at least one of "
+               "position, rotation or speed."
+               " Angles use degrees; speed is 0.01..1000 meters per second.",
                camera) &&
            add("refresh_scene_preview",
-               "增量导入源资源后刷新预览；discardChanges=true 才允许丢弃未保存的编辑。",
+               "Refresh the preview after incremental asset import; discardChanges=true is "
+               "required to discard unsaved edits.",
                object_schema({{"discardChanges", {{"type", "boolean"}}}}, Json::array()));
 }
 } // namespace engine::plugins::mcp

@@ -1,0 +1,42 @@
+mcp_input_suffix	 / MCP 中文输入 ✓
+persistent_input	同一个输入框 / original text
+android_project	项目 with spaces $literal
+empty_filename	空文件.txt
+configuration_project	configuration project 中文
+project_name	project 中文
+shell_project	project 中文 $literal
+shell_filename	quote' $(touch injected) 中文.bin
+tooling_project	project with spaces $literal 中文
+text_asset	assets/资料/文本.txt
+image_asset	assets/资料/raw.png
+binary_asset	assets/资料/raw.bin
+color_texture	颜色.png
+scene_label	场景
+three_characters	三个字
+node_label	节点
+ui_input	你好 UI
+ui_edited	你好 U!
+json_title	场景😀
+json_text	text 中文
+json_escaped_text	"text \u4e2d\u6587"
+storage_key	存档🔑
+player_name	玩家😀
+sword	剑
+shield	盾
+builtin_directory	builtin-资源
+persistent_directory	data-持久
+cache_directory	cache-缓存
+data_directory	data-中文
+log_message	bridge-info 中文
+resource_path	中文/资源.mesh
+binary_filename	资源-文件.bin
+script_filename	脚本.ts
+script_comment	// 中文脚本
+atomic_filename	原子-替换-🐟.bin
+replacement_filename	临时-替换-🐟.bin
+scene_name	TypeScript 场景
+exclusive_filename	独占-🙂.tmp
+user_directory	用户数据
+character_key	角色
+stored_greeting	你好🙂
+invalid_receipt_identity	错

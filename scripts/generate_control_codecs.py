@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""从 camera/character_controller Schema 生成边界 JSON 编解码，不维护第二份字段模型。"""
+"""Generate boundary JSON codecs from camera/character_controller schemas without a duplicate field model."""
 import argparse
 import json
 import re

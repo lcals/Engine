@@ -61,8 +61,8 @@ bool register_render_tools(McpSystem& system, EditorMcpTools& editor)
                       {"start", "end"});
     const bool feature_set = system.register_tool(
         {"set_render_feature",
-         "统一编辑对应组件运行属性或MCP临时诊断；组件配置可独立于当前设备支持保存，不代表GPU已生效"
-         "。",
+         "Edit component runtime properties or temporary MCP diagnostics. Saved properties do not "
+         "imply current GPU support or activation.",
          object_schema(std::move(feature), {"feature", "enabled"}),
          [&editor](const Json& arguments, Json& reply)
          {
@@ -142,33 +142,46 @@ bool register_render_tools(McpSystem& system, EditorMcpTools& editor)
     lod_set["screenHeights"] = lod_set["triangleRatios"];
     lod_set["maxRelativeError"] = {{"type", "number"}, {"minimum", 0}, {"maximum", 1}};
     return feature_set &&
-           add("get_render_features", "统一查询设备、当前场景和指定材质的实际功能状态与支持原因。",
+           add("get_render_features",
+               "Query actual feature status and support details for the device, current scene and "
+               "selected material.",
                object_schema(std::move(selected), Json::array())) &&
-           add("get_mesh_render_settings", "读取指定MeshRenderer的实例化和LOD组件属性。",
+           add("get_mesh_render_settings",
+               "Read instancing and LOD properties of the selected MeshRenderer.",
                object_schema(identity, required_node)) &&
            add("set_mesh_render_settings",
-               "编辑指定MeshRenderer的实例化和LOD属性，支持撤销和场景保存。",
+               "Edit instancing and LOD properties of the selected MeshRenderer; supports undo and "
+               "scene saving.",
                object_schema({{"sceneId", identity["sceneId"]},
                               {"nodeId", identity["nodeId"]},
                               {"staticInstancingEnabled", {{"type", "boolean"}}},
                               {"staticLodEnabled", {{"type", "boolean"}}}},
                              required_node)) &&
-           add("get_render_submission_stats", "按实际view返回本模块mesh提交计数，不代表GPU完成。",
+           add("get_render_submission_stats",
+               "Return mesh submission counts for each actual view in this module; these do not "
+               "indicate GPU completion.",
                object_schema(Json::object(), Json::array())) &&
-           add("draw_debug_lines", "提交临时3D调试线，使用真实观察镜头；必须先开启debug_draw。",
+           add("draw_debug_lines",
+               "Submit temporary 3D debug lines using the current viewing camera; debug_draw must "
+               "be enabled first.",
                object_schema(
                    {{"lines",
                      {{"type", "array"}, {"items", line}, {"minItems", 1}, {"maxItems", 4096}}},
                     {"lifetimeFrames", {{"type", "integer"}, {"minimum", 1}, {"maximum", 600}}}},
                    {"lines"})) &&
-           add("get_mesh_lod_import", "读取源资源LOD导入参数，不修改资源。",
+           add("get_mesh_lod_import",
+               "Read source resource LOD import settings without modifying the resource.",
                object_schema(std::move(lod), {"path"})) &&
-           add("set_mesh_lod_import", "原子保存源资源LOD参数并通过正式管线重新导入，保留GUID。",
+           add("set_mesh_lod_import",
+               "Atomically save source LOD settings and reimport through the asset pipeline, "
+               "preserving the GUID.",
                object_schema(std::move(lod_set), {"path"})) &&
-           add("get_render_settings", "读取当前环境光、雾、曝光、阴影与背景设置。",
+           add("get_render_settings",
+               "Read current ambient lighting, fog, exposure, shadow and background settings.",
                object_schema(Json::object(), Json::array())) &&
            add("set_render_settings",
-               "编辑场景环境、相机后处理和方向光阴影，支持保存及撤销；无场景时只接受 clearColor。",
+               "Edit scene environment, camera post-processing and directional light shadows; "
+               "supports saving and undo. Only clearColor is accepted without a scene.",
                object_schema(
                    {{"sceneId", identity["sceneId"]},
                     {"nodeId", identity["nodeId"]},
@@ -210,7 +223,7 @@ bool register_render_tools(McpSystem& system, EditorMcpTools& editor)
                     {"aoEnabled", {{"type", "boolean"}}},
                     {"hdrEnabled", {{"type", "boolean"}}},
                     {"bloomEnabled",
-                     {{"type", "boolean"}, {"description", "启用 Bloom 要求同时启用 HDR。"}}},
+                     {{"type", "boolean"}, {"description", "Bloom requires HDR to be enabled."}}},
                     {"bloomThreshold", {{"type", "number"}, {"minimum", 0}, {"maximum", 100}}},
                     {"bloomIntensity", {{"type", "number"}, {"minimum", 0}, {"maximum", 10}}},
                     {"bloomRadius", {{"type", "number"}, {"minimum", 0.25}, {"maximum", 4}}},
@@ -221,18 +234,18 @@ bool register_render_tools(McpSystem& system, EditorMcpTools& editor)
                      {{"type", "number"},
                       {"minimum", 0},
                       {"maximum", 100000},
-                      {"description", "必须大于 0。"}}},
+                      {"description", "Must be greater than 0."}}},
                     {"ssrThickness",
                      {{"type", "number"},
                       {"minimum", 0},
                       {"maximum", 10},
-                      {"description", "必须大于 0。"}}},
+                      {"description", "Must be greater than 0."}}},
                     {"ssrRoughnessCutoff", {{"type", "number"}, {"minimum", 0}, {"maximum", 1}}},
                     {"aoRadius",
                      {{"type", "number"},
                       {"minimum", 0},
                       {"maximum", 100},
-                      {"description", "世界空间半径，必须大于 0。"}}},
+                      {"description", "World-space radius; must be greater than 0."}}},
                     {"aoStrength", {{"type", "number"}, {"minimum", 0}, {"maximum", 2}}},
                     {"aoPower", {{"type", "number"}, {"minimum", 0.1}, {"maximum", 8}}},
                     {"aoFadeStart", {{"type", "number"}, {"minimum", 0}, {"maximum", 100000}}},
@@ -240,7 +253,7 @@ bool register_render_tools(McpSystem& system, EditorMcpTools& editor)
                      {{"type", "number"},
                       {"minimum", 0},
                       {"maximum", 100000},
-                      {"description", "淡出结束距离，必须大于 aoFadeStart。"}}},
+                      {"description", "Fade end distance; must be greater than aoFadeStart."}}},
                     {"directionalShadows", {{"type", "boolean"}}},
                     {"shadowResolution",
                      {{"type", "integer"}, {"minimum", 128}, {"maximum", 8192}}},
@@ -250,30 +263,42 @@ bool register_render_tools(McpSystem& system, EditorMcpTools& editor)
                      {{"type", "number"},
                       {"minimum", 0},
                       {"maximum", 100000},
-                      {"description", "必须大于 0；同时受相机远裁面限制。"}}},
+                      {"description",
+                       "Must be greater than 0; also limited by the camera far plane."}}},
                     {"shadowSplitLambda", {{"type", "number"}, {"minimum", 0}, {"maximum", 1}}},
                     {"shadowCascadeBlend", {{"type", "number"}, {"minimum", 0}, {"maximum", 0.3}}},
                     {"clearColor", color(4)}},
                    Json::array())) &&
-           add("get_planar_reflection", "读取已有平面反射组件。",
+           add("get_planar_reflection", "Read an existing planar reflection component.",
                object_schema(identity, required_node)) &&
-           add("set_planar_reflection", "编辑平面反射；可为已有 MeshRenderer 添加组件，支持撤销。",
+           add("set_planar_reflection",
+               "Edit planar reflections; can add a component to an existing MeshRenderer. Supports "
+               "undo.",
                object_schema(std::move(planar), required_node)) &&
-           add("get_light_probe_volume", "读取探针配置资源与当前变换下的有效性。",
+           add("get_light_probe_volume",
+               "Read the probe resource and its validity under the current transform.",
                object_schema(identity, required_node)) &&
-           add("set_light_probe_volume", "编辑探针体积，resource 使用逻辑路径，空字符串清空绑定。",
+           add("set_light_probe_volume",
+               "Edit a probe volume; resource is a logical path, and an empty string clears the "
+               "binding.",
                object_schema(std::move(probes), required_node)) &&
-           add("get_mesh_lighting", "读取已有 MeshRenderer 的阴影、烘焙标记及 Lightmap 有效性。",
+           add("get_mesh_lighting",
+               "Read shadow, bake and Lightmap validity fields of an existing MeshRenderer.",
                object_schema(identity, required_node)) &&
-           add("set_mesh_lighting", "编辑已有网格的照明字段；不会生成 UV2 或执行烘焙。",
+           add("set_mesh_lighting",
+               "Edit lighting fields of an existing mesh; does not generate UV2 or start a bake.",
                object_schema(std::move(mesh), required_node)) &&
-           add("set_render_stats", "开启或关闭 bgfx 统计面板，适用于待机、场景预览及玩法。",
+           add("set_render_stats",
+               "Enable or disable bgfx statistics in idle, scene preview or gameplay mode.",
                object_schema({{"enabled", {{"type", "boolean"}}}}, {"enabled"})) &&
-           add("capture_frame", "请求引擎真实渲染帧 PNG；path 相对于项目 cache，完成需查询。",
+           add("capture_frame",
+               "Request a PNG of an actual rendered frame; path is relative to the project cache. "
+               "Poll for completion.",
                object_schema(
                    {{"path", {{"type", "string"}, {"minLength", 1}, {"maxLength", 4096}}}},
                    {"path"})) &&
-           add("get_frame_capture", "查询截图实际状态；complete 才表示文件写入完成。",
+           add("get_frame_capture",
+               "Query capture status; complete means the file has been written.",
                object_schema(Json::object(), Json::array()));
 }
 } // namespace engine::plugins::mcp

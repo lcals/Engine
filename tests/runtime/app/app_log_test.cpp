@@ -1,6 +1,8 @@
 #include "runtime/app/app.hpp"
 #include "runtime/engine_config.hpp"
 #include "runtime/log/log_system.hpp"
+#include "runtime/utils/path_utils.hpp"
+#include "utf8_fixture.hpp"
 
 #include <SDL3/SDL_log.h>
 
@@ -89,7 +91,8 @@ engine::AppConfig app_config(const std::filesystem::path& root)
 {
     engine::AppConfig config;
     config.assets_path = root / "missing-package-assets";
-    config.persistent_data_path = root / std::filesystem::path(u8"data-中文");
+    config.persistent_data_path =
+        root / engine::PathUtils::from_utf8(test_support::utf8_fixture("data_directory"));
     config.cache_path = root / "cache";
     return config;
 }
@@ -408,7 +411,8 @@ bool sdl_logging_bridge(const std::filesystem::path& root)
         return expect(false, "initialize SDL logging bridge");
     }
     const auto path = log.file_path();
-    SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "bridge-info 中文");
+    SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "%s",
+                test_support::utf8_fixture("log_message").c_str());
     SDL_LogError(SDL_LOG_CATEGORY_RENDER, "bridge-error");
     bool success = expect(read_text(path).find("[ERROR] bridge-error\n") != std::string::npos,
                           "SDL errors enter the file before the SDL call returns");
@@ -430,11 +434,13 @@ bool sdl_logging_bridge(const std::filesystem::path& root)
     }
     success &= expect(log.flush(), "SDL and direct records share the synchronous flush");
     const auto records = read_text(path);
-    success &= expect(records.find("[INFO] bridge-info 中文\n") != std::string::npos &&
+    success &= expect(records.find("[INFO] " + test_support::utf8_fixture("log_message") + "\n") !=
+                              std::string::npos &&
                           records.find("[INFO] engine-direct\n") != std::string::npos &&
                           records.find("bridge-before-initialize") == std::string::npos,
                       "the bridge records both APIs only while initialized");
-    success &= expect(capture.error_identity && capture.occurrences("bridge-info 中文") == 1 &&
+    success &= expect(capture.error_identity &&
+                          capture.occurrences(test_support::utf8_fixture("log_message")) == 1 &&
                           capture.occurrences("bridge-error") == 1 &&
                           capture.occurrences("engine-direct") == 1,
                       "original SDL output retains identity and receives each record once");

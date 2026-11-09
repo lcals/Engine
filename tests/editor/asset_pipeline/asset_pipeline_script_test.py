@@ -6,6 +6,13 @@ import hashlib
 import json
 import os
 from pathlib import Path
+
+UNICODE = dict(
+    line.split("\t", 1) for line in
+    (Path(__file__).resolve().parents[3] / "tests/support/fixtures/unicode.tsv")
+    .read_text(encoding="utf-8").splitlines()
+)
+
 import re
 import shutil
 import sqlite3
@@ -49,7 +56,7 @@ def build(builder, project, success=True):
 
 
 def test(builder, source_project, temporary):
-    project = temporary / "configuration project 中文"
+    project = temporary / UNICODE["configuration_project"]
     for name in ("assets", "settings", "cache"):
         (project / name).mkdir(parents=True)
     (project / "settings/typescript").mkdir()
@@ -264,7 +271,7 @@ def test(builder, source_project, temporary):
 
 
 def test_shader_tool_content(builder, source_project, shaderc, includes, temporary):
-    """真实工具即使报告同一版本，内容变化也必须使生产导入和发布状态失效。"""
+    """Changed tool contents must invalidate production imports and publication even when the reported version is unchanged."""
     root = source_project.parents[1]
     portable = temporary / "isolated builder"
     tools = portable / "tools"

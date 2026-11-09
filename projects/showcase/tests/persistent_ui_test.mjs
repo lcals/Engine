@@ -10,6 +10,9 @@ const root = path.resolve(
     process.argv[2] ?? path.join(path.dirname(fileURLToPath(import.meta.url)), "../../.."),
 );
 const project = path.join(root, "projects/showcase");
+const unicode = Object.fromEntries((await readFile(
+    path.join(root, "tests/support/fixtures/unicode.tsv"), "utf8",
+)).trimEnd().split("\n").map(line => line.split("\t")));
 const output = await mkdtemp(path.join(tmpdir(), "engine-showcase-persistent-ui-"));
 
 try {
@@ -66,7 +69,7 @@ try {
         game.Update();
     };
 
-    edit("同一个输入框 / original text");
+    edit(unicode.persistent_input);
     command("load-a");
     ++commits;
     assert.equal(fixture.scene.path, "scenes/main.scene");

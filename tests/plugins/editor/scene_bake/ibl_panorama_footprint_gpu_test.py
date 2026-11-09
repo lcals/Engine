@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""检查全景 HDR 小亮斑重投影的球面积分（正式编辑器 GPU 烘焙）。"""
+"""Check spherical integrals for panoramic HDR spot reprojection through the production editor GPU baker."""
 from __future__ import annotations
 
 import argparse

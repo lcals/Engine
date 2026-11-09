@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""公开小场景的 GPU 照明烘焙验证；复用现有编辑器 MCP 会话。
+"""Validate GPU lighting bakes in a small public scene using an existing editor MCP session.
 
-默认仅准备自造几何。--run 执行一/二次反弹、探针、取消及重开验证。
---work-dir 指定测试目录；所有生成物默认留在忽略的 build/ 内。
+By default prepare original geometry only; --run checks one/two bounces, probes, cancellation and reopen.
+--work-dir selects the test directory; generated output stays under ignored build/ by default.
 """
 
 from __future__ import annotations
@@ -43,7 +43,7 @@ def new_source(path, text, importer):
     if meta.exists() and tomllib.loads(meta.read_text(encoding="utf-8")).get("guid") != identity(
         path
     ):
-        raise RuntimeError(f"测试目录包含其他项目的资源身份：{meta}")
+        raise RuntimeError(f"Test directory contains resource identities from another project: {meta}")
     if not meta.exists():
         meta.write_text(
             f'guid = "{identity(path)}"\nimporter = "{importer}"\nmeta_version = 1\n',

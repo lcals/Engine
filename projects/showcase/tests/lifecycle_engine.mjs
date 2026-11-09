@@ -143,7 +143,7 @@ export class Gameplay { OnInitialize() { return true; } Update() {} OnShutdown()
 export class Transform { SetRotation() { return true; } }
 export class Animator {}
 export class MeshRenderer {}
-// 菜单会加载所有玩法模块；此处只提供未执行玩法所需的导出身份。
+// The menu loads every gameplay module; provide export identities for modules not executed here.
 export class AnimationState {}
 export class AnimationStateMachine {
     AddParameter() { return true; }

@@ -1,5 +1,6 @@
 #include "plugins/editor/mcp/mcp_system.hpp"
 #include "runtime/engine_config.hpp"
+#include "utf8_fixture.hpp"
 
 #if defined(ENGINE_TEST_SCENE_BAKE_TOOLS) || defined(ENGINE_TEST_RENDER_TOOLS) ||                  \
     defined(ENGINE_TEST_TERRAIN_TOOLS) || defined(ENGINE_TEST_DESTRUCTION_TOOLS)
@@ -366,7 +367,8 @@ bool exercise()
           Json{{"values", Json::array({1, 2, 3, 4})}}, Json{{"values", Json::array({1.5})}},
           Json{{"values", Json::array({11})}},
           Json{{"values", Json::array({1})}, {"unknown", true}},
-          Json{{"values", Json::array({1})}, {"label", "三个字"}},
+          Json{{"values", Json::array({1})},
+               {"label", test_support::utf8_fixture("three_characters")}},
           Json{{"values", Json::array({1})}, {"config", {{"unknown", true}}}},
           Json{{"values", Json::array({1})}, {"config", 7}},
           Json{{"values", Json::array({1})}, {"actions", {{"jump", "yes"}}}},
@@ -386,7 +388,7 @@ bool exercise()
                "unknown tool has a distinct status") ||
         !check(mcp.call_tool("fake.sum",
                              {{"values", Json::array({2, 3})},
-                              {"label", "节点"},
+                              {"label", test_support::utf8_fixture("node_label")},
                               {"config", nullptr},
                               {"actions", {{"jump", true}, {"sprint", false}}},
                               {"custom", Json::array({1.0, 2.0, 3.0})}},

@@ -1,8 +1,15 @@
-"""真实桌面窗口、V8 场景和 MCP 启停集成测试；只在 GPU 测试开启时运行。"""
+"""Actual desktop window, V8 scene and MCP lifecycle integration checks, enabled only with GPU tests."""
 
 import argparse
 import json
 from pathlib import Path
+
+UNICODE = dict(
+    line.split("\t", 1) for line in
+    (Path(__file__).resolve().parents[3] / "tests/support/fixtures/unicode.tsv")
+    .read_text(encoding="utf-8").splitlines()
+)
+
 import sys
 import subprocess
 import tempfile
@@ -103,7 +110,7 @@ def tool(mcp, project, runtime, name, arguments=None, expect_error=False, timeou
 
 
 def prepare_project(root, temporary):
-    project = temporary / "project 中文"
+    project = temporary / UNICODE["project_name"]
     prepare_minimal_project(root, project)
     return project
 
