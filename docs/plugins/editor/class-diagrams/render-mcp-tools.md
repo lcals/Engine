@@ -20,7 +20,7 @@ classDiagram
 
 基础工具为 get_render_settings、set_render_settings、set_render_stats、capture_frame、get_frame_capture；统一能力、组件运行属性、调试绘制与 LOD 导入工具见下方。路径策略与撤销归编辑器，图形和截图处理归渲染器；MCP 不生成图片，也不把已接受请求报告为完成。
 
-屏幕空间 AO 通过 `aoEnabled`、`aoRadius`、`aoStrength`、`aoPower`、`aoFadeStart`、`aoFadeEnd` 暴露，同曝光归相机后处理域。MCP Schema 使用协议支持的 minimum/maximum，半径严格大于零、淡出起止先后关系由编辑器及原生组件整体校验；协议声明不使用不支持的 exclusiveMinimum。
+屏幕空间 AO 通过 `aoEnabled`、`aoRadius`、`aoStrength`、`aoPower`、`aoFadeStart`、`aoFadeEnd` 暴露，同曝光归相机后处理域。本工具 Schema 使用 minimum/maximum，半径严格大于零、淡出起止先后关系由编辑器及原生组件整体校验。
 
 HDR/Bloom 使用 `hdrEnabled`、`bloomEnabled`（布尔值）、`bloomThreshold`（0..100）、`bloomIntensity`（0..10）、`bloomRadius`（0.25..4）。协议层描述独立字段类型与范围，编辑器和组件校验 `bloomEnabled` 必须依赖 `hdrEnabled`，两开关可同批原子更新。MCP 不自动为开启 Bloom 开启 HDR，不自动为关闭 HDR 关闭 Bloom。
 

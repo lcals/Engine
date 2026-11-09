@@ -37,6 +37,8 @@
 
 ## 验证
 
+建模 `.mesh` 使用当前版本 2 的编辑源，仅保存 `[modeling]` 数据。568 份源文件已升级，几何、每角属性、元素 ID 与资源 GUID 保持不变；没有原始生成记录的模型不补造参数，仍可编辑，但不能参数重建。当前 Windows 资源导入和打包通过，`cache/build/windows/` 含 2 个包、1,370 项资源；此结果不代表运行画面验收。接口用法见[建模插件](../../../docs/plugins/editor/modeling.md)。
+
 菜单注册以 [showcase_cases.ts](../assets/scripts/models/showcase_cases.ts) 为唯一来源；具体模块操作见上面的项目文档。项目测试按需要选择，不把全部场景加入日常回归。
 
 - [case_contract_test.mjs](../tests/case_contract_test.mjs)：用例入口、项目 Controller 和 Model/View 契约；直接脚本调用不等于真实 SDL/RmlUi 输入。

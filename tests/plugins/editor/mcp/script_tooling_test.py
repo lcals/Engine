@@ -316,6 +316,7 @@ def test(
         "set_preview_camera",
         "modeling_help",
         "modeling_create",
+        "modeling_rebuild",
         "modeling_get",
         "modeling_select",
         "modeling_edit",

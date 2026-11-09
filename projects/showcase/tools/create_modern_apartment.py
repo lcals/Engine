@@ -119,7 +119,7 @@ class ApartmentPlan:
         self.add(
             name,
             "cylinder",
-            {"radius": radius, "size": [1, height, 1], "segments": segments},
+            {"radius": radius, "height": height, "segments": segments},
             position,
             material,
             rotation,
@@ -454,7 +454,7 @@ def apartment_plan():
         p.add(
             f"hob_ring_{index}",
             "torus",
-            {"radius": 0.12, "innerRadius": 0.009, "segments": 20, "rings": 6},
+            {"radius": 0.12, "tubeRadius": 0.009, "segments": 20, "rings": 6},
             (x, 1.132, z),
             "steel",
         )

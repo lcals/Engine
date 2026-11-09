@@ -3,6 +3,7 @@
 
 #include "plugins/editor/mcp/editor_mcp_tools.hpp"
 #include "plugins/editor/mcp/mcp_system.hpp"
+#include "plugins/editor/modeling/primitive_contract.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -52,15 +53,27 @@ bool register_modeling_tools(engine::plugins::mcp::McpSystem& system,
     };
     const Json target = {{"sceneId", id()}, {"modelId", id()}, {"nodeId", id()}};
     const Json required = {"sceneId", "modelId"};
-    auto create = Json{
-        {"sceneId", id()},
-        {"name", {{"type", "string"}, {"minLength", 1}, {"maxLength", 128}}},
-        {"shape",
-         {{"type", "string"},
-          {"enum",
-           {"cube", "plane", "cylinder", "cone", "sphere", "torus", "prism", "stairs", "arch",
-            "pipe", "door", "curved_stairs", "sprite", "icosphere", "polygon", "sweep", "lathe"}}}},
-        {"parameters", {{"type", "object"}}}};
+    const auto contracts = detail::shape_contracts(false);
+    Json shapes = Json::array();
+    Json alternatives = Json::array();
+    for (const auto& [shape, contract] : contracts.items())
+    {
+        shapes.push_back(shape);
+        alternatives.push_back({{"type", "object"},
+                                {"properties",
+                                 {{"shape", {{"type", "string"}, {"enum", {shape}}}},
+                                  {"parameters", contract["parameters"]}}},
+                                {"required", {"shape"}}});
+    }
+    auto create =
+        mcp::object_schema({{"sceneId", id()},
+                            {"name", {{"type", "string"}, {"minLength", 1}, {"maxLength", 128}}},
+                            {"shape", {{"type", "string"}, {"enum", shapes}}},
+                            {"parameters", {{"type", "object"}}}},
+                           {"sceneId", "shape"});
+    create["oneOf"] = std::move(alternatives);
+    auto rebuild = target;
+    rebuild["parameters"] = {{"type", "object"}};
     auto get = target;
     get["offset"] = {{"type", "integer"}, {"minimum", 0}};
     get["limit"] = {{"type", "integer"}, {"minimum", 1}, {"maximum", 1024}};
@@ -119,9 +132,14 @@ bool register_modeling_tools(engine::plugins::mcp::McpSystem& system,
     save["path"] = {{"type", "string"}, {"minLength", 1}, {"maxLength", 4096}};
     const auto load = Json{{"sceneId", id()}, {"path", save["path"]}, {"name", duplicate["name"]}};
     return add("modeling_help", "发现全部建模操作的参数契约、示例和限制；无需启动项目。",
-               mcp::object_schema({{"operation", {{"type", "string"}}}}, Json::array())) &&
+               mcp::object_schema({{"operation", {{"type", "string"}}},
+                                   {"shape", {{"type", "string"}, {"enum", shapes}}}},
+                                  Json::array())) &&
            add("modeling_create", "创建可编辑模型；返回稳定 modelId，再查询当前 nodeId。",
-               mcp::object_schema(create, {"sceneId", "shape"})) &&
+               std::move(create)) &&
+           add("modeling_rebuild",
+               "按保存参数重建，重置几何、UV和面编辑，保留节点及材质绑定；可撤销。",
+               mcp::object_schema(rebuild, {"sceneId", "modelId", "parameters"})) &&
            add("modeling_get", "查询模型与分页拓扑；省略 modelId 列出全部模型。",
                mcp::object_schema(get, {"sceneId"})) &&
            add("modeling_select", "设置顶点、边或面选择；选择支持撤销和批量事务。",

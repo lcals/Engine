@@ -550,8 +550,8 @@ bool atlas_unwrap()
     {
         return false;
     }
-    engine::plugins::modeling::MeshPrimitiveOptions primitive;
-    primitive.type = engine::plugins::modeling::MeshPrimitive::cylinder;
+    engine::schema::ModelingPrimitiveDataT primitive;
+    primitive.type = engine::schema::ModelingPrimitive::cylinder;
     primitive.segments = 16;
     if (!expect(engine::plugins::modeling::mesh::create(primitive, mesh, error),
                 "atlas curved input", error))

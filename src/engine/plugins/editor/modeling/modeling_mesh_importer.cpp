@@ -78,7 +78,7 @@ bool ModelingMeshImporter::inspect_batch(const editor::asset_pipeline::ImportCon
         fingerprint.clear();
         return false;
     }
-    fingerprint += ":modeling-importer-1:" + schema_hash;
+    fingerprint += ":modeling-importer-2:" + schema_hash;
     return true;
 }
 

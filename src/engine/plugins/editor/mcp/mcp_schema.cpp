@@ -74,6 +74,22 @@ bool inspect_schema(const Json& schema, std::size_t depth)
                 return false;
             }
         }
+        else if (key == "default")
+        {
+            if (!typed_value(type, value))
+            {
+                return false;
+            }
+        }
+        else if (key == "oneOf")
+        {
+            if (!value.is_array() || value.empty() ||
+                !std::all_of(value.begin(), value.end(), [depth](const auto& branch)
+                             { return inspect_schema(branch, depth + 1); }))
+            {
+                return false;
+            }
+        }
         else if (key == "enum")
         {
             if (!value.is_array() || value.empty() ||
@@ -134,7 +150,9 @@ bool inspect_schema(const Json& schema, std::size_t depth)
                 return false;
             }
         }
-        else if ((key == "minimum" || key == "maximum") && (type == "integer" || type == "number"))
+        else if ((key == "minimum" || key == "maximum" || key == "exclusiveMinimum" ||
+                  key == "exclusiveMaximum") &&
+                 (type == "integer" || type == "number"))
         {
             if (!value.is_number() || !std::isfinite(value.get<double>()))
             {
@@ -171,6 +189,12 @@ bool matches(const Json& schema, const Json& value)
     }
     if (schema.contains("enum") &&
         std::find(schema["enum"].begin(), schema["enum"].end(), value) == schema["enum"].end())
+    {
+        return false;
+    }
+    if (schema.contains("oneOf") &&
+        std::count_if(schema["oneOf"].begin(), schema["oneOf"].end(),
+                      [&value](const auto& branch) { return matches(branch, value); }) != 1)
     {
         return false;
     }
@@ -233,7 +257,9 @@ bool matches(const Json& schema, const Json& value)
     else if (type == "number" || type == "integer")
     {
         if ((schema.contains("minimum") && value < schema["minimum"]) ||
-            (schema.contains("maximum") && value > schema["maximum"]))
+            (schema.contains("maximum") && value > schema["maximum"]) ||
+            (schema.contains("exclusiveMinimum") && value <= schema["exclusiveMinimum"]) ||
+            (schema.contains("exclusiveMaximum") && value >= schema["exclusiveMaximum"]))
         {
             return false;
         }

@@ -1,12 +1,14 @@
 #include "plugins/editor/modeling/mesh_primitives.hpp"
 
 #include "plugins/editor/modeling/modeling_math.hpp"
+#include "plugins/editor/modeling/primitive_options.hpp"
 
 #include <algorithm>
 #include <cmath>
 #include <map>
 #include <numbers>
 #include <tuple>
+#include <unordered_map>
 #include <utility>
 
 namespace engine::plugins::modeling
@@ -44,9 +46,8 @@ void box(schema::EditableMeshDataT& data, const Vector& size)
     for (const auto& indices : std::vector<std::array<std::size_t, 4>>{
              {0, 3, 2, 1}, {4, 5, 6, 7}, {0, 4, 7, 3}, {1, 2, 6, 5}, {3, 7, 6, 2}, {0, 1, 5, 4}})
     {
-        auto& face = math::add_face(data, {vertices[indices[0]], vertices[indices[1]],
-                                           vertices[indices[2]], vertices[indices[3]]});
-        face.texcoords = {{0, 0}, {1, 0}, {1, 1}, {0, 1}};
+        math::add_face(data, {vertices[indices[0]], vertices[indices[1]], vertices[indices[2]],
+                              vertices[indices[3]]});
     }
 }
 
@@ -71,7 +72,8 @@ void extruded_outline(schema::EditableMeshDataT& data, const std::vector<Project
     }
 }
 
-void cylinder(schema::EditableMeshDataT& data, const MeshPrimitiveOptions& options, bool cone)
+void cylinder(schema::EditableMeshDataT& data, const schema::ModelingPrimitiveDataT& options,
+              bool cone)
 {
     std::vector<Id> bottom;
     std::vector<Id> top;
@@ -103,20 +105,21 @@ void cylinder(schema::EditableMeshDataT& data, const MeshPrimitiveOptions& optio
         auto& face = cone
                          ? math::add_face(data, {bottom[i], apex, bottom[next]}, 0, 1)
                          : math::add_face(data, {bottom[i], top[i], top[next], bottom[next]}, 0, 1);
-        const auto u0 = static_cast<double>(i) / count;
-        const auto u1 = static_cast<double>(i + 1) / count;
+        const auto u0 = static_cast<double>(i) * 2.0 * pi * options.radius / count;
+        const auto u1 = static_cast<double>(i + 1) * 2.0 * pi * options.radius / count;
         if (cone)
         {
-            face.texcoords = {{u0, 0}, {(u0 + u1) * 0.5, 1}, {u1, 0}};
+            face.texcoords = {
+                {u0, 0}, {(u0 + u1) * 0.5, std::hypot(options.radius, options.size.y())}, {u1, 0}};
         }
         else
         {
-            face.texcoords = {{u0, 0}, {u0, 1}, {u1, 1}, {u1, 0}};
+            face.texcoords = {{u0, 0}, {u0, options.size.y()}, {u1, options.size.y()}, {u1, 0}};
         }
     }
 }
 
-void sphere(schema::EditableMeshDataT& data, const MeshPrimitiveOptions& options)
+void sphere(schema::EditableMeshDataT& data, const schema::ModelingPrimitiveDataT& options)
 {
     const auto count = options.segments;
     const auto rings = options.rings;
@@ -157,7 +160,7 @@ void sphere(schema::EditableMeshDataT& data, const MeshPrimitiveOptions& options
     }
 }
 
-void torus(schema::EditableMeshDataT& data, const MeshPrimitiveOptions& options)
+void torus(schema::EditableMeshDataT& data, const schema::ModelingPrimitiveDataT& options)
 {
     std::vector<std::vector<Id>> rows;
     for (std::uint32_t i = 0; i < options.segments; ++i)
@@ -191,7 +194,7 @@ void torus(schema::EditableMeshDataT& data, const MeshPrimitiveOptions& options)
     }
 }
 
-void pipe(schema::EditableMeshDataT& data, const MeshPrimitiveOptions& options)
+void pipe(schema::EditableMeshDataT& data, const schema::ModelingPrimitiveDataT& options)
 {
     std::vector<Id> outer_bottom;
     std::vector<Id> outer_top;
@@ -215,17 +218,28 @@ void pipe(schema::EditableMeshDataT& data, const MeshPrimitiveOptions& options)
     for (std::uint32_t i = 0; i < options.segments; ++i)
     {
         const auto next = (i + 1) % options.segments;
-        math::add_face(data, {outer_bottom[i], outer_top[i], outer_top[next], outer_bottom[next]},
-                       0, 1);
-        math::add_face(data, {inner_bottom[i], inner_bottom[next], inner_top[next], inner_top[i]},
-                       0, 2);
+        const double u0 = 2.0 * pi * static_cast<double>(i) / options.segments;
+        const double u1 = 2.0 * pi * static_cast<double>(i + 1) / options.segments;
+        const double h = options.size.y();
+        auto& outer = math::add_face(
+            data, {outer_bottom[i], outer_top[i], outer_top[next], outer_bottom[next]}, 0, 1);
+        outer.texcoords = {{u0 * options.radius, 0},
+                           {u0 * options.radius, h},
+                           {u1 * options.radius, h},
+                           {u1 * options.radius, 0}};
+        auto& inner = math::add_face(
+            data, {inner_bottom[i], inner_bottom[next], inner_top[next], inner_top[i]}, 0, 2);
+        inner.texcoords = {{u0 * options.inner_radius, 0},
+                           {u1 * options.inner_radius, 0},
+                           {u1 * options.inner_radius, h},
+                           {u0 * options.inner_radius, h}};
         math::add_face(data, {outer_top[i], inner_top[i], inner_top[next], outer_top[next]});
         math::add_face(data,
                        {outer_bottom[i], outer_bottom[next], inner_bottom[next], inner_bottom[i]});
     }
 }
 
-void curved_stairs(schema::EditableMeshDataT& data, const MeshPrimitiveOptions& options)
+void curved_stairs(schema::EditableMeshDataT& data, const schema::ModelingPrimitiveDataT& options)
 {
     std::map<std::tuple<std::uint32_t, std::uint32_t, bool>, Id> vertices;
     const auto vertex = [&](std::uint32_t boundary, std::uint32_t height, bool outer)
@@ -276,7 +290,7 @@ void curved_stairs(schema::EditableMeshDataT& data, const MeshPrimitiveOptions& 
                           vertex(end, end, false)});
 }
 
-void icosphere(schema::EditableMeshDataT& data, const MeshPrimitiveOptions& options)
+void icosphere(schema::EditableMeshDataT& data, const schema::ModelingPrimitiveDataT& options)
 {
     const auto golden = (1.0 + std::sqrt(5.0)) * 0.5;
     std::vector<Id> vertices;
@@ -362,33 +376,80 @@ void icosphere(schema::EditableMeshDataT& data, const MeshPrimitiveOptions& opti
     }
 }
 
+// 保留球面/环面的接缝，按弧长缩放；其余平面按正交局部基投影。
+void metric_uv(schema::EditableMeshDataT& data, const schema::ModelingPrimitiveDataT& options)
+{
+    std::unordered_map<Id, Vector> positions;
+    positions.reserve(data.vertices.size());
+    for (const auto& vertex : data.vertices)
+    {
+        positions.emplace(vertex.id(), math::position(vertex));
+    }
+    for (auto& face : data.faces)
+    {
+        double u_scale = options.uv_tiles_per_unit;
+        double v_scale = options.uv_tiles_per_unit;
+        if (face->texcoords.empty())
+        {
+            const auto origin = positions.at(face->vertices.front());
+            const auto u = math::normalized(math::sub(positions.at(face->vertices[1]), origin));
+            Vector normal{};
+            for (std::size_t i = 0; i < face->vertices.size(); ++i)
+            {
+                normal = math::add(
+                    normal,
+                    math::cross(
+                        math::sub(positions.at(face->vertices[i]), origin),
+                        math::sub(positions.at(face->vertices[(i + 1) % face->vertices.size()]),
+                                  origin)));
+            }
+            const auto v = math::normalized(math::cross(math::normalized(normal), u));
+            for (const auto id : face->vertices)
+            {
+                const auto relative = math::sub(positions.at(id), origin);
+                face->texcoords.emplace_back(math::dot(relative, u), math::dot(relative, v));
+            }
+        }
+        else if (options.type == schema::ModelingPrimitive::sphere ||
+                 options.type == schema::ModelingPrimitive::icosphere)
+        {
+            u_scale *= 2.0 * pi * options.radius;
+            v_scale *= pi * options.radius;
+        }
+        else if (options.type == schema::ModelingPrimitive::torus)
+        {
+            u_scale *= 2.0 * pi * options.radius;
+            v_scale *= 2.0 * pi * options.inner_radius;
+        }
+        for (auto& uv : face->texcoords)
+        {
+            uv = {uv.x() * u_scale, uv.y() * v_scale};
+        }
+    }
+}
+
 } // namespace
 
-bool mesh::create(const MeshPrimitiveOptions& options, schema::EditableMeshDataT& output,
+bool mesh::create(const schema::ModelingPrimitiveDataT& input, schema::EditableMeshDataT& output,
                   std::string& error)
 {
+    const auto options = input;
     output = {};
     error.clear();
     const Vector size{options.size.x(), options.size.y(), options.size.z()};
-    if (!math::finite(size) || size[0] <= math::epsilon || size[1] <= math::epsilon ||
-        size[2] <= math::epsilon || !std::isfinite(options.radius) ||
-        options.radius <= math::epsilon || !std::isfinite(options.inner_radius) ||
-        options.inner_radius <= math::epsilon || options.segments < 3 || options.segments > 256 ||
-        options.rings < 3 || options.rings > 256 || options.steps < 1 || options.steps > 256 ||
-        options.width_segments < 1 || options.width_segments > 256 || options.depth_segments < 1 ||
-        options.depth_segments > 256 || !std::isfinite(options.angle_degrees) ||
-        !std::isfinite(options.thickness) || options.thickness <= math::epsilon ||
-        options.subdivisions > 5)
+    if (!detail::validate_primitive(options, error))
     {
-        return fail(error, "基本体参数无效：尺寸和半径须为正值，分段数量不得超过 256");
+        return false;
     }
     schema::EditableMeshDataT result;
+    result.schema_version = 2;
+    result.primitive = std::make_unique<schema::ModelingPrimitiveDataT>(options);
     switch (options.type)
     {
-    case MeshPrimitive::cube:
+    case schema::ModelingPrimitive::cube:
         box(result, size);
         break;
-    case MeshPrimitive::plane:
+    case schema::ModelingPrimitive::plane:
     {
         std::vector<std::vector<Id>> rows;
         for (std::uint32_t z = 0; z <= options.depth_segments; ++z)
@@ -408,38 +469,34 @@ bool mesh::create(const MeshPrimitiveOptions& options, schema::EditableMeshDataT
             {
                 auto& face = math::add_face(
                     result, {rows[z][x], rows[z + 1][x], rows[z + 1][x + 1], rows[z][x + 1]});
-                const auto u0 = static_cast<double>(x) / options.width_segments;
-                const auto u1 = static_cast<double>(x + 1) / options.width_segments;
-                const auto v0 = static_cast<double>(z) / options.depth_segments;
-                const auto v1 = static_cast<double>(z + 1) / options.depth_segments;
+                const auto u0 = static_cast<double>(x) * size[0] / options.width_segments;
+                const auto u1 = static_cast<double>(x + 1) * size[0] / options.width_segments;
+                const auto v0 = static_cast<double>(z) * size[2] / options.depth_segments;
+                const auto v1 = static_cast<double>(z + 1) * size[2] / options.depth_segments;
                 face.texcoords = {{u0, v0}, {u0, v1}, {u1, v1}, {u1, v0}};
             }
         }
         break;
     }
-    case MeshPrimitive::cylinder:
+    case schema::ModelingPrimitive::cylinder:
         cylinder(result, options, false);
         break;
-    case MeshPrimitive::cone:
+    case schema::ModelingPrimitive::cone:
         cylinder(result, options, true);
         break;
-    case MeshPrimitive::sphere:
+    case schema::ModelingPrimitive::sphere:
         sphere(result, options);
         break;
-    case MeshPrimitive::torus:
-        if (options.inner_radius >= options.radius)
-        {
-            return fail(error, "环面管半径必须小于主半径");
-        }
+    case schema::ModelingPrimitive::torus:
         torus(result, options);
         break;
-    case MeshPrimitive::prism:
+    case schema::ModelingPrimitive::prism:
         extruded_outline(
             result,
             {{-size[0] * 0.5, -size[1] * 0.5}, {size[0] * 0.5, -size[1] * 0.5}, {0, size[1] * 0.5}},
             size[2]);
         break;
-    case MeshPrimitive::stairs:
+    case schema::ModelingPrimitive::stairs:
     {
         std::vector<ProjectedPoint> outline{{-size[0] * 0.5, -size[1] * 0.5},
                                             {size[0] * 0.5, -size[1] * 0.5},
@@ -457,13 +514,8 @@ bool mesh::create(const MeshPrimitiveOptions& options, schema::EditableMeshDataT
         extruded_outline(result, outline, size[2]);
         break;
     }
-    case MeshPrimitive::arch:
+    case schema::ModelingPrimitive::arch:
     {
-        if (options.inner_radius >= options.radius || options.angle_degrees <= 0.0 ||
-            options.angle_degrees >= 360.0)
-        {
-            return fail(error, "拱体需要内径小于外径，角度在 0 到 360 度之间");
-        }
         std::vector<ProjectedPoint> outline;
         for (std::uint32_t i = 0; i <= options.segments; ++i)
         {
@@ -481,22 +533,14 @@ bool mesh::create(const MeshPrimitiveOptions& options, schema::EditableMeshDataT
         extruded_outline(result, outline, size[2]);
         break;
     }
-    case MeshPrimitive::pipe:
-        if (options.inner_radius >= options.radius)
-        {
-            return fail(error, "管道内半径必须小于外半径");
-        }
+    case schema::ModelingPrimitive::pipe:
         pipe(result, options);
         break;
-    case MeshPrimitive::door:
+    case schema::ModelingPrimitive::door:
     {
         const auto thickness = options.thickness;
         const auto x = size[0] * 0.5;
         const auto y = size[1] * 0.5;
-        if (thickness >= x || thickness >= size[1])
-        {
-            return fail(error, "门框厚度必须小于半宽与高度");
-        }
         extruded_outline(result,
                          {{-x, -y},
                           {-x + thickness, -y},
@@ -509,15 +553,10 @@ bool mesh::create(const MeshPrimitiveOptions& options, schema::EditableMeshDataT
                          size[2]);
         break;
     }
-    case MeshPrimitive::curved_stairs:
-        if (options.inner_radius >= options.radius || options.angle_degrees <= 0.0 ||
-            options.angle_degrees >= 360.0 || options.angle_degrees / options.steps >= 180.0)
-        {
-            return fail(error, "弧形楼梯要求内径小于外径，角度在0到360度且单阶小于180度");
-        }
+    case schema::ModelingPrimitive::curved_stairs:
         curved_stairs(result, options);
         break;
-    case MeshPrimitive::sprite:
+    case schema::ModelingPrimitive::sprite:
     {
         std::vector<Id> ids;
         for (const auto& point : std::vector<Vector>{{-size[0] * 0.5, -size[1] * 0.5, 0},
@@ -527,15 +566,16 @@ bool mesh::create(const MeshPrimitiveOptions& options, schema::EditableMeshDataT
         {
             ids.push_back(math::add_vertex(result, point));
         }
-        math::add_face(result, ids).texcoords = {{0, 0}, {1, 0}, {1, 1}, {0, 1}};
+        math::add_face(result, ids);
         break;
     }
-    case MeshPrimitive::icosphere:
+    case schema::ModelingPrimitive::icosphere:
         icosphere(result, options);
         break;
     default:
         return fail(error, "基本体类型未知");
     }
+    metric_uv(result, options);
     if (!mesh::validate(result, error))
     {
         return false;
@@ -555,6 +595,7 @@ bool mesh::polygon(std::span<const schema::Vec3> points,
         return fail(error, "多边形外环至少需要 3 个点，且不得超过模型限制");
     }
     schema::EditableMeshDataT result;
+    result.schema_version = 2;
     std::vector<Id> outer;
     for (const auto& point : points)
     {

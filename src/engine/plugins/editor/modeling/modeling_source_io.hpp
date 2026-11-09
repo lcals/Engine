@@ -7,7 +7,6 @@
 namespace engine::schema
 {
 struct EditableMeshDataT;
-struct MeshDataT;
 } // namespace engine::schema
 
 namespace engine::plugins::modeling::detail
@@ -16,8 +15,7 @@ namespace engine::plugins::modeling::detail
 [[nodiscard]] bool safe_asset_path(const std::filesystem::path& root, std::string_view name,
                                    std::filesystem::path& output, std::string& error);
 [[nodiscard]] bool save_source(const std::filesystem::path& path,
-                               const schema::EditableMeshDataT& source,
-                               const schema::MeshDataT& mesh, std::string& error);
+                               const schema::EditableMeshDataT& source, std::string& error);
 [[nodiscard]] bool load_source(const std::filesystem::path& path, schema::EditableMeshDataT& source,
                                std::string& error);
 } // namespace engine::plugins::modeling::detail

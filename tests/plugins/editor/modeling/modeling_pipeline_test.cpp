@@ -121,8 +121,8 @@ int main()
         hex += digits[value >> 4];
         hex += digits[value & 15];
     }
-    // 渲染数组故意过期；导入必须以可编辑模型为权威重新编译。
-    const std::string source = "vertices = []\nindices = []\n[modeling]\n"
+    // 源文件只保存可编辑模型，导入生成独立运行时网格。
+    const std::string source = "[modeling]\n"
                                "format = \"flatbuffers-hex\"\ndata = \"" +
                                hex + "\"\n";
     const fs::path path = project.root / "assets/cube.mesh";

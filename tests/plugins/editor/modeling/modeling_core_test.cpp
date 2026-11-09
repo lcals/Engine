@@ -82,8 +82,8 @@ bool closed(const schema::MeshDataT& mesh)
 
 bool mirrored_uv_tangents()
 {
-    engine::plugins::modeling::MeshPrimitiveOptions options;
-    options.type = engine::plugins::modeling::MeshPrimitive::plane;
+    engine::schema::ModelingPrimitiveDataT options;
+    options.type = engine::schema::ModelingPrimitive::plane;
     schema::EditableMeshDataT model;
     schema::MeshDataT mesh;
     std::string error;
@@ -116,22 +116,16 @@ bool mirrored_uv_tangents()
 bool primitives()
 {
     std::string error;
-    for (const auto type : {engine::plugins::modeling::MeshPrimitive::cube,
-                            engine::plugins::modeling::MeshPrimitive::plane,
-                            engine::plugins::modeling::MeshPrimitive::cylinder,
-                            engine::plugins::modeling::MeshPrimitive::cone,
-                            engine::plugins::modeling::MeshPrimitive::sphere,
-                            engine::plugins::modeling::MeshPrimitive::torus,
-                            engine::plugins::modeling::MeshPrimitive::prism,
-                            engine::plugins::modeling::MeshPrimitive::stairs,
-                            engine::plugins::modeling::MeshPrimitive::arch,
-                            engine::plugins::modeling::MeshPrimitive::pipe,
-                            engine::plugins::modeling::MeshPrimitive::door,
-                            engine::plugins::modeling::MeshPrimitive::curved_stairs,
-                            engine::plugins::modeling::MeshPrimitive::sprite,
-                            engine::plugins::modeling::MeshPrimitive::icosphere})
+    for (const auto type :
+         {engine::schema::ModelingPrimitive::cube, engine::schema::ModelingPrimitive::plane,
+          engine::schema::ModelingPrimitive::cylinder, engine::schema::ModelingPrimitive::cone,
+          engine::schema::ModelingPrimitive::sphere, engine::schema::ModelingPrimitive::torus,
+          engine::schema::ModelingPrimitive::prism, engine::schema::ModelingPrimitive::stairs,
+          engine::schema::ModelingPrimitive::arch, engine::schema::ModelingPrimitive::pipe,
+          engine::schema::ModelingPrimitive::door, engine::schema::ModelingPrimitive::curved_stairs,
+          engine::schema::ModelingPrimitive::sprite, engine::schema::ModelingPrimitive::icosphere})
     {
-        engine::plugins::modeling::MeshPrimitiveOptions options;
+        engine::schema::ModelingPrimitiveDataT options;
         options.type = type;
         schema::EditableMeshDataT model;
         schema::MeshDataT mesh;
@@ -140,8 +134,8 @@ bool primitives()
             !expect(engine::plugins::modeling::mesh::compile(model, "model.mesh", mesh, error),
                     "primitive compiles", error) ||
             !expect(MeshUtils::validate(mesh), "primitive render mesh validates") ||
-            !expect(type == engine::plugins::modeling::MeshPrimitive::plane ||
-                        type == engine::plugins::modeling::MeshPrimitive::sprite ||
+            !expect(type == engine::schema::ModelingPrimitive::plane ||
+                        type == engine::schema::ModelingPrimitive::sprite ||
                         (closed(mesh) && volume(mesh) > 0.0),
                     "solid primitive is closed, consistent and outward"))
         {
@@ -150,6 +144,63 @@ bool primitives()
         }
     }
     return true;
+}
+
+bool primitive_contract()
+{
+    schema::ModelingPrimitiveDataT options;
+    options.size = {2, 3, 4};
+    options.uv_tiles_per_unit = 2;
+    schema::EditableMeshDataT model;
+    std::string error;
+    if (!expect(plugins::modeling::mesh::create(options, model, error), "metric cube", error))
+    {
+        return false;
+    }
+    for (const auto& face : model.faces)
+    {
+        for (std::size_t i = 0; i < face->vertices.size(); ++i)
+        {
+            const auto next = (i + 1) % face->vertices.size();
+            const auto* a = plugins::modeling::mesh::find_vertex(model, face->vertices[i]);
+            const auto* b = plugins::modeling::mesh::find_vertex(model, face->vertices[next]);
+            const double length = std::hypot(a->x() - b->x(), a->y() - b->y(), a->z() - b->z());
+            const auto& u = face->texcoords[i];
+            const auto& v = face->texcoords[next];
+            if (!expect(std::abs(std::hypot(u.x() - v.x(), u.y() - v.y()) - 2 * length) < 1e-9,
+                        "UV density follows physical edge length on every cube face"))
+            {
+                return false;
+            }
+        }
+    }
+    std::vector<std::uint8_t> bytes;
+    schema::EditableMeshDataT decoded;
+    if (!expect(plugins::modeling::mesh::serialize(model, bytes, error) &&
+                    plugins::modeling::mesh::deserialize(bytes, decoded, error) &&
+                    decoded.primitive && *decoded.primitive == options,
+                "generation recipe round trips", error))
+    {
+        return false;
+    }
+    for (const auto version : {0U, 1U})
+    {
+        model.schema_version = version;
+        flatbuffers::FlatBufferBuilder builder;
+        schema::FinishEditableMeshDataBuffer(builder,
+                                             schema::EditableMeshData::Pack(builder, &model));
+        if (!expect(!plugins::modeling::mesh::deserialize(
+                        {builder.GetBufferPointer(), builder.GetSize()}, decoded, error) &&
+                        decoded.vertices.empty(),
+                    "reject missing and obsolete source versions"))
+        {
+            return false;
+        }
+    }
+    options.type = schema::ModelingPrimitive::sphere;
+    return expect(!plugins::modeling::mesh::create(options, decoded, error) &&
+                      decoded.vertices.empty(),
+                  "unused native parameters are rejected atomically");
 }
 
 bool polygon_hole()
@@ -245,8 +296,8 @@ bool attributes_and_edges()
 {
     std::string error;
     schema::EditableMeshDataT model;
-    engine::plugins::modeling::MeshPrimitiveOptions options;
-    options.type = engine::plugins::modeling::MeshPrimitive::plane;
+    engine::schema::ModelingPrimitiveDataT options;
+    options.type = engine::schema::ModelingPrimitive::plane;
     if (!engine::plugins::modeling::mesh::create(options, model, error))
     {
         return false;
@@ -443,8 +494,8 @@ bool bridge_caps()
 
 bool extruded_edges()
 {
-    engine::plugins::modeling::MeshPrimitiveOptions options;
-    options.type = engine::plugins::modeling::MeshPrimitive::plane;
+    engine::schema::ModelingPrimitiveDataT options;
+    options.type = engine::schema::ModelingPrimitive::plane;
     schema::EditableMeshDataT model;
     std::string error;
     if (!engine::plugins::modeling::mesh::create(options, model, error))
@@ -557,8 +608,8 @@ double planar_area(const schema::MeshDataT& mesh)
 
 bool group_inset()
 {
-    engine::plugins::modeling::MeshPrimitiveOptions options;
-    options.type = engine::plugins::modeling::MeshPrimitive::plane;
+    engine::schema::ModelingPrimitiveDataT options;
+    options.type = engine::schema::ModelingPrimitive::plane;
     options.size = {2, 1, 1};
     options.width_segments = 2;
     schema::EditableMeshDataT model;
@@ -691,8 +742,8 @@ bool split_and_edge_loop()
     {
         return false;
     }
-    engine::plugins::modeling::MeshPrimitiveOptions options;
-    options.type = engine::plugins::modeling::MeshPrimitive::plane;
+    engine::schema::ModelingPrimitiveDataT options;
+    options.type = engine::schema::ModelingPrimitive::plane;
     options.width_segments = 4;
     options.depth_segments = 2;
     if (!engine::plugins::modeling::mesh::create(options, model, error))
@@ -714,9 +765,10 @@ bool split_and_edge_loop()
 
 int main()
 {
-    return mirrored_uv_tangents() && primitives() && polygon_hole() && topology() && attributes_and_edges() &&
-                   loop_cut_and_normals() && extruded_hole() && boundary_and_attributes() &&
-                   bridge_caps() && extruded_edges() && point_edge_transform() && group_inset() &&
+    return mirrored_uv_tangents() && primitives() && primitive_contract() && polygon_hole() &&
+                   topology() && attributes_and_edges() && loop_cut_and_normals() &&
+                   extruded_hole() && boundary_and_attributes() && bridge_caps() &&
+                   extruded_edges() && point_edge_transform() && group_inset() &&
                    split_and_edge_loop()
                ? 0
                : 1;

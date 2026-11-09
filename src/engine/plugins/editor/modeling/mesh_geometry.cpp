@@ -131,6 +131,7 @@ bool mesh::sweep(const MeshSweepOptions& options, schema::EditableMeshDataT& out
         tangents[i - 1] = tangent;
     }
     schema::EditableMeshDataT candidate;
+    candidate.schema_version = 2;
     std::vector<std::vector<std::uint64_t>> rings;
     Point u;
     Point v;
@@ -215,6 +216,7 @@ bool mesh::lathe(const MeshLatheOptions& options, schema::EditableMeshDataT& out
     const bool full = std::abs(options.angle_degrees - 360.0) < math::epsilon;
     const std::size_t columns = options.segments + (full ? 0 : 1);
     schema::EditableMeshDataT candidate;
+    candidate.schema_version = 2;
     std::vector<std::vector<std::uint64_t>> rings;
     for (const auto& p : options.profile)
     {
@@ -349,6 +351,7 @@ bool mesh::mirror(schema::EditableMeshDataT& data, const MeshMirrorOptions& opti
         }
     }
     schema::EditableMeshDataT candidate = data;
+    candidate.primitive.reset();
     if (!options.duplicate)
     {
         for (auto& vertex : candidate.vertices)

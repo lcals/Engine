@@ -11,8 +11,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <fstream>
-#include <iomanip>
-#include <limits>
 #include <sstream>
 #include <system_error>
 #include <utility>
@@ -75,8 +73,7 @@ bool safe_asset_path(const fs::path& root, std::string_view name, fs::path& outp
     return true;
 }
 
-bool save_source(const fs::path& path, const schema::EditableMeshDataT& source,
-                 const schema::MeshDataT& mesh, std::string& error)
+bool save_source(const fs::path& path, const schema::EditableMeshDataT& source, std::string& error)
 {
     std::vector<std::uint8_t> bytes;
     if (!mesh::serialize(source, bytes, error))
@@ -84,37 +81,7 @@ bool save_source(const fs::path& path, const schema::EditableMeshDataT& source,
         return false;
     }
     std::ostringstream output;
-    output << std::setprecision(std::numeric_limits<double>::max_digits10);
-    output << "vertices = [\n";
-    for (const auto& vertex : mesh.vertices)
-    {
-        output << "  [" << vertex.x() << ", " << vertex.y() << ", " << vertex.z() << ", "
-               << vertex.nx() << ", " << vertex.ny() << ", " << vertex.nz() << "],\n";
-    }
-    output << "]\nindices = [";
-    for (const auto value : mesh.indices)
-    {
-        output << value << ',';
-    }
-    output << "]\ntexcoords = [\n";
-    for (const auto& value : mesh.texcoords)
-    {
-        output << "  [" << value.x() << ", " << value.y() << "],\n";
-    }
-    output << "]\ncolors = [\n";
-    for (const auto& value : mesh.colors)
-    {
-        output << "  [" << value.r() << ", " << value.g() << ", " << value.b() << ", " << value.a()
-               << "],\n";
-    }
-    output << "]\nsubmeshes = [\n";
-    for (const auto& submesh : mesh.submeshes)
-    {
-        output << "  { first_index = " << submesh.first_index()
-               << ", index_count = " << submesh.index_count()
-               << ", material_slot = " << submesh.material_slot() << " },\n";
-    }
-    output << "]\n\n[modeling]\nformat = \"flatbuffers-hex\"\ndata = \"";
+    output << "[modeling]\nformat = \"flatbuffers-hex\"\ndata = \"";
     constexpr std::string_view digits = "0123456789abcdef";
     for (const auto value : bytes)
     {

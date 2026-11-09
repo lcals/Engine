@@ -150,6 +150,7 @@ P50 减少约 81.4%。两次均正常退出，HDR 输出逐字节相同，全部
 
 ## 验证范围与限制
 
+- 建模参数、物理尺寸 UV、边界查询及可撤销重建已完成 Windows Debug / Release 构建；Release 的 `modeling.core`、`modeling.geometry`、`modeling.commands`、`modeling.pipeline`、`editor.scene_persistence` 和 `engine.mcp_registry` 通过。复用现有用例，未运行 Debug 测试、实窗或性能采样；不据此认定画面质量与其他平台已验收。示例源数据与资源包状态见 [Showcase](../projects/showcase/docs/index.md#验证)。
 - 渲染提交优化已完成受影响 Debug / Release 构建，Release 的 `engine.render_foundation`、`engine.scene_hdr_capture`、`engine.window_render`、`engine.render_submission` 通过；这些结果只代表当时 Windows / DirectX 12 配置。
 - 当前没有最新提交的全仓、全平台通过结论。其他模块与平台的旧执行日志保留在 Git 和本地 `build/`，不能直接当作当前版本的验收。
 - iOS 完整宿主与交付尚未完成；Android 模拟器、独立依赖探针和桌面源码验证不代表实体手机的功能或性能。

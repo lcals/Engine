@@ -1712,6 +1712,7 @@ bool mesh::append(schema::EditableMeshDataT& data, const schema::EditableMeshDat
         return false;
     }
     schema::EditableMeshDataT result(data);
+    result.primitive.reset();
     std::map<Id, Id> mapping;
     for (const auto& vertex : other.vertices)
     {

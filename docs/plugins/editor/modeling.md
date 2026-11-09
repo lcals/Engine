@@ -1,104 +1,81 @@
 # 建模插件
 
-目标是在场景内通过 C++ 建模能力和 MCP 完成模型创建、拓扑编辑、UV、材质与资源保存。功能验收以 ProBuilder 6.1.4 为基线，增强项参考 UModeler classic 2.11.11 的操作行为；第三方接口清单不替代实际几何验证。
+建模用于 AI 通过 C++ 和 MCP 搭建基础场景：生成基本体、组合结构、调整几何、UV 与材质，保存为普通运行资源。复杂模型由 DCC 制作，再通过资源导入流程使用；本模块不以完整复刻 ProBuilder 或 UModeler 为目标，不提供图形编辑界面。
 
-## 职责边界
+## 职责与现有能力
 
-| 层 | 位置 | 负责 | 输入与输出 |
-| --- | --- | --- | --- |
-| C++ 建模核心 | `plugins/editor/modeling/` 的几何目标 | 网格校验、三角化、基本体、点边面运算、UV、法线、生成渲染数据 | FlatBuffers 生成的编辑数据及明确参数，返回状态和数据 |
-| 编辑器业务 | `plugins/editor/modeling/`、`editor/scene/` | 模型与场景节点关联、选择状态、编辑事务、撤销重做、网格和完整场景源资源读写 | 建模模块调用纯几何核心；通用场景持久化通过宿主回调保存网格，管理路径和资源发布 |
-| MCP 适配 | `plugins/editor/modeling/modeling_mcp_tools` 的独立目标 | 工具声明、参数模型、调用编辑器命令、返回实际回执 | JSON 请求与命令回执，不参与几何计算或文件发布 |
-| 引擎运行时 | 已有 `runtime/` 模块 | Node + Component、渲染、目录和资源加载 | 使用编译生成的 MeshData，不依赖建模编辑器 |
+| 层 | 职责 |
+| --- | --- |
+| 建模几何 `engine::modeling` | 纯数据生成、校验、拓扑、UV、法线和网格编译，属于编辑器插件 |
+| 建模业务 `engine::modeling_editor` | 借用 WorldSystem，组织模型、选择、事务、撤销和源文件 |
+| MCP 适配 `engine::modeling_mcp_tools` | 注册参数 Schema，转发命令及实际结果 |
+| 资源导入 `engine::modeling_importer` | 编译权威编辑源，由宿主注入资源管线 |
+| 运行时 | 只加载编译后的 Mesh、材质及场景，不依赖建模插件 |
 
-“核心”指编辑器建模插件内部可独立测试的 C++ 计算库，源码与构建归属仍是编辑器插件，不将建模工具放进 Engine 类，也不让 Node 枚举插件业务。MCP 的可操作范围覆盖编辑器已实现的建模能力，MCP 不成为功能实现所在层。其他调用方可直接调用相同建模接口。
+公开计算接口位于 `engine::plugins::modeling::mesh`，按职责分文件；代码已经使用命名空间函数。编辑器基础能力不链接具体建模插件，场景保存通过宿主注入网格导出回调。入口见[类图索引](../../class-diagrams/index.md)、[建模计算](class-diagrams/editable-mesh.md)和[建模编辑业务](class-diagrams/modeling-commands.md)。
 
-建模插件的 C++ 公开接口统一位于 `engine::plugins::modeling`。核心运行时类型保持 `engine`，编辑器基础能力位于 `engine::editor`，MCP 接口位于 `engine::plugins::mcp`；通过头文件与显式限定名表达单向调用关系，不向 `engine` 根命名空间提供兼容别名。
+基础场景搭建能力如下。
 
-私有数学实现按实际用途分别位于 `detail::topology` 与 `detail::geometry`；前者的二维投影坐标命名为 `ProjectedPoint`，后者使用三维 `Point`。调用文件只引入本文件使用的分支，避免同名类型、常量及不同返回类型的同签名函数相互冲突。
+| 能力 | 入口 |
+| --- | --- |
+| 方块、平面、圆柱、圆锥、球、环面、三棱柱、楼梯、拱体、管、门框、弧形楼梯、精灵平面、细分球 | `modeling_create` |
+| 带洞多边形、开放路径扫掠、旋转体 | `modeling_create` |
+| 点边面变换、挤出、内插、拆分、焊接、桥接、封洞、切割、布尔和受限倒角 | `modeling_select / modeling_edit` |
+| UV 投影、变换、展开、材质槽、颜色、平滑组 | `modeling_edit` |
+| 查询、复制、合并、分离、删除、保存和恢复 | `modeling_get / duplicate / combine / separate / delete / save / load` |
+| 操作发现、事务和历史 | `modeling_help / execute_batch / undo / redo` |
 
-## 数据与所有权
+## 参数与尺寸
 
-`include/schemas/runtime/modeling.fbs` 定义可编辑网格，生成 C++/TS 数据模型。顶点、面使用稳定身份；面保存外环、洞、每角 UV 和颜色、材质槽及平滑组。几何共享关系与面角属性分开，因此 UV 接缝和硬边不要求拆开编辑侧的共享位置。
+| 能力 | 契约 |
+| --- | --- |
+| 基础 UV 密度 | 基本体按本地长度生成 UV，提供 `uvTilesPerUnit`；节点缩放不隐式重写源 UV |
+| 精确创建参数 | 各形状只接受有效字段，帮助、Schema 和校验使用同一参数表 |
+| 尺寸与边界 | 查询实际可见网格的本地／世界包围盒，供 AI 计算贴地、拼接与对齐 |
+| 参数再编辑 | 保存生成参数；`modeling_rebuild` 在原节点重建，清空旧点面选择，保留变换和材质绑定，支持撤销 |
 
-[精简目标类图](class-diagrams/editable-mesh.md)将四个无状态工具类合并为 `engine::plugins::modeling::mesh` 命名空间函数，代码尚待迁移。`mesh::validate` 校验数据，`mesh::compile` 通过三角化生成已有 `MeshData`；原有参数与失败行为保持。建模运算只修改调用方传入的数据，不拥有项目或活动场景。失败保留原数据；无法处理的几何必须明确返回错误，不能以空实现或近似替代报告成功。
+字段、默认值和 UV 规则只在[基本体类图](class-diagrams/mesh-primitives.md)维护；重建对几何编辑、身份及材质的影响只在[业务契约](class-diagrams/modeling-commands.md#按参数重建)维护。
 
-编辑器持有模型、选择和编辑记录，借用 WorldSystem。MCP 工具持有到编辑器命令通道的借用，不持有另一个进程里的场景指针。撤销历史与编辑器会话、场景身份绑定；场景关闭后不得访问旧节点。
+接口和源格式只维护当前版本，生成参数直接使用 Schema 数据。建模能力全部在编辑器插件内，运行时只消费编译资源。
 
-## 资源流转
+## 操作流程
 
-编辑模型保存为项目 assets 下的 `.mesh` TOML 源文件，包含可继续编辑的数据和供现有导入器使用的渲染网格。资源管线维护唯一 meta、GUID 与增量缓存；生成物继续使用 `cache/gen/<GUID>`。运行包仅需要编译后的渲染资源及正常依赖，不需要编辑器选择状态或撤销记录。
+1. 编辑器启动项目后，通过 `modeling_help` 查询操作，使用 `get_scene` 获取实际 `sceneId`。
+2. `modeling_create` 返回稳定 `modelId`，`modeling_get` 获取当前 `nodeId` 和拓扑。删除再撤销可能重建节点，不能继续使用旧 `nodeId`。
+3. `modeling_rebuild` 修改基本体尺寸并重新生成，`modeling_select / modeling_edit` 编辑点、边、面。重建会覆盖旧几何与表面编辑；改变拓扑后重新查询。面操作要求非空面选区或显式 `all=true`。
+4. 节点位置、旋转、缩放和材质参数使用所属组件命令；建模与场景修改共用已有 `execute_batch / undo / redo`。
+5. 按下节保存和导入资源。文件保存不加入几何编辑批次。
 
-保存和导入是编辑器业务；序列化为内存 FlatBuffers 是建模数据能力。具体路径校验、原子文件替换和 GUID 发布由编辑器承担，MCP 仅请求这些业务。
+场景切换会清理旧模型身份、选择和撤销记录；宿主通过 `synchronize_scene` 从有效源资源恢复可编辑数据。纯几何函数在候选数据上工作，失败不发布部分结果。MCP 的职责见[建模 MCP](class-diagrams/modeling-mcp-tools.md)。
 
-`save_scene` 把节点引用的网格和材质写入场景相邻资源目录，资源管线的身份 helper 校验并复用 meta。保存失败回滚源文件；不会替当前运行提交目录，也不会改 Gameplay 的场景入口。调用方按 `save_scene → stop_project → sync_assets → start_project` 导入和重载，运行时仍只读取 GUID 缓存，编辑器再从源 mesh 恢复多边形数据。资源落盘不会依赖 MCP：同一编辑器命令可由其他调用方调用。
+## 资源保存
 
-## 验证要求
+`modeling_save({sceneId, modelId, path})` 保存 assets 内的单个 `.mesh` 源文件；`modeling_load` 恢复其中的可编辑数据。`save_scene({sceneId, path})` 由通用 ScenePersistence 保存完整场景、组件和资源引用，建模网格通过宿主回调导出。
 
-- 几何测试检查数量之外的性质：三角面积、绕序、法线、边邻接、体积、UV 范围及材料分配。
-- 编辑失败不得遗留部分修改；撤销、重做与批量失败恢复须覆盖模型数据和渲染结果。
-- MCP 验证须走真实工具进程、编辑器线程和完成回执，执行创建、编辑、保存、重新加载及停止释放。
-- 完整等价性以逐项功能验收为依据；完成部分算法或公开工具注册不等于完整 ProBuilder/UModeler 功能已交付。
+- 持久模型唯一来源为 `include/schemas/runtime/modeling.fbs`，源文件的 `[modeling]` 使用 FlatBuffers 十六进制数据。
+- 源文件只保存权威编辑数据，导入时生成渲染数组，详见[导入类图](class-diagrams/modeling-mesh-importer.md)。没有原始生成记录的模型可继续编辑，`primitive` 为 `null`，不能按参数重建。
+- 资源管线负责唯一 meta、GUID、增量缓存及发布；生成物位于 `cache/gen/<GUID>`，运行包不包含选择、撤销历史或生成参数。
+- 已加载且未覆盖的网格／材质保持原 GUID；动态网格及覆盖材质写入场景同名资源目录。未改变文件不重写，已有 GUID 保留。
+- 保存不改变 Gameplay 入口。运行项目需要重新部署时使用 `save_scene → stop_project → sync_assets → start_project`；单个模型保存不自动把它加入场景源文件。
+- 场景保存失败回滚本批源文件，外部修改冲突拒绝覆盖。保存本身不清空编辑历史，后续仍可撤销、重做后再保存。
 
-## 操作范围
+## 现有算法边界
 
-| 类别 | 核心能力 | 编辑器 / MCP 入口 |
-| --- | --- | --- |
-| 基本体 | cube、plane、cylinder、cone、sphere、torus、prism、stairs、arch、pipe、door、curved_stairs、sprite、icosphere及带洞多边形 | modeling_create |
-| 选择与拓扑 | 点/边/面变换，面挤出、开放边挤出、逐面/组内插、拆离、复制、删除、翻面、焊接、合点、拆点、桥接、封洞、溶边、分边、连点切面、细分、环切 | modeling_select / modeling_edit |
-| 选择查询 | 连通面、扩张/收缩、四边形对边环、沿边连续环 | modeling_select |
-| 实体与轮廓 | 三种布尔、切割封口、选边多段倒角、轮廓扫掠、旋转体、平面镜像 | modeling_create / modeling_edit |
-| UV | 平面/盒/柱/球投影、UV变换、逐面岛、xatlas跨面图集展开与接缝、Hotspot匹配 | modeling_edit |
-| 表面属性 | 每角颜色、材质槽、平滑组、按角度自动平滑、生成法线及 MikkTSpace 切线（必要时拆点） | modeling_edit；材质具名参数继续用已有组件工具 |
-| 编辑工作流 | 模型与节点映射、持续镜像模式、复制/组合/分离、撤销重做、文件保存与恢复 | modeling_get / duplicate / combine / separate / delete / save / load |
-| 场景组装与保存 | Node + Camera/Light、活动相机、材质换型及完整场景源发布 | create_node / set_active_camera / set_material_type / save_scene（通用编辑器模块） |
-| 契约发现 | 操作参数、示例和限制 | modeling_help |
+- 多段倒角支持闭合凸体的有效折边；凹体、开放边和共面三角化内部边不在其输入范围。基础体的小倒角可用现有实现，复杂拓扑由 DCC 处理。
+- 组内插要求同向共面区域；逐面内插遇到含洞面需要先拆分。
+- 布尔和封口裁切要求有效闭合实体；无封口裁切允许开放网格，不隐式修复自交。
+- 扫掠支持开放路径；旋转体以局部 Y 轴为轴。不提供闭环路径标架。
+- 编辑 UV 为一个通道，支持自动展开和接缝；多 UV 制作与完整 UV 岛编辑交给 DCC。
+- 从渲染 Mesh 恢复编辑网格会依据共享边恢复平滑组并重算法线，不逐值保留自定义法线。
+- 持续镜像是编辑器会话状态，保存时烘焙结果；源模型需处于镜像平面同一半空间。
+- 删除建模对象只接受根级、无子节点且只有 Transform 与 MeshRenderer 的节点；不能连带删除其他业务组件。
 
-每次修改后查询当前拓扑；改变拓扑的操作会清空旧选择，避免把失效顶点/面身份带进下一操作。变换使多边形弯曲时，仅对应面按原三角化拆分；未受影响的多边形及可保留的身份不变。
+## 验证与来源
 
-持续镜像模式由编辑器保存源模型与平面参数，每次编辑后调用核心生成派生渲染网格。取消模式恢复当前源模型，结束模式把镜像结果变为编辑源，模式变化同样可撤销。宿主在场景变化后调用 synchronize_scene，释放失效快照，并按项目 mesh 路径恢复保存的可编辑源；场景切换不延续旧选择与撤销历史。
+验证遵循[测试约定](../../testing.md)，复用建模 core、geometry、commands、pipeline 及必要的 scene persistence 用例。C++ 改动只构建受影响 Debug / Release 目标，功能测试使用 Release；只有实际改变 MCP 进程或 GPU 链路时才运行相应集成用例，不建立新测试程序或全排列场景。
 
-## 几何与持久化边界
+- [Earcut](https://github.com/mapbox/earcut.hpp)：多边形与孔洞三角化，ISC。
+- [Manifold](https://github.com/elalish/manifold)：布尔和裁切，Apache-2.0；其 Clipper2 依赖使用 BSL-1.0。
+- [xatlas](https://github.com/jpcy/xatlas)：UV 图集展开，MIT。
 
-- 组内插作用于同向共面的区域，保留区域内部共享边；逐面内插的含洞面需先拆分。导入已有渲染网格会恢复平滑连通组并重算法线，尚不逐值保留人工编辑法线。
-- 布尔及封口裁切的输入必须能形成有效闭合实体；无封口裁切支持开放网格。无效输入明确失败，不隐式修复自交。
-- 选边多段倒角接受闭合凸体的有效折边；凹体、开放边与无折角的三角化内部边不属于该算法的输入范围，不以面内插替代倒角。
-- 扫掠处理开放路径，可使用开放/闭合截面及扭转；闭环路径需要独立的闭合标架处理。旋转体以 Y 轴为局部轴，可再用核心变换设置任意空间朝向。
-- UV 保存一个通道；图集展开支持显式接缝和保留已有接缝，并允许算法为展开增加切缝。未提供多 UV 通道和完整交互式 UV 岛编辑器。
-- `modeling_save` 保存单个 `.mesh`；`save_scene` 由通用 `ScenePersistence` 保存完整活动场景：层级、TRS、组件启用状态、相机、灯光、动态网格及全部材质槽覆盖。后者通过宿主注入的回调获取可编辑源，不直接依赖建模插件。选择、撤销历史、持续镜像开关和渲染器设置不写入 `.scene`。
-- 删除会拒绝带父子关系或额外组件的建模节点，避免连带丢失其他场景业务；几何编辑不要求删除节点。
-
-以上边界用于实际功能评审。ProBuilder 完整能力与 UModeler 增强能力的等价目标仍需逐项验证，不能将已通过的几何测试或 MCP 工具数量称为全部等价。
-
-## 上游算法
-
-- [Earcut](https://github.com/mapbox/earcut.hpp)：凹多边形与孔洞三角化，ISC。
-- [Manifold](https://github.com/elalish/manifold)：实体布尔与裁切，Apache-2.0；依赖 Clipper2（BSL-1.0）。
-- [xatlas](https://github.com/jpcy/xatlas)：UV图表生成与打包，MIT。源码由固定 Git 子模块提供，保留上游许可，不修改其检出目录。
-
-基础拓扑与接口实现为本项目 C++ 代码，Unity ProBuilder/UModeler 作为功能与行为参考。
-
-## C++ 建模与 MCP 操作
-
-建模由三个独立目标组成：`engine::modeling` 提供纯数据几何计算，`engine::modeling_editor` 管理场景对象、选择、撤销与项目文件，`engine::modeling_mcp_tools` 只注册和转发工具。宿主负责装配；Engine、Node 和运行时渲染器不依赖建模编辑器。边界、数据所有权和类图见[建模插件](modeling.md)。
-
-编辑器启动项目后，可通过 MCP 完成模型创建与编辑，无需从 DCC 导入基本几何：
-
-```sh
-python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/showcase --runtime-dir build/editor-runtime call modeling_help
-python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/showcase --runtime-dir build/editor-runtime call get_scene
-```
-
-取得实际 `sceneId` 后，调用 `modeling_create`（`shape` 与 `parameters`）获得稳定 `modelId`；`modeling_get` 返回当前节点身份、分页顶点/面、选择及镜像状态。`modeling_help` 提供各操作参数示例，`modeling_select` 设置或拓展选择，`modeling_edit` 调用核心操作。复制、组合、分离、删除分别使用 `modeling_duplicate`、`modeling_combine`、`modeling_separate`、`modeling_delete`。编辑和选择共用已有 `undo`、`redo`、`execute_batch`。撤销删除会重新创建节点，因此 `modelId` 保持、运行时 `nodeId` 更新，查询后再调用节点组件工具。
-
-`modeling_save` 将源模型保存到 assets 内的 `.mesh`；`modeling_load` 恢复可编辑几何。保存属于文件操作，不混入可撤销几何批次。源文件中 `[modeling]` 以 FlatBuffers 十六进制存储唯一编辑数据模型，渲染数组供兼容读取；资源导入器以编辑数据重新编译，避免过期渲染数组被发布。保存后先 `stop_project`，再 `sync_assets` 导入和同步；导入管线为新源文件生成唯一邻接 meta，并按现有规则生成 `cache/gen/<GUID>`。启用持续镜像时保存其已生成的完整几何，不保存编辑器会话开关。
-
-完整场景使用 `save_scene({"sceneId":"当前ID","path":"scenes/room.scene"})`。编辑器 `ScenePersistence` 保存节点层级、组件数据、启用状态及活动相机；已加载的网格和没有实例覆盖的材质直接保留原 GUID。仅动态网格和覆盖材质写入相邻 `room-resources/meshes/`、`room-resources/materials/`，覆盖材质使用独立节点槽资源，避免改写共享源。动态网格通过宿主注入的建模回调保留可编辑多边形数据；当前组件修订与磁盘内容未变时复用上次成功导出。所有候选文件比较内容后才替换，不变文件及 meta 保持时间戳，已有 GUID 保留。
-
-回执 `resourceCount` 是实际变化的资源数，包含场景；`meshCount`、`materialCount` 分别统计变化的导出网格和材质，`sceneChanged` 表示场景是否变化，`reusedMeshCount`、`reusedMaterialCount` 表示复用次数。原样重复保存返回 `resourceCount=0`、`importRequired=false`。外部修改与成功保存记录冲突时拒绝覆盖；发布失败恢复本批已写入的源文件、meta 和原时间戳，回滚失败则保留暂存备份并报告位置。
-
-启用资源管线即可注册 `save_scene`；保存已有资源引用不要求建模插件，只有导出动态网格需要网格写入回调。保存本身不加入撤销栈，也不清除编辑历史；可按“编辑 → 保存 → 撤销/重做 → 再保存”只写入差异。在场景预览中，自身保存后的增量导入保留场景与历史；运行项目需要重新部署时使用 `save_scene → stop_project → sync_assets → start_project`，Gameplay 应加载该 `.scene` 路径。保存不自动切换 Gameplay 入口；显式重载后运行时仍消费正常 GUID 资源，编辑器根据 mesh 源路径恢复可编辑数据，选择和撤销历史不落盘。单独 `modeling_save` 只保存一个网格，不保存场景引用和材质覆盖。
-
-Earcut 负责凹面与孔洞三角化，Manifold 负责闭合实体布尔和封口裁切，xatlas 负责 UV 图集展开。前两者及 Clipper2 由 vcpkg 固定版本；xatlas 为固定 Git 子模块，首次构建前执行 `git submodule update --init third_party/xatlas`。不将 Unity 包中的专有实现复制进引擎。
-
-几何验证覆盖体积、封闭性、绕序、孔洞、UV、材质与失败不改变源模型。`modeling.commands` 验证命令事务和身份，`modeling.pipeline` 验证 GUID/meta、权威源编译和增量缓存，`editor.scene_persistence` 覆盖增量保存、共享引用保留、撤销/重做后再保存、外部冲突、失败回滚与重新加载，`modeling.mcp` 在开启 GPU 测试时运行真实编辑器和 MCP。完整能力边界按[功能说明](modeling.md)评审，不以工具数量替代 ProBuilder/UModeler 的逐项等价验证。
+依赖版本由 vcpkg 或固定 Git 子模块维护。基础拓扑为项目 C++ 实现；其他工具作为功能参考，不复制受限实现。

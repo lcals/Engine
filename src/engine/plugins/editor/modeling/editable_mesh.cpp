@@ -1,5 +1,7 @@
 #include "plugins/editor/modeling/editable_mesh.hpp"
+
 #include "editor/mesh/mesh_tangents.hpp"
+#include "plugins/editor/modeling/primitive_options.hpp"
 
 #include "plugins/editor/modeling/modeling_math.hpp"
 #include "runtime/utils/mesh_utils.hpp"
@@ -341,11 +343,15 @@ const schema::ModelingFaceT* mesh::find_face(const schema::EditableMeshDataT& da
 bool mesh::validate(const schema::EditableMeshDataT& data, std::string& error)
 {
     error.clear();
-    if (data.schema_version != 1 || data.next_id == 0 ||
+    if (data.schema_version != 2 || data.next_id == 0 ||
         data.next_id > std::numeric_limits<std::uint64_t>::max() - 10000000 ||
         data.vertices.size() > 1000000 || data.faces.size() > 1000000)
     {
         return fail(error, "模型版本、身份计数或元素数量无效");
+    }
+    if (data.primitive && !detail::validate_primitive(*data.primitive, error))
+    {
+        return false;
     }
     std::unordered_set<std::uint64_t> ids;
     for (const auto& vertex : data.vertices)
@@ -496,6 +502,7 @@ bool mesh::from_mesh(const schema::MeshDataT& data, schema::EditableMeshDataT& o
         return fail(error, "输入渲染网格无效");
     }
     schema::EditableMeshDataT result;
+    result.schema_version = 2;
     std::map<std::tuple<float, float, float>, std::uint64_t> positions;
     std::vector<std::uint64_t> ids;
     for (const auto& vertex : data.vertices)

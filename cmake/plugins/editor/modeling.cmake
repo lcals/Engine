@@ -4,6 +4,7 @@ function(engine_configure_modeling_plugin)
         src/engine/plugins/editor/modeling/editable_mesh.cpp
         src/engine/plugins/editor/modeling/mesh_topology.cpp
         src/engine/plugins/editor/modeling/mesh_primitives.cpp
+        src/engine/plugins/editor/modeling/primitive_options.cpp
         src/engine/plugins/editor/modeling/mesh_geometry.cpp
         src/engine/plugins/editor/modeling/mesh_geometry_uv.cpp
         src/engine/plugins/editor/modeling/mesh_geometry_atlas.cpp
@@ -16,6 +17,12 @@ function(engine_configure_modeling_plugin)
         PRIVATE engine::resource engine_editor_mesh earcut_hpp::earcut_hpp
                 manifold::manifold xatlas::xatlas)
     engine_apply_options(engine_modeling)
+    if(TARGET engine_editor OR "editor/mcp" IN_LIST ENGINE_SELECTED_PLUGINS)
+        target_sources(engine_modeling PRIVATE
+                       src/engine/plugins/editor/modeling/primitive_contract.cpp)
+        target_link_libraries(engine_modeling PRIVATE nlohmann_json::nlohmann_json)
+        target_compile_definitions(engine_modeling PRIVATE JSON_NOEXCEPTION=1)
+    endif()
     if(TARGET engine_editor)
         add_library(engine_modeling_editor STATIC
                     src/engine/plugins/editor/modeling/modeling_commands.cpp
@@ -58,7 +65,10 @@ function(engine_configure_modeling_plugin)
         add_library(engine_modeling_mcp_tools STATIC
                     src/engine/plugins/editor/modeling/modeling_mcp_tools.cpp)
         add_library(engine::modeling_mcp_tools ALIAS engine_modeling_mcp_tools)
-        target_link_libraries(engine_modeling_mcp_tools PUBLIC engine::project_mcp_tools)
+        target_include_directories(engine_modeling_mcp_tools
+                                   PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+        target_link_libraries(engine_modeling_mcp_tools PUBLIC engine::project_mcp_tools
+                             PRIVATE engine::modeling)
         engine_apply_options(engine_modeling_mcp_tools)
     endif()
 endfunction()
