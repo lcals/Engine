@@ -1,5 +1,7 @@
 # 体积地形
 
+`TerrainVolume::generate` 是当前运行时公开计算接口，生成参数与采样体积均由 `include/schemas/runtime/terrain.fbs` 定义，编辑器导入复用该接口。
+
 插件命名空间 `engine::plugins::terrain`；`System`、`Component`、世界、任务与物理只跨图引用，核心不引用地形插件。
 
 `TerrainVolume` 独占 FlatBuffers 体积和按块网格缓存，只做计算。`TerrainComponentRuntime` 在 ECS 列保持初始资源引用、修改副本与状态；保存绑定初始 GUID 和内容指纹。`TerrainSystem` 借用世界和物理，先准备候选、同步提交，失败保留旧结果。生命周期由宿主放在物理前驱动；正常 `on_tick()` 与编辑器预览均调用显式 `synchronize()`，预览不直接调用子系统的生命周期入口。

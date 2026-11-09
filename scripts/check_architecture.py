@@ -38,6 +38,8 @@ def file_scope(path, root):
         # 独立 V8 验证入口是宿主；平台 app.cpp 实现核心 App，仍受运行时边界约束。
         if relative == "platforms/android/native/android_v8_smoke.cpp":
             return "host"
+    if relative.startswith("include/schemas/editor/"):
+        return "editor"
     if relative.startswith(("platforms/", "include/schemas/runtime/")):
         return "runtime"
     if relative.startswith(("src/", "tests/")):

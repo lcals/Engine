@@ -246,7 +246,7 @@ std::string_view AudioImporter::default_meta() const noexcept
 bool AudioImporter::inspect_batch(const ImportContext&, std::string& fingerprint,
                                   std::string& error)
 {
-    if (!schema_fingerprint({"audio.fbs"}, fingerprint, error))
+    if (!schema_fingerprint({"runtime/audio.fbs"}, fingerprint, error))
     {
         return false;
     }

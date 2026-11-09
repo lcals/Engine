@@ -1,21 +1,6 @@
 include "mesh.fbs";
 namespace engine.schema;
 
-enum DestructionFracture:ubyte { slices, voronoi }
-
-// Authoring inputs. Generated fragments and bonds use Blast, not a second fracture solver.
-table DestructionGeneratorData {
-    size:Vec3 (required, native_inline, native_default: "Vec3(6, 12, 3)");
-    fracture:DestructionFracture = slices;
-    slices_x:uint = 3;
-    slices_y:uint = 6;
-    slices_z:uint = 2;
-    sites:uint = 32;
-    seed:uint = 1;
-    bond_health:float = 1;
-    anchor_height:float = 0.05;
-}
-
 // All fragments are required by this destructible asset. Vertices use asset-local coordinates.
 table DestructionChunkData {
     mesh:MeshData (required);

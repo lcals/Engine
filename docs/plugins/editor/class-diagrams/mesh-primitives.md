@@ -4,7 +4,7 @@
 
 建模用于基础场景搭建，复杂模型由 DCC 制作。保留现有 14 类基本体和已有几何操作，不以完整复刻其他建模工具为验收目标。
 
-`mesh` 表示 `engine::plugins::modeling::mesh` 命名空间。持久生成参数唯一声明在 `include/schemas/runtime/modeling.fbs`，C++ 直接使用生成的 `engine::schema::ModelingPrimitiveDataT`，不另存 JSON 参数或维护第二份手写持久模型。
+`mesh` 表示 `engine::plugins::modeling::mesh` 命名空间。持久生成参数唯一声明在 `include/schemas/editor/modeling.fbs`，C++ 直接使用生成的 `engine::schema::ModelingPrimitiveDataT`，不另存 JSON 参数或维护第二份手写持久模型。
 
 ```mermaid
 classDiagram

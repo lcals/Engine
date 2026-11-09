@@ -160,7 +160,7 @@ bool schema_fingerprint(std::initializer_list<std::string_view> names, std::stri
 {
     fingerprint.clear();
     std::filesystem::path schemas;
-    if (!editor_tool_data_path("include/schemas/runtime", ENGINE_SCHEMA_SOURCE_DIR, schemas, error))
+    if (!editor_tool_data_path("include/schemas", ENGINE_SCHEMA_SOURCE_DIR, schemas, error))
     {
         return false;
     }

@@ -1,7 +1,7 @@
 #pragma once
 
+#include "editor/schema/modeling_generated.h"
 #include "runtime/schema/mesh_generated.h"
-#include "runtime/schema/modeling_generated.h"
 
 #include <cstdint>
 #include <span>

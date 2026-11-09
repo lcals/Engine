@@ -278,7 +278,7 @@ def test_shader_tool_content(builder, source_project, shaderc, includes, tempora
         for library in directory.glob("*.dll"):
             shutil.copy2(library, destination / library.name)
     shutil.copytree(includes, tools / "bgfx")
-    shutil.copytree(root / "include/schemas/runtime", tools / "include/schemas/runtime")
+    shutil.copytree(root / "include/schemas", tools / "include/schemas")
     shutil.copytree(root / "src/engine/runtime/render/shaders", tools / "builtin-shaders")
     project = temporary / "shader tool project"
     for name in ("assets", "settings", "cache"):

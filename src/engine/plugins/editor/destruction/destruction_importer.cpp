@@ -52,8 +52,9 @@ bool DestructionImporter::matches(const std::filesystem::path& path) const
 bool DestructionImporter::inspect_batch(const editor::asset_pipeline::ImportContext&,
                                         std::string& fingerprint, std::string& error)
 {
-    if (!editor::asset_pipeline::schema_fingerprint({"destruction.fbs", "mesh.fbs"}, fingerprint,
-                                                    error))
+    if (!editor::asset_pipeline::schema_fingerprint(
+            {"editor/destruction_authoring.fbs", "runtime/destruction.fbs", "runtime/mesh.fbs"},
+            fingerprint, error))
     {
         return false;
     }

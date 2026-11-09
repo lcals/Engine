@@ -61,7 +61,7 @@
 - GUID 与逻辑路径的双向映射位于核心模块，编辑器、桌面及真机共用，不依赖 SQLite 或平台路径。每个 assets 源资源必须有唯一 GUID 的邻接 meta；移动保留身份，复制生成新身份，冲突不静默重写。
 - 渲染效果优先适配已选上游的范例和 Shader 工具，保留来源、许可及必要的兼容调整，不重复建立同类算法框架。
 - 图片格式、压缩模式、质量、颜色空间及 mipmap 等导入参数放在资源相邻 `.meta`；参数变化触发对应 GUID 缓存增量生成。
-- 资源描述文件使用 TOML 内容并只保留 .scene/.mesh/.shader/.material/.meta 类型后缀，不追加 .toml。Schema 源文件统一放 include/schemas/runtime；项目生成物必须为 cache/gen/<完整GUID>，无扩展名、无类型前缀、无版本子目录。SQLite 与资源目录索引放 cache 根，不能混入 gen。
+- 资源描述文件使用 TOML 内容并只保留 .scene/.mesh/.shader/.material/.meta 类型后缀，不追加 .toml。Schema 源文件按使用范围放在 include/schemas/runtime/ 与 include/schemas/editor/；编辑器 Schema 可引用运行时 Schema，运行时 Schema 与目标仅依赖运行时数据。项目生成物必须为 cache/gen/<完整GUID>，无扩展名、无类型前缀、无版本子目录。SQLite 与资源目录索引放 cache 根，不能混入 gen。
 - 按类型扩展的功能采用统一最小接口和显式登记入口，具体类型各自独立文件；类型较多时建立 `importers/`、`codecs/` 或 `components/` 子目录。框架只负责选择和调度，具体类型拥有自己的识别、转换和校验，不把这些逻辑重新集中到大 switch；泛型登记用简单 `add<T>()`，不引入 RTTI、宏反射或通用 Manager。
 - 资源导入器负责本类型的识别、meta 默认值、依赖和工具指纹；管线负责扫描、增量、任务、数据库和原子发布。FBX、USD、字体、UI 与 JSON 的格式导入统一放在 `plugins/editor/asset_import/` 插件，每种类型独立文件，使用现有 AssetImporter 契约与宿主显式登记，不为单一格式另建插件、System 或注册门面。建模、地形、破坏、特效等仍有制作、组件编解码和命令职责的插件保持原边界。脚本保持每批一次项目级编译，各脚本转换复用该批结果。
 - FBX 等美术源文件在编辑器按虚拟资源包组织，子资源身份及导入配置放源文件 meta；虚拟分组不成为运行时聚合容器。Model、Mesh、Skeleton、Animation、Material、Texture 等运行资源各自独立，只声明真实引用，不能因同源关系或父子分组自动互相依赖。构建从选定入口收集必要子资源，未使用项不进入运行包，保留美术源文件。

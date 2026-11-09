@@ -73,6 +73,21 @@ class ArchitectureRulesTest(unittest.TestCase):
         plugin["sources"].append("platforms/android/editor/plugins/mcp/sync.cpp")
         self.assertEqual(target_errors([plugin], self.root), [])
 
+    def test_editor_schema_target_retains_scope(self):
+        editor_data = self.target("engine_editor_data")
+        editor_data["sources"] = ["include/schemas/editor/modeling.fbs"]
+        runtime_data = self.target("engine_scene_data")
+        runtime_data["sources"] = ["include/schemas/runtime/common.fbs"]
+        editor_data["interface_links"] = ["engine_scene_data"]
+        self.assertEqual(target_errors([editor_data, runtime_data], self.root), [])
+        runtime = self.target("engine_runtime", "runtime", ["engine_editor_data"])
+        self.assertTrue(
+            any(
+                "forbidden target dependency" in error
+                for error in target_errors([runtime, editor_data, runtime_data], self.root)
+            )
+        )
+
     def test_actual_alias_and_private_edge(self):
         targets = [
             self.target(

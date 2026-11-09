@@ -1,3 +1,6 @@
+include("${PROJECT_SOURCE_DIR}/cmake/editor/schema.cmake")
+engine_add_editor_schema()
+
 if(ENGINE_ENABLE_EDITOR_DEPS OR ENGINE_ENABLE_ASSET_PIPELINE_DEPS
    OR "editor/asset_sync" IN_LIST ENGINE_SELECTED_PLUGINS)
     add_library(engine_editor_lock STATIC src/engine/editor/asset_pipeline/project_lock.cpp)
@@ -163,7 +166,7 @@ if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
                 ENGINE_FFMPEG_EXECUTABLE="${ENGINE_FFMPEG_EXECUTABLE}"
                 ENGINE_FFPROBE_EXECUTABLE="${ENGINE_FFPROBE_EXECUTABLE}"
                 ENGINE_BGFX_SHADER_INCLUDE_DIR="${ENGINE_BGFX_SHADER_INCLUDE_DIR}"
-                ENGINE_SCHEMA_SOURCE_DIR="${PROJECT_SOURCE_DIR}/include/schemas/runtime")
+                ENGINE_SCHEMA_SOURCE_DIR="${PROJECT_SOURCE_DIR}/include/schemas")
     find_program(ENGINE_NODE_EXECUTABLE NAMES node)
     if(NOT ENGINE_NODE_EXECUTABLE)
         set(ENGINE_NODE_EXECUTABLE "")

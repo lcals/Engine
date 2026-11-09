@@ -188,8 +188,9 @@ bool RetargetImporter::matches(const std::filesystem::path& source) const
 bool RetargetImporter::inspect_batch(const io::ImportContext&, std::string& fingerprint,
                                      std::string& error)
 {
-    return io::schema_fingerprint({"animation_retarget.fbs", "animation_pose.fbs", "common.fbs"},
-                                  fingerprint, error);
+    return io::schema_fingerprint(
+        {"runtime/animation_retarget.fbs", "runtime/animation_pose.fbs", "runtime/common.fbs"},
+        fingerprint, error);
 }
 
 bool RetargetImporter::scan_dependencies(io::ImportAsset& asset, const io::ImportContext& context,

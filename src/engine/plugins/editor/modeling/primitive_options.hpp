@@ -1,6 +1,6 @@
 #pragma once
 
-#include "runtime/schema/modeling_generated.h"
+#include "editor/schema/modeling_generated.h"
 
 #include <span>
 #include <string>

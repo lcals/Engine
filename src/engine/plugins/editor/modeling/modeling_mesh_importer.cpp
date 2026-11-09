@@ -73,7 +73,7 @@ bool ModelingMeshImporter::inspect_batch(const editor::asset_pipeline::ImportCon
         return false;
     }
     std::string schema_hash;
-    if (!editor::asset_pipeline::schema_fingerprint({"modeling.fbs"}, schema_hash, error))
+    if (!editor::asset_pipeline::schema_fingerprint({"editor/modeling.fbs"}, schema_hash, error))
     {
         fingerprint.clear();
         return false;

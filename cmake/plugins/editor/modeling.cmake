@@ -13,7 +13,7 @@ function(engine_configure_modeling_plugin)
     target_include_directories(engine_modeling PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
     target_link_libraries(
         engine_modeling
-        PUBLIC engine::core engine::scene_data
+        PUBLIC engine::core engine::editor_data
         PRIVATE engine::resource engine_editor_mesh earcut_hpp::earcut_hpp
                 manifold::manifold xatlas::xatlas)
     engine_apply_options(engine_modeling)
@@ -58,7 +58,7 @@ function(engine_configure_modeling_plugin)
         target_compile_definitions(
             engine_modeling_importer
             PRIVATE TOML_HEADER_ONLY=1 TOML_EXCEPTIONS=0
-                    ENGINE_SCHEMA_SOURCE_DIR="${PROJECT_SOURCE_DIR}/include/schemas/runtime")
+                    ENGINE_SCHEMA_SOURCE_DIR="${PROJECT_SOURCE_DIR}/include/schemas")
         engine_apply_options(engine_modeling_importer)
     endif()
     if("editor/mcp" IN_LIST ENGINE_SELECTED_PLUGINS)

@@ -369,7 +369,7 @@ bool MovieImporter::inspect_batch(const ImportContext& context, std::string& fin
         !run({PathUtils::to_utf8(ffprobe), "-version"}, probe_version, error, 15,
              context.cancel_requested) ||
         !file_hash(ffmpeg, video_hash, error) || !file_hash(ffprobe, probe_hash, error) ||
-        !schema_fingerprint({"movie.fbs", "audio.fbs"}, fingerprint, error))
+        !schema_fingerprint({"runtime/movie.fbs", "runtime/audio.fbs"}, fingerprint, error))
     {
         return false;
     }

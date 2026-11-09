@@ -151,7 +151,7 @@ bool SceneAssetImporter::matches(const std::filesystem::path& source) const
 bool SceneAssetImporter::inspect_batch(const ImportContext&, std::string& fingerprint,
                                        std::string& error)
 {
-    return schema_fingerprint({"scene.fbs", "prefab.fbs"}, fingerprint, error);
+    return schema_fingerprint({"runtime/scene.fbs", "runtime/prefab.fbs"}, fingerprint, error);
 }
 bool SceneAssetImporter::scan_dependencies(ImportAsset& asset, const ImportContext& context,
                                            std::string& error) const

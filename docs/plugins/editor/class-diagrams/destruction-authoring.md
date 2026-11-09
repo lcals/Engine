@@ -1,5 +1,7 @@
 # 建筑破坏预处理
 
+`DestructionGeneratorDataT` 和 `DestructionFracture` 由 `include/schemas/editor/destruction_authoring.fbs` 生成。`DestructionAssetDataT` 由 `include/schemas/runtime/destruction.fbs` 生成，编辑器通过 `engine::editor_data` 使用生成参数。
+
 ```mermaid
 classDiagram
 class DestructionAuthoring {

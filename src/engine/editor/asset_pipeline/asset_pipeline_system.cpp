@@ -444,8 +444,9 @@ bool scan_assets(const std::filesystem::path& assets, const std::filesystem::pat
 bool common_fingerprint(const std::string& platform, std::string& output, std::string& error)
 {
     std::string schemas;
-    if (!schema_fingerprint({"common.fbs", "asset_catalog.fbs", "resource_header.fbs"}, schemas,
-                            error))
+    if (!schema_fingerprint(
+            {"runtime/common.fbs", "runtime/asset_catalog.fbs", "runtime/resource_header.fbs"},
+            schemas, error))
     {
         return false;
     }

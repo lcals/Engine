@@ -43,7 +43,7 @@ bool MeshImporter::matches(const std::filesystem::path& source) const
 }
 bool MeshImporter::inspect_batch(const ImportContext&, std::string& fingerprint, std::string& error)
 {
-    if (!schema_fingerprint({"mesh.fbs"}, fingerprint, error))
+    if (!schema_fingerprint({"runtime/mesh.fbs"}, fingerprint, error))
     {
         return false;
     }

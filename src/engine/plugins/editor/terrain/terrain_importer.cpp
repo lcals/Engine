@@ -52,7 +52,7 @@ bool TerrainImporter::matches(const std::filesystem::path& path) const
 bool TerrainImporter::inspect_batch(const editor::asset_pipeline::ImportContext&,
                                     std::string& fingerprint, std::string& error)
 {
-    if (!editor::asset_pipeline::schema_fingerprint({"terrain.fbs"}, fingerprint, error))
+    if (!editor::asset_pipeline::schema_fingerprint({"runtime/terrain.fbs"}, fingerprint, error))
     {
         return false;
     }

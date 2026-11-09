@@ -52,7 +52,7 @@
 
 `modeling_save({sceneId, modelId, path})` 保存 assets 内的单个 `.mesh` 源文件；`modeling_load` 恢复其中的可编辑数据。`save_scene({sceneId, path})` 由通用 ScenePersistence 保存完整场景、组件和资源引用，建模网格通过宿主回调导出。
 
-- 持久模型唯一来源为 `include/schemas/runtime/modeling.fbs`，源文件的 `[modeling]` 使用 FlatBuffers 十六进制数据。
+- 持久模型唯一来源为 `include/schemas/editor/modeling.fbs`，源文件的 `[modeling]` 使用 FlatBuffers 十六进制数据。
 - 源文件只保存权威编辑数据，导入时生成渲染数组，详见[导入类图](class-diagrams/modeling-mesh-importer.md)。没有原始生成记录的模型可继续编辑，`primitive` 为 `null`，不能按参数重建。
 - 资源管线负责唯一 meta、GUID、增量缓存及发布；生成物位于 `cache/gen/<GUID>`，运行包不包含选择、撤销历史或生成参数。
 - 已加载且未覆盖的网格／材质保持原 GUID；动态网格及覆盖材质写入场景同名资源目录。未改变文件不重写，已有 GUID 保留。

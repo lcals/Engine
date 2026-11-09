@@ -8,6 +8,7 @@
 | --- | --- |
 | 文档、类图措辞 | 改动页的本地链接、围栏与 `git diff --check`；不构建引擎 |
 | CMake、测试登记 | 对受影响配置重新生成，查看 `ctest -N` 和目标；不因此运行全部测试 |
+| Schema 分层与生成 | 按层生成 C++ / TypeScript，检查目标依赖方向，选择对应导入及跨语言用例 |
 | C++ 实现 | 受影响目标 Debug / Release 构建；仅运行覆盖该行为的 Release 用例 |
 | 脚本或资源 | 对应项目的类型检查、导入或实际使用路径，复用已有入口 |
 | 渲染行为 | 选择一个相关的现有 GPU 用例；只有改到窗口、设备或多效果生命周期时才运行 `engine.window_render` |
@@ -150,6 +151,7 @@ P50 减少约 81.4%。两次均正常退出，HDR 输出逐字节相同，全部
 
 ## 验证范围与限制
 
+- Schema 分层已完成 Windows Debug / Release 构建，Release 的 `modeling.pipeline`、`editor.destruction_pipeline` 和 `engine.scene_schema_cross_language` 通过，编辑器 TypeScript 通过严格类型检查。架构检查覆盖生成数据目标的所属层级与依赖方向。
 - 建模参数、物理尺寸 UV、边界查询及可撤销重建已完成 Windows Debug / Release 构建；Release 的 `modeling.core`、`modeling.geometry`、`modeling.commands`、`modeling.pipeline`、`editor.scene_persistence` 和 `engine.mcp_registry` 通过。复用现有用例，未运行 Debug 测试、实窗或性能采样；不据此认定画面质量与其他平台已验收。示例源数据与资源包状态见 [Showcase](../projects/showcase/docs/index.md#验证)。
 - 渲染提交优化已完成受影响 Debug / Release 构建，Release 的 `engine.render_foundation`、`engine.scene_hdr_capture`、`engine.window_render`、`engine.render_submission` 通过；这些结果只代表当时 Windows / DirectX 12 配置。
 - 当前没有最新提交的全仓、全平台通过结论。其他模块与平台的旧执行日志保留在 Git 和本地 `build/`，不能直接当作当前版本的验收。

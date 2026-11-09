@@ -630,7 +630,7 @@ bool TextureImporter::matches(const std::filesystem::path& source) const
 bool TextureImporter::inspect_batch(const ImportContext& context, std::string& fingerprint,
                                     std::string& error)
 {
-    if (!schema_fingerprint({"texture.fbs"}, fingerprint, error))
+    if (!schema_fingerprint({"runtime/texture.fbs"}, fingerprint, error))
     {
         return false;
     }

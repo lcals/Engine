@@ -1,6 +1,6 @@
 # 跨模块数据
 
-引擎、编辑器与脚本使用 [FlatBuffers](https://flatbuffers.dev/) 定义和交换结构化资源数据。Schema 源文件统一位于 `include/schemas/runtime/`，构建时由宿主 flatc 生成 C++ 和 TypeScript；生成物不纳入版本管理。
+引擎、编辑器与脚本使用 [FlatBuffers](https://flatbuffers.dev/) 定义和交换结构化资源数据。Schema 按消费范围分为 `include/schemas/runtime/` 与 `include/schemas/editor/`，构建时由宿主 flatc 生成 C++ 和 TypeScript。编辑器 Schema 可以引用运行时数值类型，运行时目标只生成和链接运行时 Schema。
 
 `scene.fbs` 定义场景节点及组件，`mesh.fbs`、`model.fbs`、`skeleton.fbs`、`animation.fbs`、`material.fbs`、`shader.fbs`、`audio.fbs` 和 `asset_catalog.fbs` 分别定义网格、模型资源、骨架、动作、材质、Shader、音频 PCM 与资源目录，`common.fbs` 提供共享数值类型。行为类使用生成数据，不另写一套持久化模型。场景中的资源引用使用 GUID，持久节点 ID 与运行实体 ID 分开。物理和音频组件只保存设置；Jolt/SDL 句柄、冲量请求和播放游标不序列化。
 
@@ -12,8 +12,21 @@ FBX/USD 格式插件只存在于编辑器，按各自已支持的范围输出统
 
 美术源文件的虚拟包分组与子资源 meta 属于编辑器。运行时 Model 版本 2 只保存节点层级及 Mesh/Material 引用；同源动画不再是 Model 的隐式依赖。旧 Model 版本 1 缓存和运行包必须重新导入、构建；废弃字段保留原 FlatBuffers 槽位，不复用。
 
+## Schema 分层
+
+| 目录 | 内容 | CMake 数据目标 |
+| --- | --- | --- |
+| `include/schemas/runtime/` | 场景、组件、运行资源及运行时调用使用的数据 | `engine::scene_data` |
+| `include/schemas/editor/` | 可编辑建模源与破坏生成参数 | `engine::editor_data` |
+
+建模数据位于 `editor/modeling.fbs`，破坏生成参数位于 `editor/destruction_authoring.fbs`，编译后的 Mesh 和 Destruction 资源各自使用运行时 Schema。地形参数由公开的 `TerrainVolume::generate` 调用使用，与采样体积共同保留在 `runtime/terrain.fbs`。生成类型沿用 `engine::schema` 命名空间，字段、根标识和序列化版本按所属数据契约维护。
+
+C++ 生成头分别位于 `generated/include/engine/runtime/schema/` 与 `generated/include/engine/editor/schema/`，包含路径分别以 `runtime/schema/` 与 `editor/schema/` 开始。运行时 TypeScript 位于 `generated/typescript/`，编辑器 TypeScript 位于 `generated/editor/typescript/`。编辑器数据目标按所选建模和破坏插件创建，链接运行时数据目标。生成物均保留在构建目录。
+
+独立编辑器随工具部署完整 `tools/include/schemas/`。各导入器以 `runtime/<name>.fbs` 或 `editor/<name>.fbs` 标明指纹输入，从相同层级的源码或已部署工具读取。所属类图和编辑器插件文档维护各自的数据定义。
+
 ## 生成与组件扩展
 
-`include/schemas/runtime/scene.fbs` 只描述场景节点和组件，网格/材质通过 GUID 引用。`mesh.fbs`、`model.fbs`、`skeleton.fbs`、`animation.fbs`、`shader.fbs`、`material.fbs`、`audio.fbs`、`asset_catalog.fbs`、`resource_header.fbs` 独立维护对应模型，`common.fbs` 提供共享数值类型。构建使用宿主 flatc 生成 C++ 到 `build/<preset>/generated/include/engine/runtime/schema/`，生成 TS 到 `build/<preset>/generated/typescript/`；不提交生成物。可用 `ENGINE_FLATC_EXECUTABLE` 指定能在宿主运行的 flatc。FlatBuffers npm 依赖归项目 settings；场景以 `.scene` TOML 文件保存，导入为 FlatBuffers；运行时校验并读取 GUID 二进制。
+`include/schemas/runtime/scene.fbs` 只描述场景节点和组件，网格/材质通过 GUID 引用。`mesh.fbs`、`model.fbs`、`skeleton.fbs`、`animation.fbs`、`shader.fbs`、`material.fbs`、`audio.fbs`、`asset_catalog.fbs`、`resource_header.fbs` 独立维护对应模型，`common.fbs` 提供共享数值类型。构建使用宿主 flatc 按上述层级生成 C++ 和 TypeScript。可用 `ENGINE_FLATC_EXECUTABLE` 指定能在宿主运行的 flatc。FlatBuffers npm 依赖归项目 settings；场景以 `.scene` TOML 文件保存，导入为 FlatBuffers；运行时校验并读取 GUID 二进制。
 
 Component 统一提供生成数据的 `build_data` / `restore_data`，各具体组件在自己的文件处理恢复与校验，通过 `ComponentRegistry::add<T>()` 登记创建函数。Scene 只组织节点和层级；编辑器 TOML 读写位于资源管线的 `components/`，运行时资源实体解码位于 `runtime/resource/codecs/`。

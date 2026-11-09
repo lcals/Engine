@@ -450,7 +450,7 @@ std::string_view UiImporter::default_meta() const noexcept
 bool UiImporter::inspect_batch(const editor::asset_pipeline::ImportContext&,
                                std::string& fingerprint, std::string& error)
 {
-    if (!editor::asset_pipeline::schema_fingerprint({"ui.fbs"}, fingerprint, error))
+    if (!editor::asset_pipeline::schema_fingerprint({"runtime/ui.fbs"}, fingerprint, error))
     {
         return false;
     }
