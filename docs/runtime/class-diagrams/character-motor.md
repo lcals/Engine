@@ -1,5 +1,7 @@
 # 角色物理组件
 
+固定步驱动、运行胶囊尺寸和支撑状态的扩展见[待评审草案](character-motor-control.md)；本页继续描述当前实现。
+
 `engine::CharacterMotor` 只表达胶囊移动和物理状态，不解释按键或相机模式。
 
 ```mermaid

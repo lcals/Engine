@@ -217,7 +217,7 @@ classDiagram
 
 评审通过后，通用跟随、距离、俯仰约束、投影、避障和相机 Transform 写入从 `character_controller` 移到本插件。角色插件声明对相机契约的单向依赖；相机插件不引用角色、输入或脚本插件。
 
-`CharacterCamera` 保留有实际职责的角色适配：参数名映射、同帧观察角提交以及该镜头观察哪个角色的绑定。其拟议配置收敛为 `subject_slot`、`yaw_parameter`、`pitch_parameter`、可空的 `first_person_parameter` 和 `first_person_states`。原角度方法转为读写控制器的已声明 float 参数，不再保存第二份观察角；输入适配按参数声明范围处理俯仰，缺少绑定或类型不匹配明确失败。
+`CharacterCamera` 保留角色适配：命名主体槽、同帧观察角提交、角色状态到镜头参数的映射，以及第一人称表现分类。完整配置、角度接口与两个装配阶段统一见[角色与镜头衔接草案](character-integration-design.md)。观察角直接读写控制器已声明的 float 参数，输入适配按声明范围处理俯仰，缺少绑定或类型不匹配明确失败。
 
 `CharacterCameraSystem` 仅根据已提交状态及绑定对象更新 `CharacterVisual` 对应的每镜头隐藏列表，不写 Transform 或投影。进入映射为第一人称的状态时即采用第一人称隐藏策略，离开时立即采用目的状态策略；切换失败保持原策略。角色身体继续投射阴影。无 CharacterCamera 的普通镜头仍隐藏仅供第一人称使用的部件，沿用现有角色可见性语义。
 

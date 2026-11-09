@@ -2,6 +2,8 @@
 
 独立相机插件的拟议结构见[参数驱动相机草案](camera-controller.md)。该方案尚待评审；本页继续描述当前已实现的角色与相机契约。
 
+角色移动、能力组合及固定步接入的拟议升级见[参数化角色控制草案](character-control-design.md)。
+
 运行时插件 `engine::plugins::character_controller` 组织玩家输入与镜头策略，核心 `CharacterMotor` 提供玩家和 NPC 共用的运动能力。场景对象仍由普通 Node 和组件表达；NPC 不挂玩家输入组件。
 
 ```mermaid
