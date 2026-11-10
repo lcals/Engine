@@ -50,10 +50,6 @@ classDiagram
     class Scene {
         +Create(name string) Scene?$
         +Load(path string) Scene?$
-        +BeginLoad(path string) bool$
-        +StepLoad(resourceBudget number) SceneLoadProgress?$
-        +CommitLoad() Scene?$
-        +CancelLoad() void$
         +FindNode(name string) Node?
         +IsValid() bool
         +SetPaused(paused bool) bool
@@ -85,16 +81,8 @@ classDiagram
     class Component
     class ComponentType~T~
     class Camera
-    class SceneLoadProgress {
-        <<readonly TS value>>
-        +number completed
-        +number total
-        +string status
-        +string error
-    }
     Scene ..> Node : 创建借用包装
     Scene ..> Camera : 活动相机
-    Scene ..> SceneLoadProgress : 所属线程查询的加载状态快照
     Node ..> Component : 泛型添加或查找
     Node ..> ComponentType : 组件类型参数
 ```
@@ -149,26 +137,6 @@ classDiagram
 
 ## 暂停与后台资源加载
 
-以下接口由 SceneBinding 实现，`Scene.Load` 保留同步语义。
+Scene.SetPaused 只控制当前场景的模拟。持久 Node、Component、UiElement 的身份跨场景切换保留，已退出的 Scene 包装不作为新的活动场景使用。
 
-- `scene.SetPaused(value)` 与 `scene.GetPaused()` 只操作当前 Run 拥有的活动场景，逐次校验
-  场景身份及活动回调。设置返回 bool，查询失败返回 null。暂停值由 WorldSystem 持有，
-  不加入 Scene 持久模型；成功切场景或释放场景后复位。完整语义见[世界暂停](../world-pause.md)。
-- `Scene.BeginLoad(path)` 请求当前目录中的场景，由 BindingContext 独占加载操作。每个 Run
-  最多一个；重复请求、非法路径、错误资源类型、缺少分步加载实现或非活动回调返回 false。
-  成功后旧场景继续有效。
-- `Scene.StepLoad(resourceBudget)` 要求预算为非负 uint32 整数。无操作、非法参数或失效回调
-  返回 null；否则返回 completed、total、status 和 error 快照。status 为 loading/ready/failed，
-  失败时 error 非空。先推进后台资源链，资源 ready 后在主线程分帧恢复候选场景；只有候选恢复完成才返回 ready。completed/total 仅统计资源，节点恢复阶段可能 completed 等于 total 而 status 仍为 loading。预算及计数含义见[资源加载契约](resource-loader.md#分步与后台加载操作)。
-- `Scene.CommitLoad()` 提交已恢复的候选，成功返回新场景并释放操作；失败返回 null，保留旧场景及暂停值。
-  未 ready 时不结束请求；目录、加载器或所属场景变化以及恢复失败，将请求置为 failed。
-  错误和最后计数仍可由 StepLoad(0) 查询，重试须先 CancelLoad 再 BeginLoad。
-- `Scene.CancelLoad()` 释放当前 Run 的操作和候选引用，重复调用安全。
-- 成功使用其他入口更换或销毁活动场景，以及 Run 停止/重载时，清理该 Run 的待提交操作。
-  候选预检不得启动操作，不得取消旧活动 Run 的操作或改变其世界暂停。
-- Commit 后旧场景与控件句柄失效，项目须在新场景重新取得所需引用。
-
-加载、场景恢复、图形准备的完成依据与取消边界统一见[加载阶段与限制](resource-loader.md#加载阶段与限制)；
-依赖遍历和缓存发布见[资源依赖图插件](../../plugins/runtime/class-diagrams/resource-graph.md)。
-
-当前 showcase 场景入口仍使用同步 Scene.Load。异步加载由调用方组合 Begin/Step/Commit。脚本无需管理线程，但必须选择合适的同步或分步入口。
+业务通过 [Scene.BeginLoad / BeginBatch 与 SceneLoadRequest](../../plugins/runtime/class-diagrams/scene-loading-script-api.md)组织资源、候选配置、准备和首帧激活。GetStatus 是纯查询；GetScene 在 staged 返回候选，在 active 返回活动场景。Prepare 封存成员，Activate 允许发布，Release 只释放终态操作记录。

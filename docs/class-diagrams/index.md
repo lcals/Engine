@@ -30,6 +30,7 @@
 
 - [GUID 与逻辑路径映射](../runtime/class-diagrams/guid-map.md)
 - [大场景加载与准备](../runtime/class-diagrams/large-scene-preparation.md)
+- [场景加载、动态批次与业务状态（待评审）](../runtime/class-diagrams/scene-loading.md)
 - [资源元数据目录](../runtime/class-diagrams/resource-catalog.md)
 - [逐类型资源处理器](../runtime/class-diagrams/resource-codecs.md)
 - [资源业务调用与模块任务](../runtime/class-diagrams/resource-consumers.md)
@@ -53,6 +54,7 @@
 - [渲染能力与调试控制](../runtime/class-diagrams/render-feature-controls.md)
 - [视图提交、剔除与静态实例化](../runtime/class-diagrams/render-submission.md)
 - [渲染系统](../runtime/class-diagrams/render-system.md)
+- [按范围准备、首帧与截图（待评审）](../runtime/class-diagrams/render-readiness.md)
 
 ## 场景与领域组件
 
@@ -111,6 +113,8 @@
 
 ## 运行时插件
 
+- [可选运行时 MCP 与场景测试（待评审）](../plugins/runtime/class-diagrams/mcp-runtime-test.md)
+- [场景加载的脚本业务接口（待评审）](../plugins/runtime/class-diagrams/scene-loading-script-api.md)
 - [动画重定向插件](../plugins/runtime/class-diagrams/animation-retarget.md)
 - [动画脚本接口](../plugins/runtime/class-diagrams/animation-script-api.md)
 - [TS 动画状态机](../plugins/runtime/class-diagrams/animation-state-machine.md)
@@ -165,7 +169,7 @@
 - [FBX 模型资源导入](../plugins/editor/class-diagrams/fbx-importer.md)
 - [字体资源导入](../plugins/editor/class-diagrams/font-importer.md)
 - [JSON 资源导入](../plugins/editor/class-diagrams/json-importer.md)
-- [MCP 协议与工具注册](../plugins/editor/class-diagrams/mcp-system.md)
+- [MCP 协议与工具注册](../plugins/runtime/class-diagrams/mcp-system.md)
 - [独立运行程序的 MCP 测试接入](../plugins/editor/class-diagrams/runtime-mcp-debug.md)
 - [建模几何操作](../plugins/editor/class-diagrams/mesh-geometry.md)
 - [参数化基本体](../plugins/editor/class-diagrams/mesh-primitives.md)

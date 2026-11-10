@@ -120,7 +120,7 @@ LOD 滞回使用稳定相机与反射组件身份区分观察者；临时 view i
 | 主通道已有静态实例化，[ShadowPass](../../../src/engine/runtime/render/passes/shadow_pass.cpp) 逐投射物提交 | 统一静态实例的分批与不足时逐 draw 处理，扩展到阴影 | 对象显式启用实例化、alpha 裁切、镜像剔面、投影开关及设备能力限制保持 |
 | Pass 各自拥有目标，部分 prepare 在绘制中调用 | 在现有准备入口根据实际视图尺寸与已启用效果准备目标；描述不变时复用 | 开关默认值、效果计算、bgfx 视图顺序与 GPU 资源拥有者不变 |
 
-本批扩展 `SceneGpuResources`、`GpuMesh`、`GpuProgram`、`ShadowPass`，新增的组织数据均为渲染私有普通 struct。不增加 System、Manager、渲染后端、资源加载入口或业务设置。公开 `prepare_scene / render / release_scene` 及脚本 API 保持；改变的私有方法签名只在[渲染主图契约](render-system.md#提交管线私有契约)定义。
+本批扩展 `SceneGpuResources`、`GpuMesh`、`GpuProgram`、`ShadowPass`，新增的组织数据均为渲染私有普通 struct。不增加 System、Manager、渲染后端、资源加载入口或业务设置。公开 `prepare_scope / render / release_scene` 及脚本 API 保持；改变的私有方法签名只在[渲染主图契约](render-system.md#提交管线私有契约)定义。
 
 ### 数据分层与所有权
 
@@ -222,11 +222,11 @@ ComponentStorage、NodeRuntime 与 WorldTransform 引用[场景 ECS 列](ecs-sce
 
 `content_hash` 仅用于快速定位；共享绑定编号必须在完整数值、类型、纹理与 Shader 版本相等后分配。`DrawBatchKey::binding` 是颜色 Pass 的完整材质规范化编号；阴影不比较颜色编号，直接比较其实际 alpha/UV/纹理字段。哈希冲突不能合并对象；不得直接哈希含未初始化 padding 的 struct。动态帧纹理按既有 sampler source 在视图提交时补齐，不能把上一帧颜色、深度或平面反射句柄固化进跨帧缓存。
 
-`RenderFrameData` 是派生快照，ECS 仍是唯一持久场景状态。几何、程序和纹理继续由既有 GPU 拥有者管理；帧数据不借用可跨结构修改的 ECS 列地址。所有 GPU/材质借用在 `prepare_scene` 完成后建立，在本次同步提交结束前使用完；资源回收、绑定表修改和结构发布不得插入这段消费过程。扩展回调沿用现有只读提交边界。
+`RenderFrameData` 是派生快照，ECS 仍是唯一持久场景状态。几何、程序和纹理继续由既有 GPU 拥有者管理；帧数据不借用可跨结构修改的 ECS 列地址。所有 GPU/材质借用在 `prepare_scope` 完成后建立，在本次同步提交结束前使用完；资源回收、绑定表修改和结构发布不得插入这段消费过程。扩展回调沿用现有只读提交边界。
 
 ### 收集、更新与失效
 
-1. `prepare_scene` 复用现有 Published + Node/Component 通知与脏节点集合，准备唯一 GPU 资源并更新受影响的材质槽绑定。现有 Material setter 已通知 MeshRenderer 修改，不新增公开 revision getter 或第二套全世界监听器。
+1. `prepare_scope` 复用现有 Published + Node/Component 通知与脏节点集合，准备唯一 GPU 资源并更新受影响的材质槽绑定。现有 Material setter 已通知 MeshRenderer 修改，不新增公开 revision getter 或第二套全世界监听器。
 2. 公共帧收集先刷新已有世界派生状态，再直接查询 Published 网格的 Data、ComponentState 和 NodeRuntime，在稳定阶段短期借用 MeshRendererRuntime 与 WorldTransform。网格身份仍以世界代次、实体及组件实例匹配 GPU 准备索引，资源版本不匹配时拒绝绘制。变形/蒙皮更新直接消费同一 Runtime 列；没有 Lightmap 引用时跳过绑定校验，有引用时复用 MeshRenderer 的完整烘焙有效性规则。不增加第二份场景状态或跨帧 ECS 指针缓存，公开句柄继续逐次校验身份。
 3. 灯和探针从已发布 ECS 列各收集一次。探针逆矩阵、体积和资源有效性在收集时求出；逐物体只做选择与插值。同一静态物体在主视图多个 Pass 的采样结果复用。
 4. 主观察视图只做一次手动隐藏、视锥、LOD 与子网格筛选。相机身份在进入视图收集时校验，隐藏名单只在本次稳定阶段借用一次，逐物体直接查询；不跨视图或帧保存借用。反射、阴影和捕获独立建列表；主相机看不到的阴影投射物不能被提前丢弃。阴影保持现有拓扑/选层语义，不顺带改变 LOD 策略。
@@ -274,7 +274,7 @@ flowchart LR
 
 图表示已有算法的数据关系；以现行 bgfx view 顺序和附件语义为准。AO、SSR、Bloom 未开启时跳过对应步骤，但深度/表面可能仍被透明或其他消费者使用，不能仅凭一个开关删除共享输入。反射、捕获与主视图独立拥有需要同时存活的目标。
 
-必需目标的创建纳入 `prepare_scene` 的既有预算与失败契约，稳定尺寸和设置下不在逐对象/逐 Pass 提交循环重复分配。实际读写、MSAA resolve、尺寸变更和并行在途帧须满足现有 bgfx 生命周期；CPU 一帧结束不构成 GPU 已完成的证明。跨 Pass 临时目标池与完整渲染图是否值得加入，等本批目标数量、显存和耗时证据再单独评审。
+必需目标的创建纳入 `prepare_scope` 的既有预算与失败契约，稳定尺寸和设置下不在逐对象/逐 Pass 提交循环重复分配。实际读写、MSAA resolve、尺寸变更和并行在途帧须满足现有 bgfx 生命周期；CPU 一帧结束不构成 GPU 已完成的证明。跨 Pass 临时目标池与完整渲染图是否值得加入，等本批目标数量、显存和耗时证据再单独评审。
 
 这里的资源准备不包含 Shader/PSO 预热、管线磁盘缓存，也不承诺首次驱动管线创建已经消除。
 

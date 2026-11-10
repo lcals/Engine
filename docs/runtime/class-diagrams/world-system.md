@@ -1,5 +1,7 @@
 # 世界系统
 
+候选与追加批次的唯一公开方法定义见[场景范围契约](scene-loading.md#worldsystem-的候选和批次边界)。
+
 [类图索引](../../class-diagrams/index.md) · [引擎与系统](engine-system.md) · [完整引用关系](../../class-diagrams/references.md)
 
 本图仅定义 `WorldSystem` 的方法；其他节点为跨图引用或第三方类型。
@@ -17,10 +19,6 @@ classDiagram
         +create_scene(string_view name) Scene#42;
         +load_scene(string_view path) Scene#42;
         +resource_loader() ResourceLoader#42;
-        +begin_restore_scene(const ResourceHandle& resource) uint64_t
-        +step_restore_scene(uint64_t request, size_t node_budget, double max_seconds) SceneRestoreStatus
-        +commit_restore_scene(uint64_t request) Scene#42;
-        +cancel_restore_scene(uint64_t request) void
         +unload_scene() void
         +destroy_scene() void
         +destroy_scene(uint64_t id) bool
@@ -65,15 +63,8 @@ classDiagram
         +size_t nodes_per_step
         +double max_seconds
     }
-    class SceneRestoreStatus {
-        <<enumeration>>
-        loading
-        ready
-        failed
-    }
     class Resource
     WorldSystem *-- SceneRestoreConfig
-    WorldSystem ..> SceneRestoreStatus
     WorldSystem --> Resource : 候选共享持有已加载闭包
     WorldSystem "1" *-- "0..1" Scene : 独占未发布候选
     WorldSystem ..> ResourceHandle : 已加载资源获取身份
@@ -110,7 +101,7 @@ C++ 限定符：构造、析构及 `on_shutdown()` 为 `noexcept`；析构和受
 
 `load_scene(string_view path)` 通过 acquire_loaded 获取当前目录中已加载的场景，建立候选 Scene 并校验全部节点/组件/父子和资源引用；成功替换活动场景并保留旧场景常驻子树，失败保留当前场景。
 
-`begin_restore_scene` 只接受已加载的场景资源并返回非零请求身份；每个世界最多一个候选。`step_restore_scene` 在主线程按节点数和时间预算创建节点/组件、恢复父子，预算默认每步最多 64 项、1 ms；第三参数默认 0 表示使用系统配置上限；显式正数与系统时间预算取较小值，负数和非有限值拒绝。单个组件恢复不可抢占。资源读取和解码已在前一阶段完成，候选不作为活动场景更新。ready 后由调用方显式 commit；失败/取消保持旧场景。获取身份、请求身份和世界生命周期在提交时重新校验；目录更新不使已就绪且被持有的资源失效。新场景创建/切换及世界关闭取消候选，过期请求不能取消新请求。同步 load_scene 仅恢复已经加载的场景，缺少预加载返回失败。脚本先通过 Resources.Load/BeginLoad 完成资源阶段，再调用 Scene.BeginLoad/StepLoad/CommitLoad 恢复场景。
+异步恢复、封存、发布及模拟激活使用 SceneScopeId，状态和预算见[场景范围契约](scene-loading.md)。普通查询只返回已发布节点；领域准备通过明确 scope 访问同一世界中的候选。
 
 宿主在加载场景前通过 `component_registry()` 登记插件组件；WorldSystem 拥有登记表，Scene 在恢复时借用，不引用具体插件。登记函数地址须保持有效直到世界关闭。
 

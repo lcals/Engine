@@ -1,6 +1,6 @@
 # MCP 协议与工具注册
 
-[类图索引](../../../class-diagrams/index.md) · [项目工具模块](project-mcp-tools.md)
+[类图索引](../../../class-diagrams/index.md) · [项目工具模块](../../editor/class-diagrams/project-mcp-tools.md)
 
 McpSystem 只负责 JSON-RPC/MCP 协议、工具登记和调用。它不持有项目、目标设备、资源管线或编辑器对象。各模块在宿主启动时显式注册自己的工具；名称、参数说明和执行函数来自同一条登记记录。
 

@@ -189,7 +189,7 @@ scene_restore 节点 / 时间预算，不暗加一套默认加载预算。
 | Host 装配世界树 | 影片首帧提交后，在主线程构造系统并一次调用 Engine.initialize。Render / Audio / Resource 已由 Host 初始化，不再登记到 Engine。 | 允许这一同步步骤超过软预算，记录总耗时；不把整个现行 RuntimeHost.initialize 放进 step。 |
 | 完整版本与资源 | 后台校验完整部署版本；通过已有 ResourceLoad 推进入口脚本及明确 scene 所需资源，保留引用。 | 在途数量、字节及完成额度受已有配置约束；使用宿主注入的分步依赖加载实现，不在核心重写依赖树。 |
 | VM 预检 | 在所属主线程调用现有 ScriptRuntime.prepare_gameplay，完成编译和链接。 | 单次不可抢占，现行候选源码读取也不伪装成异步；测量其总耗时，不承诺任意模块规模均平滑。 |
-| 明确场景恢复 | scene 非空时，World.begin_restore_scene 建立候选，逐帧 step_restore_scene，ready 后才 commit_restore_scene。 | 使用现有节点数与时间预算；请求身份及资源代次失效则取消，不能提交半成品。 |
+| 明确场景恢复 | scene 非空时，GameplaySession.begin_scene_load 建立请求，逐帧准备并发布，真实首帧后启用模拟。 | 使用现有节点数与时间预算；请求身份及资源代次失效则取消，不能提交半成品。 |
 | 项目短初始化 | 主线程调用现有 start_prepared_gameplay 一次，执行模块及 OnInitialize；尚不调度 Update。 | 非抢占，项目必须短小或自行分批。显式 scene 已恢复时，OnInitialize 应短接线，不再同步装载同一大场景。 |
 | 主页 GPU | 使用同一 Renderer 准备初始化后的实际场景及 UI，检查所需 GPU 资源可用于首帧；未就绪仍 preparing。 | 2026-11-07 已实现：接入 RenderSystem incremental 准备及当前步剩余时间；不等待未完成任务。单次驱动 / UI / 字体原子步骤仍不可抢占，不承诺硬实时上限。 |
 | 正式激活 | activate_prepared 仅从 ready 切换正式驱动资格；Host 接入场景音频，下一帧更新并绘制主页。 | 不再运行 OnInitialize，不重新编译、恢复场景或上传整批资源。 |

@@ -1,5 +1,7 @@
 # 脚本运行契约
 
+[业务加载服务注入](../../plugins/runtime/class-diagrams/scene-loading-script-api.md#会话注入)复用普通玩法会话；临时脚本执行的声明与实现仅在 `ENGINE_ENABLE_TEST_SUPPORT=ON` 时编译，见[运行时 MCP](../../plugins/runtime/class-diagrams/mcp-runtime-test.md#构建用途与正式包排除)。
+
 [类图索引](../../class-diagrams/index.md) · [玩法会话](gameplay-session.md) · [运行宿主](runtime-host.md)
 
 核心只定义玩法执行所需的最小接口，具体语言、虚拟机及绑定由运行时插件实现。
@@ -11,6 +13,7 @@ classDiagram
     class ScriptRuntime {
         <<abstract>>
         +~ScriptRuntime()
+        +bind_gameplay_session(GameplaySession#42; session) bool*
         +prepare_gameplay(const ResourceHandle& entry, string_view revision) bool
         +start_prepared_gameplay() bool
         +stop_gameplay() void
@@ -35,9 +38,12 @@ classDiagram
     RuntimeHost ..> ScriptRuntime : 调用宿主工厂并转移给世界
     ScriptRuntime ..> ResourceHandle : 已加载入口及项目脚本输入
     ScriptRuntime ..> ScriptStatus : 借用状态输出
+    ScriptRuntime --> GameplaySession : 可空借用加载服务
 ```
 
 - ScriptRuntime 继承 System，复用统一初始化、逐帧更新和反序关闭，不再创建另一套生命周期接口。运行宿主通过调用方提供的工厂取得独占实例，并移交给 WorldSystem 管理。
+- `bind_gameplay_session()` 仅在没有活动或候选 Run 时接受新的可空借用；会话覆盖 Run 生命周期，退出后解除绑定。普通业务通过此借用访问同一个原生加载请求。
+- 图中的 `ProjectScriptRequest` 和 `execute_project_script()` 只存在于测试能力构建；正式构建不声明或实现它们。
 - `prepare_gameplay()` 只预检调用方明确提供的候选目录，不执行玩法、不切换当前资源；入口和修订默认空，由实现解析默认值。失败保留旧运行。
 - `start_prepared_gameplay()` 执行已经预检且与活动目录匹配的玩法。`stop_gameplay()` 支持重复停止、部分初始化，保证 noexcept。
 - `status()` 只报告当前执行状态，返回实现拥有的只读 ScriptStatus 引用，有效期受实例及后续操作约束。热重载许可、可用部署版本与部署错误由 GameplaySession 持有，不进入执行契约。

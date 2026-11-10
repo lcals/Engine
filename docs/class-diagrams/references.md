@@ -52,9 +52,11 @@ GameplaySession 组织项目启停；核心只声明 ScriptRuntime，宿主注�
 
 ## MCP 宿主与跨进程文件关系
 
+**待评审变更：** [场景加载协调](../runtime/class-diagrams/scene-loading.md)、[首帧与截图](../runtime/class-diagrams/render-readiness.md)及[独立运行时 MCP](../plugins/runtime/class-diagrams/mcp-runtime-test.md)定义按需测试装配和共用状态接口。下述 MCP 归属仍描述当前实现，不能据此认为待评审方案已交付。
+
 MCP 属于编辑器插件，通过明确运行目录与会话交换命令和回执。EditorCommands 在所属线程执行操作，资源同步只发布完整版本，不替代宿主热重载流程。
 
-契约：[协议与注册](../plugins/editor/class-diagrams/mcp-system.md) · [项目工具](../plugins/editor/class-diagrams/project-mcp-tools.md) · [编辑器工具](../plugins/editor/class-diagrams/editor-mcp-tools.md) · [资源同步系统](../plugins/editor/class-diagrams/asset-sync-system.md)。
+契约：[协议与注册](../plugins/runtime/class-diagrams/mcp-system.md) · [项目工具](../plugins/editor/class-diagrams/project-mcp-tools.md) · [编辑器工具](../plugins/editor/class-diagrams/editor-mcp-tools.md) · [资源同步系统](../plugins/editor/class-diagrams/asset-sync-system.md)。
 
 ## 项目启停与编辑器命令
 

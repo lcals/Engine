@@ -11,8 +11,8 @@
 - 先查看源码、当前分支和工作区，再修改；保护已有改动。
 - 优化范围跟随当前开发模块：开发哪个模块，就优化哪个模块及完成该功能直接需要的链路。性能分析发现其他模块的热点时只记录，不因其耗时更高就擅自扩大改动范围；跨模块优化须由用户明确指定。本轮目标、验证指标和报告均围绕当前模块。
 - 使用 C++20 和目标级 CMake 配置；公开头文件放 `include/`，实现放 `src/`，测试放 `tests/`。
-- 引擎源码与公开头文件分别位于 `src/engine/`、`include/engine/`，按 `runtime/`、`editor/`、`plugins/runtime/`、`plugins/editor/` 组织。运行时引擎入口、系统及单项资源底层归 `runtime/`，公共工具放 `runtime/utils/`；`EditorSystem`、项目环境、通用命令、Task 和资源管线归 `editor/`。插件只能归运行时或编辑器：资源依赖图和脚本执行归 `plugins/runtime/`；完整建模（含纯几何）、完整 MCP（含协议）、资源构建与资源同步归 `plugins/editor/`，不另设第三种插件源码分类。
-- 引擎自有头文件从所属层级开始包含，例如 `#include "runtime/system/system.hpp"`、`#include "editor/editor_system.hpp"`、`#include "plugins/editor/mcp/mcp_system.hpp"`；不再使用纯文件名、`engine/` 前缀或 `../` 相对目录。CMake 目标统一传递 `include/engine/` 搜索根；第三方头文件保留其标准包含路径。
+- 引擎源码与公开头文件分别位于 `src/engine/`、`include/engine/`，按 `runtime/`、`editor/`、`plugins/runtime/`、`plugins/editor/` 组织。运行时引擎入口、系统及单项资源底层归 `runtime/`，公共工具放 `runtime/utils/`；`EditorSystem`、项目环境、通用命令、Task 和资源管线归 `editor/`。插件只能归运行时或编辑器：资源依赖图和脚本执行归 `plugins/runtime/`；MCP 协议和通用通道归可选 `plugins/runtime/mcp/`；完整建模（含纯几何）、MCP 编辑工具、资源构建与资源同步归 `plugins/editor/`，不另设第三种插件源码分类。
+- 引擎自有头文件从所属层级开始包含，例如 `#include "runtime/system/system.hpp"`、`#include "editor/editor_system.hpp"`、`#include "plugins/runtime/mcp/mcp_system.hpp"`；不再使用纯文件名、`engine/` 前缀或 `../` 相对目录。CMake 目标统一传递 `include/engine/` 搜索根；第三方头文件保留其标准包含路径。
 - 不为测试修改正式接口可见性，不提交构建产物、密钥和本机路径。
 - 付费资源、商业或私有参考的源码、片段、派生实现及购买清单不得进入 Git；开源参考可按其许可引入，保留来源、固定版本和必要版权声明。本地参考与采样产物继续留在忽略目录。
 - 私有项目整个目录不得进入版本管理，包括自行编写的脚本、UI、配置、文档、meta 和工具生成资源；不以原创内容为例外，不使用强制添加绕过忽略规则。只有明确公开的范例项目与不包含私有业务的通用引擎增强可以提交。发现历史误收录时先保护本地文件，再按用户授权清理受影响的历史和远端引用。
@@ -50,7 +50,7 @@
 - 编辑器启动必须传入项目根目录，由编辑器宿主先初始化独立的 `ProjectSystem`，检查根目录及 `settings/`、`cache/`、`assets/` 均存在且为目录，再启动引擎窗口和编辑器系统；失败通过返回值报告。`EditorSystem` 借用已初始化的 `EditorEnvironment`，环境借用项目系统；两者必须存活并保持就绪直到编辑器关闭。
 - 已选依赖须参与相应目标的实际编译和链接验证，不能仅以登记或 `find_package` 成功作为完成；具体功能可分阶段启用。
 - 插件由 CMake 清单登记，使用 `ENGINE_RUNTIME_PLUGINS` / `ENGINE_EDITOR_PLUGINS` 选择；每个插件独占 `cmake/plugins/<scope>/<name>.cmake`，在其中声明目标、源码及依赖。注册器统一解析依赖闭包，未选且不在依赖闭包内的插件不创建目标，宿主只装配实际启用的插件；不在核心或宿主中央文件积累每个插件的源码列表。
-- 建模与 MCP 都属于编辑器插件，不因某个文件只含纯算法或通用协议就归入运行时。运行包只消费编译后的 Mesh 等数据；当前设备同步由桌面 MCP 经 adb 完成，设备端不运行 MCP。未来确有设备端调试需求时，须按正式运行与调试运行的构建用途显式装配，调试插件不得进入正式包。
+- 建模属于编辑器插件，运行包只消费编译后的 Mesh 等数据。MCP 协议与通道由可选 runtime/mcp 插件提供，编辑工具留在 editor/mcp；显式 ENGINE_ENABLE_TEST_SUPPORT 测试构建才装配运行端点和临时脚本执行，正式运行构建排除其声明、源码与链接依赖。场景准备、状态与截图属于普通运行时能力，测试只做适配。设备同步仍由桌面编辑器工具经 adb 执行。
 - CMake 按 `cmake/install/`、`cmake/dependencies/`、`cmake/plugins/`、`cmake/core/`、`cmake/editor/`、`cmake/platforms/` 分职责。根 CMakeLists 只组织入口，插件注册不替代依赖查找，不把安装、平台打包或业务插件混入核心配置。启用/禁用必须验证配置、目标存在性、链接及宿主条件装配。
 
 - 场景节点命名 `Node`，脚本直接使用 `Component`，不引入 `GameObject`、`Behaviour` 或 `MonoBehaviour` 层次。项目 `Gameplay` 连接引擎与场景，可承载业务，不限制成纯启动脚本。

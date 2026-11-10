@@ -1,6 +1,6 @@
 # 运行宿主
 
-**2026-11-07 已实现接入：** [大场景准备](large-scene-preparation.md#调用方与完成边界)不增加 Host 的资源缓存或另一套加载接口。运行包无论是否配置开场影片，都走已有分阶段玩法准备；影片只影响呈现与进入时机。正常帧在场景明确修改后调用渲染 incremental 准备，preparing 时维持调用方选择的已就绪加载画面 / 启动清屏并继续派发任务，不能因尚未准备误走项目失败分支。ready 后才调用场景 render；真正 failed 仍按会话错误处理。该接入已实现，公开方法与系统所有权保持。
+[场景加载](scene-loading.md)由 GameplaySession 组织各领域准备，RuntimeHost 不增加资源缓存或第二套加载接口。准备期间每帧继续提交当前已发布场景，候选资源按预算推进；候选发布后等待包含该内容的实际场景帧，再启动模拟。影片只影响呈现和进入时机，不阻止查询原生状态。
 
 **资源接入：可执行入口选择资源插件，给 RuntimeHost/各模块注入可空的 ResourceLoader，并分离文件、解析、资源图、影片及渲染任务域。** 公开参数按[已确认的业务接入](resource-consumers.md)同步；没有加载器时基础宿主仍可启动，资源操作返回失败。
 
@@ -31,6 +31,7 @@ classDiagram
         +renderer() RenderSystem#42;
         +ui() UiSystem#42;
         +set_event_observer(WindowEventHandler observer, void* context) void
+        +status(RuntimeHostStatus& output) bool
         +request_exit() void
         +shutdown() void
     }
@@ -95,6 +96,17 @@ classDiagram
         ready
         failed
     }
+    class RuntimeHostStatus {
+        <<struct>>
+        +uint64_t tick_id
+        +uint64_t sampled_at_ns
+        +bool initialized
+        +bool window_drawable
+        +bool exit_requested
+        +FrameStatus frame_status
+    }
+    RuntimeHost ..> RuntimeHostStatus : 原生只读快照
+    RuntimeHostStatus ..> FrameStatus
     RuntimeHost *-- MoviePlayer : 独占播放器
     RuntimeHost o-- ResourceCatalog : 锁存同一目录快照
     RuntimeHost o-- MountList : 锁存同一挂载快照
@@ -148,6 +160,7 @@ classDiagram
 - `world()` 返回同生命周期的可空世界借用，供宿主连接独立编辑器业务；运行时不认识命令服务或 MCP。
 - `window()` 返回同生命周期的可空窗口借用，供调用方独立组织事件处理和渲染帧；核心不判断调用方模式。
 - `renderer()` 返回同生命周期的可空渲染器借用，宿主据此装配编辑器渲染命令；截图和渲染设置接口由 RenderSystem 提供。
+- `status()` 在主线程复制当前宿主状态，`initialized` 明确报告初始化情况；不推进帧、任务或加载。`tick_id` 与单调时钟采样时间供业务和测试区分窗口不可绘制、帧暂停与加载仍在推进。
 - 关闭顺序统一见下方[并行配置](#并行配置)。借用的外部 ResourceSystem 仍由调用宿主管理，RuntimeHost 仅解除借用，不驱动或关闭外部资源服务。部分初始化和重复关闭均安全。
 - RuntimeHost 不解析项目目录、不读取编辑器配置，也不实现脚本热重载；这些职责分别属于编辑器、平台路径和脚本模块。
 

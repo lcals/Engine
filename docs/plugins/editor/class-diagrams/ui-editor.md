@@ -134,7 +134,7 @@ classDiagram
 
 ## MCP 契约
 
-所有 ID 以完整十进制字符串输出，避免 JSON 数字损失 uint64 精度。DOM 名称单独叫 `id`；句柄中的 `elementId` 是运行期身份。命令的 `activation: pending` 使用现有 `get_editor_receipt` 查询，不重复提交点击或保存。
+所有 ID 以完整十进制字符串输出，避免 JSON 数字损失 uint64 精度。DOM 名称单独叫 `id`；句柄中的 `elementId` 是运行期身份。命令的 `activation: pending` 使用现有 `get_request_receipt` 查询，不重复提交点击或保存。
 
 | 工具 | 输入与结果 | 持久化/撤销 |
 | --- | --- | --- |
