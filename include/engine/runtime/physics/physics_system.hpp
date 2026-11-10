@@ -3,6 +3,7 @@
 #include "runtime/physics/physics_contact.hpp"
 #include "runtime/physics/physics_impact.hpp"
 #include "runtime/physics/physics_query.hpp"
+#include "runtime/scene/scene_loading.hpp"
 #include "runtime/system/system.hpp"
 
 #include <cstddef>
@@ -36,6 +37,9 @@ public:
     // 初始化之前设置；借用覆盖物理系统整个运行期。
     [[nodiscard]] bool set_character_motor_driver(CharacterMotorDriver* driver) noexcept;
 
+    [[nodiscard]] SceneWorkState prepare_scope(SceneScopeId scope, const SceneWorkBudget& budget);
+    [[nodiscard]] bool scope_status(SceneScopeId scope, ScenePreparationSnapshot& output) const;
+    void release_scope(SceneScopeId scope) noexcept;
     void clear() noexcept;
     [[nodiscard]] std::size_t body_count() const noexcept;
     [[nodiscard]] std::size_t character_count() const noexcept;

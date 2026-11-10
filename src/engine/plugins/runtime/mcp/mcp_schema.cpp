@@ -1,4 +1,4 @@
-#include "plugins/editor/mcp/mcp_schema.hpp"
+#include "plugins/runtime/mcp/mcp_schema.hpp"
 
 #include <nlohmann/json.hpp>
 

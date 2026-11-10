@@ -28,7 +28,7 @@ bool Scene::initialize(std::string_view name)
     info.name = name;
     auto entity = current.entity();
     metadata_entity_ = entity.id();
-    entity.set<schema::SceneInfoT>(std::move(info));
+    entity.set<schema::SceneInfoT>(std::move(info)).set<ecs_detail::ScopeState>({id_});
     return metadata_entity_ != 0;
 }
 Scene::~Scene() noexcept
@@ -72,6 +72,10 @@ std::string Scene::name() const
 }
 Node Scene::create_node(std::string_view name)
 {
+    if (allocation_target_)
+    {
+        node_sequence_ = std::max(node_sequence_, allocation_target_->node_sequence_);
+    }
     if (node_sequence_ == std::numeric_limits<std::uint64_t>::max())
     {
         return {};
@@ -80,43 +84,57 @@ Node Scene::create_node(std::string_view name)
 }
 Node Scene::create_node(std::string_view name, std::uint64_t local_id)
 {
-    if (!world_.can_modify() || !mutable_info() || local_id == 0 ||
-        local_node_index_.contains(local_id) ||
+    flecs::world current(world_.native_world());
+    const auto* scope = current.entity(metadata_entity_).try_get<ecs_detail::ScopeState>();
+    if ((scope && scope->sealed && !scope->simulating) || !world_.can_modify() || !mutable_info() ||
+        local_id == 0 || local_node_index_.contains(local_id) ||
         order_sequence_ == std::numeric_limits<std::uint64_t>::max())
     {
         return {};
     }
-    flecs::world current(world_.native_world());
     auto entity = current.entity();
     schema::NodePropertiesT properties;
     properties.id = local_id;
     properties.name = name;
     ecs_detail::NodeRuntime state;
     state.scene = this;
+    state.scope_scene = this;
     state.order = ++order_sequence_;
     entity.set<schema::NodePropertiesT>(std::move(properties))
         .set<ecs_detail::NodeRuntime>(state)
         .add<ecs_detail::WorldTransform>()
-        .add<ecs_detail::SceneMember>(metadata_entity_);
+        .add<ecs_detail::SceneMember>(metadata_entity_)
+        .is_a(metadata_entity_);
     Node node(world_, world_.epoch(), entity.id());
     local_node_index_.emplace(local_id, entity.id());
     node_sequence_ = std::max(node_sequence_, local_id);
+    if (allocation_target_)
+    {
+        allocation_target_->node_sequence_ = std::max(allocation_target_->node_sequence_, local_id);
+    }
     if (!node.add_component<Transform>())
     {
         entity.destruct();
         return {};
     }
-    if (published_)
-    {
-        entity.add<ecs_detail::Published>();
-    }
+
     world_.invalidate_scene_state();
     return node;
 }
 Node Scene::find_node(std::uint64_t id) const noexcept
 {
     Node node(world_, world_.epoch(), id);
-    return node && node.scene() == this ? node : Node{};
+    if (!node || (node.scene() != this && node.scene() != allocation_target_))
+    {
+        return {};
+    }
+    const auto found = local_node_index_.find(node.local_id());
+    if (found == local_node_index_.end() || found->second != id)
+    {
+        return {};
+    }
+    flecs::world current(world_.native_world());
+    return !published_ || current.entity(id).has<ecs_detail::Published>() ? node : Node{};
 }
 Node Scene::find_local_node(std::uint64_t local_id) const noexcept
 {
@@ -154,7 +172,7 @@ Node Scene::find_node(std::string_view name) const noexcept
 }
 bool Scene::destroy_node(std::uint64_t id)
 {
-    if (!world_.can_modify() || !find_node(id))
+    if (!world_.can_modify() || !ecs_detail::scope_writable(find_node(id)))
     {
         return false;
     }
@@ -242,16 +260,12 @@ bool Scene::publish()
     {
         return false;
     }
-    std::vector<Node> nodes;
-    if (!collect_nodes(nodes))
-    {
-        return false;
-    }
     flecs::world current(world_.native_world());
-    for (const auto node : nodes)
-    {
-        current.entity(node.id()).add<ecs_detail::Published>();
-    }
+    auto metadata = current.entity(metadata_entity_);
+    metadata.add<ecs_detail::Published>().add<ecs_detail::Simulating>();
+    auto& scope = metadata.get_mut<ecs_detail::ScopeState>();
+    scope.published = scope.simulating = true;
+    scope.content_revision = scope.publication_revision = 1;
     published_ = true;
     world_.invalidate_scene_state();
     return true;
@@ -283,13 +297,19 @@ void Scene::retain_persistent()
 }
 Camera Scene::active_camera() const noexcept
 {
+    if (allocation_target_)
+    {
+        return allocation_target_->active_camera();
+    }
     const auto* info = mutable_info();
     return info ? find_local_node(info->active_camera_node).get_component<Camera>() : Camera{};
 }
 bool Scene::set_active_camera(Camera camera) noexcept
 {
     auto* info = mutable_info();
-    if (!world_.can_modify() || !info ||
+    flecs::world current(world_.native_world());
+    const auto* scope = current.entity(metadata_entity_).try_get<ecs_detail::ScopeState>();
+    if ((scope && scope->sealed && !scope->simulating) || !world_.can_modify() || !info ||
         (camera.instance_id() != 0 && (!camera || camera.node().scene() != this)))
     {
         return false;

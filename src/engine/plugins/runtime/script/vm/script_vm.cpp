@@ -7,6 +7,7 @@
 namespace engine::plugins::script::vm
 {
 
+#if defined(ENGINE_ENABLE_TEST_SUPPORT)
 std::string project_script_wrapper(std::string_view javascript)
 {
     std::string source = R"JS((function(require, gameplay, argumentsJson) {
@@ -78,6 +79,8 @@ return stringify(value);
 }))JS";
     return source;
 }
+
+#endif
 
 bool resolve_module_path(std::string_view referrer, std::string_view request, std::string& output)
 {

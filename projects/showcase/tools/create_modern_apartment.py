@@ -711,7 +711,7 @@ class McpSession:
             if time.monotonic() >= deadline:
                 raise RuntimeError(f"MCP {name} is still processing; original request {identity} is recorded and will not be resent")
             time.sleep(0.25)
-            result, receipt = self.request_tool("get_editor_receipt", identity)
+            result, receipt = self.request_tool("get_request_receipt", identity)
             if receipt is not None and any(
                 receipt.get(key) != value for key, value in identity.items()
             ):

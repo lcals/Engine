@@ -58,7 +58,7 @@ def main(arguments=None):
             for case in args.cases or CASES:
                 scene = f'scenes/pbr-test-{case}.scene'
                 opened = session.call('open_scene_preview', {'path': scene})
-                attempts = session.capture_when_visible(f'material-comparison/current-{run_id}/{case}.png')
+                attempts = session.capture_scene(f'material-comparison/current-{run_id}/{case}.png')
                 capture = attempts[-1]
                 if [capture['width'], capture['height']] != [1280, 720]:
                     raise RuntimeError(f'expected native 1280x720, got {capture}')

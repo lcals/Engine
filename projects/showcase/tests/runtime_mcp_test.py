@@ -106,11 +106,10 @@ def main():
             else:
                 raise RuntimeError("Editor-only command was accepted by the runtime target")
             report["invalidIdentitiesRejected"] = True
-            prepared = wait_for("runtime rendering preparation", lambda: get_status(session),
-                                lambda value: value.get("renderPreparation", {}).get("state") == "ready",
-                                args.timeout)
-            report["renderPreparation"] = prepared["renderPreparation"]
-            capture_for_review(session, report, output, "runtime-frame")
+            report["readyScope"] = session.wait_scene(args.timeout)
+            capture = capture_for_review(session, report, output, "runtime-frame")
+            require(capture.get("frame", {}).get("uiDraws", 0) > 0,
+                    f"Runtime menu capture contains no actual UI draws: {capture}")
             require(not report.get("invalidCaptures"), f"Invalid runtime capture: {report}")
             stopped = execute(session, run, QUIT, filename="mcp-runtime-quit.ts")
             require(stopped.get("requested") is True, f"Runtime did not accept quit: {stopped}")

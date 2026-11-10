@@ -214,7 +214,7 @@ class EditorMcpSession:
             if time.monotonic() >= deadline:
                 raise RuntimeError(f"MCP {name} is still processing; the original request is recorded and will not be resent")
             time.sleep(0.1)
-            result, receipt = self.request_tool("get_editor_receipt", identity)
+            result, receipt = self.request_tool("get_request_receipt", identity)
             if receipt and any(receipt.get(key) != value for key, value in identity.items()):
                 raise RuntimeError(f"MCP {name} returned a receipt for another request")
         succeeded = receipt.get("success", receipt.get("lastRequestSucceeded")) if receipt else False
@@ -224,15 +224,21 @@ class EditorMcpSession:
             raise RuntimeError(f"MCP {name} is incomplete; stopping capture")
         return receipt.get("result", {})
 
-    def capture(self, relative_path, inspect_black=False):
+    def capture(self, relative_path, inspect_black=False, scope=None):
         cache = (self.project / "cache").resolve()
         expected = (cache / relative_path).resolve()
         if not expected.is_relative_to(cache) or expected.exists():
             raise RuntimeError("Capture path is outside the project cache or already exists")
         deadline = time.monotonic() + self.timeout
-        result = self.call("capture_frame", {"path": relative_path})
+        arguments = {"path": relative_path, "selection": "scene_scope" if scope else "next_frame"}
+        if scope:
+            arguments["scope"] = scope
+        result = self.call("capture_frame", arguments)
+        capture_id = result.get("captureId")
+        if not isinstance(capture_id, dict):
+            raise RuntimeError("Capture receipt has no request identity")
         while True:
-            if result.get("path") != str(expected):
+            if result.get("captureId") != capture_id or result.get("path") != str(expected):
                 raise RuntimeError("Capture receipt path does not match the request")
             state = result.get("state")
             if state == "complete":
@@ -245,28 +251,55 @@ class EditorMcpSession:
                 if width == 0 or height == 0:
                     raise RuntimeError("Invalid capture dimensions")
                 capture = {"path": str(expected), "state": state, "width": width,
-                           "height": height, "bytes": expected.stat().st_size}
+                           "height": height, "bytes": expected.stat().st_size,
+                           "captureId": capture_id, "frame": result.get("frame")}
                 if inspect_black:
                     capture["opaqueBlack"] = opaque_black_png(expected)
                 return capture
-            if state != "pending":
+            if state not in {"waiting_frame", "reading_back", "writing"}:
                 raise RuntimeError(f"Capture did not complete successfully: {state}")
             if time.monotonic() >= deadline:
                 raise RuntimeError("Capture is still processing; query get_frame_capture instead of resending the request")
             time.sleep(0.1)
-            result = self.call("get_frame_capture")
+            result = self.call("get_frame_capture", {"captureId": capture_id})
 
-    def capture_when_visible(self, relative_path, max_wait=30):
-        """Retain black frames and retry while a scene may still be preparing."""
-        path = Path(relative_path)
+    def status(self):
+        result, _ = self.request_tool("get_status", {})
+        values = []
+        for block in result.get("content", []):
+            if block.get("type") == "text":
+                try:
+                    value = json.loads(block.get("text", ""))
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(value, dict):
+                    values.append(value)
+        if result.get("isError") or len(values) != 1:
+            raise RuntimeError(f"MCP status is unavailable: {result}")
+        self.validate_identity("get_status", values[0])
+        return values[0]
+
+    def wait_scene(self, max_wait=30):
+        """Wait on runtime scene/load/frame facts; pixel color is only a visual assertion."""
         deadline = time.monotonic() + min(max_wait, self.timeout)
-        captures = []
-        while True:
-            attempt = len(captures)
-            destination = path if attempt == 0 else path.with_name(
-                f"{path.stem}-wait-{attempt}{path.suffix}")
-            capture = self.capture(str(destination), inspect_black=True)
-            captures.append(capture)
-            if capture["opaqueBlack"] is not True or time.monotonic() >= deadline:
-                return captures
-            time.sleep(min(1, max(0, deadline - time.monotonic())))
+        last_status = None
+        while time.monotonic() < deadline:
+            last_status = self.status()
+            loads = [self.call("get_scene_load", {"loadId": identity})
+                     for identity in last_status.get("loadIds", [])]
+            failed = [load for load in loads if load.get("state") == "failed"]
+            if failed:
+                raise RuntimeError(f"Scene preparation failed: {failed}")
+            pending = [load for load in loads if
+                       load.get("state") not in {"active", "cancelled", "failed"}]
+            frame = last_status.get("frame") or {}
+            if not pending and frame.get("kind") == "scene" and last_status.get("windowDrawable", True):
+                active = [load for load in loads if load.get("targetAlive") and load.get("state") == "active"]
+                return active[-1]["scope"] if active else {
+                    "worldEpoch": frame["worldEpoch"], "value": frame["sceneId"]}
+            time.sleep(0.1)
+        raise RuntimeError(f"Scene readiness timed out; last status: {last_status}")
+
+    def capture_scene(self, relative_path, max_wait=30):
+        scope = self.wait_scene(max_wait)
+        return [self.capture(relative_path, inspect_black=True, scope=scope)]

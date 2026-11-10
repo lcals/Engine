@@ -86,7 +86,7 @@ bool RenderSystem::SceneGpuResources::prepare_lighting(
     {
         // Bake every selected surface, even beyond the gameplay light's fade range.
         // Tighten the request frustum to its actual contributors instead of stretching
-        // a shadow cascade to an arbitrary hemicube far plane (often 10000 metres).
+        // a targets().shadow cascade to an arbitrary hemicube far plane (often 10000 metres).
         float farthest = lens.near_clip;
         for (const auto id : capture->node_ids)
         {
@@ -127,12 +127,13 @@ bool RenderSystem::SceneGpuResources::prepare_lighting(
     {
         caster_ids = capture->node_ids;
     }
-    if (!shadow.draw(frame_data, light_settings, frame, shadow_fallback, shadow_depth, config,
-                     local_lights, lights, draw.world, base, capture ? &caster_ids : nullptr))
+    if (!targets().shadow.draw(frame_data, light_settings, frame, shadow_fallback, shadow_depth,
+                               config, local_lights, lights, draw.world, base,
+                               capture ? &caster_ids : nullptr))
     {
         return false;
     }
-    auto& cluster = clusters[cluster_index];
+    auto& cluster = targets().clusters[cluster_index];
     if (!cluster.cull(static_cast<bgfx::ViewId>(base + 28), lens, draw.view, draw.projection,
                       lights, frame.local_records))
     {
@@ -171,7 +172,7 @@ bool RenderSystem::SceneGpuResources::draw_meshes(const render_detail::RenderFra
     const bool transparent = mode == SceneDrawMode::transparent;
     const bool ibl_ready =
         settings.ibl_enabled &&
-        std::all_of(ibl_textures.begin(), ibl_textures.end(),
+        std::all_of(targets().ibl_textures.begin(), targets().ibl_textures.end(),
                     [](const auto* texture) { return texture && bgfx::isValid(texture->handle); });
     const float camera_position_value[]{draw.world[12], draw.world[13], draw.world[14], 1};
     const float ambient_value[]{settings.ambient_color[0], settings.ambient_color[1],
@@ -189,9 +190,9 @@ bool RenderSystem::SceneGpuResources::draw_meshes(const render_detail::RenderFra
     const float tone[]{settings.exposure, settings.filmic_tonemap ? 1.0F : 0.0F, 1, 0};
     const float ibl[]{
         ibl_ready ? 1.0F : 0.0F, settings.ibl_intensity,
-        ibl_ready
-            ? static_cast<float>(ibl_textures[1]->resource.data<TextureResource>()->mip_count - 1)
-            : 0,
+        ibl_ready ? static_cast<float>(
+                        targets().ibl_textures[1]->resource.data<TextureResource>()->mip_count - 1)
+                  : 0,
         0};
     const float shadow_values[]{draw.shadow_bias, draw.inverse_shadow_size,
                                 static_cast<float>(draw.shadow_light),
@@ -344,7 +345,7 @@ bool RenderSystem::SceneGpuResources::draw_meshes(const render_detail::RenderFra
             bx::mtxIdentity(planar_matrix.data());
             if (!draw.reflection && !capture)
             {
-                for (const auto& plane : planar)
+                for (const auto& plane : targets().planar)
                 {
                     if (plane.node_id == mesh.gpu->node_id && bgfx::isValid(plane.texture()))
                     {
@@ -363,18 +364,19 @@ bool RenderSystem::SceneGpuResources::draw_meshes(const render_detail::RenderFra
             bgfx::setUniform(frame_valid, valid.data());
             bgfx::setUniform(planar_projection, planar_matrix.data());
             bgfx::setTexture(render_detail::ambient_occlusion_stage, ao_sampler,
-                             use_ao ? ambient_occlusion.texture() : shadow_fallback);
+                             use_ao ? targets().ambient_occlusion.texture() : shadow_fallback);
             bgfx::setTexture(render_detail::ibl_irradiance_stage, ibl_irradiance_sampler,
-                             ibl_ready ? ibl_textures[0]->handle : ibl_cube_fallback);
+                             ibl_ready ? targets().ibl_textures[0]->handle : ibl_cube_fallback);
             bgfx::setTexture(render_detail::ibl_prefilter_stage, ibl_prefilter_sampler,
-                             ibl_ready ? ibl_textures[1]->handle : ibl_cube_fallback);
+                             ibl_ready ? targets().ibl_textures[1]->handle : ibl_cube_fallback);
             bgfx::setTexture(render_detail::ibl_lut_stage, ibl_lut_sampler,
-                             ibl_ready ? ibl_textures[2]->handle : ibl_lut_fallback);
+                             ibl_ready ? targets().ibl_textures[2]->handle : ibl_lut_fallback);
             const float surface_value[]{material.cull != schema::CullMode::back ? 1.0F : 0.0F,
                                         static_cast<float>(material.blend), 0, 0};
             bgfx::setUniform(surface, surface_value);
             bgfx::setTexture(render_detail::shadow_sampler_stage, shadow_sampler,
-                             bgfx::isValid(shadow.texture()) ? shadow.texture() : shadow_fallback);
+                             bgfx::isValid(targets().shadow.texture()) ? targets().shadow.texture()
+                                                                       : shadow_fallback);
             const auto& coefficients = item.coefficients;
             const auto lightmap = item.lightmap;
             const bool has_lightmap = item.has_lightmap, has_probe = item.has_probe;

@@ -40,10 +40,10 @@
 #include "plugins/editor/asset_build/asset_build_system.hpp"
 #include "plugins/editor/asset_sync/asset_sync_system.hpp"
 #include "plugins/editor/mcp/editor_mcp_tools.hpp"
-#include "plugins/editor/mcp/mcp_system.hpp"
 #include "plugins/editor/mcp/project_mcp_tools.hpp"
 #include "plugins/editor/mcp/render_mcp_tools.hpp"
 #include "plugins/editor/mcp/scene_preview_mcp_tools.hpp"
+#include "plugins/runtime/mcp/mcp_system.hpp"
 #include "runtime/engine_config.hpp"
 #include "runtime/task/task_system.hpp"
 #include "runtime/task/thread_system.hpp"
@@ -54,11 +54,11 @@
 #endif
 
 #if ENGINE_HAS_ASSET_IMPORT_PLUGIN
+#include "plugins/editor/asset_import/fbx_importer.hpp"
 #include "plugins/editor/asset_import/font_importer.hpp"
-#include "plugins/editor/asset_import/ui_importer.hpp"
 #include "plugins/editor/asset_import/json_importer.hpp"
 #include "plugins/editor/asset_import/movie_importer.hpp"
-#include "plugins/editor/asset_import/fbx_importer.hpp"
+#include "plugins/editor/asset_import/ui_importer.hpp"
 #include "plugins/editor/asset_import/usd_importer.hpp"
 #endif
 

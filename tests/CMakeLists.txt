@@ -112,6 +112,7 @@ if(TARGET engine_ui_editor AND TARGET engine_asset_import AND TARGET engine_reso
 endif()
 
 if(TARGET engine_script)
+    if(ENGINE_ENABLE_TEST_SUPPORT)
     add_executable(engine_project_script_test plugins/runtime/script/project_script_test.cpp)
     target_link_libraries(engine_project_script_test PRIVATE engine::script)
     target_include_directories(engine_project_script_test PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
@@ -120,7 +121,9 @@ if(TARGET engine_script)
     add_test(NAME engine.project_script COMMAND engine_project_script_test)
     set_tests_properties(engine.project_script PROPERTIES TIMEOUT 60)
 
-    if(TARGET engine_resource_graph)
+    endif()
+
+    if(ENGINE_ENABLE_TEST_SUPPORT AND TARGET engine_resource_graph)
         add_executable(engine_script_runtime_test plugins/runtime/script/script_runtime_test.cpp)
         target_link_libraries(engine_script_runtime_test PRIVATE engine::resource_graph)
         target_include_directories(engine_script_runtime_test PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
@@ -515,6 +518,7 @@ if(ENGINE_ENABLE_RUNTIME_DEPS AND TARGET engine_resource_graph)
                 SDL3::SDL3
                 bgfx::bgfx
                 bgfx::bimg
+                bgfx::bimg_decode
                 basisu::basisu_encoder)
     engine_apply_options(engine_window_render_test)
     target_compile_definitions(engine_window_render_test PRIVATE
@@ -1545,7 +1549,7 @@ if(TARGET engine_animation_tools)
     add_test(NAME editor.retarget_importer COMMAND engine_retarget_importer_test)
 endif()
 
-if(TARGET engine_script AND TARGET engine_animation AND TARGET engine_resource_graph)
+if(ENGINE_ENABLE_TEST_SUPPORT AND TARGET engine_script AND TARGET engine_animation AND TARGET engine_resource_graph)
     add_executable(engine_animation_state_machine_script_test
         plugins/runtime/script/animation_state_machine_script_test.cpp)
     target_link_libraries(engine_animation_state_machine_script_test PRIVATE engine::resource_graph)
@@ -1566,7 +1570,7 @@ if(TARGET engine_resource)
     add_test(NAME resource.skeleton_rig_definitions COMMAND engine_skeleton_rig_definitions_test)
 endif()
 
-if(TARGET engine_script AND TARGET engine_animation)
+if(ENGINE_ENABLE_TEST_SUPPORT AND TARGET engine_script AND TARGET engine_animation)
     if(TARGET engine_resource_graph)
         add_executable(engine_animation_events_script_test
             plugins/runtime/script/animation_events_script_test.cpp)

@@ -1,9 +1,11 @@
 #include "runtime/ui/ui_system.hpp"
+#include "runtime/render/frame_counters.hpp"
 #include "runtime/resource/types/shader_resource.hpp"
 #include "runtime/resource/types/texture_resource.hpp"
 #include "runtime/resource/types/ui_resource.hpp"
 #include "runtime/scene/ecs_scene.hpp"
 #include "runtime/scene/ecs_storage.hpp"
+#include "runtime/scene/scope_work.hpp"
 
 #include "runtime/font/font_system.hpp"
 #include "runtime/performance/profiling.hpp"
@@ -210,6 +212,7 @@ struct UiSystem::State final : Rml::EventListener
     ui_detail::RmlFont font_engine;
     ui_detail::RmlRender renderer;
     std::vector<Document> documents;
+    std::map<SceneScopeId, scene_detail::ScopeWork> preparing;
     std::deque<UiEvent> events;
     bool initialized = false;
     Rml::Context* keyboard_context = nullptr;
@@ -229,6 +232,67 @@ struct UiSystem::State final : Rml::EventListener
             std::find_if(documents.begin(), documents.end(),
                          [node](const auto& document) { return document.node == node; });
         return found == documents.end() ? nullptr : &*found;
+    }
+    bool prepare_document(WorldSystem& world, Node node, const ecs_detail::NodeRuntime& state,
+                          bool& changed)
+    {
+        const auto* scene = node.scene();
+        (void)scene;
+
+        const auto ui = node.get_component<UiComponent>();
+        if (!ui || ui.document().id == 0)
+        {
+            return true;
+        }
+        if (auto* document = this->find_document(node.id()))
+        {
+            document->order = state.order;
+            document->persistent = node.persistent();
+            return true;
+        }
+        State::Document candidate;
+        candidate.scene = scene->id();
+        candidate.node = node.id();
+        candidate.view = ui.instance_id();
+        candidate.revision = ui.document_revision();
+        candidate.id = next_document_id();
+        candidate.order = state.order;
+        candidate.persistent = node.persistent();
+        if (!candidate.resource.retain(world.resource_loader(), ui.document()))
+        {
+            return false;
+        }
+        candidate.key = candidate.resource->info().guid + "-" +
+                        std::to_string(candidate.resource->generation());
+        if (candidate.id == 0 || !this->activate(candidate))
+        {
+            this->prune();
+            return false;
+        }
+        const auto name = "scene-ui-" + std::to_string(candidate.id);
+        candidate.context = Rml::CreateContext(name, {logical_width, logical_height});
+        if (!candidate.context)
+        {
+            this->prune();
+            return false;
+        }
+        candidate.markup = candidate.context->LoadDocumentFromMemory(
+            candidate.resource.data<UiResource>()->markup,
+            "engine-ui/" + candidate.key + "/" + candidate.resource->info().path);
+        if (!candidate.markup)
+        {
+            this->close(candidate);
+            this->prune();
+            return false;
+        }
+        candidate.markup->AddEventListener("click", this);
+        candidate.markup->AddEventListener("change", this);
+        candidate.markup->AddEventListener("input", this);
+        candidate.visible = false;
+        this->documents.push_back(std::move(candidate));
+        changed = true;
+
+        return true;
     }
     bool activate(Document& document)
     {
@@ -452,6 +516,114 @@ bool UiSystem::on_initialize(const EngineConfig&)
     state_->initialized = Rml::Initialise();
     return state_->initialized;
 }
+SceneWorkState UiSystem::prepare_scope(SceneScopeId scope, const SceneWorkBudget& budget)
+{
+    if (!state_->initialized || !world_.refresh_scene_state())
+    {
+        return SceneWorkState::failed;
+    }
+    if (!window_.can_render())
+    {
+        return SceneWorkState::working;
+    }
+    int width = 0, height = 0, pixel_width = 0, pixel_height = 0;
+    if (!SDL_GetWindowSize(window_.native_window(), &width, &height) ||
+        !SDL_GetWindowSizeInPixels(window_.native_window(), &pixel_width, &pixel_height))
+    {
+        return SceneWorkState::failed;
+    }
+    state_->logical_width = width;
+    state_->logical_height = height;
+    std::erase_if(state_->preparing,
+                  [&](const auto& entry) { return !world_.scope_candidate(entry.first); });
+    auto found = state_->preparing.find(scope);
+    if (found == state_->preparing.end())
+    {
+        scene_detail::ScopeWork work;
+        if (!scene_detail::begin_work(world_, scope, "ui", work))
+        {
+            return SceneWorkState::failed;
+        }
+        found = state_->preparing.emplace(scope, std::move(work)).first;
+    }
+    return scene_detail::step_work(
+        found->second, budget,
+        [&](Node node)
+        {
+            const auto ui = node.get_component<UiComponent>();
+            if (!ui || !ui.active() || ui.document().id == 0)
+            {
+                return true;
+            }
+            bool changed = false;
+            const auto* runtime = flecs::world(world_.native_world())
+                                      .entity(node.id())
+                                      .try_get<ecs_detail::NodeRuntime>();
+            if (!runtime || !state_->prepare_document(world_, node, *runtime, changed))
+            {
+                return false;
+            }
+            auto* document = state_->find_document(node.id());
+            if (!document || !state_->activate(*document) ||
+                !state_->renderer.begin(static_cast<std::uint32_t>(pixel_width),
+                                        static_cast<std::uint32_t>(pixel_height), width, height))
+            {
+                return false;
+            }
+            state_->renderer.set_preparing(true);
+            document->markup->Show(Rml::ModalFlag::None, Rml::FocusFlag::None);
+            const bool ready = document->context->Update() && document->context->Render() &&
+                               state_->renderer.healthy();
+            if (!document->visible)
+            {
+                document->markup->Hide();
+            }
+            state_->renderer.set_preparing(false);
+            return ready;
+        });
+}
+bool UiSystem::scope_status(SceneScopeId scope, ScenePreparationSnapshot& output) const
+{
+    output = {};
+    if (!state_)
+    {
+        return false;
+    }
+    const auto found = state_->preparing.find(scope);
+    if (found == state_->preparing.end())
+    {
+        return false;
+    }
+    output = found->second.snapshot;
+    return true;
+}
+void UiSystem::release_scope(SceneScopeId scope) noexcept
+{
+    if (!state_)
+    {
+        return;
+    }
+    const auto found = state_->preparing.find(scope);
+    if (found == state_->preparing.end())
+    {
+        return;
+    }
+    for (auto node : found->second.nodes)
+    {
+        std::erase_if(state_->documents,
+                      [&](auto& document)
+                      {
+                          if (document.node != node.id())
+                          {
+                              return false;
+                          }
+                          state_->close(document);
+                          return true;
+                      });
+    }
+    state_->preparing.erase(found);
+}
+
 bool UiSystem::synchronize()
 {
     ENGINE_PROFILE_ZONE("Ui.synchronize");
@@ -459,7 +631,7 @@ bool UiSystem::synchronize()
     {
         return false;
     }
-    if (world_.scenes().empty())
+    if (world_.scenes().empty() && state_->preparing.empty())
     {
         if (!state_->documents.empty())
         {
@@ -487,7 +659,23 @@ bool UiSystem::synchronize()
     state_->logical_height = logical_height;
     const auto wanted = [&](const State::Document& document)
     {
-        const auto node = world_.find_node(document.node);
+        auto node = world_.find_node(document.node);
+        if (!node)
+        {
+            for (const auto& [scope, work] : state_->preparing)
+            {
+                (void)work;
+                auto* candidate = world_.scope_candidate(scope);
+                if (candidate)
+                {
+                    node = candidate->find_node(document.node);
+                }
+                if (node)
+                {
+                    break;
+                }
+            }
+        }
         const auto ui = node ? node.get_component<UiComponent>() : UiComponent{};
         const Resource* current = nullptr;
         return ui && world_.resource_loader() &&
@@ -508,69 +696,6 @@ bool UiSystem::synchronize()
                       return true;
                   });
     {
-        const auto process = [&](Node node,
-                                 const ecs_detail::ComponentStorage<UiComponent::Data>& stored,
-                                 const ecs_detail::NodeRuntime& state) -> bool
-        {
-            const auto* scene = node.scene();
-            (void)scene;
-            (void)stored;
-
-            const auto ui = node.get_component<UiComponent>();
-            if (!ui || ui.document().id == 0)
-            {
-                return true;
-            }
-            if (auto* document = state_->find_document(node.id()))
-            {
-                document->order = state.order;
-                document->persistent = node.persistent();
-                return true;
-            }
-            State::Document candidate;
-            candidate.scene = scene->id();
-            candidate.node = node.id();
-            candidate.view = ui.instance_id();
-            candidate.revision = ui.document_revision();
-            candidate.id = next_document_id();
-            candidate.order = state.order;
-            candidate.persistent = node.persistent();
-            if (!candidate.resource.retain(world_.resource_loader(), ui.document()))
-            {
-                return false;
-            }
-            candidate.key = candidate.resource->info().guid + "-" +
-                            std::to_string(candidate.resource->generation());
-            if (candidate.id == 0 || !state_->activate(candidate))
-            {
-                state_->prune();
-                return false;
-            }
-            const auto name = "scene-ui-" + std::to_string(candidate.id);
-            candidate.context = Rml::CreateContext(name, {logical_width, logical_height});
-            if (!candidate.context)
-            {
-                state_->prune();
-                return false;
-            }
-            candidate.markup = candidate.context->LoadDocumentFromMemory(
-                candidate.resource.data<UiResource>()->markup,
-                "engine-ui/" + candidate.key + "/" + candidate.resource->info().path);
-            if (!candidate.markup)
-            {
-                state_->close(candidate);
-                state_->prune();
-                return false;
-            }
-            candidate.markup->AddEventListener("click", state_.get());
-            candidate.markup->AddEventListener("change", state_.get());
-            candidate.markup->AddEventListener("input", state_.get());
-            candidate.visible = false;
-            state_->documents.push_back(std::move(candidate));
-            changed = true;
-
-            return true;
-        };
         auto query = flecs::world(world_.native_world())
                          .query_builder<const ecs_detail::ComponentStorage<UiComponent::Data>,
                                         const ecs_detail::NodeRuntime>()
@@ -583,7 +708,9 @@ bool UiSystem::synchronize()
             {
                 if (query_success)
                 {
-                    query_success = process(world_.find_node(entity.id()), stored, state);
+                    (void)stored;
+                    query_success = state_->prepare_document(world_, world_.find_node(entity.id()),
+                                                             state, changed);
                 }
             });
         if (!query_success)
@@ -664,6 +791,7 @@ bool UiSystem::synchronize()
 }
 bool UiSystem::render(std::uint32_t width, std::uint32_t height)
 {
+    const render_detail::UiDrawScope counters;
     ENGINE_PROFILE_ZONE("Ui.render");
     if (!synchronize())
     {

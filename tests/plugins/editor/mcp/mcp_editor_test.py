@@ -143,7 +143,7 @@ def test(editor, mcp, root, temporary):
             mcp,
             project,
             runtime,
-            "get_editor_receipt",
+            "get_request_receipt",
             {"session": session, "requestId": edited["requestId"]},
         )
         require(stored == edited, "receipt lookup returned a newer command instead of requested id")
@@ -227,7 +227,7 @@ def test(editor, mcp, root, temporary):
             mcp,
             project,
             runtime,
-            "get_editor_receipt",
+            "get_request_receipt",
             {"session": session, "requestId": failed_batch["requestId"]},
         )
         require(

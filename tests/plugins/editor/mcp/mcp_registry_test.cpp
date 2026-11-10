@@ -1,4 +1,4 @@
-#include "plugins/editor/mcp/mcp_system.hpp"
+#include "plugins/runtime/mcp/mcp_system.hpp"
 #include "runtime/engine_config.hpp"
 #include "utf8_fixture.hpp"
 

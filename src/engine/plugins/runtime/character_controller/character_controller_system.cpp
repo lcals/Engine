@@ -114,6 +114,7 @@ bool CharacterControllerSystem::on_tick(double dt)
                      .query_builder<const ecs_detail::ComponentStorage<CharacterController::Data>,
                                     CharacterControllerRuntime>()
                      .with<ecs_detail::Published>()
+                     .with<ecs_detail::Simulating>()
                      .build();
     query.each(
         [&](flecs::entity e, const auto& stored, CharacterControllerRuntime& r)

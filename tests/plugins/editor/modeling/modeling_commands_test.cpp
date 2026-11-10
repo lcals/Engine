@@ -12,8 +12,8 @@
 
 #ifdef ENGINE_TEST_MODELING_MCP
 #include "plugins/editor/mcp/editor_mcp_tools.hpp"
-#include "plugins/editor/mcp/mcp_system.hpp"
 #include "plugins/editor/modeling/modeling_mcp_tools.hpp"
+#include "plugins/runtime/mcp/mcp_system.hpp"
 #endif
 
 #include <nlohmann/json.hpp>

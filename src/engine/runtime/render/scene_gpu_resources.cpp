@@ -1,4 +1,5 @@
 #include "runtime/render/scene_gpu_resources.hpp"
+#include "runtime/render/scene_render_query.hpp"
 #include "runtime/scene/ecs_scene.hpp"
 #include "runtime/scene/ecs_storage.hpp"
 
@@ -152,9 +153,10 @@ void RenderSystem::SceneGpuResources::release() noexcept
     {
         mesh.release();
     }
+    retained_meshes.clear();
     programs.clear();
     textures.clear();
-    ibl_textures.fill(nullptr);
+
     release_capture();
     if (bgfx::isValid(hdr_capture_readback))
     {
@@ -162,19 +164,8 @@ void RenderSystem::SceneGpuResources::release() noexcept
         hdr_capture_readback = BGFX_INVALID_HANDLE;
     }
     hdr_capture_pixels.clear();
-    for (auto& cluster : clusters)
-    {
-        cluster.release();
-    }
-    for (auto& reflection : planar)
-    {
-        reflection.release();
-    }
-    surface_pass.release();
-    reflections.release();
-    shadow.release();
-    ambient_occlusion.release();
-    hdr_post_process.release();
+    pass_targets.clear();
+    selected_targets = nullptr;
     if (bgfx::isValid(shadow_fallback))
     {
         bgfx::destroy(shadow_fallback);
@@ -268,7 +259,6 @@ void RenderSystem::SceneGpuResources::release() noexcept
     geometries.clear();
     skinning.release();
     textures.clear();
-    ibl_generation = 0;
 }
 
 std::uint32_t RenderSystem::SceneGpuResources::resource_count() const noexcept
@@ -310,19 +300,24 @@ std::uint32_t RenderSystem::SceneGpuResources::resource_count() const noexcept
                           static_cast<std::uint32_t>(bgfx::isValid(ibl_lut_fallback)) +
                           static_cast<std::uint32_t>(bgfx::isValid(ao_settings)) +
                           static_cast<std::uint32_t>(bgfx::isValid(ao_sampler)) +
-                          shadow.resource_count() + ambient_occlusion.resource_count() +
-                          hdr_post_process.resource_count() + skinning.resource_count();
+                          skinning.resource_count();
     count += static_cast<std::uint32_t>(bgfx::isValid(capture_sky_program)) +
              static_cast<std::uint32_t>(bgfx::isValid(capture_inverse)) +
              static_cast<std::uint32_t>(bgfx::isValid(capture_fullscreen));
-    count += surface_pass.resource_count() + reflections.resource_count();
-    for (const auto& cluster : clusters)
+    for (const auto& [id, target] : pass_targets)
     {
-        count += cluster.resource_count();
-    }
-    for (const auto& reflection : planar)
-    {
-        count += reflection.resource_count();
+        (void)id;
+        count += target->shadow.resource_count() + target->ambient_occlusion.resource_count() +
+                 target->hdr_post_process.resource_count() + target->surface_pass.resource_count() +
+                 target->reflections.resource_count();
+        for (const auto& cluster : target->clusters)
+        {
+            count += cluster.resource_count();
+        }
+        for (const auto& plane : target->planar)
+        {
+            count += plane.resource_count();
+        }
     }
     count += static_cast<std::uint32_t>(bgfx::isValid(capture_framebuffer));
     count += static_cast<std::uint32_t>(bgfx::isValid(hdr_capture_readback));
@@ -343,6 +338,12 @@ std::uint32_t RenderSystem::SceneGpuResources::resource_count() const noexcept
     }
     for (const auto& mesh : meshes)
     {
+        count += static_cast<std::uint32_t>(bgfx::isValid(mesh.deformed_vertices)) +
+                 static_cast<std::uint32_t>(bgfx::isValid(mesh.palette));
+    }
+    for (const auto& [id, mesh] : retained_meshes)
+    {
+        (void)id;
         count += static_cast<std::uint32_t>(bgfx::isValid(mesh.deformed_vertices)) +
                  static_cast<std::uint32_t>(bgfx::isValid(mesh.palette));
     }
@@ -395,14 +396,14 @@ bool RenderSystem::SceneGpuResources::collect_ibl(const Scene* scene,
             flecs::world(scene->world().native_world())
                 .query_builder<const ecs_detail::ComponentStorage<EnvironmentComponent::Data>,
                                const EnvironmentRuntime, const ecs_detail::NodeRuntime>()
-                .with<ecs_detail::Published>()
                 .build();
         query.each(
-            [&](const auto& stored, const EnvironmentRuntime& runtime,
+            [&](flecs::entity entity, const auto& stored, const EnvironmentRuntime& runtime,
                 const ecs_detail::NodeRuntime& state)
             {
-                if (state.scene == scene && state.active && state.visible_in_hierarchy &&
-                    stored.state.flags.enabled && stored.state.flags.visible)
+                if (render_detail::scope_node(*scene, entity.id()) && state.active &&
+                    state.visible_in_hierarchy && stored.state.flags.enabled &&
+                    stored.state.flags.visible)
                 {
                     snapshot = stored.data;
                     environment = &snapshot;
@@ -430,7 +431,7 @@ bool RenderSystem::SceneGpuResources::collect_ibl(const Scene* scene,
                 return false;
             }
         }
-        auto& previous = preparation.ibl_sources[index];
+        auto& previous = targets().ibl_sources[index];
         if (previous != source)
         {
             if (previous)
@@ -447,7 +448,7 @@ bool RenderSystem::SceneGpuResources::collect_ibl(const Scene* scene,
             }
             previous = source;
         }
-        ibl_textures[index] = nullptr;
+        targets().ibl_textures[index] = nullptr;
     }
     return true;
 }

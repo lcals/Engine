@@ -2,7 +2,7 @@
 #include "plugins/editor/mcp/editor_tool_registration.hpp"
 
 #include "plugins/editor/mcp/editor_mcp_tools.hpp"
-#include "plugins/editor/mcp/mcp_system.hpp"
+#include "plugins/runtime/mcp/mcp_system.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -15,10 +15,8 @@ namespace engine::plugins::mcp
 bool register_scene_preview_tools(McpSystem& system, EditorMcpTools& editor)
 {
     using Json = nlohmann::json;
-    const Json vector = {{"type", "array"},
-                         {"items", {{"type", "number"}}},
-                         {"minItems", 3},
-                         {"maxItems", 3}};
+    const Json vector = {
+        {"type", "array"}, {"items", {{"type", "number"}}}, {"minItems", 3}, {"maxItems", 3}};
     const Json camera =
         object_schema({{"position", vector},
                        {"rotation", vector},

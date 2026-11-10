@@ -60,8 +60,7 @@ if(ENGINE_ENABLE_EDITOR_DEPS)
                 src/engine/editor/commands/components/audio_source_commands.cpp
                 src/engine/editor/commands/components/animator_commands.cpp
                 src/engine/editor/commands/components/character_motor_commands.cpp
-                src/engine/editor/commands/components/audio_listener_commands.cpp
-                src/engine/editor/commands/editor_command_channel.cpp)
+                src/engine/editor/commands/components/audio_listener_commands.cpp)
     target_include_directories(engine_editor PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
     target_link_libraries(
         engine_editor

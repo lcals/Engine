@@ -75,7 +75,7 @@ bool register_component_storage(ComponentRegistry& registry)
     };
     ops.create = [](Node node) -> Component
     {
-        if (!node || !node.world()->can_modify())
+        if (!node || !ecs_detail::scope_writable(node))
         {
             return {};
         }
@@ -112,7 +112,7 @@ bool register_component_storage(ComponentRegistry& registry)
     };
     ops.remove = [](Node node) -> bool
     {
-        if (!node || !node.world()->can_modify())
+        if (!node || !ecs_detail::scope_writable(node))
         {
             return false;
         }

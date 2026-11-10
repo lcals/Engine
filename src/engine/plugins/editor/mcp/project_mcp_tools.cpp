@@ -4,8 +4,8 @@
 #include "editor/asset_pipeline/asset_pipeline_system.hpp"
 #include "plugins/editor/asset_build/asset_build_system.hpp"
 #include "plugins/editor/asset_sync/asset_sync_system.hpp"
-#include "plugins/editor/mcp/mcp_system.hpp"
 #include "plugins/editor/mcp/project_tool_utils.hpp"
+#include "plugins/runtime/mcp/mcp_system.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/utils/path_utils.hpp"
 

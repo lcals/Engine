@@ -46,6 +46,7 @@ std::atomic<std::uint64_t> last_run_id{0};
     return 0;
 }
 
+#if defined(ENGINE_ENABLE_TEST_SUPPORT)
 [[nodiscard]] bool relative_path(std::string_view input, std::string& normalized)
 {
     normalized.clear();
@@ -70,6 +71,7 @@ std::atomic<std::uint64_t> last_run_id{0};
     normalized = PathUtils::to_utf8(clean);
     return !normalized.empty() && normalized != "." && normalized.back() != '/';
 }
+#endif
 
 [[nodiscard]] bool script_path(std::string_view path)
 {
@@ -143,6 +145,7 @@ struct ScriptSystem::State
                        state.navigation, state.input, state.window, state.movies),
               machine(vm::create_script_vm())
         {
+            bindings.set_gameplay_session(state.gameplay);
         }
 
         ~Run()
@@ -180,6 +183,7 @@ struct ScriptSystem::State
         }
     };
 
+    GameplaySession* gameplay = nullptr;
     ScriptStatus& status;
     bindings::ScriptBindingRegistry binding_registry;
     ResourceLoader* resources = nullptr;
@@ -334,6 +338,7 @@ bool ScriptSystem::on_initialize(const EngineConfig&)
     status_.last_error.clear();
     state_ = std::make_unique<State>(status_, resources_, world_, renderer_, ui_, physics_,
                                      navigation_, input_, window_, movies_);
+    state_->gameplay = gameplay_;
     if (!state_->binding_registry.initialize())
     {
         return state_->fail("Cannot register script binding modules");
@@ -375,6 +380,20 @@ bool ScriptSystem::on_initialize(const EngineConfig&)
     return true;
 }
 
+bool ScriptSystem::bind_gameplay_session(GameplaySession* session)
+{
+    if (state_ && (state_->active || state_->prepared || state_->calling))
+    {
+        return false;
+    }
+    gameplay_ = session;
+    if (state_)
+    {
+        state_->gameplay = session;
+    }
+    return true;
+}
+
 bool ScriptSystem::prepare_gameplay(const ResourceHandle& entry, std::string_view revision)
 {
     if (!is_initialized() || !state_)
@@ -411,6 +430,7 @@ void ScriptSystem::stop_gameplay() noexcept
     }
 }
 
+#if defined(ENGINE_ENABLE_TEST_SUPPORT)
 bool ScriptSystem::execute_project_script(const ResourceHandle& script_handle,
                                           const ProjectScriptRequest& request,
                                           std::string& result_json, std::string& error)
@@ -465,6 +485,8 @@ bool ScriptSystem::execute_project_script(const ResourceHandle& script_handle,
     }
     return success;
 }
+
+#endif
 
 const ScriptStatus& ScriptSystem::status() const noexcept
 {

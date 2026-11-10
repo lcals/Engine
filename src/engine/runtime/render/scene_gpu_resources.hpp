@@ -29,6 +29,27 @@
 namespace engine
 {
 
+enum class RenderPrepareStatus
+{
+    idle,
+    preparing,
+    ready,
+    failed
+};
+
+struct RenderPrepareProgress
+{
+    std::uint64_t generation = 0;
+    std::uint32_t resources_total = 0;
+    std::uint32_t resources_ready = 0;
+    std::uint64_t staging_bytes = 0;
+    bool discovery_complete = false;
+    std::uint32_t instances_total = 0, instances_ready = 0;
+    std::uint32_t programs_total = 0, programs_ready = 0;
+    std::uint32_t texture_jobs = 0;
+    std::uint64_t decoded_blocks = 0, upload_bytes = 0, upload_total = 0;
+};
+
 class Scene;
 class Resource;
 
@@ -62,6 +83,7 @@ struct RenderSystem::SceneGpuResources
 {
     std::vector<RenderViewStats> view_stats;
     render_detail::RenderFrameData frame_data;
+    bool frame_complete = false;
     std::array<render_detail::ViewDrawList, 4> draw_lists;
     bool culling_applied = false;
     bool lod_applied = false;
@@ -73,6 +95,7 @@ struct RenderSystem::SceneGpuResources
     std::array<float, 4> frame_time{};
     bgfx::UniformHandle frame_time_uniform = BGFX_INVALID_HANDLE;
     std::vector<render_detail::GpuMesh> meshes;
+    std::map<std::uint64_t, render_detail::GpuMesh> retained_meshes;
     std::map<render_detail::RenderInstanceKey, std::size_t> mesh_index;
     std::map<const Resource*, std::weak_ptr<render_detail::GpuGeometry>> geometries;
     render_detail::SkinningPass skinning;
@@ -110,13 +133,6 @@ struct RenderSystem::SceneGpuResources
     bgfx::UniformHandle ibl_lut_sampler = BGFX_INVALID_HANDLE;
     bgfx::TextureHandle ibl_cube_fallback = BGFX_INVALID_HANDLE;
     bgfx::TextureHandle ibl_lut_fallback = BGFX_INVALID_HANDLE;
-    std::array<render_detail::GpuTexture*, 3> ibl_textures{};
-    std::uint64_t ibl_generation = 0;
-    render_detail::ShadowPass shadow;
-    std::array<render_detail::ClusteredLightingPass, 4> clusters;
-    std::array<render_detail::PlanarReflectionPass, 2> planar;
-    render_detail::SurfacePass surface_pass;
-    render_detail::ScreenSpaceReflectionPass reflections;
     bgfx::ProgramHandle capture_sky_program = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle capture_inverse = BGFX_INVALID_HANDLE;
     bgfx::VertexBufferHandle capture_fullscreen = BGFX_INVALID_HANDLE;
@@ -138,12 +154,46 @@ struct RenderSystem::SceneGpuResources
     std::uint32_t hdr_capture_ready_frame = 0;
     std::uint16_t hdr_capture_width = 0, hdr_capture_height = 0;
     bool hdr_capture_pending = false;
-    render_detail::AmbientOcclusionPass ambient_occlusion;
-    render_detail::HdrPostProcessPass hdr_post_process;
     bgfx::UniformHandle ao_settings = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle ao_sampler = BGFX_INVALID_HANDLE;
     std::unordered_map<const schema::ShaderDataT*, render_detail::GpuProgram> programs;
 
+    struct PassTargets
+    {
+        std::array<render_detail::GpuTexture*, 3> ibl_textures{};
+        std::uint64_t ibl_generation = 0;
+        render_detail::ShadowPass shadow;
+        std::array<render_detail::ClusteredLightingPass, 4> clusters;
+        std::array<render_detail::PlanarReflectionPass, 2> planar;
+        render_detail::SurfacePass surface_pass;
+        render_detail::ScreenSpaceReflectionPass reflections;
+        render_detail::AmbientOcclusionPass ambient_occlusion;
+        render_detail::HdrPostProcessPass hdr_post_process;
+        std::array<const Resource*, 3> ibl_sources{};
+        std::uint64_t camera_instance = 0;
+        std::vector<std::uint64_t> description;
+        std::size_t stage = 0;
+        bool ibl_dirty = true;
+    };
+    std::map<std::uint64_t, std::unique_ptr<PassTargets>> pass_targets;
+    PassTargets* selected_targets = nullptr;
+    PassTargets& targets()
+    {
+        return *selected_targets;
+    }
+    const PassTargets& targets() const
+    {
+        return *selected_targets;
+    }
+    void select_targets(std::uint64_t scene)
+    {
+        auto& value = pass_targets[scene];
+        if (!value)
+        {
+            value = std::make_unique<PassTargets>();
+        }
+        selected_targets = value.get();
+    }
     SceneGpuResources() = default;
     ~SceneGpuResources() noexcept;
     SceneGpuResources(const SceneGpuResources&) = delete;
@@ -185,25 +235,22 @@ struct RenderSystem::RenderPreparation
     std::string error;
     WorldSystem* observed_world = nullptr;
     std::uint64_t world_epoch = 0;
-    std::uint64_t camera_instance = 0;
     std::vector<std::uint64_t> observers;
     std::vector<std::uint64_t> scenes;
     std::set<std::uint64_t> dirty_nodes;
     std::set<std::uint64_t> pending_materials;
-    std::vector<std::uint64_t> target_description;
-    std::size_t target_stage = 0;
     bool discover = true;
     bool ibl_dirty = true;
     std::uint64_t staging_bytes = 0;
     std::size_t active_jobs = 0;
     std::map<const Resource*, std::shared_ptr<render_detail::TexturePrepareWork>> textures;
     std::set<const Resource*> ready_textures;
+    std::map<const Resource*, std::uint64_t> decoded_blocks, uploaded_bytes, upload_total;
     std::map<const Resource*, std::size_t> texture_users;
     std::map<const schema::ShaderDataT*, std::size_t> program_users;
     std::set<const Resource*> unused_textures;
     std::set<const schema::ShaderDataT*> unused_programs;
     std::set<const schema::ShaderDataT*> pending_programs;
-    std::array<const Resource*, 3> ibl_sources{};
     std::vector<std::shared_ptr<render_detail::TexturePrepareWork>> retired_work;
     std::vector<std::unique_ptr<SceneGpuResources>> retired_scenes;
 

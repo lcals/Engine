@@ -2,8 +2,8 @@
 #include "plugins/editor/mcp/editor_tool_registration.hpp"
 
 #include "plugins/editor/mcp/editor_mcp_tools.hpp"
-#include "plugins/editor/mcp/mcp_system.hpp"
 #include "plugins/editor/modeling/primitive_contract.hpp"
+#include "plugins/runtime/mcp/mcp_system.hpp"
 
 #include <nlohmann/json.hpp>
 

@@ -1,8 +1,8 @@
 #include "editor/file_text.hpp"
 #include "plugins/editor/mcp/project_mcp_tools.hpp"
 
-#include "plugins/editor/mcp/mcp_system.hpp"
 #include "plugins/editor/mcp/project_tool_utils.hpp"
+#include "plugins/runtime/mcp/mcp_system.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/utils/path_utils.hpp"
 
@@ -132,8 +132,8 @@ bool read_status(const fs::path& runtime, Json& response)
         {
             status["runtimeAlive"] = alive;
         }
-        status["state"] = alive ? (runtime_test ? "lastReportedRuntime" : "lastReportedEditor")
-                                : "offline";
+        status["state"] =
+            alive ? (runtime_test ? "lastReportedRuntime" : "lastReportedEditor") : "offline";
         if (!alive)
         {
             status["lastReportedProjectState"] = status["projectState"];

@@ -52,6 +52,10 @@ bool observe_domains(RuntimeStage, WorldSystem&, WindowSystem&, PhysicsSystem&, 
 class TestScript final : public ScriptRuntime
 {
 public:
+    bool bind_gameplay_session(GameplaySession*) override
+    {
+        return true;
+    }
     ~TestScript() noexcept override
     {
         shutdown();
@@ -73,6 +77,7 @@ public:
     {
         status_.running = false;
     }
+#if defined(ENGINE_ENABLE_TEST_SUPPORT)
     bool execute_project_script(const ResourceHandle&, const ProjectScriptRequest&,
                                 std::string& result, std::string& error) override
     {
@@ -80,6 +85,7 @@ public:
         error = "Test runtime has no VM";
         return false;
     }
+#endif
     const ScriptStatus& status() const noexcept override
     {
         return status_;

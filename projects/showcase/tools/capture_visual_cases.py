@@ -127,7 +127,7 @@ def main():
                     entry["totalNodes"] = scene.get("totalNodes")
                     entry["sceneId"] = (scene.get("scene") or {}).get("sceneId")
                     relative = (output / f"{case['id']}.png").relative_to(PROJECT / "cache")
-                    attempts = session.capture_when_visible(str(relative))
+                    attempts = session.capture_scene(str(relative))
                     entry["captureAttempts"] = attempts
                     entry["capture"] = attempts[-1]
                     entry["capture"]["sha256"] = hashlib.sha256(

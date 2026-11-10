@@ -150,8 +150,8 @@ bool project_idle(const std::filesystem::path& root, std::string& error)
             std::string status_text;
             const auto runtime = PathUtils::from_utf8(host["runtimeDir"].get<std::string>());
             nlohmann::json status;
-            if (runtime.is_absolute() && engine::editor::file_detail::read_text(
-                                             runtime / "project-status.json", status_text))
+            if (runtime.is_absolute() &&
+                engine::editor::file_detail::read_text(runtime / "editor-status.json", status_text))
             {
                 status = nlohmann::json::parse(status_text, nullptr, false);
             }

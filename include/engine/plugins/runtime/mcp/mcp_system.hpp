@@ -1,6 +1,6 @@
 #pragma once
 
-#include "plugins/editor/mcp/mcp_tool.hpp"
+#include "plugins/runtime/mcp/mcp_tool.hpp"
 #include "runtime/system/system.hpp"
 
 #include <string_view>

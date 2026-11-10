@@ -1,21 +1,41 @@
 #pragma once
 #include "runtime/render/render_system.hpp"
+#include <SDL3/SDL.h>
+#include <chrono>
 #include <cstdio>
 
 namespace test_support
 {
 inline bool prepare_render(engine::RenderSystem& renderer, engine::Camera camera = {})
 {
-    engine::RenderPrepareProgress progress;
-    const bool ready = renderer.prepare_scene(engine::RenderPrepareMode::synchronous, progress, 0,
-                                              camera) == engine::RenderPrepareStatus::ready;
-    if (!ready)
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+    while (std::chrono::steady_clock::now() < deadline)
     {
-        const auto error = renderer.preparation_error();
-        std::fprintf(stderr, "render preparation failed: %.*s\n", static_cast<int>(error.size()),
-                     error.data());
+        const auto state = renderer.prepare_scope({}, {}, camera);
+        if (state == engine::SceneWorkState::ready || state == engine::SceneWorkState::not_required)
+        {
+            return true;
+        }
+        if (state == engine::SceneWorkState::failed)
+        {
+            engine::ScenePreparationSnapshot snapshot;
+            if (renderer.scope_status({}, snapshot))
+            {
+                for (const auto& stage : snapshot.stages)
+                {
+                    std::fprintf(stderr, "%s\n", stage.error.c_str());
+                }
+            }
+            return false;
+        }
+        if (!renderer.render(camera))
+        {
+            return false;
+        }
+        SDL_Delay(1);
     }
-    return ready;
+    std::fprintf(stderr, "Scene preparation timed out\n");
+    return false;
 }
 inline bool render_frame(engine::RenderSystem& renderer, engine::Camera camera = {})
 {
@@ -23,7 +43,9 @@ inline bool render_frame(engine::RenderSystem& renderer, engine::Camera camera =
 }
 inline bool render_ready(const engine::RenderSystem& renderer)
 {
-    engine::RenderPrepareProgress progress;
-    return renderer.preparation_status(progress) == engine::RenderPrepareStatus::ready;
+    engine::ScenePreparationSnapshot snapshot;
+    return renderer.scope_status({}, snapshot) &&
+           (snapshot.state == engine::SceneWorkState::ready ||
+            snapshot.state == engine::SceneWorkState::not_required);
 }
 } // namespace test_support

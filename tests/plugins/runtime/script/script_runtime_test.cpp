@@ -14,6 +14,7 @@
 #include "runtime/audio/audio_system.hpp"
 #include "runtime/engine.hpp"
 #include "runtime/engine_config.hpp"
+#include "runtime/gameplay/gameplay_session.hpp"
 #include "runtime/input/input_system.hpp"
 #include "runtime/log/log_system.hpp"
 #include "runtime/movie/movie_player.hpp"
@@ -2405,8 +2406,7 @@ export default class extends Gameplay {
               'missing renderer must reject VSync access');
         check(!this.scene.SetPaused('true') && this.scene.SetPaused(true) &&
               this.scene.GetPaused() === true, 'typed scene pause must reach the world');
-        check(Scene.StepLoad(0) === null && Scene.CommitLoad() === null &&
-              !Scene.BeginLoad('missing.scene'), 'invalid scene-load operations must fail');
+        check(Scene.BeginLoad('missing.scene') === null, 'invalid scene-load operations must fail');
         return true;
     }
     Update() {
@@ -2454,43 +2454,42 @@ bool run_step_loading_cases(test_support::ResourceServices& services, const fs::
                             builder.GetSize());
     world.destroy_scene();
     engine::plugins::script::ScriptSystem script(&services.loader, &world);
+    engine::WindowSystem window;
+    engine::RenderSystem renderer(window, &world);
+    if (!window.initialize({}) || !renderer.initialize({}))
+    {
+        return false;
+    }
+    engine::GameplaySession session(services.core, world, renderer, &script);
     constexpr auto source = R"js(
-import {Gameplay,Resources,Scene,Debug} from 'engine';
-const blocked = Resources.BeginLoad('scenes/main.scene') === null && Scene.BeginLoad('scenes/main.scene') === false;
+import {Gameplay,Scene,Debug} from 'engine';
+const blocked = Scene.BeginLoad('scenes/main.scene') === null;
 export default class extends Gameplay {
-    phase=0;
     OnInitialize() {
         this.old = Scene.Create('loading-menu');
         this.loading = this.old?.CreateNode('persistent-root');
         if (!blocked || !this.loading?.SetPersistent(true) || !this.old.SetPaused(true)) return false;
-        this.request=Resources.BeginLoad('scenes/main.scene');
+        this.request = Scene.BeginLoad('scenes/main.scene');
         return this.request !== null;
     }
     Update() {
-        if (this.phase === 0) {
-            const status=this.request.Status();
-            if (status === 'loading') return;
-            if (status !== 'ready') throw Error(this.request.Error());
-            const resource=this.request.Take();
-            if (!resource || !Scene.BeginLoad('scenes/main.scene') || Scene.BeginLoad('scenes/main.scene')) throw Error('begin restore');
-            if (!Resources.Release(resource) || Scene.StepLoad(-1) !== null || Scene.StepLoad(0.5) !== null || Scene.CommitLoad() !== null) throw Error('restore controls');
-            const progress=Scene.StepLoad(0);
-            if (progress?.status !== 'loading' || progress.completed !== 0) throw Error('pure query');
-            this.phase=1;
-        } else if (this.phase === 1) {
-            const progress=Scene.StepLoad(1);
-            if (!this.old.IsValid() || this.old.FindNode('Prepared node')) throw Error('candidate published too early');
-            if (progress?.status === 'loading') return;
-            if (progress?.status !== 'ready') throw Error('restore failed');
-            Debug.Log('step-loading:ready');
-            this.phase=2;
-        } else if (this.phase === 2) {
-            this.loaded=Scene.CommitLoad();
-            if (!this.loaded?.FindNode('Prepared node') || this.old.IsValid() || !this.loading.IsValid() || this.loaded.GetPaused()) throw Error('commit failed');
-            this.pending=Resources.BeginLoad('scenes/main.scene');
-            if (!this.pending) throw Error('pending cleanup');
+        if (!this.request) return;
+        const status = this.request.GetStatus();
+        if (!status || status.state === 'failed') throw Error(status?.error || 'lost request');
+        if (status.state === 'staged') {
+            const candidate = this.request.GetScene();
+            if (!candidate?.FindNode('Prepared node') || this.old.FindNode('Prepared node') ||
+                !this.request.Prepare() || candidate.CreateNode('too late')) throw Error('staging isolation');
+        } else if (status.state === 'ready') {
+            if (!this.activationRequested) { this.activationRequested=true; Debug.Log('step-loading:ready'); return; }
+            if (!this.request.Activate()) throw Error('activation rejected');
+        } else if (status.state === 'active') {
+            this.loaded = this.request.GetScene();
+            if (!this.loaded?.FindNode('Prepared node') || !this.loading.IsValid() ||
+                this.loaded.GetPaused() || status.firstSceneSubmissionId === '0') throw Error('activation failed');
+            if (!this.request.Release() || this.request.GetStatus() !== null) throw Error('request ownership');
+            this.request = null;
             Debug.Log('step-loading:committed');
-            this.phase=3;
         }
     }
 }
@@ -2507,7 +2506,9 @@ export default class extends Gameplay {
     {
         for (int frame = 0; frame < 2000 && !log_contains(marker); ++frame)
         {
-            if (!services.tick() || !script.tick(.016) || !script.status().running)
+            if (!services.tick() || !script.tick(.016) || !session.tick() ||
+                renderer.prepare_scope({}, {}) == engine::SceneWorkState::failed ||
+                !renderer.render() || !world.tick(0) || !script.status().running)
             {
                 return false;
             }

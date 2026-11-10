@@ -1,8 +1,5 @@
-#include "editor/commands/editor_command_channel.hpp"
-#include "editor/file_text.hpp"
+#include "plugins/runtime/mcp/mcp_command_channel.hpp"
 
-#include "editor/commands/editor_commands.hpp"
-#include "runtime/resource/resource_system.hpp"
 #include "runtime/utils/path_utils.hpp"
 
 #include <SDL3/SDL.h>
@@ -15,7 +12,7 @@
 #include <system_error>
 #include <utility>
 
-namespace engine::editor
+namespace engine::plugins::mcp
 {
 namespace
 {
@@ -54,6 +51,26 @@ bool plain_path(const fs::path& path)
     return true;
 }
 
+bool read_text(const fs::path& path, std::string& output)
+{
+    output.clear();
+    std::error_code error;
+    const auto size = fs::file_size(path, error);
+    if (error || size > message_limit)
+    {
+        return false;
+    }
+    std::ifstream input(path, std::ios::binary);
+    output.resize(static_cast<std::size_t>(size));
+    input.read(output.data(), static_cast<std::streamsize>(size));
+    if (!input && !input.eof())
+    {
+        output.clear();
+        return false;
+    }
+    return input.gcount() == static_cast<std::streamsize>(size);
+}
+
 bool write_json(const fs::path& path, const Json& value)
 {
     const auto text = value.dump(-1, ' ', false, Json::error_handler_t::replace) + '\n';
@@ -81,14 +98,12 @@ bool write_json(const fs::path& path, const Json& value)
 }
 } // namespace
 
-EditorCommandChannel::EditorCommandChannel(EditorCommands& commands, fs::path directory,
-                                           std::string project_root, std::string session)
-    : commands_(commands), directory_(std::move(directory)), project_root_(std::move(project_root)),
-      session_(std::move(session))
+McpCommandChannel::McpCommandChannel(fs::path directory, std::string session, Handler execute)
+    : execute_(std::move(execute)), directory_(std::move(directory)), session_(std::move(session))
 {
 }
 
-bool EditorCommandChannel::publish_pending()
+bool McpCommandChannel::publish_pending()
 {
     if (pending_.is_null())
     {
@@ -113,7 +128,7 @@ bool EditorCommandChannel::publish_pending()
     return true;
 }
 
-bool EditorCommandChannel::poll()
+bool McpCommandChannel::poll()
 {
     last_error_.clear();
     if (!pending_.is_null())
@@ -140,8 +155,7 @@ bool EditorCommandChannel::poll()
     }
     const auto size = fs::file_size(input, code);
     std::string text;
-    if (code || size > message_limit || !engine::editor::file_detail::read_text(input, text) ||
-        text.size() > message_limit)
+    if (code || size > message_limit || !read_text(input, text) || text.size() > message_limit)
     {
         last_error_ = "Cannot read editor command input within the 1 MiB limit";
         return false;
@@ -166,7 +180,7 @@ bool EditorCommandChannel::poll()
         last_error_ = "Invalid editor session or request identifier";
         return false;
     }
-    if (request["session"] != session_ || request["projectRoot"] != project_root_)
+    if (request["session"] != session_)
     {
         last_text_ = std::move(text);
         return true;
@@ -194,8 +208,7 @@ bool EditorCommandChannel::poll()
     {
         std::string content;
         const auto receipt_size = fs::file_size(original, code);
-        if (code || receipt_size > message_limit ||
-            !engine::editor::file_detail::read_text(original, content) ||
+        if (code || receipt_size > message_limit || !read_text(original, content) ||
             content.size() > message_limit)
         {
             last_error_ = "Cannot read original editor command receipt";
@@ -203,7 +216,7 @@ bool EditorCommandChannel::poll()
         }
         auto receipt = Json::parse(content, nullptr, false);
         if (!receipt.is_object() || receipt.value("session", Json()) != session_ ||
-            receipt.value("projectRoot", Json()) != project_root_ ||
+            receipt.value("projectRoot", Json()) != request["projectRoot"] ||
             receipt.value("requestId", Json()) != id || !receipt.contains("success") ||
             !receipt["success"].is_boolean() || !receipt.contains("command") ||
             !receipt["command"].is_string() ||
@@ -233,16 +246,20 @@ bool EditorCommandChannel::poll()
         bool success = false;
         if (command.size() <= 128)
         {
-            success = commands_.execute(command, request["arguments"], result, error);
+            success = execute_ && execute_(command, request["arguments"], result, error);
         }
         else
         {
             error = "Editor command name exceeds 128 characters";
         }
+        if (!success)
+        {
+            result = nullptr;
+        }
         const auto completed_at = std::chrono::duration_cast<std::chrono::milliseconds>(
                                       std::chrono::system_clock::now().time_since_epoch())
                                       .count();
-        pending_ = {{"session", session_},       {"projectRoot", project_root_},
+        pending_ = {{"session", session_},       {"projectRoot", request["projectRoot"]},
                     {"requestId", id},           {"command", command.substr(0, 128)},
                     {"success", success},        {"result", std::move(result)},
                     {"error", std::move(error)}, {"completedAtMs", completed_at}};
@@ -252,14 +269,14 @@ bool EditorCommandChannel::poll()
     return publish_pending();
 }
 
-const Json& EditorCommandChannel::last_receipt() const noexcept
+const Json& McpCommandChannel::last_receipt() const noexcept
 {
     return last_receipt_;
 }
 
-const std::string& EditorCommandChannel::last_error() const noexcept
+const std::string& McpCommandChannel::last_error() const noexcept
 {
     return last_error_;
 }
 
-} // namespace engine::editor
+} // namespace engine::plugins::mcp

@@ -4,8 +4,8 @@
 #include "editor/asset_pipeline/editor_tools.hpp"
 #include "editor/asset_pipeline/import_tool.hpp"
 #include "plugins/editor/mcp/editor_mcp_tools.hpp"
-#include "plugins/editor/mcp/mcp_system.hpp"
 #include "plugins/editor/mcp/project_tool_utils.hpp"
+#include "plugins/runtime/mcp/mcp_system.hpp"
 #include "runtime/utils/path_utils.hpp"
 
 #include <nlohmann/json.hpp>
@@ -31,7 +31,7 @@ bool fail(Json& result, std::string error)
 }
 
 bool execute(EditorMcpTools& editor, const fs::path& project, const McpTarget& target,
-              const Json& arguments, Json& result)
+             const Json& arguments, Json& result)
 {
     if (!arguments.is_object() || arguments.size() < 4 || arguments.size() > 5 ||
         !arguments.contains("session") || !arguments["session"].is_string() ||
@@ -55,8 +55,7 @@ bool execute(EditorMcpTools& editor, const fs::path& project, const McpTarget& t
     Json status;
     if (!tools::read_project_status(target.runtime_dir, status) || !tools::editor_alive(status) ||
         status.value("session", Json()) != arguments["session"] ||
-        status.value("runId", Json()) != arguments["runId"] ||
-        !status.value("running", false) ||
+        status.value("runId", Json()) != arguments["runId"] || !status.value("running", false) ||
         status.value("projectRoot", Json()) != PathUtils::to_utf8(project))
     {
         return fail(result, "Project script session or active Run does not match this target");
@@ -102,17 +101,17 @@ bool execute(EditorMcpTools& editor, const fs::path& project, const McpTarget& t
     }
     // 编译期间可以发生停止或重载，编辑器安全点再次核对这两个身份。
     return editor.call_command("execute_project_script",
-                                {{"session", arguments["session"]},
-                                 {"runId", arguments["runId"]},
-                                 {"modulePath", output["modulePath"]},
-                                 {"javascript", output["javascript"]},
-                                 {"arguments", values}},
-                                result);
+                               {{"session", arguments["session"]},
+                                {"runId", arguments["runId"]},
+                                {"modulePath", output["modulePath"]},
+                                {"javascript", output["javascript"]},
+                                {"arguments", values}},
+                               result);
 }
 } // namespace
 
 bool register_project_script_tools(McpSystem& system, EditorMcpTools& editor,
-                                    const fs::path& project_root, const McpTarget& target)
+                                   const fs::path& project_root, const McpTarget& target)
 {
     return system.register_tool(
         {"execute_project_script",

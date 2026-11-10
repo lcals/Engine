@@ -4,9 +4,9 @@
 #include "plugins/editor/mcp/editor_tool_registration.hpp"
 
 #include "editor/asset_pipeline/project_lock.hpp"
-#include "plugins/editor/mcp/mcp_system.hpp"
 #include "plugins/editor/mcp/project_script_mcp_tools.hpp"
 #include "plugins/editor/mcp/project_tool_utils.hpp"
+#include "plugins/runtime/mcp/mcp_system.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/utils/path_utils.hpp"
 
@@ -235,7 +235,9 @@ bool EditorMcpTools::register_tools(McpSystem& system)
                        {"arguments", {{"type", "object"}, {"additionalProperties", true}}}},
                       {"command", "arguments"});
     return register_project_lifecycle_tools(system, *this) &&
+#if defined(ENGINE_ENABLE_TEST_SUPPORT)
            register_project_script_tools(system, *this, project_root_, target_) &&
+#endif
            register_physics_tools(system, *this) && register_audio_tools(system, *this) &&
            register_animation_tools(system, *this) && register_model_tools(system, *this) &&
            register_prefab_tools(system, *this) &&
@@ -327,7 +329,8 @@ bool EditorMcpTools::register_tools(McpSystem& system)
                    {{"delayMs", {{"type", "integer"}, {"minimum", 100}, {"maximum", 10000}}}},
                    Json::array())) &&
            system.register_tool(
-               {"get_editor_receipt", "Look up a durable editor receipt by session and request id.",
+               {"get_request_receipt",
+                "Look up a durable editor receipt by session and request id.",
                 object_schema({{"session", id_schema()}, {"requestId", id_schema()}},
                               {"session", "requestId"}),
                 [this](const Json& arguments, Json& reply)
@@ -362,7 +365,7 @@ bool EditorMcpTools::call_command(std::string_view command, const Json& argument
     }
     if (status.value("hostKind", std::string{}) == "runtime-test" &&
         command != "execute_project_script" && command != "capture_frame" &&
-        command != "get_frame_capture")
+        command != "get_frame_capture" && command != "get_scene_load")
     {
         return fail(reply, "This editor command is unavailable in the runtime test target");
     }

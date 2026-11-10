@@ -25,7 +25,7 @@ export class ResourceRequest {
         Object.freeze(this);
     }
     Status() { const r = resourceRequests.get(this); return (r.terminal ?? native.ResourceRequestStatus(r.id))?.status ?? 'failed'; }
-    Progress() { const r = resourceRequests.get(this); const s = r.terminal ?? native.ResourceRequestStatus(r.id); return s ? { completed: s.completed, total: s.total } : { completed: 0, total: 0 }; }
+    Progress() { const r = resourceRequests.get(this); const s = r.terminal ?? native.ResourceRequestStatus(r.id); return s ? { completed: s.completed, total: s.total, discoveryComplete: s.discoveryComplete, inFlight: s.inFlight, progressRevision: s.progressRevision, lastProgressNs: s.lastProgressNs } : { completed: 0, total: 0, discoveryComplete: false, inFlight: 0, progressRevision: "0", lastProgressNs: "0" }; }
     Error() { const r = resourceRequests.get(this); return (r.terminal ?? native.ResourceRequestStatus(r.id))?.error ?? 'Invalid resource request'; }
     Take() {
         const r = resourceRequests.get(this);
@@ -132,10 +132,15 @@ void status(const Arguments& arguments)
     ResourceLoadProgress progress;
     const auto state = request->status(progress);
     const char* names[] = {"loading", "ready", "delivered", "failed", "cancelled"};
-    arguments.set_return(Value::Object{{"status", names[static_cast<unsigned>(state)]},
-                                       {"completed", progress.completed},
-                                       {"total", progress.total},
-                                       {"error", request->last_error()}});
+    arguments.set_return(
+        Value::Object{{"status", names[static_cast<unsigned>(state)]},
+                      {"completed", progress.completed},
+                      {"total", progress.total},
+                      {"discoveryComplete", progress.discovery_complete},
+                      {"inFlight", progress.in_flight},
+                      {"progressRevision", std::to_string(progress.progress_revision)},
+                      {"lastProgressNs", std::to_string(progress.last_progress_ns)},
+                      {"error", request->last_error()}});
 }
 
 void last_error(const Arguments& arguments)

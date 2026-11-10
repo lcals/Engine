@@ -706,10 +706,12 @@ BakeProgress LightingBakeJob::tick(std::string& error)
     {
         s.request.indirect.push_back({s.runtime_ids[mesh.node_id], mesh.lightmap, mesh.mesh});
     }
-    RenderPrepareProgress preparation;
-    if (s.renderer.prepare_scene(RenderPrepareMode::synchronous, preparation) !=
-            RenderPrepareStatus::ready ||
-        !s.renderer.request_diffuse_capture(s.request))
+    const auto preparation = s.renderer.prepare_scope({}, {});
+    if (preparation == SceneWorkState::working || preparation == SceneWorkState::queued)
+    {
+        return s.progress = BakeProgress::running;
+    }
+    if (preparation == SceneWorkState::failed || !s.renderer.request_diffuse_capture(s.request))
     {
         error = "Renderer rejected the diffuse capture request";
         return s.progress = BakeProgress::failed;

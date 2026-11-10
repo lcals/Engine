@@ -88,17 +88,19 @@ export class Scene {
         fixture.scene = new Scene(path); fixture.loads.push(path); return fixture.scene;
     }
     static BeginLoad(path) {
-        if (path.includes("missing")) return false;
-        fixture.pendingLoad = path; return true;
+        if (path.includes("missing")) return null;
+        fixture.pendingLoad = path;
+        let state = "loading", scene = null, released = false;
+        return {
+            GetStatus() { return released ? null : {state: state === "loading" ? (fixture.loadStatus === "ready" ? "staged" : fixture.loadStatus) : state,
+                error: "fixture load failure", stages: [], id: {owner:"1",request:"1"}}; },
+            GetScene() { return scene; },
+            Prepare() { state = "ready"; return true; },
+            Activate() { if (fixture.failCommit) state = "failed"; else { scene = Scene.Load(path); state = "active"; } return true; },
+            Cancel() { ++fixture.cancellations; state = "cancelled"; fixture.pendingLoad = null; return true; },
+            Release() { released = true; fixture.pendingLoad = null; return true; },
+        };
     }
-    static StepLoad() {
-        return fixture.pendingLoad ? {status:fixture.loadStatus,completed:1,total:2,error:fixture.loadStatus === "failed" ? "fixture load failure" : ""} : null;
-    }
-    static CommitLoad() {
-        const path = fixture.pendingLoad; fixture.pendingLoad = null;
-        return path && !fixture.failCommit ? Scene.Load(path) : null;
-    }
-    static CancelLoad() { ++fixture.cancellations; fixture.pendingLoad = null; }
     IsValid() { return this.live && fixture.scene === this; }
     Destroy() {
         if (!this.IsValid()) return false;

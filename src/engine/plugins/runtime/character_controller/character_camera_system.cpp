@@ -149,6 +149,7 @@ bool CharacterCameraSystem::update_visibility()
                     flecs::world(world_.native_world())
                         .query_builder<const ecs_detail::ComponentStorage<MeshRenderer::Data>>()
                         .with<ecs_detail::Published>()
+                        .with<ecs_detail::Simulating>()
                         .build();
                 bool query_success = true;
                 query.each(
@@ -174,6 +175,7 @@ bool CharacterCameraSystem::update_visibility()
         auto query = flecs::world(world_.native_world())
                          .query_builder<const ecs_detail::ComponentStorage<Camera::Data>>()
                          .with<ecs_detail::Published>()
+                         .with<ecs_detail::Simulating>()
                          .build();
         bool query_success = true;
         query.each(

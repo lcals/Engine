@@ -730,6 +730,7 @@ public:
         return true;
     }
 
+#if defined(ENGINE_ENABLE_TEST_SUPPORT)
     bool execute_script(const ProjectScriptRequest& request, std::string& result_json) override
     {
         result_json.clear();
@@ -790,6 +791,8 @@ public:
         return true;
     }
 
+#endif
+
     const std::string& last_error() const noexcept override
     {
         return error_;
@@ -801,6 +804,7 @@ public:
     }
 
 private:
+#if defined(ENGINE_ENABLE_TEST_SUPPORT)
     static void require_cached_module(const v8::FunctionCallbackInfo<v8::Value>& arguments)
     {
         auto* isolate = arguments.GetIsolate();
@@ -841,6 +845,8 @@ private:
         }
         arguments.GetReturnValue().Set(found->second.Get(isolate)->GetModuleNamespace());
     }
+
+#endif
 
     struct Rejection
     {
@@ -1030,7 +1036,11 @@ private:
     {
         auto* isolate = v8::Isolate::GetCurrent();
         auto* vm = static_cast<V8Vm*>(isolate->GetData(0));
-        if (vm != nullptr && !vm->script_executing_)
+        if (vm != nullptr
+#if defined(ENGINE_ENABLE_TEST_SUPPORT)
+            && !vm->script_executing_
+#endif
+        )
         {
             vm->async_error_ = "Dynamic import is not supported";
         }
@@ -1088,9 +1098,11 @@ private:
     std::string entry_;
     std::string error_;
     std::string async_error_;
+#if defined(ENGINE_ENABLE_TEST_SUPPORT)
     std::string script_path_;
     std::uint64_t script_serial_ = 0;
     bool script_executing_ = false;
+#endif
     bool sealed_ = false;
     bool prepared_ = false;
 };

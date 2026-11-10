@@ -761,20 +761,6 @@ private:
     bool shadows_ = false;
 };
 
-const char* capture_state(ScreenshotStatus status)
-{
-    switch (status)
-    {
-    case ScreenshotStatus::pending:
-        return "pending";
-    case ScreenshotStatus::complete:
-        return "complete";
-    case ScreenshotStatus::failed:
-        return "failed";
-    default:
-        return "idle";
-    }
-}
 } // namespace
 
 RenderCommands::RenderCommands(RenderSystem& renderer, WorldSystem& world, fs::path capture_root)
@@ -892,79 +878,6 @@ bool RenderCommands::register_commands(EditorCommands& commands, SceneCommands& 
                    }
                    renderer_.set_stats_visible(arguments["enabled"].get<bool>());
                    result = {{"enabled", renderer_.stats_visible()}};
-                   return true;
-               }) &&
-           commands.register_command(
-               "capture_frame", false,
-               [this](const Json& arguments, Json& result, std::unique_ptr<EditorEdit>&,
-                      std::string& error)
-               {
-                   if (arguments.size() != 1 || !arguments.contains("path") ||
-                       !arguments["path"].is_string())
-                   {
-                       error = "capture_frame requires a path relative to the project cache";
-                       return false;
-                   }
-                   const auto& text = arguments["path"].get_ref<const std::string&>();
-                   const auto relative = PathUtils::from_utf8(text);
-                   if (text.empty() || text.find('\0') != std::string::npos ||
-                       text.find('\\') != std::string::npos || relative.is_absolute() ||
-                       relative.has_root_name() || relative.extension() != ".png")
-                   {
-                       error = "Screenshot path must be a relative .png filename";
-                       return false;
-                   }
-                   for (const auto& part : relative)
-                   {
-                       if (part == "." || part == "..")
-                       {
-                           error = "Screenshot path cannot traverse directories";
-                           return false;
-                       }
-                   }
-                   std::error_code code;
-                   auto destination = fs::canonical(capture_root_, code);
-                   if (code)
-                   {
-                       error = "Screenshot cache directory is unavailable";
-                       return false;
-                   }
-                   for (const auto& part : relative)
-                   {
-                       destination /= part;
-                       const auto status = fs::symlink_status(destination, code);
-                       if (code == std::errc::no_such_file_or_directory)
-                       {
-                           code.clear();
-                       }
-                       if (code || fs::is_symlink(status))
-                       {
-                           error = "Screenshot path contains a symlink or inaccessible entry";
-                           return false;
-                       }
-                   }
-                   fs::create_directories(destination.parent_path(), code);
-                   if (code || !renderer_.request_screenshot(PathUtils::to_utf8(destination)))
-                   {
-                       error = "Renderer cannot accept this screenshot request";
-                       return false;
-                   }
-                   capture_path_ = destination;
-                   result = {{"state", "pending"}, {"path", PathUtils::to_utf8(capture_path_)}};
-                   return true;
-               }) &&
-           commands.register_command(
-               "get_frame_capture", false,
-               [this](const Json& arguments, Json& result, std::unique_ptr<EditorEdit>&,
-                      std::string& error)
-               {
-                   if (!arguments.empty())
-                   {
-                       error = "get_frame_capture has no arguments";
-                       return false;
-                   }
-                   result = {{"state", capture_state(renderer_.screenshot_status())},
-                             {"path", PathUtils::to_utf8(capture_path_)}};
                    return true;
                });
 }

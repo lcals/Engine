@@ -71,7 +71,7 @@ def tool(mcp, project, runtime, name, arguments=None, expect_error=False, timeou
             f"{name} pending project/runtime identity mismatch: {body}",
         )
         command = "batch" if name == "execute_batch" else name
-        if name != "get_editor_receipt":
+        if name != "get_request_receipt":
             original = read_json(runtime / "editor-command.json")
             require(
                 all(original.get(key) == value for key, value in identity.items())
@@ -82,7 +82,7 @@ def tool(mcp, project, runtime, name, arguments=None, expect_error=False, timeou
                 f"{name} did not submit this editor request: {body}: {original}",
             )
         while time.monotonic() < deadline:
-            query_failed, receipt = request("get_editor_receipt", identity)
+            query_failed, receipt = request("get_request_receipt", identity)
             require(not query_failed, f"{name} receipt lookup failed: {receipt}")
             require(
                 all(receipt.get(key) == value for key, value in identity.items())
@@ -93,11 +93,11 @@ def tool(mcp, project, runtime, name, arguments=None, expect_error=False, timeou
             if receipt.get("activation") == "completed":
                 require(
                     isinstance(receipt.get("success"), bool)
-                    and (name == "get_editor_receipt" or receipt.get("command") == command),
+                    and (name == "get_request_receipt" or receipt.get("command") == command),
                     f"{name} invalid original completion: {receipt}",
                 )
                 body = receipt
-                failed = False if name == "get_editor_receipt" else not receipt["success"]
+                failed = False if name == "get_request_receipt" else not receipt["success"]
                 break
             require(receipt.get("activation") == "pending", f"invalid receipt state: {receipt}")
             time.sleep(0.04)

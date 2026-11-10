@@ -63,10 +63,14 @@ try {
         game.Update();
         preserved();
     };
+    const settle = () => {
+        for (let tick = 0; tick < 8 && game.model.loading && fixture.loadStatus !== "loading"; ++tick) game.Update();
+    };
     const command = (id) => {
         fixture.click(id);
         ++events;
         game.Update();
+        settle();
     };
 
     edit(unicode.persistent_input);
@@ -83,11 +87,12 @@ try {
 
     fixture.loadStatus = "loading";
     command("load-a");
-    assert.equal(fixture.pendingResource, "scenes/main.scene");
-    assert.match(status.text, /Loading resources 1 \/ 2/);
+    assert.equal(fixture.pendingLoad, "scenes/main.scene");
+    assert.match(status.text, /Scene loading/);
     edit("editing while resources are loading");
     fixture.loadStatus = "ready";
     game.Update();
+    settle();
     ++commits;
     preserved();
     assert.equal(fixture.pendingLoad, null);
@@ -113,7 +118,7 @@ try {
     fixture.failCommit = true;
     command("load-b");
     assert.equal(fixture.pendingLoad, null);
-    assert.match(status.text, /Commit rejected/);
+    assert.match(status.text, /fixture load failure/);
     preserved();
     fixture.failCommit = false;
     command("unload");

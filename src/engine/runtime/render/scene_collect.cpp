@@ -115,6 +115,7 @@ bool RenderSystem::SceneGpuResources::collect_frame(WorldSystem& world,
                                                     render_detail::RenderFrameData& output)
 {
     ENGINE_PROFILE_ZONE("Render.collectFrame");
+    frame_complete = true;
     output.meshes.clear();
     output.lights.clear();
     output.probes.clear();
@@ -182,10 +183,18 @@ bool RenderSystem::SceneGpuResources::collect_frame(WorldSystem& world,
                 mesh_index.find({world.epoch(), entity.id(), stored.state.instance_id});
             if (found == mesh_index.end())
             {
-                valid = false;
+                frame_complete = false;
                 return;
             }
-            auto& gpu = meshes[found->second];
+            auto* selected_gpu = &meshes[found->second];
+            const auto retained = retained_meshes.find(entity.id());
+            const bool using_retained = retained != retained_meshes.end() &&
+                                        retained->second.instance_id == stored.state.instance_id;
+            if (using_retained)
+            {
+                selected_gpu = &retained->second;
+            }
+            auto& gpu = *selected_gpu;
             const auto* runtime = entity.try_get<MeshRendererRuntime>();
             const auto* transform = entity.try_get<ecs_detail::WorldTransform>();
             render_detail::RenderFrameData::Mesh mesh;
@@ -197,13 +206,15 @@ bool RenderSystem::SceneGpuResources::collect_frame(WorldSystem& world,
                     valid = false;
                     return;
                 }
-                mesh.data = runtime->mesh_resource_.data<MeshResource>();
+                mesh.data = using_retained ? gpu.geometry->resource.data<MeshResource>()
+                                           : runtime->mesh_resource_.data<MeshResource>();
                 mesh.model = transform->matrix;
-                if (!mesh.data || gpu.revision != runtime->mesh_revision_ ||
-                    !gpu.update_deformation(*runtime, skinning) || gpu.materials.empty() ||
+                if (!mesh.data || gpu.materials.empty() ||
+                    (!using_retained && (gpu.revision != runtime->mesh_revision_ ||
+                                         !gpu.update_deformation(*runtime, skinning))) ||
                     !render_detail::normal_matrix(mesh.model.data(), mesh.normal.data()))
                 {
-                    valid = false;
+                    frame_complete = false;
                     return;
                 }
                 uses_skinning = uses_skinning || bgfx::isValid(gpu.palette);
@@ -278,7 +289,11 @@ bool RenderSystem::SceneGpuResources::collect_frame(WorldSystem& world,
     {
         return fail();
     }
-    if (!uses_skinning)
+    if (!uses_skinning &&
+        std::none_of(meshes.begin(), meshes.end(),
+                     [](const auto& mesh) { return bgfx::isValid(mesh.palette); }) &&
+        std::none_of(retained_meshes.begin(), retained_meshes.end(),
+                     [](const auto& entry) { return bgfx::isValid(entry.second.palette); }))
     {
         skinning.release();
     }

@@ -2,6 +2,7 @@
 
 #include "runtime/resource/resource_handle.hpp"
 #include "runtime/resource/types/font_resource.hpp"
+#include "runtime/scene/scene_loading.hpp"
 #include "runtime/schema/font_generated.h"
 #include "runtime/system/system.hpp"
 
@@ -77,6 +78,10 @@ public:
                                            const schema::FontGlyphT& glyph, float x, float y,
                                            float size, std::uint32_t color, bool y_down,
                                            FontGeometry& output);
+    [[nodiscard]] SceneWorkState prepare_font(const ResourceHandle& font,
+                                              const ResourceHandle& shader,
+                                              const SceneWorkBudget& budget,
+                                              SceneWorkProgress& output);
     [[nodiscard]] bool draw(const ResourceHandle& font, const FontGeometry& geometry,
                             const FontDraw& settings);
     // The caller has already configured this view's camera and viewport.

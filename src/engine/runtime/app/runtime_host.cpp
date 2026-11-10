@@ -29,27 +29,6 @@
 
 namespace engine
 {
-namespace
-{
-// 无可显示影片时仍提交黑帧，直至候选场景被正式激活。
-MovieFrame startup_black_frame()
-{
-    static constexpr std::array<std::uint8_t, 4> luma{16, 16, 16, 16};
-    static constexpr std::array<std::uint8_t, 2> chroma{128, 128};
-    MovieFrame frame;
-    frame.width = 2;
-    frame.height = 2;
-    frame.format = schema::MoviePixelFormat::nv12;
-    frame.color =
-        schema::MovieColorInfo(schema::MovieColorPrimaries::bt709, schema::MovieTransfer::srgb,
-                               schema::MovieColorMatrix::bt709, schema::MovieColorRange::limited,
-                               schema::MovieChromaLocation::center);
-    frame.planes[0] = {luma, 2, 2, 2};
-    frame.planes[1] = {chroma, 1, 1, 2};
-    return frame;
-}
-} // namespace
-
 RuntimeHost::RuntimeHost() noexcept : engine_(Engine::instance())
 {
 }
@@ -358,7 +337,29 @@ bool RuntimeHost::activate_gameplay()
     return true;
 }
 
+bool RuntimeHost::status(RuntimeHostStatus& output) const noexcept
+{
+    output = {};
+    output.tick_id = tick_sequence_;
+    output.sampled_at_ns =
+        static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                       std::chrono::steady_clock::now().time_since_epoch())
+                                       .count());
+    output.initialized = initialized_;
+    output.window_drawable = window_ && window_->can_render();
+    output.exit_requested = exit_requested_;
+    output.frame_status = last_tick_status_;
+    return true;
+}
+
 FrameStatus RuntimeHost::tick(double delta_time)
+{
+    last_tick_status_ = tick_runtime(delta_time);
+    ++tick_sequence_;
+    return last_tick_status_;
+}
+
+FrameStatus RuntimeHost::tick_runtime(double delta_time)
 {
     ENGINE_PROFILE_ZONE("Host.runtime_tick");
     const FrameStatus events = poll_events(delta_time);
@@ -367,9 +368,7 @@ FrameStatus RuntimeHost::tick(double delta_time)
         return events;
     }
     const double movie_delta = std::exchange(movie_clock_paused_, false) ? 0.0 : delta_time;
-    const auto awaiting_activation = [&]
-    { return gameplay_ && gameplay_->step_prepare(0, 0.002) != GameplayPrepareStatus::failed; };
-    if (gameplay_active_ && !awaiting_activation() && !engine_.tick(std::min(delta_time, 0.1)))
+    if (gameplay_active_ && !engine_.tick(std::min(delta_time, 0.1)))
     {
         failed_ = true;
         return FrameStatus::failed;
@@ -379,7 +378,7 @@ FrameStatus RuntimeHost::tick(double delta_time)
         failed_ = true;
         return FrameStatus::failed;
     }
-    if (gameplay_active_ && gameplay_ && !gameplay_->tick())
+    if (gameplay_ && !gameplay_->tick())
     {
         failed_ = true;
         return FrameStatus::failed;
@@ -404,19 +403,13 @@ FrameStatus RuntimeHost::tick(double delta_time)
         (movie_status.state == MovieState::playing || movie_status.state == MovieState::paused ||
          movie_status.state == MovieState::completed) &&
         movie_player_->frame(movie_handle, movie_frame);
-    RenderPrepareProgress progress;
-    const auto prepared = gameplay_active_ && !awaiting_activation() && window_->can_render()
-                              ? renderer_->prepare_scene(RenderPrepareMode::incremental, progress)
-                              : RenderPrepareStatus::preparing;
-    if (prepared == RenderPrepareStatus::failed && gameplay_)
+    // Preparing a candidate never gates presentation of the published scene.
+    if (!showing_movie && window_->can_render())
     {
-        const std::string error(renderer_->preparation_error());
-        gameplay_->stop(error);
+        (void)renderer_->prepare_scope({}, {});
     }
-    const bool rendered = showing_movie ? renderer_->present_movie_frame(movie_frame)
-                          : !gameplay_active_ || prepared != RenderPrepareStatus::ready
-                              ? renderer_->present_movie_frame(startup_black_frame())
-                              : renderer_->render();
+    const bool rendered =
+        showing_movie ? renderer_->present_movie_frame(movie_frame) : renderer_->render();
     if (!rendered)
     {
         // 平台暂停可以在本帧检查之后到达，等待恢复而不锁定为失败。

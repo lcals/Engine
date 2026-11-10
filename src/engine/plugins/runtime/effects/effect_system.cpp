@@ -1,8 +1,10 @@
 #include "plugins/runtime/effects/effect_system.hpp"
 
 #include "plugins/runtime/effects/effect_component_runtime.hpp"
+#include "runtime/render/render_constants.hpp"
 #include "runtime/scene/ecs_scene.hpp"
 #include "runtime/scene/ecs_storage.hpp"
+#include "runtime/scene/scope_work.hpp"
 
 #include "plugins/runtime/effects/effect_component.hpp"
 #include "plugins/runtime/effects/effect_model_loader.hpp"
@@ -126,6 +128,8 @@ struct EffectSystem::State
     Effekseer::ManagerRef manager;
     std::map<std::pair<std::string, std::uint64_t>, std::weak_ptr<CompiledEffect>> effects;
     std::map<std::uint64_t, Instance> instances;
+    std::map<SceneScopeId, scene_detail::ScopeWork> preparing;
+    std::map<std::uint64_t, std::shared_ptr<CompiledEffect>> prepared_effects;
     float time = 0.0F;
     bool prepared = false;
 
@@ -138,6 +142,8 @@ struct EffectSystem::State
     {
         manager.Reset();
         instances.clear();
+        preparing.clear();
+        prepared_effects.clear();
         effects.clear();
         resources.release_textures();
         time = 0.0F;
@@ -152,12 +158,12 @@ struct EffectSystem::State
         resources.release_shaders();
     }
 
-    bool initialize(const RenderContext& context)
+    bool initialize(std::uint16_t view)
     {
         resources.error.clear();
         if (!renderer)
         {
-            auto arguments = resources.renderer_arguments(context.view_id);
+            auto arguments = resources.renderer_arguments(view);
             renderer = EffekseerRendererBGFX::CreateRenderer(&arguments);
             if (!renderer)
             {
@@ -186,7 +192,7 @@ struct EffectSystem::State
             manager->SetRingRenderer(renderer->CreateRingRenderer());
             manager->SetTrackRenderer(renderer->CreateTrackRenderer());
             // efkbgfx 的独立工厂会初始化模型 shader；虚方法只创建未初始化对象。
-            auto arguments = resources.renderer_arguments(context.view_id);
+            auto arguments = resources.renderer_arguments(view);
             auto model_renderer = EffekseerRendererBGFX::CreateModelRenderer(renderer, &arguments);
             if (!model_renderer || !resources.error.empty())
             {
@@ -288,7 +294,15 @@ struct EffectSystem::State
     {
         if (!instance.compiled)
         {
-            instance.compiled = compile(engine::ecs_detail::component_runtime(component)->effect_);
+            const auto prepared = prepared_effects.find(component.instance_id());
+            instance.compiled =
+                prepared != prepared_effects.end()
+                    ? prepared->second
+                    : compile(engine::ecs_detail::component_runtime(component)->effect_);
+            if (prepared != prepared_effects.end())
+            {
+                prepared_effects.erase(prepared);
+            }
             if (!instance.compiled)
             {
                 return false;
@@ -391,6 +405,7 @@ struct EffectSystem::State
                 flecs::world(world.native_world())
                     .query_builder<const ecs_detail::ComponentStorage<EffectComponent::Data>>()
                     .with<ecs_detail::Published>()
+                    .with<ecs_detail::Simulating>()
                     .build();
             bool query_success = true;
             query.each(
@@ -511,7 +526,10 @@ bool EffectSystem::on_tick(double delta_time)
     }
     if (!has_effect_resources(world_))
     {
-        release_scene();
+        if (!state_ || state_->prepared_effects.empty())
+        {
+            release_scene();
+        }
         return true;
     }
     const bool paused = world_.paused();
@@ -528,6 +546,92 @@ bool EffectSystem::on_tick(double delta_time)
     return true;
 }
 
+SceneWorkState EffectSystem::prepare_scope(SceneScopeId scope, const SceneWorkBudget& budget)
+{
+    if (!world_.scope_candidate(scope))
+    {
+        return SceneWorkState::failed;
+    }
+    if (!state_)
+    {
+        state_ = std::make_unique<State>();
+    }
+    auto found = state_->preparing.find(scope);
+    if (found == state_->preparing.end())
+    {
+        scene_detail::ScopeWork work;
+        if (!scene_detail::begin_work(world_, scope, "effects", work))
+        {
+            return SceneWorkState::failed;
+        }
+        found = state_->preparing.emplace(scope, std::move(work)).first;
+    }
+    return scene_detail::step_work(found->second, budget,
+                                   [&](Node node)
+                                   {
+                                       auto component = node.get_component<EffectComponent>();
+                                       if (!component || !component.active())
+                                       {
+                                           return true;
+                                       }
+                                       auto* runtime =
+                                           engine::ecs_detail::component_runtime(component);
+                                       if (!runtime->effect_)
+                                       {
+                                           return true;
+                                       }
+                                       if (!state_->initialize(render_detail::extension_view))
+                                       {
+                                           return false;
+                                       }
+                                       auto compiled = state_->compile(runtime->effect_);
+                                       if (!compiled)
+                                       {
+                                           last_error_ = state_->resources.error;
+                                           return false;
+                                       }
+                                       state_->prepared_effects[component.instance_id()] =
+                                           std::move(compiled);
+                                       return true;
+                                   });
+}
+bool EffectSystem::scope_status(SceneScopeId scope, ScenePreparationSnapshot& output) const
+{
+    output = {};
+    if (!state_)
+    {
+        return false;
+    }
+    const auto found = state_->preparing.find(scope);
+    if (found == state_->preparing.end())
+    {
+        return false;
+    }
+    output = found->second.snapshot;
+    return true;
+}
+void EffectSystem::release_scope(SceneScopeId scope) noexcept
+{
+    if (!state_)
+    {
+        return;
+    }
+    const auto found = state_->preparing.find(scope);
+    if (found == state_->preparing.end())
+    {
+        return;
+    }
+    for (auto node : found->second.nodes)
+    {
+        const auto component = node.get_component<EffectComponent>();
+        if (component)
+        {
+            state_->prepared_effects.erase(component.instance_id());
+        }
+    }
+    state_->preparing.erase(found);
+}
+
 bool EffectSystem::draw(const RenderContext& context)
 {
     ENGINE_PROFILE_ZONE("Effects.drawSubmit");
@@ -538,7 +642,10 @@ bool EffectSystem::draw(const RenderContext& context)
     }
     if (!has_effect_resources(world_))
     {
-        release_scene();
+        if (!state_ || state_->prepared_effects.empty())
+        {
+            release_scene();
+        }
         last_error_.clear();
         return true;
     }
@@ -551,7 +658,7 @@ bool EffectSystem::draw(const RenderContext& context)
     {
         pending_seconds_ = 0.0;
     }
-    if (!state_->initialize(context) ||
+    if (!state_->initialize(context.view_id) ||
         ((!state_->prepared || paused) &&
          !state_->synchronize(world_, std::exchange(pending_seconds_, 0.0), paused)))
     {
@@ -620,6 +727,7 @@ void EffectSystem::release_scene() noexcept
         auto query = flecs::world(world_.native_world())
                          .query_builder<const ecs_detail::ComponentStorage<EffectComponent::Data>>()
                          .with<ecs_detail::Published>()
+                         .with<ecs_detail::Simulating>()
                          .build();
         bool query_success = true;
         query.each(

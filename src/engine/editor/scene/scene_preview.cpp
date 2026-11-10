@@ -882,11 +882,12 @@ bool ScenePreview::tick(double delta_time)
     {
         return true;
     }
-    RenderPrepareProgress progress;
-    if (state_->renderer.prepare_scene(RenderPrepareMode::incremental, progress, 0,
-                                       state_->camera) == RenderPrepareStatus::failed)
+    if (state_->renderer.prepare_scope({}, {}, state_->camera) == SceneWorkState::failed)
     {
-        const std::string error(state_->renderer.preparation_error());
+        ScenePreparationSnapshot snapshot;
+        (void)state_->renderer.scope_status({}, snapshot);
+        const auto error = snapshot.stages.empty() ? "Scene preview preparation failed"
+                                                   : snapshot.stages.front().error;
         state_->close();
         return state_->fail(error);
     }

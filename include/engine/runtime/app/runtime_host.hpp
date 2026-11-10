@@ -44,6 +44,16 @@ enum class RuntimeStartupStatus
     failed
 };
 
+struct RuntimeHostStatus
+{
+    std::uint64_t tick_id = 0;
+    std::uint64_t sampled_at_ns = 0;
+    bool initialized = false;
+    bool window_drawable = false;
+    bool exit_requested = false;
+    FrameStatus frame_status = FrameStatus::running;
+};
+
 // 工厂由宿主提供，创建尚未初始化的实例；返回空表示创建失败。
 // 所有系统借用只用于玩法回调，宿主关闭它们前先结束玩法。
 using ScriptRuntimeFactory = std::unique_ptr<ScriptRuntime> (*)(WorldSystem&, RenderSystem&,
@@ -113,10 +123,14 @@ public:
     [[nodiscard]] TaskSystem* tasks() noexcept;
     // 播放器由宿主独占；借用有效期至宿主关闭。
     [[nodiscard]] MoviePlayer* movie_player() noexcept;
+    [[nodiscard]] bool status(RuntimeHostStatus& output) const noexcept;
     void request_exit() noexcept;
     void shutdown() noexcept;
 
 private:
+    [[nodiscard]] FrameStatus tick_runtime(double delta_time);
+    std::uint64_t tick_sequence_ = 0;
+    FrameStatus last_tick_status_ = FrameStatus::running;
     [[nodiscard]] bool initialize_gameplay(const EngineConfig& config,
                                            ScriptRuntimeFactory script_factory, RuntimeSetup setup,
                                            AnimationRetargeterFactory retargeter_factory);

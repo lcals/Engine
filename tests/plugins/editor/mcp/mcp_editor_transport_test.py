@@ -186,7 +186,7 @@ def test(mcp, temporary):
                 f"{name} did not use the shared editor command and receipt transport: {completed}",
             )
             identity = {"session": editor.session, "requestId": observed[0]["requestId"]}
-            failed, durable = response(mcp, project, command_runtime, "get_editor_receipt", identity)
+            failed, durable = response(mcp, project, command_runtime, "get_request_receipt", identity)
             require(not failed and durable == completed, f"{name} lost its durable receipt")
         require(
             not (command_runtime / "project-control.json").exists(),
@@ -216,7 +216,7 @@ def test(mcp, temporary):
             "MCP response does not identify the submitted command envelope",
         )
         identity = {"session": editor.session, "requestId": envelope["requestId"]}
-        _, queried = response(mcp, project, runtime, "get_editor_receipt", identity)
+        _, queried = response(mcp, project, runtime, "get_request_receipt", identity)
         require(
             queried.get("activation") == "pending"
             and queried.get("requestId") == envelope["requestId"],
@@ -235,7 +235,7 @@ def test(mcp, temporary):
         )
 
         completed = editor.completed(envelope)
-        failed, queried = response(mcp, project, runtime, "get_editor_receipt", identity)
+        failed, queried = response(mcp, project, runtime, "get_request_receipt", identity)
         require(
             not failed
             and queried.get("activation") == "completed"
@@ -246,7 +246,7 @@ def test(mcp, temporary):
         # 最新回执属于另一请求；按 ID 查询仍必须返回原回执。
         other = dict(envelope, requestId="later-query")
         editor.completed(other)
-        failed, historic = response(mcp, project, runtime, "get_editor_receipt", identity)
+        failed, historic = response(mcp, project, runtime, "get_request_receipt", identity)
         require(
             not failed and historic == queried, "receipt lookup confused newest and requested ids"
         )
@@ -266,7 +266,7 @@ def test(mcp, temporary):
             mcp,
             project,
             runtime,
-            "get_editor_receipt",
+            "get_request_receipt",
             {"session": editor.session, "requestId": "failed-operation"},
         )
         require(
@@ -280,7 +280,7 @@ def test(mcp, temporary):
             mcp,
             project,
             runtime,
-            "get_editor_receipt",
+            "get_request_receipt",
             {"session": editor.session, "requestId": "never-submitted"},
         )
         require(
@@ -307,7 +307,7 @@ def test(mcp, temporary):
             mcp,
             project,
             runtime,
-            [call("get_editor_receipt", invalid, request_id=index + 1)
+            [call("get_request_receipt", invalid, request_id=index + 1)
              for index, invalid in enumerate(invalid_identities)],
         )
         require(len(rejected_replies) == len(invalid_identities),
@@ -337,7 +337,7 @@ def test(mcp, temporary):
                 mcp,
                 project,
                 runtime,
-                "get_editor_receipt",
+                "get_request_receipt",
                 {"session": editor.session, "requestId": "linked-receipt"},
             )
             require(failed, f"receipt file symlink was followed: {symlink}")
@@ -355,7 +355,7 @@ def test(mcp, temporary):
                     mcp,
                     project,
                     runtime,
-                    "get_editor_receipt",
+                    "get_request_receipt",
                     {"session": linked_session, "requestId": "linked-receipt"},
                 )
                 require(failed, f"receipt session directory symlink was followed: {symlink}")
@@ -370,7 +370,7 @@ def test(mcp, temporary):
             mcp,
             project,
             runtime,
-            "get_editor_receipt",
+            "get_request_receipt",
             {"session": editor.session, "requestId": "wrong-project"},
         )
         require(failed, f"receipt from a different project was accepted: {invalid}")
@@ -381,7 +381,7 @@ def test(mcp, temporary):
             mcp,
             project,
             runtime,
-            "get_editor_receipt",
+            "get_request_receipt",
             {"session": editor.session, "requestId": "wrong-session"},
         )
         require(failed, f"receipt from a different session was accepted: {invalid}")
@@ -408,7 +408,7 @@ def test(mcp, temporary):
 
     # 历史回执不依赖活跃心跳；用户可以在编辑器退出后确认原请求结果。
     publish(runtime / "project-status.json", editor.status("closed"))
-    failed, offline = response(mcp, project, runtime, "get_editor_receipt", identity)
+    failed, offline = response(mcp, project, runtime, "get_request_receipt", identity)
     require(not failed and offline == queried, "completed receipt disappeared after editor exit")
     failed, closed = response(mcp, project, runtime, "get_scene")
     require(

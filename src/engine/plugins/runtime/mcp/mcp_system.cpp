@@ -1,6 +1,6 @@
-#include "plugins/editor/mcp/mcp_system.hpp"
+#include "plugins/runtime/mcp/mcp_system.hpp"
 
-#include "plugins/editor/mcp/mcp_schema.hpp"
+#include "plugins/runtime/mcp/mcp_schema.hpp"
 
 #include <algorithm>
 #include <iostream>

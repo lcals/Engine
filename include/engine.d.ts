@@ -13,7 +13,7 @@ declare module "engine" {
     /** An opaque acquisition owned by this Run. Copying a value does not retain it. */
     export interface ResourceHandle { readonly [resourceHandleIdentity]: never; }
     export type ResourceLoadStatus = "loading" | "ready" | "delivered" | "failed" | "cancelled";
-    export interface ResourceProgress { readonly completed: number; readonly total: number; }
+    export interface ResourceProgress { readonly completed: number; readonly total: number; readonly discoveryComplete: boolean; readonly inFlight: number; readonly progressRevision: string; readonly lastProgressNs: string; }
     export class ResourceRequest {
         private constructor();
         /** Pure queries; the host advances loading. */
@@ -399,11 +399,42 @@ declare module "engine" {
         GetTexture(name: string): string | null;
     }
 
-    export interface SceneLoadProgress {
-        readonly completed: number;
-        readonly total: number;
-        readonly status: "loading" | "ready" | "failed";
+    export interface SceneLoadId { readonly owner: string; readonly request: string; }
+    export interface SceneScopeId { readonly worldEpoch: string; readonly value: string; }
+    export interface SceneWorkProgress {
+        readonly domain: string;
+        readonly stage: string;
+        readonly state: "queued" | "working" | "ready" | "not_required" | "failed" | "cancelled";
+        readonly completed: string;
+        readonly total: string;
+        readonly totalKnown: boolean;
+        readonly inFlight: string;
+        readonly progressRevision: string;
+        readonly lastProgressNs: string;
+        readonly errorCode: string;
         readonly error: string;
+    }
+    export interface SceneLoadSnapshot {
+        readonly id: SceneLoadId;
+        readonly scope: SceneScopeId;
+        readonly state: "loading" | "staged" | "preparing" | "ready" | "activating" | "active" | "failed" | "cancelled";
+        readonly sceneId: string;
+        readonly targetAlive: boolean;
+        readonly progressRevision: string;
+        readonly lastProgressNs: string;
+        readonly firstSceneSubmissionId: string;
+        readonly stages: readonly SceneWorkProgress[];
+        readonly errorCode: string;
+        readonly error: string;
+    }
+    export class SceneLoadRequest {
+        private constructor();
+        GetStatus(): SceneLoadSnapshot | null;
+        GetScene(): Scene | null;
+        Prepare(): boolean;
+        Activate(): boolean;
+        Cancel(): boolean;
+        Release(): boolean;
     }
     /** One active scene, owned by the current Gameplay run. */
     export class Scene {
@@ -411,14 +442,10 @@ declare module "engine" {
         static Create(name: string): Scene | null;
         /** Restore an already loaded scene; callers first use Resources.Load/BeginLoad. */
         static Load(path: string): Scene | null;
-        /** Retain an already loaded root for staged restoration. Keeps the current scene/UI intact. */
-        static BeginLoad(path: string): boolean;
-        /** Advance ECS restoration by a node budget; zero only queries. Progress counts one candidate. */
-        static StepLoad(nodeBudget: number): SceneLoadProgress | null;
-        /** Publish the restored candidate. Failure preserves the active scene. */
-        static CommitLoad(): Scene | null;
-        /** Release this Run's pending load. Cannot interrupt a running step/commit. */
-        static CancelLoad(): void;
+        /** Load resources and restore an isolated candidate without replacing the current scene. */
+        static BeginLoad(path: string, preloadRoots?: readonly string[]): SceneLoadRequest | null;
+        /** Build one atomic batch in the same runtime world. */
+        static BeginBatch(destination: Scene, preloadRoots?: readonly string[]): SceneLoadRequest | null;
         /** First node with the requested name in scene order. */
         FindNode(name: string): Node | null;
         IsValid(): boolean;

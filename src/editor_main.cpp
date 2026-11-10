@@ -1,3 +1,6 @@
+#if ENGINE_HAS_MCP_ENDPOINT
+#include "plugins/editor/mcp/editor_mcp_endpoint.hpp"
+#endif
 #if ENGINE_HAS_CAMERA_EDITOR
 #include "plugins/editor/camera/camera_commands.hpp"
 #include "plugins/editor/camera/camera_controller_codec.hpp"
@@ -234,6 +237,9 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
     std::unique_ptr<engine::editor::ScenePersistence> persistence;
 #endif
     std::unique_ptr<engine::editor::EditorSystem> editor;
+#if ENGINE_HAS_MCP_ENDPOINT
+    engine::plugins::mcp::EditorMcpEndpoint mcp_endpoint;
+#endif
     std::uint64_t frames = 0;
     const int result = [&]()
     {
@@ -442,6 +448,15 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
             LogSystem::write(LogLevel::error, "Editor initialization failed");
             return 1;
         }
+#if ENGINE_HAS_MCP_ENDPOINT
+        if (!mcp_endpoint.initialize(
+                *editor, runtime,
+                {project_root / "cache", engine::App::persistent_data_path(), {}}))
+        {
+            LogSystem::write(LogLevel::error, mcp_endpoint.last_error());
+            return 1;
+        }
+#endif
         if (!editor->commands() || !preview->register_commands(*editor->commands()))
         {
             LogSystem::write(LogLevel::error, "Cannot register scene preview commands");
@@ -739,11 +754,13 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
                 else if (
                     [&]
                     {
-                        engine::RenderPrepareProgress progress;
-                        const auto prepared = runtime.renderer()->preparation_status(progress);
+                        engine::ScenePreparationSnapshot progress;
+                        const auto prepared = runtime.renderer()->scope_status({}, progress)
+                                                  ? progress.state
+                                                  : engine::SceneWorkState::not_required;
                         const bool rendered = runtime.renderer()->render(preview->camera());
-                        return prepared == engine::RenderPrepareStatus::failed ||
-                               (prepared == engine::RenderPrepareStatus::ready && !rendered);
+                        return prepared == engine::SceneWorkState::failed ||
+                               (prepared == engine::SceneWorkState::ready && !rendered);
                     }())
                 {
                     LogSystem::write(LogLevel::error, "Scene preview rendering failed");
@@ -758,6 +775,12 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
             {
                 status = runtime.tick(elapsed_time);
             }
+#if ENGINE_HAS_MCP_ENDPOINT
+            if (!mcp_endpoint.poll())
+            {
+                LogSystem::write(LogLevel::error, mcp_endpoint.last_error());
+            }
+#endif
 #if ENGINE_HAS_MODELING_PLUGIN
             if (modeling != nullptr)
             {
@@ -821,6 +844,9 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
     if (editor != nullptr)
     {
         editor->shutdown();
+#if ENGINE_HAS_MCP_ENDPOINT
+        mcp_endpoint.shutdown();
+#endif
         editor.reset();
     }
 #if ENGINE_HAS_ASSET_PIPELINE

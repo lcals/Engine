@@ -1,6 +1,7 @@
 #include "runtime/gameplay/gameplay_session.hpp"
 #include "runtime/font/font_system.hpp"
 #include "runtime/gameplay/deployment_internal.hpp"
+#include "runtime/gameplay/scene_load_operation.hpp"
 #include "runtime/ui/ui_system.hpp"
 
 #include "runtime/animation/animation_system.hpp"
@@ -13,6 +14,7 @@
 #include "runtime/resource/resource_reference.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/resource/types/script_resource.hpp"
+#include "runtime/scene/scene.hpp"
 #include "runtime/world/world_system.hpp"
 #include <cstdio>
 #include <map>
@@ -92,13 +94,10 @@ struct GameplaySession::State
     std::string prepare_entry;
     std::string prepare_scene;
     std::uint64_t prepare_generation = 0;
-    std::uint64_t restore_request = 0;
+    SceneLoadId startup_load;
     std::uint32_t prepare_script_completed = 0;
-    std::uint32_t prepare_scene_completed = 0;
     std::unique_ptr<ResourceLoad> prepare_script_load;
-    std::unique_ptr<ResourceLoad> prepare_scene_load;
     ResourceReference prepare_script;
-    ResourceReference prepare_scene_resource;
     std::unique_ptr<Snapshot> prepare_snapshot;
 
     std::vector<ResourceReference> builtins;
@@ -365,7 +364,7 @@ struct GameplaySession::State
         return true;
     }
 
-    bool apply(const Snapshot& snapshot, bool synchronous)
+    bool apply(const Snapshot& snapshot)
     {
         auto* resources = &owner.resources_;
         if (resources == nullptr ||
@@ -407,22 +406,14 @@ struct GameplaySession::State
         owner.script_->stop_gameplay();
         owner.release_scene();
         builtins = std::move(candidate_builtins);
-        RenderPrepareProgress progress;
-        if (!owner.script_->start_prepared_gameplay() ||
-            (synchronous && owner.renderer_.prepare_scene(RenderPrepareMode::synchronous,
-                                                          progress) != RenderPrepareStatus::ready))
+        if (!owner.script_->start_prepared_gameplay())
         {
-            const auto reason = owner.script_->status().last_error.empty()
-                                    ? "Cannot prepare scene rendering resources"
-                                    : owner.script_->status().last_error;
+            const auto reason = owner.script_->status().last_error;
             owner.stop(reason);
             return false;
         }
-        if (!synchronous)
-        {
-            prepare_generation = resources->generation();
-            prepare_phase = PreparePhase::gpu;
-        }
+        prepare_generation = resources->generation();
+        prepare_phase = PreparePhase::gpu;
         owner.last_error_.clear();
         gameplay_requested = true;
         return true;
@@ -437,11 +428,19 @@ GameplaySession::GameplaySession(ResourceSystem& resources, WorldSystem& world,
     : resources_(resources), world_(world), renderer_(renderer), script_(script), physics_(physics),
       audio_(audio), animation_(animation), fonts_(fonts), ui_(ui), background_(background)
 {
+    if (script_ && !script_->bind_gameplay_session(this))
+    {
+        last_error_ = "Cannot bind gameplay scene loading service";
+    }
 }
 
 GameplaySession::~GameplaySession() noexcept
 {
     stop();
+    if (script_)
+    {
+        (void)script_->bind_gameplay_session(nullptr);
+    }
     if (background_ && state_)
     {
         // 关闭边界可以等待；先收尾旧写入，再确保磁盘上的最终状态为 stopped。
@@ -556,7 +555,6 @@ bool GameplaySession::begin_prepare(const ResourceCatalog& catalog, const MountL
     state_->prepare_scene = scene;
     state_->prepare_generation = resources->generation();
     state_->prepare_script_completed = 0;
-    state_->prepare_scene_completed = 0;
     if (!state_->prepare_builtins(state_->builtins))
     {
         return false;
@@ -584,15 +582,14 @@ GameplayPrepareStatus GameplaySession::step_prepare(std::uint32_t resource_budge
     auto fail = [&](std::string_view message)
     {
         last_error_ = message;
-        if (state_->restore_request)
+        if (state_->startup_load.request)
         {
-            world_.cancel_restore_scene(state_->restore_request);
-            state_->restore_request = 0;
+            (void)cancel_scene_load(state_->startup_load);
+            (void)release_scene_load(state_->startup_load);
+            state_->startup_load = {};
         }
         state_->prepare_script_load.reset();
-        state_->prepare_scene_load.reset();
         state_->prepare_script.reset();
-        state_->prepare_scene_resource.reset();
         if (script_)
         {
             script_->stop_gameplay();
@@ -635,14 +632,13 @@ GameplayPrepareStatus GameplaySession::step_prepare(std::uint32_t resource_budge
                 return fail("Cannot begin asynchronous entry script load");
             }
         }
-        if (!state_->prepare_scene.empty() && !state_->prepare_scene_resource &&
-            !state_->prepare_scene_load)
+        if (!state_->prepare_scene.empty() && state_->startup_load.request == 0)
         {
-            Guid guid;
-            if (!resources->catalog().identities().path_to_guid(state_->prepare_scene, guid) ||
-                !begin(guid, state_->prepare_scene_load))
+            SceneLoadSpec spec;
+            spec.scene_path = state_->prepare_scene;
+            if (!begin_scene_load(spec, state_->startup_load))
             {
-                return fail("Cannot begin asynchronous startup scene load");
+                return fail("Cannot begin startup scene load");
             }
         }
         auto advance = [&](std::unique_ptr<ResourceLoad>& load, ResourceReference& output,
@@ -682,16 +678,13 @@ GameplayPrepareStatus GameplaySession::step_prepare(std::uint32_t resource_budge
             return true;
         };
         if (!advance(state_->prepare_script_load, state_->prepare_script,
-                     state_->prepare_script_completed) ||
-            !advance(state_->prepare_scene_load, state_->prepare_scene_resource,
-                     state_->prepare_scene_completed))
+                     state_->prepare_script_completed))
         {
             const std::string error =
                 last_error_.empty() ? "Gameplay resource load failed" : last_error_;
             return fail(error);
         }
-        if ((!script_ || state_->prepare_script) &&
-            (state_->prepare_scene.empty() || state_->prepare_scene_resource))
+        if (!script_ || state_->prepare_script)
         {
             state_->prepare_phase = Phase::precheck;
         }
@@ -718,32 +711,30 @@ GameplayPrepareStatus GameplaySession::step_prepare(std::uint32_t resource_budge
     }
     if (state_->prepare_phase == Phase::restore)
     {
-        if (state_->prepare_scene_resource)
+        if (state_->startup_load.request)
         {
-            if (!state_->restore_request)
+            step_scene_loads({resource_budget, max_seconds});
+            SceneLoadSnapshot snapshot;
+            if (!scene_load_status(state_->startup_load, snapshot) ||
+                snapshot.state == SceneLoadState::failed ||
+                snapshot.state == SceneLoadState::cancelled)
             {
-                state_->restore_request =
-                    world_.begin_restore_scene(state_->prepare_scene_resource.handle());
-                if (!state_->restore_request)
-                {
-                    return fail("Cannot begin startup scene restoration");
-                }
+                return fail(snapshot.error.empty() ? "Startup scene load failed" : snapshot.error);
             }
-            const auto status = world_.step_restore_scene(
-                state_->restore_request, std::numeric_limits<std::size_t>::max(), max_seconds);
-            if (status == SceneRestoreStatus::failed)
+            if (snapshot.state == SceneLoadState::staged &&
+                !prepare_scene_load(state_->startup_load))
             {
-                return fail("Cannot restore startup scene");
+                return fail("Cannot prepare startup scene");
             }
-            if (status != SceneRestoreStatus::ready)
+            if (snapshot.state == SceneLoadState::ready &&
+                !activate_scene_load(state_->startup_load))
+            {
+                return fail("Cannot activate startup scene");
+            }
+            if (snapshot.state != SceneLoadState::active)
             {
                 return GameplayPrepareStatus::preparing;
             }
-            if (!world_.commit_restore_scene(state_->restore_request))
-            {
-                return fail("Cannot commit startup scene");
-            }
-            state_->restore_request = 0;
         }
         state_->prepare_phase = Phase::initialize;
         return GameplayPrepareStatus::preparing;
@@ -767,16 +758,25 @@ GameplayPrepareStatus GameplaySession::step_prepare(std::uint32_t resource_budge
     }
     if (state_->prepare_phase == Phase::gpu)
     {
-        RenderPrepareProgress progress;
-        const auto ready =
-            renderer_.prepare_scene(RenderPrepareMode::incremental, progress, max_seconds);
-        if (ready == RenderPrepareStatus::failed)
+        const auto scope =
+            world_.scene() ? SceneScopeId{world_.epoch(), world_.scene()->id()} : SceneScopeId{};
+        const SceneWorkBudget budget{resource_budget, max_seconds};
+        const auto prepare = [&](auto* system)
         {
-            return fail(renderer_.preparation_error());
-        }
-        if (ready != RenderPrepareStatus::ready)
+            return !system || !world_.scene() ? SceneWorkState::not_required
+                                              : system->prepare_scope(scope, budget);
+        };
+        for (const auto result : {prepare(physics_), prepare(animation_), prepare(ui_),
+                                  renderer_.prepare_scope({}, budget)})
         {
-            return GameplayPrepareStatus::preparing;
+            if (result == SceneWorkState::failed)
+            {
+                return fail("Startup scene preparation failed");
+            }
+            if (result != SceneWorkState::ready && result != SceneWorkState::not_required)
+            {
+                return GameplayPrepareStatus::preparing;
+            }
         }
         state_->prepare_phase = Phase::ready;
         return GameplayPrepareStatus::ready;
@@ -793,7 +793,11 @@ bool GameplaySession::activate_prepared()
     state_->prepare_phase = State::PreparePhase::active;
     state_->gameplay_requested = script_ != nullptr;
     state_->prepare_script.reset();
-    state_->prepare_scene_resource.reset();
+    if (state_->startup_load.request)
+    {
+        (void)release_scene_load(state_->startup_load);
+        state_->startup_load = {};
+    }
     state_->prepare_snapshot.reset();
     return true;
 }
@@ -842,7 +846,7 @@ bool GameplaySession::start(std::string_view entry)
     }
     const auto& selected = state_->available ? *state_->available : state_->builtin;
     state_->last_attempt = selected.revision;
-    const bool result = state_->apply(selected, true);
+    const bool result = state_->apply(selected);
     if (result && !deployment_error.empty())
     {
         last_error_ = deployment_error;
@@ -854,6 +858,7 @@ bool GameplaySession::start(std::string_view entry)
 
 bool GameplaySession::tick()
 {
+    step_scene_loads({});
     if (!state_ || script_ == nullptr || !App::is_initialized())
     {
         return true;
@@ -882,7 +887,7 @@ bool GameplaySession::tick()
         state_->available->revision != state_->last_attempt)
     {
         state_->last_attempt = state_->available->revision;
-        (void)state_->apply(*state_->available, false);
+        (void)state_->apply(*state_->available);
     }
     state_->publish();
     state_->schedule_background();
@@ -891,6 +896,12 @@ bool GameplaySession::tick()
 
 void GameplaySession::release_scene() noexcept
 {
+    for (auto& [key, operation] : scene_loads_)
+    {
+        (void)key;
+        (void)world_.cancel_scope(operation->snapshot.scope);
+    }
+    scene_loads_.clear();
     if (ui_)
     {
         ui_->release_scene();
@@ -925,15 +936,14 @@ void GameplaySession::stop(std::string_view reason) noexcept
     {
         state_->gameplay_requested = false;
         state_->invalidate_background();
-        if (state_->restore_request)
+        if (state_->startup_load.request)
         {
-            world_.cancel_restore_scene(state_->restore_request);
-            state_->restore_request = 0;
+            (void)cancel_scene_load(state_->startup_load);
+            (void)release_scene_load(state_->startup_load);
+            state_->startup_load = {};
         }
         state_->prepare_script_load.reset();
-        state_->prepare_scene_load.reset();
         state_->prepare_script.reset();
-        state_->prepare_scene_resource.reset();
         state_->prepare_snapshot.reset();
         state_->prepare_phase = State::PreparePhase::idle;
     }
@@ -949,6 +959,7 @@ void GameplaySession::stop(std::string_view reason) noexcept
     }
 }
 
+#if defined(ENGINE_ENABLE_TEST_SUPPORT)
 bool GameplaySession::execute_project_script(const ProjectScriptRequest& request,
                                              std::string& result_json, std::string& error)
 {
@@ -1004,6 +1015,8 @@ bool GameplaySession::execute_project_script(const ProjectScriptRequest& request
     }
     return script_->execute_project_script(script.handle(), request, result_json, error);
 }
+
+#endif
 
 const ScriptStatus* GameplaySession::script_status() const noexcept
 {

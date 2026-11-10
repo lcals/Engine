@@ -2,7 +2,7 @@
 #include "plugins/editor/mcp/editor_tool_registration.hpp"
 
 #include "plugins/editor/mcp/editor_mcp_tools.hpp"
-#include "plugins/editor/mcp/mcp_system.hpp"
+#include "plugins/runtime/mcp/mcp_system.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -292,13 +292,37 @@ bool register_render_tools(McpSystem& system, EditorMcpTools& editor)
                "Enable or disable bgfx statistics in idle, scene preview or gameplay mode.",
                object_schema({{"enabled", {{"type", "boolean"}}}}, {"enabled"})) &&
            add("capture_frame",
-               "Request a PNG of an actual rendered frame; path is relative to the project cache. "
-               "Poll for completion.",
+               "Capture a new final output frame; poll this request's captureId until complete.",
                object_schema(
-                   {{"path", {{"type", "string"}, {"minLength", 1}, {"maxLength", 4096}}}},
+                   {{"path", {{"type", "string"}, {"minLength", 1}, {"maxLength", 4096}}},
+                    {"selection", {{"type", "string"}, {"enum", {"next_frame", "scene_scope"}}}},
+                    {"scope",
+                     {{"type", "object"},
+                      {"properties",
+                       {{"worldEpoch", {{"type", "string"}}}, {"value", {{"type", "string"}}}}},
+                      {"required", {"worldEpoch", "value"}},
+                      {"additionalProperties", false}}},
+                    {"deviceGeneration", {{"type", "string"}}},
+                    {"afterSubmissionId", {{"type", "string"}}}},
                    {"path"})) &&
            add("get_frame_capture",
-               "Query capture status; complete means the file has been written.",
-               object_schema(Json::object(), Json::array()));
+               "Read an identified screenshot request and its actual submitted frame.",
+               object_schema(
+                   {{"captureId",
+                     {{"type", "object"},
+                      {"properties",
+                       {{"owner", {{"type", "string"}}}, {"value", {{"type", "string"}}}}},
+                      {"required", {"owner", "value"}},
+                      {"additionalProperties", false}}}},
+                   {"captureId"})) &&
+           add("get_scene_load", "Read an identified scene loading request without advancing it.",
+               object_schema(
+                   {{"loadId",
+                     {{"type", "object"},
+                      {"properties",
+                       {{"owner", {{"type", "string"}}}, {"request", {{"type", "string"}}}}},
+                      {"required", {"owner", "request"}},
+                      {"additionalProperties", false}}}},
+                   {"loadId"}));
 }
 } // namespace engine::plugins::mcp

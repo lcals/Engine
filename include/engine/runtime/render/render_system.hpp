@@ -2,10 +2,12 @@
 #include "runtime/scene/camera.hpp"
 
 #include "runtime/render/render_features.hpp"
+#include "runtime/render/render_observation.hpp"
 #include "runtime/render/render_settings.hpp"
 #include "runtime/render/scene_capture.hpp"
 #include "runtime/scene/scene_types.hpp"
 #include "runtime/system/system.hpp"
+#include <map>
 
 #include <array>
 #include <cstddef>
@@ -29,40 +31,13 @@ struct MovieFrame;
 
 namespace render_detail
 {
+class FrameOutput;
 class RenderSurface;
 class MoviePass;
 } // namespace render_detail
 
-enum class ScreenshotStatus
-{
-    idle,
-    pending,
-    complete,
-    failed
-};
-
-enum class RenderPrepareMode
-{
-    synchronous,
-    incremental
-};
-
-enum class RenderPrepareStatus
-{
-    idle,
-    preparing,
-    ready,
-    failed
-};
-
-struct RenderPrepareProgress
-{
-    std::uint64_t generation = 0;
-    std::uint32_t resources_total = 0;
-    std::uint32_t resources_ready = 0;
-    std::uint64_t staging_bytes = 0;
-    bool discovery_complete = false;
-};
+enum class RenderPrepareStatus;
+struct RenderPrepareProgress;
 
 struct RenderConfig
 {
@@ -101,13 +76,15 @@ public:
     // 解除后清理扩展的场景和 GPU 资源；重复解除返回 false。
     [[nodiscard]] bool remove_extension(RenderExtension& extension) noexcept;
 
-    // camera 仅在本次调用借用，可属于调用方独立场景；空值采用世界的活动镜头。
-    [[nodiscard]] RenderPrepareStatus prepare_scene(RenderPrepareMode mode,
-                                                    RenderPrepareProgress& output,
-                                                    double max_seconds = 0, Camera camera = {});
-    [[nodiscard]] RenderPrepareStatus
-    preparation_status(RenderPrepareProgress& output) const noexcept;
-    [[nodiscard]] std::string_view preparation_error() const noexcept;
+    [[nodiscard]] SceneWorkState prepare_scope(SceneScopeId scope, const SceneWorkBudget& budget,
+                                               Camera camera = {});
+    [[nodiscard]] bool scope_status(SceneScopeId scope, ScenePreparationSnapshot& output) const;
+    void release_scope(SceneScopeId scope) noexcept;
+    [[nodiscard]] bool frame_status(SceneScopeId scope, RenderFrameSnapshot& output) const;
+    [[nodiscard]] bool request_screenshot(const ScreenshotRequest& request, ScreenshotId& output);
+    [[nodiscard]] bool screenshot_status(ScreenshotId id, ScreenshotSnapshot& output) const;
+    [[nodiscard]] bool cancel_screenshot(ScreenshotId id);
+    [[nodiscard]] bool release_screenshot(ScreenshotId id);
     [[nodiscard]] bool request_diffuse_capture(const SceneCaptureRequest& request);
     [[nodiscard]] SceneCaptureStatus diffuse_capture_status() const noexcept;
     [[nodiscard]] bool take_diffuse_capture(SceneCaptureImage& output);
@@ -149,9 +126,6 @@ public:
     // 主线程调用；开关与场景无关，图形设备临时关闭后保留并恢复。
     void set_stats_visible(bool visible);
     [[nodiscard]] bool stats_visible() const noexcept;
-    // 主线程传入绝对 PNG 路径；true 仅表示排队，须继续提交帧并查询状态。
-    [[nodiscard]] bool request_screenshot(std::string_view utf8_png_path);
-    [[nodiscard]] ScreenshotStatus screenshot_status() const noexcept;
     [[nodiscard]] bool render(Camera camera = {});
     [[nodiscard]] bool present_movie_frame(const MovieFrame& frame);
 
@@ -160,6 +134,8 @@ protected:
     void on_shutdown() noexcept override;
 
 private:
+    [[nodiscard]] RenderPrepareStatus prepare_resources(RenderPrepareProgress& output,
+                                                        double max_seconds, Camera camera);
     [[nodiscard]] bool prepare_frame();
     friend class RenderExtension;
     void detach_extension(RenderExtension& extension) noexcept;
@@ -181,6 +157,35 @@ private:
     void publish_features() noexcept;
     void clear_debug_lines() noexcept;
 
+    void record_frame(RenderFrameKind kind);
+    struct ScopePreparation
+    {
+        ScenePreparationSnapshot snapshot;
+        std::uint64_t completed = 0;
+        std::uint64_t started_ns = 0;
+    };
+    std::map<SceneScopeId, ScopePreparation> scope_preparations_;
+    Scene* scope_preparing_scene_ = nullptr;
+    RenderFrameSnapshot last_frame_;
+    bool scene_collected_ = false;
+    std::map<SceneScopeId, RenderFrameSnapshot> scope_frames_;
+    [[nodiscard]] RenderFrameSnapshot submitted_frame(RenderFrameKind kind) const;
+    std::uint64_t device_generation_ = 0;
+    std::uint64_t submission_sequence_ = 0;
+    struct ScreenshotOperation
+    {
+        ScreenshotRequest request;
+        ScreenshotSnapshot snapshot;
+        std::string temporary_path;
+        bool release_requested = false;
+    };
+    std::map<std::uint64_t, ScreenshotOperation> screenshots_;
+    std::uint64_t screenshot_sequence_ = 0;
+    std::uint64_t screenshot_owner_ = 0;
+    std::uint64_t active_screenshot_ = 0;
+    void advance_screenshots();
+    void submit_screenshot(RenderFrameKind kind);
+    std::unique_ptr<render_detail::FrameOutput> frame_output_;
     struct SceneGpuResources;
     struct RenderPreparation;
     struct RendererCallbacks;

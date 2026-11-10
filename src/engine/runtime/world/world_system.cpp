@@ -1,4 +1,5 @@
 #include "runtime/world/world_system.hpp"
+#include "runtime/world/world_scene_scope.hpp"
 
 #include "runtime/log/log_system.hpp"
 #include "runtime/performance/profiling.hpp"
@@ -48,7 +49,6 @@ Scene* WorldSystem::create_scene(std::string_view name)
         scene_ = candidate.get();
         scenes_.push_back(std::move(candidate));
         ++scene_sequence_;
-        restoring_.reset();
         paused_ = false;
     }
     return scene_;
@@ -84,7 +84,6 @@ Scene* WorldSystem::load_scene(std::string_view path)
         return nullptr;
     }
     candidate->resource_ = resource.detach();
-    restoring_.reset();
     retain_persistent();
     scene_ = candidate.get();
     scenes_.push_back(std::move(candidate));
@@ -93,130 +92,19 @@ Scene* WorldSystem::load_scene(std::string_view path)
     return scene_;
 }
 
-std::uint64_t WorldSystem::begin_restore_scene(const ResourceHandle& handle)
-{
-    if (!is_initialized() || !can_modify() || restoring_ || !resources_ ||
-        scene_sequence_ == std::numeric_limits<std::uint64_t>::max())
-    {
-        return 0;
-    }
-    ResourceReference resource;
-    if (!resource.retain(resources_, handle))
-    {
-        return 0;
-    }
-    const auto* data = resource.data<SceneResource>();
-    if (!data || !data->info || data->schema_version != 3)
-    {
-        return 0;
-    }
-    restoring_.reset(new (std::nothrow) Scene(*this, ++scene_sequence_));
-    if (!restoring_ || !restoring_->initialize(data->info->name))
-    {
-        restoring_.reset();
-        return 0;
-    }
-    restoring_->resource_ = resource.detach();
-    restore_nodes_ = 0;
-    restore_parents_ = 0;
-    restore_ready_ = false;
-    return restoring_->id();
-}
-
-SceneRestoreStatus WorldSystem::step_restore_scene(std::uint64_t request, std::size_t node_budget,
-                                                   double max_seconds)
-{
-    ENGINE_PROFILE_ZONE("World.restoreStep");
-    if (!std::isfinite(max_seconds) || max_seconds < 0 || !can_modify() || !restoring_ ||
-        restoring_->id() != request)
-    {
-        return SceneRestoreStatus::failed;
-    }
-    const SceneResource* source = nullptr;
-    if (!is_initialized() || !resources_ ||
-        resources_->get(restoring_->resource_, source) != ResourceError::none)
-    {
-        cancel_restore_scene(request);
-        return SceneRestoreStatus::failed;
-    }
-    if (restore_ready_)
-    {
-        return SceneRestoreStatus::ready;
-    }
-    const auto& data = source->data();
-    ecs_detail::ResourceBindingScope scope(*this, restoring_->resource_);
-    const auto started = std::chrono::steady_clock::now();
-    const auto count = std::min(node_budget, restore_config_.nodes_per_step);
-    const double time_budget = max_seconds > 0 ? std::min(max_seconds, restore_config_.max_seconds)
-                                               : restore_config_.max_seconds;
-    for (std::size_t index = 0; index < count; ++index)
-    {
-        if (std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count() >=
-            time_budget)
-        {
-            break;
-        }
-        bool success = true;
-        if (restore_nodes_ < data.nodes.size())
-        {
-            const auto& node = data.nodes[restore_nodes_++];
-            success = node && restoring_->restore_node(*node);
-        }
-        else if (restore_parents_ < data.nodes.size())
-        {
-            success = restoring_->restore_parent(*data.nodes[restore_parents_++]);
-        }
-        else
-        {
-            success = restoring_->finish_restore(data);
-            restore_ready_ = success;
-        }
-        if (!success)
-        {
-            cancel_restore_scene(request);
-            return SceneRestoreStatus::failed;
-        }
-        if (restore_ready_)
-        {
-            return SceneRestoreStatus::ready;
-        }
-    }
-    return SceneRestoreStatus::loading;
-}
-
-Scene* WorldSystem::commit_restore_scene(std::uint64_t request)
-{
-    if (step_restore_scene(request, 0) != SceneRestoreStatus::ready || !restoring_->publish())
-    {
-        return nullptr;
-    }
-    retain_persistent();
-    scene_ = restoring_.get();
-    scenes_.push_back(std::move(restoring_));
-    paused_ = false;
-    restore_ready_ = false;
-    return scene_;
-}
-
-void WorldSystem::cancel_restore_scene(std::uint64_t request) noexcept
-{
-    if (can_modify() && restoring_ && restoring_->id() == request)
-    {
-        restoring_.reset();
-        restore_ready_ = false;
-    }
-}
-
 void WorldSystem::destroy_scene() noexcept
 {
     if (!can_modify())
     {
         return;
     }
-    restoring_.reset();
-    restore_ready_ = false;
+    retirement_.clear();
+    scopes_.clear();
     scene_ = nullptr;
-    scenes_.clear();
+    while (!scenes_.empty())
+    {
+        scenes_.pop_back();
+    }
     paused_ = false;
 }
 
@@ -236,8 +124,8 @@ void WorldSystem::unload_scene() noexcept
     {
         return;
     }
-    restoring_.reset();
-    restore_ready_ = false;
+    std::erase_if(scopes_, [](const auto& entry) { return !entry.second->published; });
+    retirement_.clear();
     retain_persistent();
     paused_ = false;
 }
@@ -247,6 +135,15 @@ bool WorldSystem::destroy_scene(std::uint64_t id) noexcept
     if (!can_modify())
     {
         return false;
+    }
+    auto target = std::find_if(scenes_.begin(), scenes_.end(),
+                               [id](const auto& item) { return item->id() == id; });
+    if (target != scenes_.end())
+    {
+        const auto* owner = target->get();
+        std::erase_if(scopes_, [&](const auto& item) { return item.second->destination == id; });
+        std::erase_if(scenes_,
+                      [owner](const auto& item) { return item->allocation_target_ == owner; });
     }
     if (scene_ != nullptr && scene_->id() == id)
     {
@@ -357,12 +254,14 @@ bool WorldSystem::on_initialize(const EngineConfig&)
     prepared_revision_ = 0;
     flecs::world current(world_);
     current.component<schema::NodePropertiesT>();
-    current.component<schema::SceneInfoT>();
+    current.component<schema::SceneInfoT>().add(flecs::OnInstantiate, EcsDontInherit);
     current.component<schema::PrefabInstanceDataT>();
     current.component<ecs_detail::NodeRuntime>();
     current.component<ecs_detail::WorldTransform>();
     current.component<ecs_detail::TransformDrive>();
-    current.component<ecs_detail::Published>();
+    current.component<ecs_detail::Published>().add(flecs::OnInstantiate, flecs::Inherit);
+    current.component<ecs_detail::Simulating>().add(flecs::OnInstantiate, flecs::Inherit);
+    current.component<ecs_detail::ScopeState>().add(flecs::OnInstantiate, EcsDontInherit);
     current.component<ecs_detail::SceneMember>()
         .add(flecs::Exclusive)
         .add(flecs::OnDeleteTarget, flecs::Delete);
@@ -380,6 +279,10 @@ bool WorldSystem::on_initialize(const EngineConfig&)
                 {
                     state.scene->unregister_entity(entity.id(), properties.id);
                 }
+                if (state.scope_scene && state.scope_scene != state.scene)
+                {
+                    state.scope_scene->unregister_entity(entity.id(), properties.id);
+                }
             });
     ecs_query_desc_t query{};
     query.terms[0].id = current.id<schema::NodePropertiesT>();
@@ -395,6 +298,47 @@ bool WorldSystem::on_tick(double delta_time)
     {
         return false;
     }
+    const auto started = std::chrono::steady_clock::now();
+    for (std::size_t item = 0; item < restore_config_.nodes_per_step && !retirement_.empty();
+         ++item)
+    {
+        if (item != 0 &&
+            std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count() >=
+                restore_config_.max_seconds)
+        {
+            break;
+        }
+        const auto [node, expanded] = retirement_.back();
+        retirement_.pop_back();
+        if (!node)
+        {
+            continue;
+        }
+        flecs::world current(world_);
+        if (!expanded)
+        {
+            retirement_.emplace_back(node, true);
+            current.entity(node.id()).children(
+                [&](flecs::entity child)
+                { retirement_.emplace_back(Node(*this, world_epoch_, child.id()), false); });
+        }
+        else
+        {
+            ecs_delete(world_, node.id());
+        }
+    }
+    std::erase_if(scopes_,
+                  [&](const auto& entry)
+                  {
+                      const auto& scope = *entry.second;
+                      return scope.published &&
+                             std::none_of(scenes_.begin(), scenes_.end(),
+                                          [&](const auto& scene)
+                                          {
+                                              return scene.get() == scope.published_scene &&
+                                                     (scene.get() == scene_ || !scene->empty());
+                                          });
+                  });
     std::erase_if(scenes_,
                   [this](const auto& scene) { return scene.get() != scene_ && scene->empty(); });
     return refresh_scene_state();

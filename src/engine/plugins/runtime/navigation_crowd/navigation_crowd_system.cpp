@@ -179,6 +179,7 @@ bool NavigationCrowdSystem::on_tick(double delta_time)
         auto query = flecs::world(world_.native_world())
                          .query_builder<const ecs_detail::ComponentStorage<NavigationAgent::Data>>()
                          .with<ecs_detail::Published>()
+                         .with<ecs_detail::Simulating>()
                          .build();
         bool query_success = true;
         query.each(

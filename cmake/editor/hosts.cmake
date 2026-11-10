@@ -154,6 +154,12 @@ if(ENGINE_BUILD_APP AND ENGINE_ENABLE_EDITOR_DEPS)
                 engine::log
                 SDL3::SDL3
                 fmt::fmt)
+    if(TARGET engine_project_mcp_tools)
+        target_link_libraries(editor_app PRIVATE engine::project_mcp_tools)
+        target_compile_definitions(editor_app PRIVATE ENGINE_HAS_MCP_ENDPOINT=1)
+    else()
+        target_compile_definitions(editor_app PRIVATE ENGINE_HAS_MCP_ENDPOINT=0)
+    endif()
     if(TARGET engine_asset_pipeline)
         target_link_libraries(editor_app PRIVATE engine::asset_pipeline)
         target_compile_definitions(editor_app PRIVATE ENGINE_HAS_ASSET_PIPELINE=1)

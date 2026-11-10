@@ -9,6 +9,23 @@
 
 namespace engine
 {
+thread_local std::uint64_t ecs_detail::preparing_epoch = 0;
+thread_local std::uint64_t ecs_detail::preparing_scope = 0;
+
+bool ecs_detail::scope_writable(Node node) noexcept
+{
+    if (!node || !node.world()->can_modify())
+    {
+        return false;
+    }
+    flecs::world current(node.world()->native_world());
+    const auto metadata = current.entity(node.id()).target<SceneMember>();
+    const auto* scope = metadata ? metadata.try_get<ScopeState>() : nullptr;
+    return scope == nullptr || !scope->sealed || scope->simulating ||
+           current.entity(node.id()).has<Simulating>() ||
+           (preparing_epoch == node.world()->epoch() && preparing_scope == scope->scope);
+}
+
 Node::Node(WorldSystem& world, std::uint64_t epoch, std::uint64_t entity) noexcept
     : world_(&world), world_epoch_(epoch), entity_id_(entity)
 {
@@ -101,7 +118,7 @@ bool Node::enabled() const noexcept
 }
 bool Node::set_enabled(bool value) noexcept
 {
-    if (!valid() || !world_->can_modify())
+    if (!valid() || !ecs_detail::scope_writable(*this))
     {
         return false;
     }
@@ -113,7 +130,7 @@ bool Node::set_enabled(bool value) noexcept
     }
     info->enabled = value;
     world_->invalidate_scene_state();
-    current.event<Node>().id<ecs_detail::Published>().entity(entity_id_).ctx(*this).emit();
+    current.event<Node>().id<ecs_detail::NodeRuntime>().entity(entity_id_).ctx(*this).emit();
     return true;
 }
 bool Node::active() const noexcept
@@ -137,7 +154,7 @@ bool Node::visible() const noexcept
 }
 bool Node::set_visible(bool value) noexcept
 {
-    if (!valid() || !world_->can_modify())
+    if (!valid() || !ecs_detail::scope_writable(*this))
     {
         return false;
     }
@@ -149,7 +166,7 @@ bool Node::set_visible(bool value) noexcept
     }
     info->visible = value;
     world_->invalidate_scene_state();
-    current.event<Node>().id<ecs_detail::Published>().entity(entity_id_).ctx(*this).emit();
+    current.event<Node>().id<ecs_detail::NodeRuntime>().entity(entity_id_).ctx(*this).emit();
     return true;
 }
 bool Node::visible_in_hierarchy() const noexcept
@@ -222,7 +239,7 @@ Node Node::find_child(std::string_view relative_path) const noexcept
 }
 bool Node::set_parent(Node parent) noexcept
 {
-    if (!valid() || !world_->can_modify())
+    if (!valid() || !ecs_detail::scope_writable(*this))
     {
         return false;
     }
@@ -254,7 +271,7 @@ bool Node::set_parent(Node parent) noexcept
         entity.remove(flecs::ChildOf, flecs::Wildcard);
     }
     world_->invalidate_scene_state();
-    current.event<Node>().id<ecs_detail::Published>().entity(entity_id_).ctx(*this).emit();
+    current.event<Node>().id<ecs_detail::NodeRuntime>().entity(entity_id_).ctx(*this).emit();
     return true;
 }
 bool Node::transient() const noexcept
@@ -271,7 +288,7 @@ bool Node::transient() const noexcept
 }
 bool Node::set_transient(bool value) noexcept
 {
-    if (!valid() || !world_->can_modify())
+    if (!valid() || !ecs_detail::scope_writable(*this))
     {
         return false;
     }
@@ -293,7 +310,7 @@ bool Node::persistent() const noexcept
 }
 bool Node::set_persistent(bool value) noexcept
 {
-    if (!valid() || !world_->can_modify() || parent())
+    if (!valid() || !ecs_detail::scope_writable(*this) || parent())
     {
         return false;
     }

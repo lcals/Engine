@@ -236,7 +236,7 @@ def click(session, element_id):
 
 def capture_for_review(session, results, output, name):
     relative = (output / f"{name}.png").relative_to(PROJECT / "cache")
-    captures = session.capture_when_visible(str(relative))
+    captures = session.capture_scene(str(relative))
     results.setdefault("captures", []).extend(captures)
     capture = captures[-1]
     if capture["opaqueBlack"] is not False:
@@ -247,7 +247,7 @@ def capture_for_review(session, results, output, name):
 def check(session, results, output):
     required = {"get_status", "start_project", "stop_project", "execute_project_script",
                 "get_ui_documents", "get_ui_tree", "get_ui_element", "click_ui", "ui_input",
-                "get_ui_input", "get_editor_receipt", "close_editor"}
+                "get_ui_input", "get_request_receipt", "close_editor"}
     require(required <= session.tools, f"Missing MCP tools: {sorted(required - session.tools)}")
     status = get_status(session)
     require(status.get("editorAlive") is True, "The caller must start the showcase editor first")

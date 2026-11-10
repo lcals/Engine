@@ -3,19 +3,19 @@
 #include <nlohmann/json.hpp>
 
 #include <filesystem>
+#include <functional>
 #include <set>
 #include <string>
 
-namespace engine::editor
+namespace engine::plugins::mcp
 {
 
-class EditorCommands;
-
-class EditorCommandChannel final
+class McpCommandChannel final
 {
 public:
-    EditorCommandChannel(EditorCommands& commands, std::filesystem::path directory,
-                         std::string project_root, std::string session);
+    using Handler =
+        std::function<bool(std::string_view, const nlohmann::json&, nlohmann::json&, std::string&)>;
+    McpCommandChannel(std::filesystem::path directory, std::string session, Handler execute);
     [[nodiscard]] bool poll();
     [[nodiscard]] const std::string& last_error() const noexcept;
     [[nodiscard]] const nlohmann::json& last_receipt() const noexcept;
@@ -23,9 +23,8 @@ public:
 private:
     [[nodiscard]] bool publish_pending();
 
-    EditorCommands& commands_;
+    Handler execute_;
     std::filesystem::path directory_;
-    std::string project_root_;
     std::string session_;
     std::string last_text_;
     std::string last_error_;
@@ -34,4 +33,4 @@ private:
     nlohmann::json last_receipt_;
 };
 
-} // namespace engine::editor
+} // namespace engine::plugins::mcp

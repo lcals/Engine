@@ -27,8 +27,8 @@
 #include "plugins/runtime/script/script_system.hpp"
 #endif
 
-#if ENGINE_RUNTIME_MCP_TEST
-#include "plugins/editor/mcp/runtime_mcp_bridge.hpp"
+#if defined(ENGINE_HAS_RUNTIME_MCP_ENDPOINT)
+#include "plugins/runtime/mcp/runtime_mcp_endpoint.hpp"
 #include "runtime/utils/path_utils.hpp"
 #endif
 
@@ -52,7 +52,7 @@ namespace
 {
 void print_usage()
 {
-#if ENGINE_RUNTIME_MCP_TEST
+#if defined(ENGINE_HAS_RUNTIME_MCP_ENDPOINT)
     fmt::print("Usage: engine_app --mcp-project <path> --mcp-runtime-dir <empty-cache-path> "
                "[--frames <positive-count>] [--workers <0..64>]\n");
 #else
@@ -69,14 +69,14 @@ int main(int argc, char* argv[])
     auto& parallel = settings.parallel;
     std::optional<std::size_t> worker_override;
     std::uint64_t frame_limit = 0;
-#if ENGINE_RUNTIME_MCP_TEST
+#if defined(ENGINE_HAS_RUNTIME_MCP_ENDPOINT)
     std::filesystem::path mcp_project;
     std::filesystem::path mcp_directory;
 #endif
     for (int index = 1; index < argc; ++index)
     {
         const std::string_view argument(argv[index]);
-#if ENGINE_RUNTIME_MCP_TEST
+#if defined(ENGINE_HAS_RUNTIME_MCP_ENDPOINT)
         if ((argument == "--mcp-project" || argument == "--mcp-runtime-dir") && index + 1 < argc)
         {
             auto& value = argument == "--mcp-project" ? mcp_project : mcp_directory;
@@ -126,21 +126,16 @@ int main(int argc, char* argv[])
         }
     }
     engine::RuntimeHost engine;
-#if ENGINE_RUNTIME_MCP_TEST
-    engine::plugins::mcp::RuntimeMcpBridge mcp_bridge;
-    if (!mcp_bridge.initialize(engine, mcp_project, mcp_directory))
-    {
-        fmt::print(stderr, "Cannot initialize runtime MCP test channel: {}\n",
-                   mcp_bridge.last_error());
-        return 1;
-    }
+#if defined(ENGINE_HAS_RUNTIME_MCP_ENDPOINT)
+    engine::plugins::mcp::RuntimeMcpEndpoint mcp_bridge;
+
 #endif
 #if ENGINE_HAS_APP_SERVICES
     engine::AppConfig app_config{};
 #if defined(ENGINE_PROJECT_APPLICATION_NAME)
     app_config.application_name = ENGINE_PROJECT_APPLICATION_NAME;
 #endif
-#if ENGINE_RUNTIME_MCP_TEST
+#if defined(ENGINE_HAS_RUNTIME_MCP_ENDPOINT)
     app_config.persistent_data_path = mcp_directory;
     app_config.cache_path = mcp_directory / "runtime-cache";
 #endif
@@ -355,6 +350,14 @@ int main(int argc, char* argv[])
         }
     }
 #endif
+#if defined(ENGINE_HAS_RUNTIME_MCP_ENDPOINT)
+    if (!mcp_bridge.initialize(engine, {mcp_project / "cache", mcp_directory, {}}))
+    {
+        fmt::print(stderr, "Cannot initialize runtime MCP test channel: {}\n",
+                   mcp_bridge.last_error());
+        return 1;
+    }
+#endif
     auto previous_time = std::chrono::steady_clock::now();
     std::uint64_t frames = 0;
     int result = 0;
@@ -391,12 +394,8 @@ int main(int argc, char* argv[])
             result = 1;
             break;
         }
-#if ENGINE_RUNTIME_MCP_TEST
-        bool mcp_gameplay_active = true;
-#if ENGINE_START_PACKAGED_GAMEPLAY && ENGINE_HAS_RESOURCE_GRAPH_PLUGIN && ENGINE_HAS_APP_SERVICES
-        mcp_gameplay_active = !starting;
-#endif
-        if (mcp_gameplay_active && !mcp_bridge.poll())
+#if defined(ENGINE_HAS_RUNTIME_MCP_ENDPOINT)
+        if (!mcp_bridge.poll())
         {
             fmt::print(stderr, "Runtime MCP test channel failed: {}\n", mcp_bridge.last_error());
             result = 1;
@@ -501,8 +500,7 @@ int main(int argc, char* argv[])
                 }
                 gameplay_ready = ready == engine::RuntimeStartupStatus::ready;
             }
-            if (gameplay_ready && intro_active &&
-                movie_status.state == engine::MovieState::completed)
+            if (intro_active && movie_status.state == engine::MovieState::completed)
             {
                 if (!engine.movie_player()->release(intro_handle))
                 {
@@ -542,7 +540,7 @@ int main(int argc, char* argv[])
 #if ENGINE_START_PACKAGED_GAMEPLAY
     intro_load.reset();
 #endif
-#if ENGINE_RUNTIME_MCP_TEST
+#if defined(ENGINE_HAS_RUNTIME_MCP_ENDPOINT)
     mcp_bridge.shutdown();
 #endif
     engine.shutdown();

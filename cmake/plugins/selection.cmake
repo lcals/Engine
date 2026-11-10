@@ -2,6 +2,7 @@ include("${CMAKE_CURRENT_LIST_DIR}/registry.cmake")
 
 # 清单文件同时拥有该插件的源码、依赖和目标定义，不另维护第二份描述。
 include("${CMAKE_CURRENT_LIST_DIR}/runtime/resource_graph.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/runtime/mcp.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/runtime/script.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/runtime/animation_retarget.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/runtime/camera.cmake")
@@ -35,6 +36,9 @@ if(ANDROID
 endif()
 set(_runtime_plugins "")
 set(_editor_plugins "")
+if(ENGINE_ENABLE_TEST_SUPPORT)
+    list(APPEND _runtime_plugins mcp)
+endif()
 if(ENGINE_ENABLE_RUNTIME_DEPS)
     list(
         APPEND

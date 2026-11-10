@@ -37,7 +37,14 @@ bool RenderSystem::request_hdr_capture()
     hdr_capture_status_ = SceneCaptureStatus::pending;
     if (preparation_)
     {
-        preparation_->target_description.clear();
+        if (scene_resources_)
+        {
+            for (auto& [id, target] : scene_resources_->pass_targets)
+            {
+                (void)id;
+                target->description.clear();
+            }
+        }
         preparation_->status = RenderPrepareStatus::preparing;
     }
     return true;
@@ -84,7 +91,7 @@ void RenderSystem::submit_hdr_capture()
         return;
     }
     auto& resources = *scene_resources_;
-    const auto source = resources.hdr_post_process.scene_color();
+    const auto source = resources.targets().hdr_post_process.scene_color();
     if (!bgfx::isValid(source) || !bgfx::isValid(resources.hdr_capture_readback) ||
         resources.hdr_capture_width != width_ || resources.hdr_capture_height != height_)
     {
@@ -502,7 +509,14 @@ bool RenderSystem::request_diffuse_capture(const SceneCaptureRequest& request)
     capture_status_ = SceneCaptureStatus::pending;
     if (preparation_)
     {
-        preparation_->target_description.clear();
+        if (scene_resources_)
+        {
+            for (auto& [id, target] : scene_resources_->pass_targets)
+            {
+                (void)id;
+                target->description.clear();
+            }
+        }
         preparation_->status = RenderPrepareStatus::preparing;
     }
     if (scene_resources_)
@@ -810,8 +824,8 @@ bool RenderSystem::SceneGpuResources::draw_capture_sky(const SceneCaptureRequest
     float view_projection[16], inverse[16];
     bx::mtxMul(view_projection, request.view.data(), request.projection.data());
     bx::mtxInverse(inverse, view_projection);
-    const bool ibl_ready =
-        settings.ibl_enabled && ibl_textures[1] && bgfx::isValid(ibl_textures[1]->handle);
+    const bool ibl_ready = settings.ibl_enabled && targets().ibl_textures[1] &&
+                           bgfx::isValid(targets().ibl_textures[1]->handle);
     const float ibl[]{ibl_ready ? 1.0F : 0.0F, settings.ibl_intensity, 0, 0};
     const float mode[]{1, bgfx::getCaps()->homogeneousDepth ? -1.0F : 0.0F,
                        bgfx::getCaps()->originBottomLeft ? 1.0F : 0.0F, 0};
@@ -831,7 +845,7 @@ bool RenderSystem::SceneGpuResources::draw_capture_sky(const SceneCaptureRequest
     bgfx::setViewUniform(render_detail::capture_view, ambient_equator, equator);
     bgfx::setViewUniform(render_detail::capture_view, ambient_ground, ground);
     bgfx::setTexture(13, ibl_prefilter_sampler,
-                     ibl_ready ? ibl_textures[1]->handle : ibl_cube_fallback);
+                     ibl_ready ? targets().ibl_textures[1]->handle : ibl_cube_fallback);
     bgfx::setVertexBuffer(0, capture_fullscreen);
     bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A);
     bgfx::submit(render_detail::capture_view, capture_sky_program);
