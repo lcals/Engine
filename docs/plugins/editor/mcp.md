@@ -29,7 +29,7 @@
 | `save_scene` | `sceneId`、`path`（相对于项目 `assets/` 的 `.scene` 路径）；保存完整场景及当前网格、材质源 |
 | `execute_batch` | `commands` 数组，每项含 `command` 与 `arguments`；接受各模块已注册的可撤销修改，最多 64 项 |
 | `undo` / `redo` | `sceneId`；撤销或重做一条编辑记录 |
-| `get_editor_receipt` | `session`、`requestId`；查询原请求的持久回执 |
+| `get_request_receipt` | `session`、`requestId`；查询原请求的持久回执 |
 | `execute_project_script` | `session`、`runId`、`sourcePath`、`source`、可选 `arguments`；临时编译 TS，在当前运行实例调用默认导出并返回 JSON |
 | `close_editor` | 可选 `delayMs`，整数 100～10000，默认 500；返回关闭已安排的回执，延迟后正常退出编辑器 |
 
@@ -95,24 +95,23 @@ Frame/View uniform 作为 `implementation.frame_view_uniforms` 的只读实现�
 
 ## 独立运行程序测试
 
-可在包含编辑器 MCP 与脚本插件的桌面构建中显式启用 `ENGINE_ENABLE_RUNTIME_MCP_TEST=ON`，再构建 `engine_project_mcp_test_app` 和 `mcp_app`。测试程序名为 `<产品名>-mcp-test`，需要与对应项目的 `assets/` 运行包一起放到独立的测试输出目录；它不替代正式运行程序，也不进入默认交付。构建及导出方式见[构建指南](../../building.md)。
+使用独立测试预设 `ninja-engine-test-release` 或 `ninja-engine-test-debug`。测试能力开关 `ENGINE_ENABLE_TEST_SUPPORT` 默认 OFF，独立于优化等级；正式运行程序排除运行端点及临时脚本执行。运行端点只链接 runtime/mcp 和核心；在开发机使用 mcp_app 的 TS 编译、编辑或资源构建工具是另一侧的能力。
 
-为每次测试在项目 `cache/` 下新建一个空目录，以 `--mcp-project <项目目录> --mcp-runtime-dir <空目录>` 启动测试程序；`mcp_app` 使用同一项目和目录连接。此目录也是该测试进程的独立持久状态目录，不能指向活动编辑器的目录。`get_status` 中 `hostKind` 为 `runtime-test`，并以 `runtimeAlive` 表示测试宿主在线；`renderPreparation` 是渲染准备的当前状态，场景对象创建完成不代表画面已就绪。启动影片及玩法入口完成后，才处理测试命令；停机、换 Run 或重载后必须重新获取会话与 Run 身份。
+测试宿主在呈现系统就绪后、影片和玩法加载前处理命令。get_status 提供 session、能力、宿主 tick、loadIds 和最近成功提交帧；get_scene_load 使用 loadId 查询真实阶段。运行时、编辑器和原生图形用例使用同一套加载与截图实现。
 
-截图前应先等待 `renderPreparation.state` 为 `ready`。动态添加对象、切换场景或更改资源后，渲染准备可能再次进入 `preparing`；上一次的就绪状态不能用于判断新画面。
+每次测试在项目 cache 下建立独立通道，用 `--mcp-project <项目目录> --mcp-runtime-dir <通道目录>` 启动 `<产品名>-mcp-test`，mcp_app 固定连接同一项目和通道。普通状态和截图不要求脚本；临时 TS 执行还要求测试构建、脚本插件、当前非零 runId 和开发端编译环境。
 
-该宿主支持运行状态、`execute_project_script`、`capture_frame` 和 `get_frame_capture`；编辑器专有的场景修改、输入和项目启停命令不适用。临时脚本在当前玩法的 VM 内执行，实际副作用由调用方自行恢复。截图只允许写入项目 `cache/`，保存成功不代表画面正确。命令通道和所有权见[运行程序测试类图](class-diagrams/runtime-mcp-debug.md)。
+截图调用 capture_frame，参数包含新的 PNG 相对路径、selection，以及 scene_scope 选择所需的 scope。返回 captureId 只表示受理；get_frame_capture 必须带该身份，直到 complete 再读取 PNG。回执包含实际 deviceGeneration、submissionId、worldEpoch、sceneId 和 contentRevision。既有文件拒绝覆盖；等待超时查询原请求，不重复执行有副作用的操作。
 
 ```sh
-cmake --preset ninja-engine-release -DENGINE_ENABLE_RUNTIME_MCP_TEST=ON
-cmake --build --preset ninja-engine-release --target engine_project_mcp_test_app mcp_app
-# 将测试程序和项目运行资源导出到独立测试目录后，将 TEST_EXECUTABLE 设为测试程序的路径：
+cmake --preset ninja-engine-test-release
+cmake --build --preset ninja-engine-test-release --target engine_project_mcp_test_app mcp_app
 mkdir -p projects/showcase/cache/runtime-mcp
 TEST_CHANNEL=$(mktemp -d projects/showcase/cache/runtime-mcp/test.XXXXXX)
 "$TEST_EXECUTABLE" --mcp-project projects/showcase --mcp-runtime-dir "$TEST_CHANNEL"
 ```
 
-另开终端，用上述相同的项目与通道目录启动 `mcp_app` 客户端，例如 `scripts/mcp_client.py ... call get_status`。可使用[公开范例测试](../../../projects/showcase/docs/index.md#验证)检查临时脚本、会话隔离和截图。
+`TEST_EXECUTABLE` 指向已部署 `assets/` 和聚合运行设置的独立测试产物；构建目录中的裸程序尚不构成运行包。桌面资源布局见[构建交付](../../building.md)。另开终端，用上述相同的项目与通道目录启动 `mcp_app` 客户端，例如 `scripts/mcp_client.py ... call get_status`。可使用[公开范例测试](../../../projects/showcase/docs/index.md#验证)检查临时脚本、会话隔离和截图。
 
 ## 当前项目的 TS 执行
 

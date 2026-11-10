@@ -58,7 +58,7 @@ CI 仍仅手动触发，默认执行基础集合；跨平台或完整功能验�
 | `tests/support/`、`tests/fixtures/` | 共用夹具 |
 | `projects/showcase/tests/` | 公开项目自身的行为 |
 
-可视测试应保留实际画面，方便复现与检查。`engine.window_render` 每次运行自动将原始 GPU 截图保存到构建目录的 `test-artifacts/window-render/<时间戳>/`；设置 `ENGINE_RENDER_TEST_ARTIFACTS` 可指定本次目录。公开范例的菜单场景及交互截图入口见 [showcase 文档](../projects/showcase/docs/index.md)。纯逻辑测试没有画面，不生成截图。
+可视测试应保留实际画面，方便复现与检查。`engine.window_render` 每次运行自动将原始 GPU 截图保存到构建目录的 `test-artifacts/window-render/<时间戳>/`；设置 `ENGINE_RENDER_TEST_ARTIFACTS` 可指定本次目录。`engine.font_ui_render` 默认保存到测试工作目录的 `test-artifacts/font-ui/<时间戳>/`，可用第二个命令行参数指定目录；临时源项目销毁时保留这些图。公开范例的菜单场景及交互截图入口见 [showcase 文档](../projects/showcase/docs/index.md)。纯逻辑测试没有画面，不生成截图。
 
 登记入口为 [tests/CMakeLists.txt](../tests/CMakeLists.txt)。不为测试修改正式接口可见性，不提交运行结果或生成资源。
 
@@ -71,6 +71,20 @@ CI 仍仅手动触发，默认执行基础集合；跨平台或完整功能验�
 - `engine.plugin_selection`、架构规则、平台打包、V8 缓存与工具链检查：仅在对应构建/装配修改时运行；V8 检查仅登记于 V8 配置。
 
 长时间运行、截图、MCP 交互和基准采样由明确任务触发，不加入默认 CTest。真实 UI 操作不能用直接调用脚本回调代替，源码或宿主替身检查也不能宣称真机/像素通过。
+
+## 场景加载与运行态测试
+
+业务和测试共用 GameplaySession 的原生场景请求、Flecs 世界、资源图及渲染缓存。测试等待 staged、ready、active 和目标范围的实际场景帧；不会把资源读取结束、窗口有帧或图片非黑单独当作加载成功。动态批次用例同时检查旧场景仍提交、发布前没有该批次的帧证据，发布后内容版本递增。
+
+运行态 MCP 与临时脚本注入只在 `ENGINE_ENABLE_TEST_SUPPORT=ON` 的独立测试构建装配。Debug 只编译；Release 运行所属场景、脚本、渲染、宿主与 MCP 用例。正式构建额外检查解析后的目标、源码与链接依赖，以及最终程序符号，不以“没有启动服务”代替编译隔离。预设见[构建指南](building.md)，端点和调用方式见[MCP](plugins/editor/mcp.md#独立运行程序测试)。
+
+原生像素用例先等待同一个渲染准备接口就绪，再受理新帧截图；需要检查 GPU 存量时还须等待回读纹理的延迟销毁。重复步骤使用不同文件名，禁止覆盖旧图来冒充新截图。项目实窗用例按 captureId 等待读回及原子发布，并保存实际帧身份、请求回执和状态。黑色可以是合法画面，断言由具体用例决定；菜单用例还必须出现实际 UI 绘制。
+
+2026-11-10，在 macOS 27.0.1 / arm64 / Metal / QuickJS 上完成受影响目标的 Debug、Release 编译和链接；Debug 未运行测试。按模块执行的 17 项 Release CTest 通过：`engine.physics`、`engine.project_script`、`engine.script_runtime`、`engine.script_tooling`、`engine.mcp_registry`、`editor.mcp_transport`、`engine.window_render`、`editor.showcase_persistent_ui`、`engine.scene`、`engine.ecs_scene`、`editor.mcp_commands`、`plugins.runtime.resource_graph`、`engine.architecture_boundaries`、`engine.animation`、`engine.font_ui_render`、`engine.runtime_host`、`engine.gameplay_session`。图形检查包括候选材质准备、极小预算下持续推进、初始蒙皮与共享计算程序、UI 预排版后保持可见、实际帧身份及连续截图；没有放宽原有像素断言。
+
+窗口用例归档 167 张 PNG，字体/UI 用例归档 13 张 PNG；各目录的 `run.json` 保存配置、源码 HEAD、画面尺寸及图像指纹。公开范例的实际编辑器交互另验证同一 Gameplay/Model/模块实例、旧 Run 拒绝、菜单点击进入 PBR 并返回、常驻 UI 跨场景保留输入及正常关闭，三张 PNG 与回执保存在项目 `cache/mcp-interaction/`。独立测试运行包验证同一玩法中的临时脚本、失效身份拒绝、包含实际 UI 绘制的场景截图及正常退出，结果保存在 `cache/runtime-mcp/`。公开范例和本机私有项目的 TypeScript 检查通过。
+
+正式 Release 配置未创建 MCP 或编辑器目标，解析后的源码及链接图不含 MCP；最终程序没有临时脚本执行或运行端点符号，测试产物包含对应符号。以上只证明本机配置及所列行为，不包含 Windows、Android、iOS、V8、较旧 macOS、全部项目场景或完整冷启动性能。预算是工作项之间的软上限，第三方调用与 GPU 管线创建仍可能形成长帧，不能据此承诺任意场景零卡顿。
 
 ## 公开范例
 

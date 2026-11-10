@@ -25,11 +25,11 @@ build/local-ninja-release/editor_app --project projects/showcase --runtime-dir b
 
 ```sh
 python3 scripts/mcp_client.py --server build/local-ninja-release/mcp_app --project projects/showcase --runtime-dir build/pbr-comparison-runtime call open_scene_preview --arguments '{"path":"scenes/pbr-comparison.scene"}'
-python3 scripts/mcp_client.py --server build/local-ninja-release/mcp_app --project projects/showcase --runtime-dir build/pbr-comparison-runtime call capture_frame --arguments '{"path":"material-comparison/engine.png"}'
-python3 scripts/mcp_client.py --server build/local-ninja-release/mcp_app --project projects/showcase --runtime-dir build/pbr-comparison-runtime call get_frame_capture
+python3 scripts/mcp_client.py --server build/local-ninja-release/mcp_app --project projects/showcase --runtime-dir build/pbr-comparison-runtime call capture_frame --arguments '{"path":"material-comparison/engine.png","selection":"next_frame"}'
+python3 scripts/mcp_client.py --server build/local-ninja-release/mcp_app --project projects/showcase --runtime-dir build/pbr-comparison-runtime call get_frame_capture --arguments '{"captureId":{"owner":"<owner>","value":"<value>"}}'
 ```
 
-`capture_frame` 返回 `pending` 后，以 `get_frame_capture` 为 `complete` 为准。上述 640 × 360 是本次 macOS Retina 2× 的逻辑窗口尺寸，实际帧缓冲区为 1280 × 720；其他显示密度必须按实际 PNG 尺寸调整窗口，不要缩放截图冒充原生分辨率。
+先等待预览准备完成，再请求新路径的截图；将返回的 `captureId.owner/value` 原样填入查询参数，直到该请求 `state=complete`。项目测试脚本通过 `EditorMcpSession.capture_scene()` 等待目标场景首帧并绑定范围，避免把准备中的画面当成结果。上述 640 × 360 是本次 macOS Retina 2× 的逻辑窗口尺寸，实际帧缓冲区为 1280 × 720；其他显示密度必须按实际 PNG 尺寸调整窗口，不要缩放截图冒充原生分辨率。
 
 ## 初版观察与限制
 

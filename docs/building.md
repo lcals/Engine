@@ -81,7 +81,9 @@ cmake --workflow --preset ninja-engine-release
 
 这两个 workflow 包括统一的 `engine_script_prepare` 步骤，并启用默认 QuickJS 桌面脚本运行；Debug 到构建成功为止，Release 另执行基础 CTest。先按[脚本运行准备](plugins/runtime/scripting.md)准备 Node.js、npm、Python 3 和示例项目的 TypeScript 依赖。已准备过且依赖未变时，可用对应预设的 configure/build 分步复跑，测试使用 `ctest --preset ninja-engine-release`。`engine-debug` / `engine-release` 提供相同系统组合，使用平台默认生成器。QuickJS 构建不准备、编译或链接 V8/ICU。显式 V8 构建也默认裁剪 Intl/ICU，因此默认产物均无 `icudtl.dat`。
 
-单配置生成器使用 `CMAKE_BUILD_TYPE`；多配置生成器由 build / test preset 的 `configuration` 选择同名配置。受影响的 C++ 修改完成 Debug / Release 构建，Debug 仅要求编译成功，CTest、功能测试及实际运行验收使用 Release。保留 Debug test preset 供用户明确要求的调试，不在默认 workflow 中运行；本机已验证范围见[验证记录](testing.md)，不能由预设存在推断平台已经通过。
+运行态 MCP 与临时脚本注入使用独立的 `ninja-engine-test-debug` / `ninja-engine-test-release` 配置、构建预设；它们显式设置 `ENGINE_ENABLE_TEST_SUPPORT=ON`，使用独立构建目录。正常预设默认关闭该开关。开关按目标传递到核心契约、脚本插件及调用宿主，正式包不保留临时执行声明和实现。测试产物带测试名称，不能通过正式项目导出目标发布。测试能力与是否启用 CTest、Debug / Release 优化等级相互独立；用法见[MCP 测试接入](plugins/editor/mcp.md#独立运行程序测试)。
+
+单配置生成器使用 `CMAKE_BUILD_TYPE`；多配置生成器由 build / test preset 的 `configuration` 选择同名配置。受影响的 C++ 修改完成 Debug / Release 构建，Debug 仅要求编译成功，CTest、功能测试及实际运行验收使用 Release。Debug 不提供默认测试流程；本机已验证范围见[验证记录](testing.md)，不能由预设存在推断平台已经通过。
 
 ## 依赖与缓存
 
@@ -212,7 +214,7 @@ macOS 编辑器的 `lib/` 同时包含 USD 导入所需的 `libusd_*` / TBB，�
 | `ENGINE_V8_ENABLE_TEMPORAL` | `OFF` | V8 Temporal，全部平台默认裁剪 |
 | `ENGINE_V8_ENABLE_SYSTEM_INSTRUMENTATION` | `OFF` | V8 系统 instrumentation，全部平台默认裁剪 |
 | `ENGINE_ENABLE_SCRIPT_RUNTIME`      | `OFF`      | 默认选择运行时 script 插件；显式插件清单优先，完整桌面 engine 及 Android 预设开启 |
-| `ENGINE_ENABLE_RUNTIME_MCP_TEST`    | `OFF`      | 额外构建可显式装配 MCP 通道的独立测试宿主；正式运行宿主不包含此入口，参见 [MCP 测试接入](plugins/editor/mcp.md#独立运行程序测试) |
+| `ENGINE_ENABLE_TEST_SUPPORT`    | `OFF`      | 额外构建可显式装配 MCP 通道的独立测试宿主；正式运行宿主不包含此入口，参见 [MCP 测试接入](plugins/editor/mcp.md#独立运行程序测试) |
 
 ## 作为子项目集成
 
