@@ -98,7 +98,8 @@ double height(engine::Node node)
 bool collision_and_lifecycle()
 {
     Fixture fixture;
-    if (!expect(fixture.initialize(), "initialize real collision world"))
+    if (!expect(!fixture.physics.initialize({}), "reject an uninitialized borrowed world") ||
+        !expect(fixture.initialize(), "initialize real collision world after rejected startup"))
     {
         return false;
     }

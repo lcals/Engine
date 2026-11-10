@@ -2184,7 +2184,8 @@ bool PhysicsSystem::set_character_motor_driver(CharacterMotorDriver* driver) noe
 
 bool PhysicsSystem::on_initialize(const EngineConfig&)
 {
-    if (tasks_ != nullptr && !tasks_->is_initialized())
+    if ((world_ != nullptr && world_->native_world() == nullptr) ||
+        (tasks_ != nullptr && !tasks_->is_initialized()))
     {
         return false;
     }

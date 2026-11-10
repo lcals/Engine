@@ -123,13 +123,19 @@ struct EffectSystem::State
         Effekseer::Handle handle = -1;
     };
 
+    struct PreparedEffect
+    {
+        EffectComponent component;
+        std::shared_ptr<CompiledEffect> compiled;
+    };
+
     detail::EffectResources resources;
     EffekseerRenderer::RendererRef renderer;
     Effekseer::ManagerRef manager;
     std::map<std::pair<std::string, std::uint64_t>, std::weak_ptr<CompiledEffect>> effects;
     std::map<std::uint64_t, Instance> instances;
     std::map<SceneScopeId, scene_detail::ScopeWork> preparing;
-    std::map<std::uint64_t, std::shared_ptr<CompiledEffect>> prepared_effects;
+    std::map<std::uint64_t, PreparedEffect> prepared_effects;
     float time = 0.0F;
     bool prepared = false;
 
@@ -290,6 +296,22 @@ struct EffectSystem::State
         instance.handle = -1;
     }
 
+    void prune_prepared()
+    {
+        std::erase_if(prepared_effects,
+                      [&](const auto& entry)
+                      {
+                          const auto& prepared = entry.second;
+                          const auto* runtime =
+                              engine::ecs_detail::component_runtime(prepared.component);
+                          const auto running = instances.find(entry.first);
+                          return !runtime ||
+                                 runtime->effect_.get() != prepared.compiled->resource.get() ||
+                                 (running != instances.end() &&
+                                  running->second.compiled == prepared.compiled);
+                      });
+    }
+
     bool start(Instance& instance, EffectComponent& component)
     {
         if (!instance.compiled)
@@ -297,7 +319,7 @@ struct EffectSystem::State
             const auto prepared = prepared_effects.find(component.instance_id());
             instance.compiled =
                 prepared != prepared_effects.end()
-                    ? prepared->second
+                    ? prepared->second.compiled
                     : compile(engine::ecs_detail::component_runtime(component)->effect_);
             if (prepared != prepared_effects.end())
             {
@@ -524,6 +546,10 @@ bool EffectSystem::on_tick(double delta_time)
         last_error_ = "Invalid effect tick duration";
         return false;
     }
+    if (state_)
+    {
+        state_->prune_prepared();
+    }
     if (!has_effect_resources(world_))
     {
         if (!state_ || state_->prepared_effects.empty())
@@ -590,8 +616,14 @@ SceneWorkState EffectSystem::prepare_scope(SceneScopeId scope, const SceneWorkBu
                                            last_error_ = state_->resources.error;
                                            return false;
                                        }
-                                       state_->prepared_effects[component.instance_id()] =
-                                           std::move(compiled);
+                                       const auto running =
+                                           state_->instances.find(component.instance_id());
+                                       if (running == state_->instances.end() ||
+                                           running->second.compiled != compiled)
+                                       {
+                                           state_->prepared_effects[component.instance_id()] =
+                                               {component, std::move(compiled)};
+                                       }
                                        return true;
                                    });
 }
@@ -639,6 +671,10 @@ bool EffectSystem::draw(const RenderContext& context)
     {
         last_error_ = "Effect renderer requires its current world scene";
         return false;
+    }
+    if (state_)
+    {
+        state_->prune_prepared();
     }
     if (!has_effect_resources(world_))
     {

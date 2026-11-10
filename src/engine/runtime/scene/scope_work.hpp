@@ -54,10 +54,14 @@ inline bool begin_work(WorldSystem& world, SceneScopeId scope, std::string_view 
     query.each(
         [&](flecs::entity entity, const ecs_detail::NodeRuntime& runtime)
         {
-            if (runtime.scope_scene == candidate ||
-                (candidate == world.scene() && entity.has<ecs_detail::Published>()))
+            if (runtime.scope_scene == candidate)
             {
                 work.nodes.push_back(candidate->find_node(entity.id()));
+            }
+            else if (candidate == world.scene() && entity.has<ecs_detail::Published>())
+            {
+                // 常驻节点仍归原场景拥有，由世界查询其已发布身份。
+                work.nodes.push_back(world.find_node(entity.id()));
             }
         });
     SceneWorkProgress progress;
