@@ -2803,6 +2803,125 @@ bool test_textured_renderer(const engine::EngineConfig& config, bool shared)
                   "the caller can retire resources after a preparation failure");
 }
 
+bool test_shadow_edge_filtering(const engine::EngineConfig& config)
+{
+    test_support::ResourceServices services;
+    engine::WorldSystem world{&services.loader};
+    engine::WindowSystem windows;
+    engine::RenderSystem renderer(windows, &world);
+    if (!services.initialize(config) || !services.prepare_builtins() ||
+        !world.initialize(config) || !windows.initialize(config) || !renderer.initialize(config))
+    {
+        return false;
+    }
+    auto* scene = world.create_scene("Shadow edge filtering");
+    if (!scene)
+    {
+        return false;
+    }
+    auto camera_node = scene->create_node("Orthographic observer");
+    auto camera = camera_node.add_component<engine::Camera>();
+    auto lens = test_support::read_settings(camera);
+    lens.projection = engine::schema::Projection::orthographic;
+    lens.orthographic_size = 3.5F;
+    lens.far_clip = 30.0F;
+    engine::TransformSettings pose;
+    pose.position = {0, 1, 10};
+    if (!camera.set_settings(lens) || !scene->set_active_camera(camera) ||
+        !camera_node.get_component<engine::Transform>().set_settings(pose))
+    {
+        return false;
+    }
+    auto receiver = scene->create_node("Flat receiver");
+    auto receiver_mesh = receiver.add_component<engine::MeshRenderer>();
+    pose.position = {0, 0, 0};
+    pose.scale = {8, 3, 0.05};
+    auto floor = scene->create_node("Horizontal occluder");
+    auto floor_mesh = floor.add_component<engine::MeshRenderer>();
+    engine::TransformSettings floor_pose;
+    floor_pose.position = {0, -0.05, 2};
+    floor_pose.scale = {8, 0.05, 2};
+    auto light_node = scene->create_node("Oblique directional light");
+    auto light = light_node.add_component<engine::Light>();
+    engine::TransformSettings light_pose;
+    light_pose.rotation = {-38, -27, 0};
+    auto lighting = test_support::read_settings(light);
+    lighting.intensity = 2.0F;
+    lighting.cast_shadows = true;
+    lighting.shadow_resolution = 512;
+    lighting.shadow_cascades = 1;
+    lighting.shadow_distance = 30.0F;
+    lighting.shadow_bias = 0.0005F;
+    if (!receiver.get_component<engine::Transform>().set_settings(pose) ||
+        !floor.get_component<engine::Transform>().set_settings(floor_pose) ||
+        !light_node.get_component<engine::Transform>().set_settings(light_pose) ||
+        !light.set_settings(lighting))
+    {
+        return false;
+    }
+    for (auto mesh : {receiver_mesh, floor_mesh})
+    {
+        if (!mesh || !mesh.material().set_type("builtin://materials/default-pbr") ||
+            !mesh.material().set_v4("baseColor", {0.5, 0.5, 0.5, 1}) ||
+            !mesh.material().set_float("roughness", 1.0F))
+        {
+            return false;
+        }
+    }
+    test_support::ResourceFixture fixture;
+    Screenshot shadowed;
+    Screenshot unshadowed;
+    if (!render_frames(windows, renderer, 8) ||
+        !screenshot(windows, renderer, fixture.root, "shadow-edge-filtered", shadowed))
+    {
+        return false;
+    }
+    floor_mesh.set_cast_shadows(false);
+    if (!render_frames(windows, renderer, 8) ||
+        !screenshot(windows, renderer, fixture.root, "shadow-edge-reference", unshadowed))
+    {
+        return false;
+    }
+    // 无纹理正交平面的阴影边应连续；光栅化误差仍可带来缓慢变化，不能突然跳变。
+    std::size_t edge_rows = 0;
+    int maximum_range = 0;
+    int maximum_step = 0;
+    for (std::uint32_t y = 0; y < shadowed.height; ++y)
+    {
+        int minimum = 255;
+        int maximum = 0;
+        int previous = 0;
+        int row_step = 0;
+        std::uint64_t sum = 0;
+        const auto begin = shadowed.width / 4;
+        const auto end = 3 * shadowed.width / 4;
+        for (auto x = begin; x < end; ++x)
+        {
+            const auto index = static_cast<std::size_t>(y) * shadowed.width + x;
+            const int occlusion = unshadowed.pixels[index][0] - shadowed.pixels[index][0];
+            minimum = std::min(minimum, occlusion);
+            maximum = std::max(maximum, occlusion);
+            if (x != begin)
+            {
+                row_step = std::max(row_step, std::abs(occlusion - previous));
+            }
+            previous = occlusion;
+            sum += std::max(0, occlusion);
+        }
+        const auto average = static_cast<double>(sum) / (end - begin);
+        if (average > 2 && average < 30)
+        {
+            ++edge_rows;
+            maximum_range = std::max(maximum_range, maximum - minimum);
+            maximum_step = std::max(maximum_step, row_step);
+        }
+    }
+    std::printf("Shadow edge filtering: rows=%zu maximum_horizontal_range=%d maximum_step=%d\n",
+                edge_rows, maximum_range, maximum_step);
+    return expect(edge_rows > 2 && maximum_step <= 2,
+                  "oblique shadow edge remains continuous across magnified shadow texels");
+}
+
 bool test_render_settings_and_capture(const engine::EngineConfig& config)
 {
     test_support::ResourceServices services;
@@ -4528,7 +4647,8 @@ int main(int, char**)
                                  test_pbr_occlusion_lighting(config) &&
                                  test_ibl_white_furnace(config) && test_gpu_skinning(config);
     const bool settings_passed =
-        skinning_passed && test_render_settings_and_capture(config) && test_async_capture(config);
+        skinning_passed && test_render_settings_and_capture(config) &&
+        test_shadow_edge_filtering(config) && test_async_capture(config);
     const bool reflection_passed =
         settings_passed && test_reflections_water_and_diffuse_capture(config);
     const bool hdr_passed = reflection_passed && test_hdr_and_bloom(config);

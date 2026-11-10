@@ -73,20 +73,27 @@ float shadow_cascade_visibility(int cascade, vec3 world_position, vec3 world_dx,
     vec2 half_texel = vec2_splat(u_shadow_settings.y * 0.5);
     vec2 minimum_uv = rectangle.xy + half_texel;
     vec2 maximum_uv = rectangle.xy + rectangle.zw - half_texel;
+    // Filter comparison results, not packed RGBA depth. The four bilinear PCF
+    // taps per axis share five texels; combine their weights before fetching.
+    // Keeping the fractional footprint avoids a snapped 4x4 stencil's stripes.
+    vec2 footprint = uv / u_shadow_settings.y - 2.0;
+    vec2 first_texel = floor(footprint);
+    vec2 fraction = fract(footprint);
     float visible = 0.0;
-    for (int x = 0; x < 4; ++x)
+    for (int x = 0; x < 5; ++x)
     {
-        for (int y = 0; y < 4; ++y)
+        float weight_x = x == 0 ? 1.0 - fraction.x : (x == 4 ? fraction.x : 1.0);
+        for (int y = 0; y < 5; ++y)
         {
-            vec2 offset = (vec2(float(x), float(y)) - 1.5) * u_shadow_settings.y;
-            vec2 sample_uv = clamp(uv + offset, minimum_uv, maximum_uv);
+            float weight_y = y == 0 ? 1.0 - fraction.y : (y == 4 ? fraction.y : 1.0);
+            vec2 centre = (first_texel + vec2(float(x), float(y)) + 0.5) * u_shadow_settings.y;
+            vec2 sample_uv = clamp(centre, minimum_uv, maximum_uv);
             // Packed-depth textures use POINT sampling. Compare against the receiver
             // plane at the actual texel centre, including the subtexel displacement.
-            sample_uv = (floor(sample_uv / u_shadow_settings.y) + 0.5) * u_shadow_settings.y;
             float depth = unpack_shadow_depth(texture2DLod(s_shadow_map, sample_uv, 0.0));
             float receiver_depth = projected.z +
                 dot(depth_gradient, (sample_uv - uv) / rectangle.zw);
-            visible += step(receiver_depth - u_shadow_settings.x, depth);
+            visible += weight_x * weight_y * step(receiver_depth - u_shadow_settings.x, depth);
         }
     }
     return visible / 16.0;
