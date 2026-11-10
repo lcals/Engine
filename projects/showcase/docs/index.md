@@ -45,13 +45,23 @@
 - [case_contract_test.mjs](../tests/case_contract_test.mjs)：用例入口、项目 Controller 和 Model/View 契约；直接脚本调用不等于真实 SDL/RmlUi 输入。
 - [persistent_ui_test.mjs](../tests/persistent_ui_test.mjs)：常驻文档、状态和跨场景生命周期。
 - [mcp_interaction_test.py](../tests/mcp_interaction_test.py)：显式连接已启动、完成导入的编辑器，检查会话/Run 身份、菜单点击、滚轮、文字输入、跨场景 UI 与正常关闭。只有需要实际交互验收时运行，它会关闭该测试拥有的编辑器。
+- [runtime_mcp_test.py](../tests/runtime_mcp_test.py)：启动独立运行测试程序，检查当前 Gameplay 的临时脚本、会话与 Run 校验、截图和正常退出；需要自行提供已导出项目资源的测试程序及 `mcp_app`。
 
 ```sh
 node projects/showcase/tests/case_contract_test.mjs .
 node projects/showcase/tests/persistent_ui_test.mjs .
 python3 projects/showcase/tests/mcp_interaction_test.py --server build/ninja-engine-release/mcp_app --runtime-dir build/showcase-runtime
+python3 projects/showcase/tests/runtime_mcp_test.py --executable <test-executable> --server build/ninja-engine-release/mcp_app
 ```
 
 真实交互前用 MCP status 核对项目、运行目录和有效会话；`--server` 与编辑器使用同一构建。待处理请求只查询原回执，不重复发起。原始操作回执保存在项目 `cache/`，不进入 Git。
+
+需要归档所有菜单场景的当前画面时运行 `python3 projects/showcase/tools/capture_visual_cases.py`；
+可用 `--case <id>` 只采集某个入口。工具启动独立 Release 编辑器，通过实际菜单进入已登记的场景，
+把原始 PNG、灯光与后处理设置、场景身份、版本和 MCP 回执保存在 `cache/scene-captures/`。
+整张黑图会保留并有限重试，超时仍为黑图或无法检查时标为失败；非黑画面不保证场景已经完全准备好，截图不替代各用例的功能验证。
+PBR 材质球对照使用[原有采集工具](pbr-comparison.md#预览与截图)保留其固定分辨率。
+实际 UI 交互、多对象和渲染功能测试分别在运行过程中归档画面；发生错误时会尽力捕获当时画面并记录回执。
+仅计算或数据验证的测试没有渲染帧，不生成虚构截图。
 
 脚本替身、原生功能、真实 UI 输入和图像质量分别验证；没有执行的路径不宣称通过。菜单入口、资源登记与类型检查不代表所有效果、声音或设备已验收。平台结果与必要性能摘要统一见[引擎测试文档](../../../docs/testing.md)。

@@ -46,6 +46,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -397,7 +398,6 @@ bool create_cube_scene(engine::WorldSystem& world, bool unlit)
 bool test_scene_renderer(const engine::EngineConfig& config)
 {
     test_support::ResourceServices services;
-    auto& resources = services.core;
     if (!expect((services.initialize(config) && services.prepare_builtins()),
                 "initialize render resource definitions"))
     {
@@ -708,22 +708,30 @@ bool screenshot(engine::WindowSystem& windows, engine::RenderSystem& renderer,
     // bgfx 的默认回调保存 TGA；读取实际 GPU 输出，不给正式接口添加测试入口。
     auto image_path = path;
     image_path += ".tga";
-    if (const char* artifacts = std::getenv("ENGINE_RENDER_TEST_ARTIFACTS");
-        artifacts != nullptr && *artifacts != '\0')
+    static const std::filesystem::path artifacts = []
     {
-        const auto destination = engine::PathUtils::from_utf8(artifacts);
-        std::error_code error;
-        std::filesystem::create_directories(destination, error);
-        if (!expect(!error, "create render review artifact directory"))
+        if (const char* override_path = std::getenv("ENGINE_RENDER_TEST_ARTIFACTS");
+            override_path != nullptr && *override_path != '\0')
         {
-            return false;
+            return engine::PathUtils::from_utf8(override_path);
         }
-        std::filesystem::copy_file(image_path, destination / image_path.filename(),
-                                   std::filesystem::copy_options::overwrite_existing, error);
-        if (!expect(!error, "preserve screenshot for render review"))
-        {
-            return false;
-        }
+        const auto stamp = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                               std::chrono::system_clock::now().time_since_epoch())
+                               .count();
+        return engine::PathUtils::from_utf8(ENGINE_RENDER_TEST_ARTIFACTS_DIR) /
+               std::to_string(stamp);
+    }();
+    std::error_code error;
+    std::filesystem::create_directories(artifacts, error);
+    if (!expect(!error, "create render review artifact directory"))
+    {
+        return false;
+    }
+    std::filesystem::copy_file(image_path, artifacts / image_path.filename(),
+                               std::filesystem::copy_options::overwrite_existing, error);
+    if (!expect(!error, "preserve screenshot for render review"))
+    {
+        return false;
     }
     return expect(read_screenshot(image_path, output), "read screenshot of real GPU output");
 }
@@ -822,7 +830,6 @@ bool near_color(const std::array<std::uint8_t, 3>& color, int r, int g, int b)
 bool test_scene_sampling(const engine::EngineConfig& config)
 {
     test_support::ResourceServices services;
-    auto& resources = services.core;
     engine::WorldSystem world(&services.loader);
     engine::WindowSystem windows;
     engine::RenderSystem renderer(windows, &world);
@@ -1014,7 +1021,6 @@ bool test_scene_sampling(const engine::EngineConfig& config)
 bool test_orthographic_pbr_view(const engine::EngineConfig& config)
 {
     test_support::ResourceServices services;
-    auto& resources = services.core;
     engine::WorldSystem world(&services.loader);
     engine::WindowSystem windows;
     engine::RenderSystem renderer(windows, &world);
@@ -1067,7 +1073,6 @@ bool test_orthographic_pbr_view(const engine::EngineConfig& config)
 bool test_pbr_occlusion_lighting(const engine::EngineConfig& config)
 {
     test_support::ResourceServices services;
-    auto& resources = services.core;
     engine::WorldSystem world(&services.loader);
     engine::WindowSystem windows;
     engine::RenderSystem renderer(windows, &world);
@@ -1942,7 +1947,6 @@ bool test_ibl_white_furnace(const engine::EngineConfig& config)
 bool test_gpu_skinning(const engine::EngineConfig& config)
 {
     test_support::ResourceServices services;
-    auto& resources = services.core;
     engine::WorldSystem world(&services.loader);
     engine::WindowSystem windows;
     engine::RenderSystem renderer(windows, &world);
@@ -2215,7 +2219,6 @@ bool test_textured_renderer(const engine::EngineConfig& config, bool shared)
     engine::ThreadSystem threads({.worker_limit = 2});
     engine::TaskSystem tasks(threads, {.name = "Texture preparation", .max_concurrency = 2});
     test_support::ResourceServices services(&threads);
-    auto& resources = services.core;
     engine::WorldSystem world(&services.loader);
     engine::WindowSystem windows;
     engine::RenderSystem renderer(windows, &world, nullptr, nullptr, shared ? &tasks : nullptr);
@@ -2653,7 +2656,6 @@ bool test_textured_renderer(const engine::EngineConfig& config, bool shared)
 bool test_render_settings_and_capture(const engine::EngineConfig& config)
 {
     test_support::ResourceServices services;
-    auto& resources = services.core;
     engine::WorldSystem world(&services.loader);
     engine::WindowSystem windows;
     engine::RenderSystem renderer(windows, &world);
@@ -3735,7 +3737,6 @@ bool test_async_capture(const engine::EngineConfig& config)
 bool test_hdr_and_bloom(const engine::EngineConfig& config)
 {
     test_support::ResourceServices services;
-    auto& resources = services.core;
     engine::WorldSystem world(&services.loader);
     engine::WindowSystem windows;
     engine::RenderSystem renderer(windows, &world);
@@ -3962,7 +3963,6 @@ bool test_render_extensions(const engine::EngineConfig& config)
     // 扩展比渲染器活得更久：渲染器析构必须解除反向登记。
     ObservedRenderExtension extension;
     test_support::ResourceServices services;
-    auto& resources = services.core;
     engine::WorldSystem world(&services.loader);
     engine::WindowSystem windows;
     if (!expect((services.initialize(config) && services.prepare_builtins()) &&

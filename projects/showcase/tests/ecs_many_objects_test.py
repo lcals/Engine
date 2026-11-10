@@ -13,8 +13,8 @@ from pathlib import Path
 import sys
 import uuid
 
-from mcp_interaction_test import (PROJECT, EditorMcpSession, click, execute, get_status,
-                                  lifecycle, require, wait_for)
+from mcp_interaction_test import (PROJECT, EditorMcpSession, capture_for_review, click, execute,
+                                  get_status, lifecycle, require, wait_for)
 
 READ = """
 import EcsManyObjects from "./modules/ecs-many-objects.js";
@@ -57,7 +57,7 @@ def check(session, results, count, output):
         click(session, f"ecs-{count}")
         state = ready(session, run, count, state["checks"])
     results["initial"] = state
-    results["capture"] = session.capture(str((output / "many-objects.png").relative_to(PROJECT / "cache")))
+    results["capture"] = capture_for_review(session, results, output, "many-objects")
     require(state["visible"] == count and state["active"] == count, "Incorrect initial entity state")
     for action, expected_visible, expected_active in [
         ("move", count, count),
@@ -110,6 +110,9 @@ def main():
         with EditorMcpSession(args.server, PROJECT, args.runtime_dir, output / "receipts.jsonl",
                               timeout=args.timeout) as session:
             check(session, results, args.count, output)
+        results["functionalChecksPassed"] = True
+        require(not results.get("invalidCaptures"),
+                f"Screenshots are black or could not be inspected: {results.get('invalidCaptures')}")
         results["passed"] = True
         print(f"Receipts and functional results: {output}")
         return 0

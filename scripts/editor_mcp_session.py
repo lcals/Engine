@@ -7,12 +7,56 @@ import struct
 import subprocess
 import threading
 import time
+import zlib
 
 from mcp_client import receive, send
 
 
 def utc_now():
     return datetime.now(timezone.utc).isoformat()
+
+
+def opaque_black_png(path):
+    """Inspect engine-written, unfiltered RGBA PNGs; return None for other formats."""
+    data = Path(path).read_bytes()
+    if data[:8] != b"\x89PNG\r\n\x1a\n":
+        return None
+    position = 8
+    header = None
+    compressed = bytearray()
+    while position + 12 <= len(data):
+        length = struct.unpack_from(">I", data, position)[0]
+        end = position + 12 + length
+        if end > len(data):
+            return None
+        kind = data[position + 4:position + 8]
+        contents = data[position + 8:position + 8 + length]
+        if kind == b"IHDR" and length == 13:
+            header = struct.unpack(">IIBBBBB", contents)
+        elif kind == b"IDAT":
+            compressed.extend(contents)
+        elif kind == b"IEND":
+            break
+        position = end
+    if header is None:
+        return None
+    width, height, depth, color, compression, filtering, interlace = header
+    if not width or not height or (depth, color, compression, filtering, interlace) != (8, 6, 0, 0, 0):
+        return None
+    try:
+        raw = zlib.decompress(compressed)
+    except zlib.error:
+        return None
+    stride = width * 4 + 1
+    if len(raw) != stride * height:
+        return None
+    black_row = b"\x00\x00\x00\xff" * width
+    for offset in range(0, len(raw), stride):
+        if raw[offset] != 0:
+            return None
+        if raw[offset + 1:offset + stride] != black_row:
+            return False
+    return True
 
 
 class EditorMcpSession:
@@ -57,6 +101,30 @@ class EditorMcpSession:
             raise
 
     def __exit__(self, _kind, _value, _traceback):
+        if (_kind is not None and self.session_id is not None and self.ledger is not None and
+                self.process is not None and self.process.poll() is None and
+                {"capture_frame", "get_frame_capture"} <= self.tools):
+            try:
+                try:
+                    relative = self.receipts.parent.resolve().relative_to(
+                        (self.project / "cache").resolve())
+                except ValueError:
+                    relative = Path("visual-failures") / str(time.time_ns())
+                previous_timeout = self.timeout
+                self.timeout = min(self.timeout, 8)
+                try:
+                    capture = self.capture(str(relative / f"failure-{time.time_ns()}.png"),
+                                           inspect_black=True)
+                    self.ledger.write(json.dumps({"time": utc_now(), "failureCapture": capture}) + "\n")
+                    self.ledger.flush()
+                finally:
+                    self.timeout = previous_timeout
+            except (OSError, ValueError, RuntimeError) as error:
+                try:
+                    self.ledger.write(json.dumps({"time": utc_now(), "failureCaptureError": str(error)}) + "\n")
+                    self.ledger.flush()
+                except OSError:
+                    pass
         self.close()
 
     def close(self):
@@ -156,7 +224,7 @@ class EditorMcpSession:
             raise RuntimeError(f"MCP {name} is incomplete; stopping capture")
         return receipt.get("result", {})
 
-    def capture(self, relative_path):
+    def capture(self, relative_path, inspect_black=False):
         cache = (self.project / "cache").resolve()
         expected = (cache / relative_path).resolve()
         if not expected.is_relative_to(cache) or expected.exists():
@@ -176,11 +244,29 @@ class EditorMcpSession:
                 width, height = struct.unpack(">II", header[16:24])
                 if width == 0 or height == 0:
                     raise RuntimeError("Invalid capture dimensions")
-                return {"path": str(expected), "state": state, "width": width,
-                        "height": height, "bytes": expected.stat().st_size}
+                capture = {"path": str(expected), "state": state, "width": width,
+                           "height": height, "bytes": expected.stat().st_size}
+                if inspect_black:
+                    capture["opaqueBlack"] = opaque_black_png(expected)
+                return capture
             if state != "pending":
                 raise RuntimeError(f"Capture did not complete successfully: {state}")
             if time.monotonic() >= deadline:
                 raise RuntimeError("Capture is still processing; query get_frame_capture instead of resending the request")
             time.sleep(0.1)
             result = self.call("get_frame_capture")
+
+    def capture_when_visible(self, relative_path, max_wait=30):
+        """Retain black frames and retry while a scene may still be preparing."""
+        path = Path(relative_path)
+        deadline = time.monotonic() + min(max_wait, self.timeout)
+        captures = []
+        while True:
+            attempt = len(captures)
+            destination = path if attempt == 0 else path.with_name(
+                f"{path.stem}-wait-{attempt}{path.suffix}")
+            capture = self.capture(str(destination), inspect_black=True)
+            captures.append(capture)
+            if capture["opaqueBlack"] is not True or time.monotonic() >= deadline:
+                return captures
+            time.sleep(min(1, max(0, deadline - time.monotonic())))

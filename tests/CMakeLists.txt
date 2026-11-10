@@ -518,7 +518,8 @@ if(ENGINE_ENABLE_RUNTIME_DEPS AND TARGET engine_resource_graph)
                 basisu::basisu_encoder)
     engine_apply_options(engine_window_render_test)
     target_compile_definitions(engine_window_render_test PRIVATE
-                               ENGINE_TEST_RUNTIME_SETTINGS="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/runtime-settings.json")
+                               ENGINE_TEST_RUNTIME_SETTINGS="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/runtime-settings.json"
+                               ENGINE_RENDER_TEST_ARTIFACTS_DIR="${CMAKE_BINARY_DIR}/test-artifacts/window-render")
     if(TARGET engine_resource_graph)
 
         target_compile_definitions(engine_window_render_test PRIVATE ENGINE_TEST_RESOURCE_GRAPH=1)

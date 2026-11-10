@@ -58,6 +58,8 @@ CI 仍仅手动触发，默认执行基础集合；跨平台或完整功能验�
 | `tests/support/`、`tests/fixtures/` | 共用夹具 |
 | `projects/showcase/tests/` | 公开项目自身的行为 |
 
+可视测试应保留实际画面，方便复现与检查。`engine.window_render` 每次运行自动将原始 GPU 截图保存到构建目录的 `test-artifacts/window-render/<时间戳>/`；设置 `ENGINE_RENDER_TEST_ARTIFACTS` 可指定本次目录。公开范例的菜单场景及交互截图入口见 [showcase 文档](../projects/showcase/docs/index.md)。纯逻辑测试没有画面，不生成截图。
+
 登记入口为 [tests/CMakeLists.txt](../tests/CMakeLists.txt)。不为测试修改正式接口可见性，不提交运行结果或生成资源。
 
 ## 手动集成与 GPU 验证

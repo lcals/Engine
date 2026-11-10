@@ -147,7 +147,12 @@ def lifecycle(session, command, expected):
         # current run/session fields. Read it instead of treating the receipt as status.
         require(receipt.get("success", receipt.get("lastRequestSucceeded")) is True,
                 f"{command} returned a failed receipt: {receipt}")
-        status = get_status(session)
+        request_id = receipt.get("requestId")
+        require(isinstance(request_id, str) and request_id, "Lifecycle receipt is missing requestId")
+        status = wait_for(command, lambda: get_status(session),
+                          lambda item: item.get("lastRequestId") == request_id and
+                          item.get("projectState") not in ("starting", "stopping"),
+                          session.timeout)
     require(status.get("lastRequestSucceeded") is True and
             status.get("projectState") == expected,
             f"{command} did not enter {expected}: {status}")
@@ -229,7 +234,17 @@ def click(session, element_id):
     raise RuntimeError(f"Scrolled control {element_id} is still outside the window")
 
 
-def check(session, results):
+def capture_for_review(session, results, output, name):
+    relative = (output / f"{name}.png").relative_to(PROJECT / "cache")
+    captures = session.capture_when_visible(str(relative))
+    results.setdefault("captures", []).extend(captures)
+    capture = captures[-1]
+    if capture["opaqueBlack"] is not False:
+        results.setdefault("invalidCaptures", []).append(name)
+    return capture
+
+
+def check(session, results, output):
     required = {"get_status", "start_project", "stop_project", "execute_project_script",
                 "get_ui_documents", "get_ui_tree", "get_ui_element", "click_ui", "ui_input",
                 "get_ui_input", "get_editor_receipt", "close_editor"}
@@ -278,12 +293,14 @@ def check(session, results):
     initial = read_state()
     require(initial["selected"] is None and initial["error"] is None,
             f"New Run did not enter the menu: {initial}")
+    capture_for_review(session, results, output, "menu")
     click(session, "scene-cube")
     pbr = wait_for("PBR scene opening", read_state,
                    lambda item: item["selected"] == "pbr-material" and item["sceneValid"],
                    session.timeout)
     require(pbr["error"] is None and pbr["count"] == initial["count"] + 1,
             f"UI click did not update LauncherModel correctly: {pbr}")
+    capture_for_review(session, results, output, "pbr-scene")
     click(session, "back-menu")
     wait_for("return to menu", read_state, lambda item: item["selected"] is None, session.timeout)
     results["pbrClick"] = pbr
@@ -320,6 +337,7 @@ def check(session, results):
     require(preserved["value"] == entered["value"] and
             loaded["persistent"]["identity"] == before["persistent"]["identity"],
             "Scene commit did not preserve persistent UI text and identity")
+    capture_for_review(session, results, output, "persistent-ui")
     results["persistentInput"] = {"before": before["persistent"],
                                   "after": loaded["persistent"], "value": preserved["value"]}
     click(session, "back-menu")
@@ -358,7 +376,10 @@ def main():
         require(not any(path.exists() for path in virtual_paths), "Temporary TS path conflicts with a project source file")
         with EditorMcpSession(args.server, PROJECT, args.runtime_dir, output / "receipts.jsonl",
                               timeout=args.timeout) as session:
-            check(session, results)
+            check(session, results, output)
+        results["functionalChecksPassed"] = True
+        require(not results.get("invalidCaptures"),
+                f"Screenshots are black or could not be inspected: {results.get('invalidCaptures')}")
         require(not any(path.exists() for path in virtual_paths), "Temporary script was unexpectedly written to assets")
         results["passed"] = True
         print(f"PASS actual showcase MCP interactions; receipts and results: {output}")

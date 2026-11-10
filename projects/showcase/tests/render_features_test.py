@@ -13,8 +13,8 @@ from pathlib import Path
 import sys
 import uuid
 
-from mcp_interaction_test import (PROJECT, EditorMcpSession, click, execute, get_status,
-                                  lifecycle, require, wait_for)
+from mcp_interaction_test import (PROJECT, EditorMcpSession, capture_for_review, click, execute,
+                                  get_status, lifecycle, require, wait_for)
 
 
 READ = """
@@ -108,7 +108,7 @@ def check(session, results, output):
     require(results["baseline"]["culledMeshes"] > 0 and
             results["baseline"]["instanceBatches"] > 0,
             "Fixed scene does not actually use frustum culling and static instancing")
-    results["captures"] = [session.capture(str((output / "initial.png").relative_to(PROJECT / "cache")))]
+    capture_for_review(session, results, output, "initial")
     lod = session.call("get_mesh_lod_import", {"path": "meshes/render-lod-sphere.mesh"})
     require(lod["settings"]["enabled"] and len(lod["meshes"]) == 1, "LOD does not use imported resources")
     levels = lod["meshes"][0]["levels"]
@@ -154,7 +154,7 @@ def check(session, results, output):
         session.call("set_render_feature", {"feature": feature, "enabled": not original["requested"]})
         changed = wait_feature(session, feature, not original["requested"])
         if feature == "wireframe":
-            results["captures"].append(session.capture(str((output / "wireframe.png").relative_to(PROJECT / "cache"))))
+            capture_for_review(session, results, output, "wireframe")
         session.call("set_render_feature", {"feature": feature, "enabled": original["requested"]})
         wait_feature(session, feature, original["requested"])
         results.setdefault("mcpDebug", {})[feature] = changed
@@ -168,12 +168,12 @@ def check(session, results, output):
     results["debugLines"] = session.call("draw_debug_lines", {"lines": [line], "lifetimeFrames": 600})
     require(results["debugLines"]["acceptedLines"] == 1, "Debug lines were not actually accepted")
     wait_feature(session, "debug_draw", True)
-    results["captures"].append(session.capture(str((output / "debug-lines.png").relative_to(PROJECT / "cache"))))
+    capture_for_review(session, results, output, "debug-lines")
 
     click(session, "render-atmosphere")
     wait_for("UI sky disabled", lambda: ready(session, run), lambda item: not item["atmosphere"], session.timeout)
     wait_scoped(session, "scene", "atmosphere", False)
-    results["captures"].append(session.capture(str((output / "sky-off.png").relative_to(PROJECT / "cache"))))
+    capture_for_review(session, results, output, "sky-off")
     click(session, "render-atmosphere")
     environment = wait_scoped(session, "scene", "atmosphere", True)
     env_identity = {key: environment[key] for key in ("sceneId", "nodeId")}
@@ -185,7 +185,7 @@ def check(session, results, output):
     click(session, "render-hex")
     wait_for("UI Hex enabled", lambda: ready(session, run), lambda item: item["hex"], session.timeout)
     wait_scoped(session, "material", "hex_tiling", True, ground)
-    results["captures"].append(session.capture(str((output / "hex-on.png").relative_to(PROJECT / "cache"))))
+    capture_for_review(session, results, output, "hex-on")
     click(session, "render-hex")
     wait_scoped(session, "material", "hex_tiling", False, ground)
     for enabled in (True, False):
@@ -268,6 +268,9 @@ def main():
         with EditorMcpSession(args.server, PROJECT, args.runtime_dir, output / "receipts.jsonl",
                               timeout=args.timeout) as session:
             check(session, results, output)
+        results["functionalChecksPassed"] = True
+        require(not results.get("invalidCaptures"),
+                f"Screenshots are black or could not be inspected: {results.get('invalidCaptures')}")
         results["passed"] = True
         print(f"Receipts, submission counts and captures: {output}")
         return 0
