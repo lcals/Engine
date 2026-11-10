@@ -80,11 +80,11 @@ CI 仍仅手动触发，默认执行基础集合；跨平台或完整功能验�
 
 原生像素用例先等待同一个渲染准备接口就绪，再受理新帧截图；需要检查 GPU 存量时还须等待回读纹理的延迟销毁。重复步骤使用不同文件名，禁止覆盖旧图来冒充新截图。项目实窗用例按 captureId 等待读回及原子发布，并保存实际帧身份、请求回执和状态。黑色可以是合法画面，断言由具体用例决定；菜单用例还必须出现实际 UI 绘制。
 
-2026-11-10，在 macOS 27.0.1 / arm64 / Metal / QuickJS 上完成受影响目标的 Debug、Release 编译和链接；Debug 未运行测试。按模块执行的 17 项 Release CTest 通过：`engine.physics`、`engine.project_script`、`engine.script_runtime`、`engine.script_tooling`、`engine.mcp_registry`、`editor.mcp_transport`、`engine.window_render`、`editor.showcase_persistent_ui`、`engine.scene`、`engine.ecs_scene`、`editor.mcp_commands`、`plugins.runtime.resource_graph`、`engine.architecture_boundaries`、`engine.animation`、`engine.font_ui_render`、`engine.runtime_host`、`engine.gameplay_session`。图形检查包括候选材质准备、极小预算下持续推进、初始蒙皮与共享计算程序、UI 预排版后保持可见、实际帧身份及连续截图；没有放宽原有像素断言。
+2026-11-10，在 macOS 27.0.1 / arm64 / Metal / QuickJS 上完成受影响目标的 Debug、Release 编译和链接；Debug 未运行测试。完整执行 142 项 Release CTest，修复失败项后仅复测受影响用例，最新结果为 142/142 通过。覆盖场景恢复与发布、极小准备预算、初始蒙皮与共享计算程序、UI 预排版、实际帧身份及连续截图；完整测试同时检查 MCP 依赖闭包、异步项目启动与带 captureId 的截图查询。修复常驻节点跨场景准备、特效准备资源退役和无效物理初始化；二十面球体按面展开极点 UV，保留 MikkTSpace 的严格切线校验。
 
-窗口用例归档 167 张 PNG，字体/UI 用例归档 13 张 PNG；各目录的 `run.json` 保存配置、源码 HEAD、画面尺寸及图像指纹。公开范例的实际编辑器交互另验证同一 Gameplay/Model/模块实例、旧 Run 拒绝、菜单点击进入 PBR 并返回、常驻 UI 跨场景保留输入及正常关闭，三张 PNG 与回执保存在项目 `cache/mcp-interaction/`。独立测试运行包验证同一玩法中的临时脚本、失效身份拒绝、包含实际 UI 绘制的场景截图及正常退出，结果保存在 `cache/runtime-mcp/`。公开范例和本机私有项目的 TypeScript 检查通过。
+窗口用例归档 169 张 PNG，字体/UI 用例归档 13 张 PNG；各目录的 `run.json` 保存配置、结果、画面尺寸及图像指纹。方向光阴影在无纹理正交平面上检查放大纹素边界的连续性：旧采样的负对照最大相邻亮度跳变为 19，并按预期失败；连续比较过滤后为 1，完整窗口用例通过，保留实际阴影。原始 CTest 报告、按用例合并的最新结果、图像清单和自包含预览集中在忽略的 `build/test-audit/<run>/`，负对照不计入正式用例结果。公开范例的全部菜单场景使用当前阴影滤波完成实际进入、场景帧截图及返回，范围与采集方法见[范例验证入口](../projects/showcase/docs/index.md#验证)，PNG 和回执位于项目 `cache/scene-captures/`。真实 UI 与同一玩法实例的交互另见项目 `cache/mcp-interaction/`；独立测试运行包验证临时脚本、失效身份拒绝、UI 场景截图与正常退出，结果在 `cache/runtime-mcp/`。公开范例和本机私有项目的 TypeScript 检查通过。
 
-正式 Release 配置未创建 MCP 或编辑器目标，解析后的源码及链接图不含 MCP；最终程序没有临时脚本执行或运行端点符号，测试产物包含对应符号。以上只证明本机配置及所列行为，不包含 Windows、Android、iOS、V8、较旧 macOS、全部项目场景或完整冷启动性能。预算是工作项之间的软上限，第三方调用与 GPU 管线创建仍可能形成长帧，不能据此承诺任意场景零卡顿。
+正式 Release 配置未创建 MCP 或编辑器目标，解析后的源码及链接图不含 MCP；最终程序没有临时脚本执行或运行端点符号，测试产物包含对应符号。以上只证明本机配置及所列行为，不包含 Windows、Android、iOS、V8、较旧 macOS、所有私有项目场景或完整冷启动性能。预算是工作项之间的软上限，第三方调用与 GPU 管线创建仍可能形成长帧，不能据此承诺任意场景零卡顿。
 
 ## 公开范例
 
@@ -181,11 +181,11 @@ P50 减少约 81.4%。两次均正常退出，HDR 输出逐字节相同，全部
 
 ## 验证范围与限制
 
-- 源码英文字符串与外部 Unicode 夹具已完成 macOS arm64 的受影响 Debug / Release 构建；Debug 未运行测试。Release 的 GUID、日志、存储、资源读取、UI、脚本、MCP、资源管线、场景跨语言及建模几何共 18 项 CTest 通过；环境准备、Android 资源打包和桌面导出的 55 项脚本检查通过，私有项目 TypeScript 与设置检查通过。`modeling.core` 在二十面球体（`icosphere`）的三角形 18、顶点角 2 处因 MikkTSpace 返回零切线失败，前面的箱体和平面基本体检查通过；该失败保留记录，不能据此宣称全部建模功能通过。本次引擎实现只修改文案，未修改几何或切线算法。
+- 源码英文字符串与外部 Unicode 夹具已完成 macOS arm64 的受影响 Debug / Release 构建；Debug 未运行测试。Release 的 GUID、日志、存储、资源读取、UI、脚本、MCP、资源管线、场景跨语言及建模几何共 18 项 CTest 通过；环境准备、Android 资源打包和桌面导出的 55 项脚本检查通过，私有项目 TypeScript 与设置检查通过。二十面球体（`icosphere`）曾因极点 UV 合并相反切线而失败；当前已修复并通过 `modeling.core`，新增回归覆盖多个细分级别、接缝和极点的单位正交切线。
 - Schema 分层已完成 Windows Debug / Release 构建，Release 的 `modeling.pipeline`、`editor.destruction_pipeline` 和 `engine.scene_schema_cross_language` 通过，编辑器 TypeScript 通过严格类型检查。架构检查覆盖生成数据目标的所属层级与依赖方向。
 - 建模参数、物理尺寸 UV、边界查询及可撤销重建已完成 Windows Debug / Release 构建；Release 的 `modeling.core`、`modeling.geometry`、`modeling.commands`、`modeling.pipeline`、`editor.scene_persistence` 和 `engine.mcp_registry` 通过。复用现有用例，未运行 Debug 测试、实窗或性能采样；不据此认定画面质量与其他平台已验收。示例源数据与资源包状态见 [Showcase](../projects/showcase/docs/index.md#验证)。
 - 渲染提交优化已完成受影响 Debug / Release 构建，Release 的 `engine.render_foundation`、`engine.scene_hdr_capture`、`engine.window_render`、`engine.render_submission` 通过；这些结果只代表当时 Windows / DirectX 12 配置。
-- 当前没有最新提交的全仓、全平台通过结论。其他模块与平台的旧执行日志保留在 Git 和本地 `build/`，不能直接当作当前版本的验收。
+- 当前本机完整 Release 测试结果见上面的[场景加载与运行态测试](#场景加载与运行态测试)，不代表全平台通过。其他平台的旧执行日志保留在 Git 和本地 `build/`，不能直接当作当前版本的验收。
 - iOS 完整宿主与交付尚未完成；Android 模拟器、独立依赖探针和桌面源码验证不代表实体手机的功能或性能。
 - 该性能基线未覆盖 Shader/PSO 预热、大场景完整首帧及跨平台性能；CPU 分段结果仅适用于上述受控静态负载。
 
