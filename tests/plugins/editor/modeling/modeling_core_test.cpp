@@ -146,6 +146,48 @@ bool primitives()
     return true;
 }
 
+bool icosphere_tangent_frames()
+{
+    for (const auto subdivisions : {0U, 1U, 3U})
+    {
+        schema::ModelingPrimitiveDataT options;
+        options.type = schema::ModelingPrimitive::icosphere;
+        options.subdivisions = subdivisions;
+        options.radius = 1.25;
+        options.uv_tiles_per_unit = 2;
+        schema::EditableMeshDataT model;
+        schema::MeshDataT mesh;
+        std::string error;
+        if (!expect(plugins::modeling::mesh::create(options, model, error) &&
+                        plugins::modeling::mesh::compile(model, "icosphere.mesh", mesh, error) &&
+                        MeshUtils::validate(mesh),
+                    "subdivided icosphere generates valid UV tangent frames", error))
+        {
+            return false;
+        }
+        std::size_t poles = 0;
+        for (std::size_t index = 0; index < mesh.vertices.size(); ++index)
+        {
+            const auto& vertex = mesh.vertices[index];
+            const auto& tangent = mesh.tangents[index];
+            poles += vertex.x() == 0 && vertex.z() == 0;
+            const auto length = std::hypot(tangent.x(), tangent.y(), tangent.z());
+            const auto projection = vertex.nx() * tangent.x() + vertex.ny() * tangent.y() +
+                                    vertex.nz() * tangent.z();
+            if (!expect(std::abs(length - 1.0) < 1e-5 && std::abs(projection) < 1e-5,
+                        "icosphere tangents remain unit length and orthogonal at seams and poles"))
+            {
+                return false;
+            }
+        }
+        if (!expect(subdivisions == 0 || poles > 0, "subdivided sphere exercises both poles"))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
 bool primitive_contract()
 {
     schema::ModelingPrimitiveDataT options;
@@ -765,7 +807,8 @@ bool split_and_edge_loop()
 
 int main()
 {
-    return mirrored_uv_tangents() && primitives() && primitive_contract() && polygon_hole() &&
+    return mirrored_uv_tangents() && primitives() && icosphere_tangent_frames() &&
+                   primitive_contract() && polygon_hole() &&
                    topology() && attributes_and_edges() && loop_cut_and_normals() &&
                    extruded_hole() && boundary_and_attributes() && bridge_caps() &&
                    extruded_edges() && point_edge_transform() && group_inset() &&

@@ -354,13 +354,18 @@ void icosphere(schema::EditableMeshDataT& data, const schema::ModelingPrimitiveD
         auto& face = math::add_face(data, {triangle[0], triangle[1], triangle[2]}, 0, 1);
         double minimum = 1.0;
         double maximum = 0.0;
-        for (auto id : triangle)
+        std::array<bool, 3> poles{};
+        for (std::size_t corner = 0; corner < triangle.size(); ++corner)
         {
-            const auto normal = math::normalized(math::position(data, id));
+            const auto normal = math::normalized(math::position(data, triangle[corner]));
+            poles[corner] = normal[0] == 0.0 && normal[2] == 0.0;
             const auto u = std::atan2(normal[2], normal[0]) / (2.0 * pi) + 0.5;
             const auto v = std::asin(std::clamp(normal[1], -1.0, 1.0)) / pi + 0.5;
-            minimum = std::min(minimum, u);
-            maximum = std::max(maximum, u);
+            if (!poles[corner])
+            {
+                minimum = std::min(minimum, u);
+                maximum = std::max(maximum, u);
+            }
             face.texcoords.emplace_back(u, v);
         }
         if (maximum - minimum > 0.5)
@@ -371,6 +376,16 @@ void icosphere(schema::EditableMeshDataT& data, const schema::ModelingPrimitiveD
                 {
                     uv = {uv.x() + 1.0, uv.y()};
                 }
+            }
+        }
+        for (std::size_t corner = 0; corner < triangle.size(); ++corner)
+        {
+            if (poles[corner])
+            {
+                // 极点没有唯一经度；沿本面两条边插值，避免把相反方向的切线焊在一起。
+                const auto u = (face.texcoords[(corner + 1) % 3].x() +
+                                face.texcoords[(corner + 2) % 3].x()) * 0.5;
+                face.texcoords[corner] = {u, face.texcoords[corner].y()};
             }
         }
     }
