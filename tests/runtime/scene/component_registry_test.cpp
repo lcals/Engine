@@ -134,7 +134,6 @@ bool registration_phase_guard()
 bool check()
 {
     test_support::ResourceServices services;
-    engine::ResourceSystem& resources = services.core;
     engine::WorldSystem world{&services.loader};
     const engine::EngineConfig config;
     if (!(services.initialize(config) && services.prepare_builtins()) || !world.initialize(config))

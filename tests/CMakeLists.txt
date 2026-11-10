@@ -353,6 +353,10 @@ if(TARGET engine_editor)
                                    PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
         target_link_libraries(engine_editor_commands_test PRIVATE engine::editor engine::world
                                                                   engine::resource)
+        if(TARGET engine_mcp)
+            target_link_libraries(engine_editor_commands_test PRIVATE engine::mcp)
+            target_compile_definitions(engine_editor_commands_test PRIVATE ENGINE_TEST_COMMAND_CHANNEL=1)
+        endif()
         engine_apply_options(engine_editor_commands_test)
         add_test(NAME editor.commands COMMAND engine_editor_commands_test)
         set_tests_properties(editor.commands PROPERTIES TIMEOUT 30)
@@ -1623,7 +1627,7 @@ if(TARGET engine_animation)
     target_include_directories(engine_test_sampling PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
     target_link_libraries(engine_test_sampling PUBLIC engine::scene_data PRIVATE engine::resource ozz_animation_offline ozz_animation)
     engine_apply_options(engine_test_sampling)
-    foreach(_test engine_animation_test engine_animation_rigging_events_test
+    foreach(_test engine_animation_test engine_model_resource_test engine_animation_rigging_events_test
         engine_animation_state_machine_script_test engine_animation_events_script_test
         engine_model_animation_script_test
         engine_skeleton_rig_definitions_test

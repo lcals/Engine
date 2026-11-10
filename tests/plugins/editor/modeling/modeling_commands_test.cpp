@@ -142,7 +142,6 @@ bool registry_test()
 bool run(const fs::path& project)
 {
     test_support::ResourceServices services;
-    engine::ResourceSystem& resources = services.core;
     engine::WorldSystem world{&services.loader};
     if (!(services.initialize({}) && services.prepare_builtins()) || !world.initialize({}))
     {

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Capture each showcase menu case from a separate Release editor session.
+"""Capture each showcase menu case from the active Release editor session.
 
 The menu's registered cases are the source of truth. Screenshots and MCP receipts
 stay in the project's ignored cache; this is a visual record, not a functional test.
@@ -21,7 +21,7 @@ import uuid
 ROOT = Path(__file__).resolve().parents[3]
 PROJECT = ROOT / "projects" / "showcase"
 sys.path.insert(0, str(PROJECT / "tests"))
-from mcp_interaction_test import (EditorMcpSession, click, execute, get_status,
+from mcp_interaction_test import (EditorMcpSession, click, execute, get_status, lifecycle,
                                   require, wait_for)
 
 
@@ -90,10 +90,7 @@ def main():
                 if time.monotonic() >= deadline:
                     raise RuntimeError("Editor did not become available")
                 time.sleep(0.25)
-            session.call("start_project")
-            status = wait_for("project startup", lambda: get_status(session),
-                              lambda value: value.get("projectState") not in ("starting", "stopping"),
-                              args.timeout)
+            status = lifecycle(session, "start_project", "running")
             require(status.get("running"), f"Project did not start: {status}")
             run = status["runId"]
             report.update(session=session.session_id, runId=run,

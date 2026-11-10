@@ -103,9 +103,28 @@ def tool(mcp, project, runtime, name, arguments=None, expect_error=False, timeou
             time.sleep(0.04)
         else:
             raise AssertionError(f"{name} original editor request timed out: {identity}")
-    require(failed is expect_error, f"{name} unexpected result: {body}")
     if name in ("start_project", "stop_project") and isinstance(body.get("result"), dict):
         body = dict(body, **body["result"])
+    if name == "start_project" and not failed:
+        # 命令受理与原生加载完成是不同边界；只查询同一请求的运行状态。
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            query_failed, status = request("get_status", {})
+            require(not query_failed and status.get("session") == body.get("session"),
+                    f"Project startup observation changed session: {status}")
+            if (status.get("lastRequestId") == body.get("requestId") and
+                    status.get("projectState") not in ("starting", "stopping")):
+                body = dict(body, projectState=status["projectState"],
+                            running=status.get("running", False), runId=status.get("runId", "0"),
+                            runtimeStatus=status)
+                failed = not body["running"]
+                if failed:
+                    body["startupError"] = status.get("lastError", "")
+                break
+            time.sleep(0.04)
+        else:
+            raise AssertionError(f"Project startup timed out; last status: {status}")
+    require(failed is expect_error, f"{name} unexpected result: {body}")
     return body
 
 
@@ -277,7 +296,7 @@ def test(editor, mcp, root, temporary):
         tool(mcp, project, runtime, "sync_assets")
         failed = tool(mcp, project, runtime, "start_project", expect_error=True)
         require(
-            failed.get("error")
+            (failed.get("error") or failed.get("startupError"))
             and failed.get("activation") == "completed"
             and process.poll() is None,
             "failed initialization must leave a usable idle editor",

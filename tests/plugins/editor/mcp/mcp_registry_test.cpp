@@ -79,7 +79,7 @@ bool exercise_render_tools()
     engine::plugins::mcp::McpSystem mcp;
     if (!check(engine::plugins::mcp::register_render_tools(mcp, editor) && mcp.initialize({}),
                "render tools register schemas supported by the MCP protocol") ||
-        !check(mcp.list_tools()["tools"].size() == 19, "all render tools are discoverable"))
+        !check(mcp.list_tools()["tools"].size() == 20, "all render tools are discoverable"))
     {
         return false;
     }

@@ -156,15 +156,20 @@ def test(editor, mcp, root, temporary):
 
         screenshot = project / "cache/screenshots/mcp-modeling.png"
         queued = command("capture_frame", {"path": "screenshots/mcp-modeling.png"})
-        require(queued.get("state") == "pending", "screenshot request must report queued work")
+        require(queued.get("state") == "waiting_frame" and queued.get("captureId"),
+                "screenshot request must return its queued capture identity")
         require(
             queued.get("path") == screenshot.resolve().as_posix(), "wrong screenshot destination"
         )
 
         def screenshot_complete():
-            current = command("get_frame_capture", {})
-            require(current.get("path") == queued["path"], "screenshot request was replaced")
-            require(current.get("state") in ("pending", "complete"), f"capture failed: {current}")
+            current = command("get_frame_capture", {"captureId": queued["captureId"]})
+            require(current.get("path") == queued["path"] and
+                    current.get("captureId") == queued["captureId"],
+                    "screenshot request was replaced")
+            require(current.get("state") in
+                    ("waiting_frame", "reading_back", "writing", "complete"),
+                    f"capture failed: {current}")
             return current if current["state"] == "complete" else None
 
         captured = wait_for(process, screenshot_complete, "actual rendered PNG")
@@ -185,7 +190,8 @@ def test(editor, mcp, root, temporary):
             not (project / "relative-capture.png").exists() and not absolute_escape.exists(),
             "invalid screenshot path wrote outside the project cache",
         )
-        require(command("get_frame_capture", {}) == captured, "rejected capture changed state")
+        require(command("get_frame_capture", {"captureId": queued["captureId"]}) == captured,
+                "rejected capture changed state")
 
         saved = command("save_scene", identity | {"path": "scenes/main.scene"})
         require(saved["nodeCount"] == len(composed["nodes"]), "save omitted scene nodes")

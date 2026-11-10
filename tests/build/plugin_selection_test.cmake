@@ -69,7 +69,7 @@ run_case(
 set(ENGINE_RUNTIME_PLUGINS "" CACHE STRING "" FORCE)
 set(ENGINE_EDITOR_PLUGINS mcp CACHE STRING "" FORCE)
 include("${ROOT}/cmake/plugins/selection.cmake")
-if(NOT ENGINE_SELECTED_PLUGINS STREQUAL "editor/asset_build;editor/asset_sync;editor/mcp")
+if(NOT ENGINE_SELECTED_PLUGINS STREQUAL "runtime/mcp;editor/asset_build;editor/asset_sync;editor/mcp")
     message(FATAL_ERROR "MCP dependency closure/order differs: ${ENGINE_SELECTED_PLUGINS}")
 endif()
 if("modeling" IN_LIST VCPKG_MANIFEST_FEATURES)

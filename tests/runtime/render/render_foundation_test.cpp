@@ -910,7 +910,6 @@ int main()
 {
     const engine::EngineConfig config;
     test_support::ResourceServices services;
-    auto& resources = services.core;
     engine::WorldSystem world(&services.loader);
     if (!expect((services.initialize(config) && services.prepare_builtins()) &&
                     world.initialize(config),
