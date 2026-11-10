@@ -166,6 +166,7 @@
 - [字体资源导入](../plugins/editor/class-diagrams/font-importer.md)
 - [JSON 资源导入](../plugins/editor/class-diagrams/json-importer.md)
 - [MCP 协议与工具注册](../plugins/editor/class-diagrams/mcp-system.md)
+- [独立运行程序的 MCP 测试接入](../plugins/editor/class-diagrams/runtime-mcp-debug.md)
 - [建模几何操作](../plugins/editor/class-diagrams/mesh-geometry.md)
 - [参数化基本体](../plugins/editor/class-diagrams/mesh-primitives.md)
 - [多边形拓扑操作](../plugins/editor/class-diagrams/mesh-topology.md)

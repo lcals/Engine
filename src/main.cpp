@@ -27,6 +27,11 @@
 #include "plugins/runtime/script/script_system.hpp"
 #endif
 
+#if ENGINE_RUNTIME_MCP_TEST
+#include "plugins/editor/mcp/runtime_mcp_bridge.hpp"
+#include "runtime/utils/path_utils.hpp"
+#endif
+
 #include <SDL3/SDL_main.h>
 #include <fmt/base.h>
 
@@ -47,7 +52,12 @@ namespace
 {
 void print_usage()
 {
+#if ENGINE_RUNTIME_MCP_TEST
+    fmt::print("Usage: engine_app --mcp-project <path> --mcp-runtime-dir <empty-cache-path> "
+               "[--frames <positive-count>] [--workers <0..64>]\n");
+#else
     fmt::print("Usage: engine_app [--frames <positive-count>] [--workers <0..64>]\n");
+#endif
 }
 
 } // namespace
@@ -59,9 +69,26 @@ int main(int argc, char* argv[])
     auto& parallel = settings.parallel;
     std::optional<std::size_t> worker_override;
     std::uint64_t frame_limit = 0;
+#if ENGINE_RUNTIME_MCP_TEST
+    std::filesystem::path mcp_project;
+    std::filesystem::path mcp_directory;
+#endif
     for (int index = 1; index < argc; ++index)
     {
         const std::string_view argument(argv[index]);
+#if ENGINE_RUNTIME_MCP_TEST
+        if ((argument == "--mcp-project" || argument == "--mcp-runtime-dir") && index + 1 < argc)
+        {
+            auto& value = argument == "--mcp-project" ? mcp_project : mcp_directory;
+            if (!value.empty())
+            {
+                print_usage();
+                return 2;
+            }
+            value = engine::PathUtils::from_utf8(argv[++index]);
+            continue;
+        }
+#endif
         if (argument == "--workers" && index + 1 < argc)
         {
             const std::string_view value(argv[++index]);
@@ -98,10 +125,24 @@ int main(int argc, char* argv[])
             return 2;
         }
     }
+    engine::RuntimeHost engine;
+#if ENGINE_RUNTIME_MCP_TEST
+    engine::plugins::mcp::RuntimeMcpBridge mcp_bridge;
+    if (!mcp_bridge.initialize(engine, mcp_project, mcp_directory))
+    {
+        fmt::print(stderr, "Cannot initialize runtime MCP test channel: {}\n",
+                   mcp_bridge.last_error());
+        return 1;
+    }
+#endif
 #if ENGINE_HAS_APP_SERVICES
     engine::AppConfig app_config{};
 #if defined(ENGINE_PROJECT_APPLICATION_NAME)
     app_config.application_name = ENGINE_PROJECT_APPLICATION_NAME;
+#endif
+#if ENGINE_RUNTIME_MCP_TEST
+    app_config.persistent_data_path = mcp_directory;
+    app_config.cache_path = mcp_directory / "runtime-cache";
 #endif
     if (!engine::App::initialize(app_config))
     {
@@ -208,7 +249,6 @@ int main(int argc, char* argv[])
                                         nullptr);
 #endif
     };
-    engine::RuntimeHost engine;
     engine::AnimationRetargeterFactory retargeter_factory = nullptr;
 #if ENGINE_HAS_ANIMATION_RETARGET_PLUGIN
     retargeter_factory = engine::plugins::animation_retarget::create_animation_retargeter;
@@ -351,6 +391,18 @@ int main(int argc, char* argv[])
             result = 1;
             break;
         }
+#if ENGINE_RUNTIME_MCP_TEST
+        bool mcp_gameplay_active = true;
+#if ENGINE_START_PACKAGED_GAMEPLAY && ENGINE_HAS_RESOURCE_GRAPH_PLUGIN && ENGINE_HAS_APP_SERVICES
+        mcp_gameplay_active = !starting;
+#endif
+        if (mcp_gameplay_active && !mcp_bridge.poll())
+        {
+            fmt::print(stderr, "Runtime MCP test channel failed: {}\n", mcp_bridge.last_error());
+            result = 1;
+            break;
+        }
+#endif
         if (status == engine::FrameStatus::paused)
         {
             std::this_thread::sleep_for(std::chrono::milliseconds(16));
@@ -489,6 +541,9 @@ int main(int argc, char* argv[])
     }
 #if ENGINE_START_PACKAGED_GAMEPLAY
     intro_load.reset();
+#endif
+#if ENGINE_RUNTIME_MCP_TEST
+    mcp_bridge.shutdown();
 #endif
     engine.shutdown();
 #if ENGINE_HAS_RESOURCE_GRAPH_PLUGIN

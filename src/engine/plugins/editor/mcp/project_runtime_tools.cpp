@@ -126,8 +126,14 @@ bool read_status(const fs::path& runtime, Json& response)
             status[item.key()] = item.value();
         }
         const bool alive = editor_alive(project_status);
-        status["editorAlive"] = alive;
-        status["state"] = alive ? "lastReportedEditor" : "offline";
+        const bool runtime_test = project_status.value("hostKind", std::string{}) == "runtime-test";
+        status["editorAlive"] = alive && !runtime_test;
+        if (runtime_test)
+        {
+            status["runtimeAlive"] = alive;
+        }
+        status["state"] = alive ? (runtime_test ? "lastReportedRuntime" : "lastReportedEditor")
+                                : "offline";
         if (!alive)
         {
             status["lastReportedProjectState"] = status["projectState"];

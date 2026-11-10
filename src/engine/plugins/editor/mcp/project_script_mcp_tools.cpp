@@ -59,7 +59,7 @@ bool execute(EditorMcpTools& editor, const fs::path& project, const McpTarget& t
         !status.value("running", false) ||
         status.value("projectRoot", Json()) != PathUtils::to_utf8(project))
     {
-        return fail(result, "Project script session or active Run does not match this editor");
+        return fail(result, "Project script session or active Run does not match this target");
     }
     fs::path node;
     fs::path builder;

@@ -360,6 +360,12 @@ bool EditorMcpTools::call_command(std::string_view command, const Json& argument
     {
         return fail(reply, "Editor session belongs to a different project");
     }
+    if (status.value("hostKind", std::string{}) == "runtime-test" &&
+        command != "execute_project_script" && command != "capture_frame" &&
+        command != "get_frame_capture")
+    {
+        return fail(reply, "This editor command is unavailable in the runtime test target");
+    }
     Json previous;
     bool exists = false;
     if (!read_json(target_.runtime_dir / "editor-command.json", previous, exists) ||

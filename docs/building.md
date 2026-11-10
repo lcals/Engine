@@ -212,6 +212,7 @@ macOS 编辑器的 `lib/` 同时包含 USD 导入所需的 `libusd_*` / TBB，�
 | `ENGINE_V8_ENABLE_TEMPORAL` | `OFF` | V8 Temporal，全部平台默认裁剪 |
 | `ENGINE_V8_ENABLE_SYSTEM_INSTRUMENTATION` | `OFF` | V8 系统 instrumentation，全部平台默认裁剪 |
 | `ENGINE_ENABLE_SCRIPT_RUNTIME`      | `OFF`      | 默认选择运行时 script 插件；显式插件清单优先，完整桌面 engine 及 Android 预设开启 |
+| `ENGINE_ENABLE_RUNTIME_MCP_TEST`    | `OFF`      | 额外构建可显式装配 MCP 通道的独立测试宿主；正式运行宿主不包含此入口，参见 [MCP 测试接入](plugins/editor/mcp.md#独立运行程序测试) |
 
 ## 作为子项目集成
 

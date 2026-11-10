@@ -93,9 +93,30 @@ python3 scripts/mcp_client.py --server build/ninja-engine-release/mcp_app --proj
 
 Frame/View uniform 作为 `implementation.frame_view_uniforms` 的只读实现能力查询，不是可切换画质效果。天空数值继续通过 `set_render_settings` 的 atmosphere 字段配置，Hex 尺度/混合通过正常具名材质参数配置。LOD 离线生成通过 `get_mesh_lod_import {"path":"meshes/source.mesh"}` 和 `set_mesh_lod_import` 修改源 meta、保留 GUID 并走正常导入；它与运行时 static_lod 开关分开保存。详见[统一功能归属与契约](render-feature-controls.md)和[静态模型 LOD](../../editor/static-model-lod.md)。
 
+## 独立运行程序测试
+
+可在包含编辑器 MCP 与脚本插件的桌面构建中显式启用 `ENGINE_ENABLE_RUNTIME_MCP_TEST=ON`，再构建 `engine_project_mcp_test_app` 和 `mcp_app`。测试程序名为 `<产品名>-mcp-test`，需要与对应项目的 `assets/` 运行包一起放到独立的测试输出目录；它不替代正式运行程序，也不进入默认交付。构建及导出方式见[构建指南](../../building.md)。
+
+为每次测试在项目 `cache/` 下新建一个空目录，以 `--mcp-project <项目目录> --mcp-runtime-dir <空目录>` 启动测试程序；`mcp_app` 使用同一项目和目录连接。此目录也是该测试进程的独立持久状态目录，不能指向活动编辑器的目录。`get_status` 中 `hostKind` 为 `runtime-test`，并以 `runtimeAlive` 表示测试宿主在线；`renderPreparation` 是渲染准备的当前状态，场景对象创建完成不代表画面已就绪。启动影片及玩法入口完成后，才处理测试命令；停机、换 Run 或重载后必须重新获取会话与 Run 身份。
+
+截图前应先等待 `renderPreparation.state` 为 `ready`。动态添加对象、切换场景或更改资源后，渲染准备可能再次进入 `preparing`；上一次的就绪状态不能用于判断新画面。
+
+该宿主支持运行状态、`execute_project_script`、`capture_frame` 和 `get_frame_capture`；编辑器专有的场景修改、输入和项目启停命令不适用。临时脚本在当前玩法的 VM 内执行，实际副作用由调用方自行恢复。截图只允许写入项目 `cache/`，保存成功不代表画面正确。命令通道和所有权见[运行程序测试类图](class-diagrams/runtime-mcp-debug.md)。
+
+```sh
+cmake --preset ninja-engine-release -DENGINE_ENABLE_RUNTIME_MCP_TEST=ON
+cmake --build --preset ninja-engine-release --target engine_project_mcp_test_app mcp_app
+# 将测试程序和项目运行资源导出到独立测试目录后，将 TEST_EXECUTABLE 设为测试程序的路径：
+mkdir -p projects/showcase/cache/runtime-mcp
+TEST_CHANNEL=$(mktemp -d projects/showcase/cache/runtime-mcp/test.XXXXXX)
+"$TEST_EXECUTABLE" --mcp-project projects/showcase --mcp-runtime-dir "$TEST_CHANNEL"
+```
+
+另开终端，用上述相同的项目与通道目录启动 `mcp_app` 客户端，例如 `scripts/mcp_client.py ... call get_status`。可使用[公开范例测试](../../../projects/showcase/docs/index.md#验证)检查临时脚本、会话隔离和截图。
+
 ## 当前项目的 TS 执行
 
-先调用 `get_status` 获取活动编辑器的 `session` 和 `runId`，再调用 `execute_project_script`。`sourcePath` 是相对 `assets/` 的虚拟 `.ts` 路径，用于类型检查和相对 import；它不会写成项目源文件或产生 meta。代码按项目 tsconfig 和 `engine.d.ts` 检查，在 MCP 工具进程编译，再在编辑器主线程交给当前 Run 的同一 VM 执行。
+先调用 `get_status` 获取活动编辑器或独立测试宿主的 `session` 和 `runId`，再调用 `execute_project_script`。`sourcePath` 是相对 `assets/` 的虚拟 `.ts` 路径，用于类型检查和相对 import；它不会写成项目源文件或产生 meta。代码按项目 tsconfig 和 `engine.d.ts` 检查，在 MCP 工具进程编译，再在宿主主线程交给当前 Run 的同一 VM 执行。
 
 ```ts
 export default function(args: { label: string }, gameplay: unknown) {
@@ -105,7 +126,7 @@ export default function(args: { label: string }, gameplay: unknown) {
 
 默认导出接收 `(arguments, gameplay)`，后者是当前活动玩法实例，不重新创建或初始化。可导入 `engine` 和当前 Run 已加载的相对项目模块（使用 `.js` 后缀），共享原有 Model 和模块状态。临时函数用完释放；同一路径的新请求不沿用上次代码。返回值须为同步 JSON 数据；异步业务先返回项目 ticket，再提交脚本查询状态。动态 import、顶层 await、未加载的项目模块和 Promise 返回不受支持。
 
-源码、参数和返回结果分别最多 256 KiB。停止、重开或热重载后旧 `runId` 失效，编译期间发生换代也会在执行前拒绝。编译或运行错误只使本请求失败，不停止活动 Run；已发生的业务副作用不会自动撤销。代码仍须主动返回；工具等待超时不能中断 VM 无限循环。此入口只在桌面编辑器 MCP 装配，运行包不新增 Node、TypeScript 编译器或 MCP。
+源码、参数和返回结果分别最多 256 KiB。停止、重开或热重载后旧 `runId` 失效，编译期间发生换代也会在执行前拒绝。编译或运行错误只使本请求失败，不停止活动 Run；已发生的业务副作用不会自动撤销。代码仍须主动返回；工具等待超时不能中断 VM 无限循环。编译与 MCP 协议由桌面工具提供；正式运行包不包含测试入口，独立测试运行程序仅在显式启用时构建。
 
 ## UI 编辑与正常操作
 
