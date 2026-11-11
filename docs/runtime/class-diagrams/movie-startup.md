@@ -78,7 +78,7 @@ classDiagram
 - 呈现阶段不创建 Flecs world、项目 VM、物理世界或 RmlUi 上下文。Window、必要输入、图形设备、
   资源单项读取和任务域只提供起播所需能力；配置中没有片头时仍可走同步初始化便利入口。
 - MoviePlayer 不借用 Renderer、不创建 GPU 纹理或交换链。它输出 MovieFrame，Host 调用
-  `RenderSystem::present_movie_frame(const MovieFrame&) -> bool` 完成本帧呈现；与正常 `render()`
+  `RenderSystem::present_movie_frame(const MovieFrame&)` 完成本帧呈现；其返回值为[RenderSubmitStatus](render-system.md#异步表面准备)，与正常 `render()`
   每帧二选一，不能先渲染场景再调用一次完整影片呈现，造成两次提交。
 - 片头句柄由可执行入口的 Caller 持有，业务句柄由相应 Native 调用者或 Run 持有；Host 不接管
   它们的停止 / release 权限。Host 通过 `MoviePlayer::current_handle(MoviePlaybackHandle&)`

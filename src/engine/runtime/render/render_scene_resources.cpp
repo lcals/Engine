@@ -1,5 +1,6 @@
 #include "runtime/font/font_system.hpp"
 #include "runtime/performance/profiling.hpp"
+#include "runtime/render/render_surface.hpp"
 #include "runtime/render/render_system.hpp"
 #include "runtime/render/scene_gpu_resources.hpp"
 #include "runtime/render/scene_render_query.hpp"
@@ -95,9 +96,14 @@ RenderPrepareStatus RenderSystem::prepare_resources(RenderPrepareProgress& outpu
                (items == 0 ||
                 std::chrono::duration<double>(PreparationClock::now() - begin).count() < seconds);
     };
-    if (world_ && (!world_->scenes().empty() || scope_preparing_scene_))
+    if (!renderer_initialized_ || (world_ && (!world_->scenes().empty() || scope_preparing_scene_)))
     {
-        if (!prepare_frame())
+        const auto prepared = prepare_frame();
+        if (prepared == render_detail::FramePrepareStatus::failed)
+        {
+            return fail("Render surface preparation failed");
+        }
+        if (prepared == render_detail::FramePrepareStatus::deferred)
         {
             output = state.progress;
             if (state.status != RenderPrepareStatus::failed)

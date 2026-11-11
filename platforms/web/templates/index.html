@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Engine WebGPU Runtime</title>
+<style>
+    :root { color-scheme: dark; font-family: system-ui, sans-serif; }
+    body { margin: 0; background: #171b22; color: #e8edf4; }
+    header { display: flex; align-items: center; flex-wrap: wrap; gap: 1rem; padding: 1rem; }
+    button { font: inherit; padding: .5rem 1rem; }
+    output { flex: 1; min-width: 10rem; overflow-wrap: anywhere; }
+    canvas { display: block; width: 100%; height: auto; aspect-ratio: 16 / 9; background: #0c1016; }
+</style>
+<header><button id="start">Start</button><button id="stop" disabled>Stop</button>
+    <output id="status" role="status">Ready to start</output></header>
+<main id="viewport"><canvas id="canvas" width="1280" height="720" tabindex="0"></canvas></main>
+<script type="module">
+    import * as runtime from "./bootstrap.mjs";
+    const start = document.getElementById("start"), stop = document.getElementById("stop");
+    const status = document.getElementById("status"), viewport = document.getElementById("viewport");
+    let used = false;
+    start.addEventListener("click", async () => {
+        if (used) {
+            const canvas = document.createElement("canvas");
+            canvas.id = "canvas"; canvas.width = 1280; canvas.height = 720; canvas.tabIndex = 0;
+            viewport.replaceChildren(canvas);
+        }
+        used = true; start.disabled = true; stop.disabled = false;
+        status.textContent = "Loading runtime and resources…";
+        try {
+            await runtime.start(viewport.firstElementChild, new URL("./", location.href), (state, error) => {
+                status.textContent = error || (state === "stopped" ? "Stopped" : "Runtime failed");
+                start.disabled = false; stop.disabled = true;
+            });
+            status.textContent = "Running — first scene frame submitted";
+            viewport.firstElementChild.focus();
+        } catch (error) {
+            status.textContent = error.message;
+            start.disabled = false; stop.disabled = true;
+        }
+    });
+    stop.addEventListener("click", async () => {
+        stop.disabled = true; status.textContent = "Stopping…";
+        try { await runtime.stop(); } catch (error) { status.textContent = error.message; }
+    });
+</script>
+</html>

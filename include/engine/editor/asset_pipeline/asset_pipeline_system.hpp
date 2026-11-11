@@ -40,7 +40,7 @@ public:
     [[nodiscard]] bool add_importer(std::unique_ptr<asset_pipeline::AssetImporter>& importer);
     // 初始化后且空闲时替换已有 id；成功才转移所有权。
     [[nodiscard]] bool set_importer(std::unique_ptr<asset_pipeline::AssetImporter>& importer);
-    // target_platform 为空采用宿主；支持 macos/ios/windows/android/linux。
+    // target_platform 为空采用宿主；支持 macos/ios/windows/android/linux/web。
     [[nodiscard]] bool build_assets(const std::filesystem::path& project_root,
                                     std::string_view target_platform = {});
     // 失败保留上一次成功批次统计；所有接口由编辑器协调线程调用。

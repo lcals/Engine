@@ -427,6 +427,79 @@
       "cacheVariables": {
         "ENGINE_ENABLE_TEST_SUPPORT": true
       }
+    },
+    {
+      "name": "web-base",
+      "hidden": true,
+      "inherits": [
+        "ninja-cache",
+        "vcpkg"
+      ],
+      "cacheVariables": {
+        "CMAKE_SYSTEM_NAME": "Emscripten",
+        "VCPKG_TARGET_TRIPLET": "wasm32-emscripten",
+        "VCPKG_OVERLAY_TRIPLETS": "${sourceDir}/platforms/web",
+        "VCPKG_INSTALLED_DIR": "${sourceDir}/build/dependencies/web",
+        "VCPKG_MANIFEST_FEATURES": "runtime;quickjs;web",
+        "ENGINE_ENABLE_RUNTIME_DEPS": true,
+        "ENGINE_ENABLE_EDITOR_DEPS": false,
+        "ENGINE_ENABLE_ASSET_PIPELINE_DEPS": false,
+        "ENGINE_ENABLE_SCRIPT_RUNTIME": true,
+        "ENGINE_SCRIPT_BACKEND": "quickjs",
+        "ENGINE_ENABLE_V8": false,
+        "ENGINE_RUNTIME_PLUGINS": "resource_graph;script;animation_retarget;camera;character_controller;navigation_crowd;effects;terrain;destruction",
+        "ENGINE_EDITOR_PLUGINS": "",
+        "ENGINE_ENABLE_TEST_SUPPORT": false,
+        "ENGINE_BUILD_APP": true,
+        "ENGINE_BUILD_TESTS": false,
+        "BUILD_TESTING": false,
+        "ENGINE_EXPORT_PRODUCT": "engine-showcase",
+        "ENGINE_EXPORT_PROJECT": "${sourceDir}/projects/showcase",
+        "CMAKE_CXX_SCAN_FOR_MODULES": false
+      },
+      "environment": {
+        "EMSDK": "${sourceDir}/build/toolchains/emsdk",
+        "EMSCRIPTEN_ROOT": "${sourceDir}/build/toolchains/emsdk/upstream/emscripten"
+      }
+    },
+    {
+      "name": "web-wasm32-debug",
+      "displayName": "WebGPU Wasm32 Debug",
+      "inherits": "web-base",
+      "binaryDir": "${sourceDir}/build/web-wasm32-debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "web-wasm32-release",
+      "displayName": "WebGPU Wasm32 Release",
+      "inherits": "web-base",
+      "binaryDir": "${sourceDir}/build/web-wasm32-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    },
+    {
+      "name": "web-deps",
+      "inherits": "web-wasm32-release",
+      "binaryDir": "${sourceDir}/build/web-deps",
+      "cacheVariables": {
+        "ENGINE_ENABLE_RUNTIME_DEPS": false,
+        "ENGINE_ENABLE_SCRIPT_RUNTIME": false,
+        "ENGINE_RUNTIME_PLUGINS": "",
+        "ENGINE_BUILD_APP": false
+      }
+    },
+    {
+      "name": "web-host-release",
+      "displayName": "Native Web export tools",
+      "inherits": "ninja-engine-release",
+      "binaryDir": "${sourceDir}/build/web-host-release",
+      "cacheVariables": {
+        "ENGINE_ENABLE_WEB_EXPORT_TOOLS": true,
+        "ENGINE_ENABLE_TEST_SUPPORT": false
+      }
     }
   ],
   "buildPresets": [
@@ -735,6 +808,24 @@
       "name": "ninja-engine-test-release",
       "configurePreset": "ninja-engine-test-release",
       "jobs": 6
+    },
+    {
+      "name": "web-wasm32-debug",
+      "configurePreset": "web-wasm32-debug",
+      "jobs": 6
+    },
+    {
+      "name": "web-wasm32-release",
+      "configurePreset": "web-wasm32-release",
+      "jobs": 6
+    },
+    {
+      "name": "web-host-release",
+      "configurePreset": "web-host-release",
+      "jobs": 6,
+      "targets": [
+        "asset_build_app"
+      ]
     }
   ],
   "testPresets": [

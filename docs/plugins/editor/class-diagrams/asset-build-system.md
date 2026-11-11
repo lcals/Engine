@@ -4,6 +4,8 @@
 
 `AssetBuildSystem` 负责项目资源打包；`AssetPipelineSystem` 负责扫描和增量导入。两个系统分别提交导入缓存与运行输出，不建立跨系统事务。
 
+web 目标及对应的离线打包方式见 [Web 导出](../../../editor/class-diagrams/web-export.md)。[共享目标互斥设计](../../../editor/class-diagrams/asset-pipeline-system.md#目标切换互斥)复用现有项目锁，覆盖直接 API、CLI 与 MCP：导入阶段由管线持锁，打包阶段按包锁→项目锁重新校验快照，不在外层提前锁住嵌套导入。既有方法签名保持不变。
+
 ## 类与公开契约
 
 ```mermaid

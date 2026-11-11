@@ -165,7 +165,7 @@ classDiagram
 - `present_movie_frame()` 使用同一窗口、平台固定后端和交换链，完成黑边填充、YUV 转色与一次帧提交。它不推进播放、不调用业务、不创建 Scene/Camera，不经过场景曝光或 Bloom；颜色转换和显示编码不得重复执行。
 - 宿主一帧只选择正常 `render()` 或 `present_movie_frame()`，避免两次推进 GPU 帧。无场景时也可呈现；全屏业务播放时世界是否更新仍由调用方决定。
 - `bind_world()` 在主线程绑定就绪借用，不重建 GPU；世界为空时另外两个参数也必须为空，表示解除全部场景借用。重绑前释放旧场景 GPU 状态，不影响仍在显示的影片。
-- `present_movie_frame(false)` 表示未成功提交，例如非法帧、暂停/无可绘制表面或设备恢复失败。宿主先查询窗口状态，暂停不算影片损坏；恢复、resize 或设备重建后重新提交当前仍有效的解码帧。
+- present_movie_frame 返回既有 submitted／deferred／failed，契约唯一见[渲染系统](render-system.md#异步表面准备)。submitted 才记首帧；deferred 保留影片并按宿主暂停／恢复路径重试，failed 进入故障收尾。全部调用方共用该返回契约。
 
 ## 解码、SIMD 与任务生命周期
 

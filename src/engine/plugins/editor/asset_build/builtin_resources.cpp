@@ -103,7 +103,7 @@ bool compile_shaders(std::string_view target, const std::filesystem::path& cache
         return false;
     }
     std::sort(inputs.begin(), inputs.end());
-    std::string fingerprint = "builtin-shaders-1:" + platform + ":" + profile;
+    std::string fingerprint = "builtin-shaders-2:" + platform + ":" + profile;
     for (const auto& input : inputs)
     {
         ByteBuffer bytes;
@@ -126,7 +126,8 @@ bool compile_shaders(std::string_view target, const std::filesystem::path& cache
         error = "cannot prepare builtin shader cache: " + code.message();
         return false;
     }
-    for (const auto name : {"vs_cube", "fs_cube", "vs_font", "fs_font"})
+    for (const auto name : {"vs_cube", "vs_cube_instanced", "fs_cube", "fs_surface", "fs_water",
+                            "vs_font", "fs_font"})
     {
         const std::string shader_name(name);
         const auto output = directory / name;
@@ -209,6 +210,18 @@ bool prepare_builtin_resources(std::string_view target, const std::filesystem::p
             const auto name = definition->path == "builtin://shaders/font" ? "font" : "cube";
             shader->vertex_code = shaders.find(std::string("vs_") + name)->second;
             shader->fragment_code = shaders.find(std::string("fs_") + name)->second;
+            if (definition->path == "builtin://shaders/water")
+            {
+                shader->fragment_code = shaders.find("fs_water")->second;
+            }
+            if (!shader->instanced_vertex_code.empty())
+            {
+                shader->instanced_vertex_code = shaders.find("vs_cube_instanced")->second;
+            }
+            if (!shader->surface_fragment_code.empty())
+            {
+                shader->surface_fragment_code = shaders.find("fs_surface")->second;
+            }
             flatbuffers::FlatBufferBuilder builder;
             schema::FinishShaderDataBuffer(builder,
                                            schema::ShaderData::Pack(builder, shader.get()));

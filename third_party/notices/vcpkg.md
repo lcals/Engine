@@ -6,6 +6,8 @@
 
 旧 `spirv-cross` overlay 随 baseline 升到 SDK `1.4.363.0` 删除：PointSize 查询已由上游正式版提供。此前适配来源及许可继续保留在 [SPIRV-Cross 说明](spirv-cross.md)。
 
+Web 导出新增的 `spirv-tools`、`quill`、`libvpx` overlay 基于 baseline `8450b1326545e5e933c36d698c74df072ffca6d0` 的对应 port，分别保留同版本内部头文件、适配 Wasm 时钟及 CPU affinity、传递线程编译选项。库本身的许可仍由各 port 安装。
+
 以下保留上游 MIT 许可全文：
 
 ```text

@@ -1,0 +1,31 @@
+--- a/include/quill/core/Rdtsc.h
++++ b/include/quill/core/Rdtsc.h
+@@ -11,7 +11,7 @@
+   #include <cstdint>
+ #endif
+ 
+-#if defined(__ARM_ARCH) || defined(_M_ARM) || defined(_M_ARM64) || defined(__PPC64__)
++#if defined(__ARM_ARCH) || defined(_M_ARM) || defined(_M_ARM64) || defined(__PPC64__) || defined(__wasm__)
+   // ARM or PowerPC — use ChronoTimeUtils for timestamping
+   #include "quill/core/ChronoTimeUtils.h"
+ 
+@@ -78,7 +78,7 @@
+   __asm__ volatile("stck %0" : "=Q"(tsc) : : "cc");
+   return tsc;
+ }
+-#elif (defined(_M_ARM) || defined(_M_ARM64) || defined(__PPC64__) || defined(__PPC__))
++#elif (defined(_M_ARM) || defined(_M_ARM64) || defined(__PPC64__) || defined(__PPC__) || defined(__wasm__))
+ QUILL_NODISCARD QUILL_ATTRIBUTE_HOT inline uint64_t rdtsc() noexcept
+ {
+   // soft failover
+--- a/include/quill/backend/BackendUtilities.h
++++ b/include/quill/backend/BackendUtilities.h
+@@ -124,6 +124,8 @@
+       QuillError{std::string{"Failed to set cpu affinity - errno: " + std::to_string(last_error.value()) +
+                              " error: " + last_error.message()}});
+   }
++#elif defined(__EMSCRIPTEN__)
++  QUILL_THROW(QuillError{"CPU affinity is unavailable in browser workers"});
+ #elif defined(__APPLE__)
+   // I don't think that's possible to link a thread with a specific core with Mac OS X
+   // This may be used to express affinity relationships  between threads in the task.

@@ -23,17 +23,7 @@ namespace
 constexpr std::uint64_t maximum_read_size = 64U * 1024U * 1024U;
 std::string_view target_platform() noexcept
 {
-#if defined(SDL_PLATFORM_ANDROID)
-    return "android";
-#elif defined(SDL_PLATFORM_IOS)
-    return "ios";
-#elif defined(SDL_PLATFORM_MACOS)
-    return "macos";
-#elif defined(SDL_PLATFORM_WINDOWS)
-    return "windows";
-#else
-    return "linux";
-#endif
+    return ENGINE_TARGET_PLATFORM;
 }
 
 bool matches_content(ByteView bytes, const schema::AssetEntryT& entry)

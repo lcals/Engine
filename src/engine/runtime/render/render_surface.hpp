@@ -4,9 +4,19 @@
 #include <bgfx/bgfx.h>
 
 #include <cstdint>
+#include <memory>
 
 namespace engine::render_detail
 {
+
+struct WebSurfaceState;
+
+enum class FramePrepareStatus
+{
+    ready,
+    deferred,
+    failed
+};
 
 enum class SurfaceChange
 {
@@ -65,6 +75,7 @@ private:
     bool watching_events_ = false;
     bool suspending_ = false;
     bool recreate_on_change_ = false;
+    std::shared_ptr<WebSurfaceState> web_state_;
 };
 
 } // namespace engine::render_detail

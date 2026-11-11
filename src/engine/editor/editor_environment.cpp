@@ -12,6 +12,8 @@
 
 #include <nlohmann/json.hpp>
 
+#include <SDL3/SDL_filesystem.h>
+
 #include <chrono>
 #include <cstdint>
 #include <fstream>
@@ -64,6 +66,90 @@ bool EditorEnvironment::initialize()
     }
     builtin_path_ = App::assets_path();
     initialized_ = true;
+    asset_pipeline::ProjectLock project_lock;
+    std::string lock_error;
+    if (!project_lock.acquire(builtin_path_ / ".asset-build.lock", lock_error))
+    {
+        LogSystem::write(LogLevel::error,
+                         "Cannot register the editor resource target: " + lock_error);
+        shutdown();
+        return false;
+    }
+    fs::path candidate;
+    fs::path lease_path;
+    std::unique_ptr<asset_pipeline::ProjectLock> lease;
+    {
+        const auto directory = builtin_path_ / "editor-hosts";
+        std::error_code error;
+        fs::create_directories(directory, error);
+        if (error || fs::is_symlink(fs::symlink_status(directory, error)) || error)
+        {
+            shutdown();
+            return false;
+        }
+        const auto nonce = std::chrono::steady_clock::now().time_since_epoch().count();
+        candidate = directory / (std::to_string(nonce) + ".json");
+        const auto temporary = directory / (std::to_string(nonce) + ".tmp");
+        lease_path = directory / (std::to_string(nonce) + ".lock");
+        for (const auto& path : {candidate, temporary, lease_path})
+        {
+            const auto status = fs::symlink_status(path, error);
+            if (error != std::errc::no_such_file_or_directory &&
+                (error || status.type() != fs::file_type::not_found))
+            {
+                shutdown();
+                return false;
+            }
+            error.clear();
+        }
+        lease = std::make_unique<asset_pipeline::ProjectLock>();
+        std::string lock_error;
+        if (!lease->acquire(lease_path, lock_error))
+        {
+            LogSystem::write(LogLevel::error, "Cannot acquire editor host lease: " + lock_error);
+            shutdown();
+            return false;
+        }
+        std::ofstream output(temporary, std::ios::binary | std::ios::trunc);
+        output << nlohmann::json({{"projectRoot", project_identity_},
+                                  {"targetPlatform", ENGINE_TARGET_PLATFORM},
+                                  {"runtimeDir", PathUtils::to_utf8(App::persistent_data_path())}})
+                      .dump();
+        output.close();
+        if (output)
+        {
+            fs::rename(temporary, candidate, error);
+        }
+        if (!output || error)
+        {
+            fs::remove(temporary, error);
+            lease.reset();
+            fs::remove(lease_path, error);
+            shutdown();
+            return false;
+        }
+    }
+    session_marker_ = std::move(candidate);
+    session_lease_ = std::move(lease);
+    const auto status_file = App::persistent_data_path() / "editor-status.json";
+    const auto status_temporary = App::persistent_data_path() / ".editor-initial-status.json";
+    std::ofstream output(status_temporary, std::ios::binary | std::ios::trunc);
+    output << nlohmann::json({{"session", PathUtils::to_utf8(session_marker_.stem())},
+                              {"projectRoot", project_identity_},
+                              {"targetPlatform", ENGINE_TARGET_PLATFORM},
+                              {"projectState", "idle"},
+                              {"running", false}})
+                  .dump()
+           << '\n';
+    output.close();
+    if (!output || !SDL_RenamePath(PathUtils::to_utf8(status_temporary).c_str(),
+                                   PathUtils::to_utf8(status_file).c_str()))
+    {
+        std::error_code ignored;
+        fs::remove(status_temporary, ignored);
+        shutdown();
+        return false;
+    }
     return true;
 }
 
@@ -118,75 +204,11 @@ bool EditorEnvironment::refresh_resources(GameplaySession& gameplay)
 bool EditorEnvironment::apply_resources(const schema::AssetCatalogDataT& data,
                                         GameplaySession& gameplay)
 {
-    if (!is_initialized())
+    if (!is_initialized() || session_marker_.empty() || !session_lease_ ||
+        data.target_platform != ENGINE_TARGET_PLATFORM ||
+        !gameplay.set_resources(data, {{"content", builtin_path_}}))
     {
         return false;
-    }
-    fs::path candidate;
-    fs::path lease_path;
-    std::unique_ptr<asset_pipeline::ProjectLock> lease;
-    if (session_marker_.empty())
-    {
-        const auto directory = builtin_path_ / "editor-hosts";
-        std::error_code error;
-        fs::create_directories(directory, error);
-        if (error || fs::is_symlink(fs::symlink_status(directory, error)) || error)
-        {
-            return false;
-        }
-        const auto nonce = std::chrono::steady_clock::now().time_since_epoch().count();
-        candidate = directory / (std::to_string(nonce) + ".json");
-        const auto temporary = directory / (std::to_string(nonce) + ".tmp");
-        lease_path = directory / (std::to_string(nonce) + ".lock");
-        for (const auto& path : {candidate, temporary, lease_path})
-        {
-            const auto status = fs::symlink_status(path, error);
-            if (error != std::errc::no_such_file_or_directory &&
-                (error || status.type() != fs::file_type::not_found))
-            {
-                return false;
-            }
-            error.clear();
-        }
-        lease = std::make_unique<asset_pipeline::ProjectLock>();
-        std::string lock_error;
-        if (!lease->acquire(lease_path, lock_error))
-        {
-            LogSystem::write(LogLevel::error, "Cannot acquire editor host lease: " + lock_error);
-            return false;
-        }
-        std::ofstream output(temporary, std::ios::binary | std::ios::trunc);
-        output << nlohmann::json({{"projectRoot", project_identity_},
-                                  {"runtimeDir", PathUtils::to_utf8(App::persistent_data_path())}})
-                      .dump();
-        output.close();
-        if (output)
-        {
-            fs::rename(temporary, candidate, error);
-        }
-        if (!output || error)
-        {
-            fs::remove(temporary, error);
-            lease.reset();
-            fs::remove(lease_path, error);
-            return false;
-        }
-    }
-    if (!gameplay.set_resources(data, {{"content", builtin_path_}}))
-    {
-        if (!candidate.empty())
-        {
-            std::error_code error;
-            fs::remove(candidate, error);
-            lease.reset();
-            fs::remove(lease_path, error);
-        }
-        return false;
-    }
-    if (!candidate.empty())
-    {
-        session_marker_ = std::move(candidate);
-        session_lease_ = std::move(lease);
     }
     resource_revision_ = data.revision;
     return true;

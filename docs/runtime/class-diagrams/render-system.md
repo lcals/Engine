@@ -6,6 +6,8 @@
 
 准备预算和调用关系见[大场景准备关系](large-scene-preparation.md)。
 
+WebGPU 仅面向 [Web 运行产物](web-host.md#异步-webgpu-表面)。[异步表面准备](#异步表面准备)通过私有状态区分设备待就绪与失败；present_movie_frame 与 render 共用 RenderSubmitStatus。
+
 **2026-11-08：已按确认设计实现提交管线，Windows / DirectX 12 定向验收完成。** 新的数据复用、材质绑定和阴影合批关系见[视图提交设计](render-submission.md#提交管线优化设计)，私有签名变化见[本页契约](#提交管线私有契约)，实际验证范围见[测试记录](../../testing.md#渲染性能基线)。不包含 Shader/PSO 预热。
 
 插件的原生纹理接入由 `engine::render::upload_texture(ResourceLoader& loader, ResourceHandle resource, bgfx::TextureHandle& output) -> bool` 提供，声明于 `runtime/render/texture_upload.hpp`。该普通函数在 bgfx API 线程同步准备并上传已加载资源，不加载文件；输出须为空，失败保持为空，成功转交 GPU 纹理所有权，由调用方在 bgfx 关闭前销毁。CPU 资源仅在调用期间保活；插件按需独立持有获取。PreparedTexture/GpuTexture 的转码缓冲、采样标志和生命周期实现继续私有，不向插件公开。bgfx 句柄仅用于原生渲染扩展，不进入场景或脚本接口。
@@ -452,7 +454,7 @@ classDiagram
         +RenderSystem(WindowSystem& windows, WorldSystem#42; world, FontSystem#42; fonts, UiSystem#42; ui, TaskSystem#42; tasks = nullptr, const RenderConfig& config = #123;#125;)
         +~RenderSystem()
         +bind_world(WorldSystem#42; world, FontSystem#42; fonts, UiSystem#42; ui) bool
-        +present_movie_frame(const MovieFrame& frame) bool
+        +present_movie_frame(const MovieFrame& frame) RenderSubmitStatus
         +add_extension(RenderExtension& extension) bool
         +remove_extension(RenderExtension& extension) bool
         +release_scene() void
@@ -751,3 +753,32 @@ ECS 查询开始前由协调安全点刷新派生世界矩阵和有效状态。�
 几何、纹理和程序按不可变资源身份共享。候选拥有独立通道目标；发布切换到已经准备好的目标，旧范围随后按预算回收。活动实例改变资源时保留原有效 GPU 绑定，替换完成后切入；未就绪的新实例不影响其他已发布内容提交。
 
 最终显示输出包含场景后处理与 UI，再复制到窗口。PNG 从同一输出纹理异步回读，以截图请求身份关联真实提交帧；编码和原子落盘复用 TaskSystem。
+
+## 异步表面准备
+
+WebGPU 申请设备期间，窗口可能可绘制但 GPU 尚未就绪。prepare_frame 使用以下私有枚举，保持准备结果与真实提交事实分开：
+
+```mermaid
+classDiagram
+    direction TB
+    class RenderSystem {
+        -prepare_frame() FramePrepareStatus
+    }
+    class FramePrepareStatus {
+        <<private_enumeration>>
+        ready
+        deferred
+        failed
+    }
+    class RenderSubmitStatus
+    class RuntimeHost
+    RenderSystem ..> FramePrepareStatus : 内部准备结果
+    RenderSystem ..> RenderSubmitStatus : 场景与影片呈现结果
+    RuntimeHost --> RenderSystem : 消费同一提交状态
+```
+
+FramePrepareStatus 位于 `engine::render_detail`，仅渲染实现使用；公开头只按私有声明需要前置声明，不进入业务或 TS。prepare_frame() 的 ready 只允许调用方继续绘制，只有实际完成本次提交才记录帧并返回 RenderSubmitStatus::submitted。暂不可用返回 deferred，设备申请失败或实际渲染错误返回 failed。
+
+`present_movie_frame(const MovieFrame&)` 返回既有 RenderSubmitStatus，与 render() 共用语义；不是新增方法，不保留 bool 重载或转换别名。RuntimeHost、影片入口、范围准备及所属测试全部同步适配。RuntimeHost 仅在 submitted 时记录影片首帧；deferred 复用宿主暂停／恢复路径，保留当前影片及启动请求，不累计不可呈现期间的媒体时间；failed 进入原生故障收尾。
+
+范围准备内部也消费 FramePrepareStatus：deferred 保留 working／queued，failed 才锁存范围错误。普通场景、影片和空闲呈现共用这一准备入口，不由 Web 宿主猜测窗口状态或轮询 gpu_ready 来区分故障。

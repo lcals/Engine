@@ -1,6 +1,9 @@
 # 图形和计算 Shader 使用同一目标平台与后端。
 function(engine_render_shader_profile platform profile)
-    if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
+    if(EMSCRIPTEN)
+        set(_platform asm.js)
+        set(_profile wgsl)
+    elseif(CMAKE_SYSTEM_NAME STREQUAL "iOS")
         set(_platform ios)
         set(_profile metal)
     elseif(APPLE)

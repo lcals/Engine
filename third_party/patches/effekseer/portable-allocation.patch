@@ -1,0 +1,30 @@
+--- a/Dev/Cpp/Effekseer/Effekseer/Utils/Effekseer.CustomAllocator.cpp
++++ b/Dev/Cpp/Effekseer/Effekseer/Utils/Effekseer.CustomAllocator.cpp
+@@ -1,4 +1,5 @@
+ ﻿#include "Effekseer.CustomAllocator.h"
++#include <cstdlib>
+ 
+ #if defined(_WIN32)
+ #include <xmmintrin.h>
+@@ -24,9 +25,7 @@
+ 
+ void* InternalAlignedMalloc(unsigned int size, unsigned int alignement)
+ {
+-#if defined(__EMSCRIPTEN__) && __EMSCRIPTEN_minor__ < 38
+-	return malloc(size);
+-#elif defined(_WIN32)
++#if defined(_WIN32)
+ 	return _mm_malloc(size, alignement);
+ #elif defined(__MINGW32__)
+ 	return _aligned_malloc(alignement, size);
+@@ -39,9 +38,7 @@
+ 
+ void InternalAlignedFree(void* p, unsigned int size)
+ {
+-#if defined(__EMSCRIPTEN__) && __EMSCRIPTEN_minor__ < 38
+-	free(p);
+-#elif defined(_WIN32)
++#if defined(_WIN32)
+ 	_mm_free(p);
+ #elif defined(__MINGW32__)
+ 	return _aligned_free(p);

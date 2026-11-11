@@ -434,23 +434,32 @@ bool RenderSystem::stats_visible() const noexcept
     return debug_requests_[static_cast<std::size_t>(RenderFeature::stats)];
 }
 
-bool RenderSystem::prepare_frame()
+render_detail::FramePrepareStatus RenderSystem::prepare_frame()
 {
+    using Status = render_detail::FramePrepareStatus;
     ENGINE_PROFILE_ZONE("Render.prepareFrame");
     if (callbacks_ != nullptr)
     {
         callbacks_->process(tasks_);
     }
-    if (!is_initialized() || !windows_.can_render())
+    if (!is_initialized())
     {
-        return false;
+        return Status::failed;
+    }
+    if (!windows_.can_render())
+    {
+        return Status::deferred;
     }
 
     if (!renderer_initialized_)
     {
-        if (!initialize_renderer() || !renderer_initialized_)
+        if (!initialize_renderer())
         {
-            return false;
+            return Status::failed;
+        }
+        if (!renderer_initialized_)
+        {
+            return Status::deferred;
         }
     }
 
@@ -459,20 +468,24 @@ bool RenderSystem::prepare_frame()
     bgfx::SwapChain swap_chain{};
     if (surface_ == nullptr)
     {
-        return false;
+        return Status::failed;
     }
     const auto change = surface_->poll(swap_chain, width, height);
     if (change == render_detail::SurfaceChange::error)
     {
-        return false;
+        return Status::failed;
     }
     const bool surface_changed = change != render_detail::SurfaceChange::unchanged;
     if (change == render_detail::SurfaceChange::recreate)
     {
         shutdown_renderer();
-        if (!initialize_renderer() || !renderer_initialized_)
+        if (!initialize_renderer())
         {
-            return false;
+            return Status::failed;
+        }
+        if (!renderer_initialized_)
+        {
+            return Status::deferred;
         }
     }
     if (surface_changed || width != width_ || height != height_ ||
@@ -499,10 +512,10 @@ bool RenderSystem::prepare_frame()
     if (!frame_output_->prepare(static_cast<std::uint16_t>(width_),
                                 static_cast<std::uint16_t>(height_)))
     {
-        return false;
+        return Status::failed;
     }
     advance_screenshots();
-    return true;
+    return Status::ready;
 }
 
 RenderSubmitStatus RenderSystem::render(Camera camera)
@@ -514,10 +527,12 @@ RenderSubmitStatus RenderSystem::render(Camera camera)
     {
         return RenderSubmitStatus::failed;
     }
-    if (!prepare_frame())
+    const auto prepared = prepare_frame();
+    if (prepared != render_detail::FramePrepareStatus::ready)
     {
-        return is_initialized() && !windows_.can_render() ? RenderSubmitStatus::deferred
-                                                          : RenderSubmitStatus::failed;
+        return prepared == render_detail::FramePrepareStatus::deferred
+                   ? RenderSubmitStatus::deferred
+                   : RenderSubmitStatus::failed;
     }
 
     RenderSettings current_settings;
@@ -595,12 +610,15 @@ RenderSubmitStatus RenderSystem::render(Camera camera)
     return drawn ? RenderSubmitStatus::submitted : RenderSubmitStatus::failed;
 }
 
-bool RenderSystem::present_movie_frame(const MovieFrame& frame)
+RenderSubmitStatus RenderSystem::present_movie_frame(const MovieFrame& frame)
 {
     render_detail::ui_draws = 0;
-    if (!prepare_frame())
+    const auto prepared = prepare_frame();
+    if (prepared != render_detail::FramePrepareStatus::ready)
     {
-        return false;
+        return prepared == render_detail::FramePrepareStatus::deferred
+                   ? RenderSubmitStatus::deferred
+                   : RenderSubmitStatus::failed;
     }
     if (!movie_pass_)
     {
@@ -609,7 +627,7 @@ bool RenderSystem::present_movie_frame(const MovieFrame& frame)
     if (!movie_pass_->draw(frame, static_cast<std::uint16_t>(width_),
                            static_cast<std::uint16_t>(height_)))
     {
-        return false;
+        return RenderSubmitStatus::failed;
     }
     frame_output_->present(0x000000ff, true);
     submit_screenshot(RenderFrameKind::movie);
@@ -617,7 +635,7 @@ bool RenderSystem::present_movie_frame(const MovieFrame& frame)
     record_frame(RenderFrameKind::movie);
     collect_preparation(false);
     ENGINE_PROFILE_FRAME();
-    return true;
+    return RenderSubmitStatus::submitted;
 }
 
 void RenderSystem::on_shutdown() noexcept

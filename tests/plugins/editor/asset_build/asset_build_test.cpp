@@ -4,10 +4,12 @@
 #include "runtime/engine_config.hpp"
 #include "runtime/resource/builtin_resources.hpp"
 #include "runtime/resource/resource_system.hpp"
+#include "runtime/schema/shader_generated.h"
 #include "runtime/task/task_system.hpp"
 #include "runtime/task/thread_system.hpp"
 
 #include <chrono>
+#include <cstdint>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
@@ -347,9 +349,80 @@ bool tests()
     return true;
 }
 
+bool web_tests()
+{
+    Fixture fixture;
+    engine::ThreadSystem threads;
+    engine::TaskSystem tasks(threads, {"Editor", 4, engine::TaskPriority::low});
+    engine::editor::AssetPipelineSystem pipeline(tasks);
+    engine::plugins::asset_build::AssetBuildSystem builder(pipeline);
+    const engine::EngineConfig config;
+    if (!fixture.initialize() || !threads.initialize(config) || !tasks.initialize(config) ||
+        !pipeline.initialize(config) || !builder.initialize(config) ||
+        !build(builder, fixture, {"main"}, "web"))
+    {
+        return false;
+    }
+    const auto output = fixture.root / "cache/build/game";
+    engine::ResourceCatalog catalog;
+    if (!engine::ResourceSystem::read_catalog(output, catalog))
+    {
+        return false;
+    }
+    const auto wgsl = [](const auto& bytes, std::string_view entry)
+    {
+        return !bytes.empty() &&
+               std::string_view(reinterpret_cast<const char*>(bytes.data()), bytes.size())
+                       .find(entry) != std::string_view::npos;
+    };
+    std::vector<std::uint8_t> pbr, water;
+    for (const auto& entry : catalog.data().entries)
+    {
+        if (entry->kind != engine::schema::AssetKind::shader)
+        {
+            continue;
+        }
+        engine::ByteBuffer bytes;
+        if (!engine::ResourceSystem::read_resource(catalog, {{"content", output}}, entry->guid,
+                                                   bytes))
+        {
+            return false;
+        }
+        const auto shader = engine::schema::UnPackShaderData(bytes.data());
+        if (!expect(wgsl(shader->vertex_code, "@vertex") &&
+                        wgsl(shader->fragment_code, "@fragment") &&
+                        (shader->instanced_vertex_code.empty() ||
+                         wgsl(shader->instanced_vertex_code, "@vertex")) &&
+                        (shader->surface_fragment_code.empty() ||
+                         wgsl(shader->surface_fragment_code, "@fragment")),
+                    "all exported builtin shader variants use the requested Web backend"))
+        {
+            return false;
+        }
+        if (entry->path == "builtin://shaders/pbr")
+        {
+            pbr = shader->fragment_code;
+        }
+        if (entry->path == "builtin://shaders/water")
+        {
+            water = shader->fragment_code;
+        }
+    }
+    return expect(!pbr.empty() && !water.empty() && pbr != water,
+                  "the exported water shader retains its implementation");
+}
+
 } // namespace
 
-int main()
+int main(int argc, char** argv)
 {
+    if (argc == 2 && std::string_view(argv[1]) == "--web")
+    {
+        return web_tests() ? 0 : 1;
+    }
+    if (argc != 1)
+    {
+        return 2;
+    }
     return tests() ? 0 : 1;
 }

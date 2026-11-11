@@ -2,6 +2,8 @@
 
 from pathlib import Path
 import json
+import hashlib
+import importlib.util
 import shutil
 import plistlib
 import tempfile
@@ -17,6 +19,10 @@ import artifact_output as output
 import export_desktop as desktop
 import resource_catalog as catalog
 from build.prepare_android_assets_test import PACK as android, catalog_fixture, resource_entry
+
+_web_spec = importlib.util.spec_from_file_location("web_export", ROOT / "platforms/web/export.py")
+web = importlib.util.module_from_spec(_web_spec)
+_web_spec.loader.exec_module(web)
 
 
 class DesktopExportTest(unittest.TestCase):
@@ -346,6 +352,89 @@ class DesktopExportTest(unittest.TestCase):
                 pass
             (stage / "new").write_text("next")
         self.assertTrue((self.destination / "new").exists())
+
+
+class WebExportTest(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory(prefix="engine-web-export-")
+        self.root = Path(self.temporary.name).resolve()
+        self.runtime = self.root / "runtime"
+        self.runtime.mkdir()
+        self.project = self.root / "project"
+        (self.project / "settings").mkdir(parents=True)
+        for source in (ROOT / "projects/showcase/settings").glob("runtime-*.toml"):
+            shutil.copy2(source, self.project / "settings" / source.name)
+        self.info = dict(platform="web", arch="wasm32", product="game", configuration="release",
+                         scriptBackend="quickjs", testSupport=False, emscripten="7.0.0",
+                         plugins=["runtime/resource_graph", "runtime/script"],
+                         files=["engine.mjs", "engine.wasm"], checksums={})
+        for name in self.info["files"]:
+            payload = name.encode()
+            (self.runtime / name).write_bytes(payload)
+            self.info["checksums"][name] = hashlib.sha256(payload).hexdigest()
+        self.write_info()
+        self.source = self.root / "resources"
+        self.source.mkdir()
+        entry = resource_entry(b"export default class Game {}")
+        asset = self.source / entry["path"]
+        asset.parent.mkdir()
+        asset.write_bytes(entry["entity"])
+        (self.source / "catalog.bin").write_bytes(catalog_fixture([entry], "web"))
+        self.accessor = self.root / "catalog.mjs"
+        self.accessor.write_text("export const fixture = true;")
+        self.output = self.root / "output/web/wasm32/release/runtime/game"
+        self.output.mkdir(parents=True)
+        (self.output / "previous").write_text("complete old package")
+        self.args = SimpleNamespace(product="game", configuration="release", project=self.project,
+            builder=self.root / "builder", runtime_dir=self.runtime, output=self.output,
+            flatc=self.root / "flatc", node="node", manifest=None)
+        self.args.dependency_licenses = self.root / "dependency-licenses"
+        (self.args.dependency_licenses / "fixture").mkdir(parents=True)
+        (self.args.dependency_licenses / "fixture/copyright").write_text("Fixture license")
+
+    def tearDown(self):
+        self.temporary.cleanup()
+
+    def write_info(self):
+        (self.runtime / "web-build.json").write_text(json.dumps(self.info))
+
+    def run_export(self):
+        receipt = json.dumps(dict(status="ok", targetPlatform="web", output=str(self.source)))
+        with (mock.patch.object(web, "ROOT", self.root),
+              mock.patch.object(web, "catalog_accessor", return_value=self.accessor),
+              mock.patch.object(web.subprocess, "run", return_value=SimpleNamespace(
+                  returncode=0, stdout=receipt, stderr="")), mock.patch("builtins.print")):
+            web.export(self.args)
+
+    def test_complete_export_preserves_independent_resources_and_web_settings(self):
+        self.run_export()
+        self.assertTrue((self.output / "engine.wasm").is_file())
+        self.assertTrue((self.output / "assets/catalog.bin").is_file())
+        self.assertTrue((self.output / "catalog.mjs").is_file())
+        self.assertFalse((self.output / "previous").exists())
+        settings = json.loads((self.output / "settings/runtime.json").read_text())
+        self.assertEqual(settings["parallel"]["threads"]["worker_limit"], 3)
+
+    def test_stale_runtime_or_test_injection_build_cannot_replace_previous_package(self):
+        for field, value in (("testSupport", True), ("product", "another"), ("platform", "macos")):
+            original = self.info[field]
+            self.info[field] = value
+            self.write_info()
+            with self.assertRaises(ValueError):
+                self.run_export()
+            self.assertTrue((self.output / "previous").is_file())
+            self.info[field] = original
+        self.write_info()
+        (self.runtime / "engine.wasm").write_bytes(b"unmatched stale binary")
+        with self.assertRaisesRegex(ValueError, "link receipt"):
+            self.run_export()
+        self.assertTrue((self.output / "previous").is_file())
+
+    def test_invalid_resource_copy_preserves_previous_complete_package(self):
+        (self.source / "catalog.bin").write_bytes(b"truncated")
+        with self.assertRaises(ValueError):
+            self.run_export()
+        self.assertTrue((self.output / "previous").is_file())
 
 
 if __name__ == "__main__":

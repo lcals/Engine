@@ -391,6 +391,15 @@ if(TARGET editor_app)
                          editor.cli_invalid_frames PROPERTIES WILL_FAIL TRUE TIMEOUT 10)
 endif()
 
+if(ENGINE_NODE_EXECUTABLE)
+    add_test(NAME platform.web_bootstrap
+        COMMAND "${ENGINE_NODE_EXECUTABLE}" --experimental-vm-modules --test
+            "${CMAKE_CURRENT_SOURCE_DIR}/runtime/app/web_bootstrap_test.mjs")
+    add_test(NAME platform.web_storage
+        COMMAND "${ENGINE_NODE_EXECUTABLE}" --test
+            "${CMAKE_CURRENT_SOURCE_DIR}/runtime/storage/web_storage_test.mjs")
+endif()
+
 if(ENGINE_ENABLE_RUNTIME_DEPS AND TARGET engine_resource_graph)
     add_executable(engine_mesh_lod_selection_test runtime/render/mesh_lod_selection_test.cpp)
     target_include_directories(engine_mesh_lod_selection_test
@@ -622,6 +631,9 @@ if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
                               PRIVATE engine::asset_build engine::asset_pipeline engine::resource)
         engine_apply_options(engine_asset_build_test)
         add_test(NAME editor.asset_build COMMAND engine_asset_build_test)
+        if(ENGINE_ENABLE_WEB_EXPORT_TOOLS)
+            add_test(NAME editor.asset_build_web COMMAND engine_asset_build_test --web)
+        endif()
         set_tests_properties(editor.asset_build PROPERTIES TIMEOUT 90)
     endif()
 

@@ -34,6 +34,7 @@ namespace render_detail
 class FrameOutput;
 class RenderSurface;
 class MoviePass;
+enum class FramePrepareStatus;
 } // namespace render_detail
 
 enum class RenderPrepareStatus;
@@ -134,7 +135,7 @@ public:
     void set_stats_visible(bool visible);
     [[nodiscard]] bool stats_visible() const noexcept;
     [[nodiscard]] RenderSubmitStatus render(Camera camera = {});
-    [[nodiscard]] bool present_movie_frame(const MovieFrame& frame);
+    [[nodiscard]] RenderSubmitStatus present_movie_frame(const MovieFrame& frame);
 
 protected:
     [[nodiscard]] bool on_initialize(const EngineConfig& config) override;
@@ -143,7 +144,7 @@ protected:
 private:
     [[nodiscard]] RenderPrepareStatus prepare_resources(RenderPrepareProgress& output,
                                                         double max_seconds, Camera camera);
-    [[nodiscard]] bool prepare_frame();
+    [[nodiscard]] render_detail::FramePrepareStatus prepare_frame();
     friend class RenderExtension;
     void detach_extension(RenderExtension& extension) noexcept;
     void release_extensions_scene() noexcept;

@@ -27,7 +27,11 @@ vcpkg_cmake_install()
 
 vcpkg_cmake_config_fixup(CONFIG_PATH lib/cmake/qjs PACKAGE_NAME qjs)
 
-vcpkg_copy_tools(TOOL_NAMES qjs qjsc AUTO_CLEAN)
+if(VCPKG_TARGET_IS_EMSCRIPTEN)
+    file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/bin" "${CURRENT_PACKAGES_DIR}/debug/bin")
+else()
+    vcpkg_copy_tools(TOOL_NAMES qjs qjsc AUTO_CLEAN)
+endif()
 
 file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug/include")
 file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug/share")

@@ -77,7 +77,7 @@ bool reject_symlink_if_present(const std::filesystem::path& path, std::string& e
     return true;
 }
 
-bool project_idle(const std::filesystem::path& root, std::string& error)
+bool project_idle(const std::filesystem::path& root, std::string_view target, std::string& error)
 {
     const auto hosts = root / "cache/editor-hosts";
     std::error_code code;
@@ -138,6 +138,12 @@ bool project_idle(const std::filesystem::path& root, std::string& error)
                 !host["runtimeDir"].is_string())
             {
                 error = "invalid editor ownership marker: " + PathUtils::to_utf8(marker);
+                return false;
+            }
+            if (!host.contains("targetPlatform") || !host["targetPlatform"].is_string() ||
+                host["targetPlatform"].get<std::string>() != target)
+            {
+                error = "Close the editor before importing resources for a different target";
                 return false;
             }
             const auto registered_root = std::filesystem::weakly_canonical(
@@ -244,18 +250,10 @@ bool target_settings(std::string_view requested, std::string& platform, std::str
     platform = requested;
     if (platform.empty())
     {
-#if defined(__APPLE__)
-        platform = "macos";
-#elif defined(_WIN32)
-        platform = "windows";
-#elif defined(__ANDROID__)
-        platform = "android";
-#else
-        platform = "linux";
-#endif
+        platform = ENGINE_TARGET_PLATFORM;
     }
     if (platform != "macos" && platform != "ios" && platform != "windows" &&
-        platform != "android" && platform != "linux")
+        platform != "android" && platform != "linux" && platform != "web")
     {
         error = "unsupported asset target platform: " + platform;
         return false;
@@ -674,12 +672,17 @@ bool AssetPipelineSystem::build_assets(const std::filesystem::path& project_root
             return false;
         }
     }
+    std::string platform;
+    if (!target_settings(requested_target, platform, last_error_))
+    {
+        return false;
+    }
     ProjectLock lock;
     if (!lock.acquire(cache / ".asset-build.lock", last_error_))
     {
         return false;
     }
-    if (!project_idle(root, last_error_))
+    if (!project_idle(root, platform, last_error_))
     {
         return false;
     }
@@ -705,11 +708,6 @@ bool AssetPipelineSystem::build_assets(const std::filesystem::path& project_root
         {
             last_error_ = "cannot configure import workers while tasks are running";
         }
-        return false;
-    }
-    std::string platform;
-    if (!target_settings(requested_target, platform, last_error_))
-    {
         return false;
     }
     GuidMap identities;

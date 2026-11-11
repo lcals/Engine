@@ -48,6 +48,24 @@
         "spirv-cross",
         "spirv-tools"
       ]
+    },
+    "wgsl": {
+      "description": "Compile WGSL with the bundled Tint reader and writer on the host.",
+      "dependencies": [
+        {
+          "name": "bgfx",
+          "default-features": false,
+          "features": [
+            "tools"
+          ]
+        },
+        {
+          "name": "spirv-tools",
+          "features": [
+            "internal-headers"
+          ]
+        }
+      ]
     }
   }
 }

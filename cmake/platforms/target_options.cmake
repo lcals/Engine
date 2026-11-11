@@ -1,6 +1,22 @@
 include_guard(GLOBAL)
 
 function(engine_apply_platform_options target)
+    if(EMSCRIPTEN)
+        set(_engine_platform web)
+        target_compile_options(${target} PRIVATE -pthread)
+        target_link_options(${target} PRIVATE -pthread)
+    elseif(CMAKE_SYSTEM_NAME STREQUAL "iOS")
+        set(_engine_platform ios)
+    elseif(APPLE)
+        set(_engine_platform macos)
+    elseif(WIN32)
+        set(_engine_platform windows)
+    elseif(ANDROID)
+        set(_engine_platform android)
+    else()
+        set(_engine_platform linux)
+    endif()
+    target_compile_definitions(${target} PRIVATE ENGINE_TARGET_PLATFORM="${_engine_platform}")
     get_target_property(_engine_target_type ${target} TYPE)
     if(WIN32
        AND MSVC
