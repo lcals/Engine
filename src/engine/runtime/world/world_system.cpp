@@ -284,6 +284,66 @@ bool WorldSystem::on_initialize(const EngineConfig&)
                     state.scope_scene->unregister_entity(entity.id(), properties.id);
                 }
             });
+    current.observer<const ecs_detail::NodeRuntime>()
+        .event(flecs::OnSet)
+        .event<Node>()
+        .each(
+            [this](flecs::entity entity, const ecs_detail::NodeRuntime& runtime)
+            {
+                if (!runtime.scope_scene || !runtime.scope_scene->published_ ||
+                    runtime.scene != scene_)
+                {
+                    return;
+                }
+                const auto node = Node(*this, world_epoch_, entity.id());
+                for (auto& [key, operation] : scopes_)
+                {
+                    (void)key;
+                    auto& scope = *operation;
+                    if (scope.kind != SceneLoadKind::replace_scene || !scope.sealed ||
+                        scope.published)
+                    {
+                        continue;
+                    }
+                    const auto prepared = scope.prepared_roots.find(node.id());
+                    bool changed = false;
+                    if (prepared != scope.prepared_roots.end())
+                    {
+                        auto root = node;
+                        while (root.parent())
+                        {
+                            root = root.parent();
+                        }
+                        if (prepared->second == std::pair{root.id(), root.persistent()})
+                        {
+                            continue;
+                        }
+                        scope.previous_prepared = 0;
+                        scope.previous_batch = 0;
+                        scope.previous_batch_node = 0;
+                        scope.retirement_roots.clear();
+                        scope.prepared_roots.clear();
+                        scope.progress.completed = scope.mapped;
+                        scope.progress.state = SceneWorkState::working;
+                        changed = true;
+                    }
+                    else if (scope.previous_entities.insert(node.id()).second)
+                    {
+                        scope.previous_nodes.push_back(node);
+                        ++scope.progress.total;
+                        scope.progress.state = SceneWorkState::working;
+                        changed = true;
+                    }
+                    if (changed)
+                    {
+                        ++scope.progress.progress_revision;
+                        scope.progress.last_progress_ns = static_cast<std::uint64_t>(
+                            std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                std::chrono::steady_clock::now().time_since_epoch())
+                                .count());
+                    }
+                }
+            });
     ecs_query_desc_t query{};
     query.terms[0].id = current.id<schema::NodePropertiesT>();
     query.terms[1].id = current.id<ecs_detail::NodeRuntime>();

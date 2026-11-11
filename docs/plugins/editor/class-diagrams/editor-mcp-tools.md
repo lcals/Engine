@@ -36,9 +36,11 @@ classDiagram
 
 - 编辑器可执行宿主独占 EditorMcpEndpoint，在编辑器和 RuntimeHost 都已初始化后绑定，在二者关闭前先关闭端点。宿主每帧在协调安全点调用 poll 和 publish_status；EditorSystem 不包含或链接 MCP 插件。
 - 端点使用 EditorSystem.commands() 的既有借用构造通道 Handler，按原来的事务和身份规则执行命令。EditorCommands 不认识通道、MCP 或测试构建。
-- 通道的无重复执行、持久回执与会话校验统一复用 runtime/mcp。原 EditorSystem 内部的 EditorCommandChannel 和项目状态文件发布移交端点，不保留两条并行监听。
+- 通道的无重复执行、持久回执与会话校验统一复用 runtime/mcp。端点独占文件监听与项目状态发布，EditorSystem 只推进已有玩法准备和编辑业务。
 - 状态/帧/截图工具通过 runtime/mcp 的共享工具登记函数复用原生查询；编辑工具继续由现有模块登记。测试能力关闭时不登记或编译临时脚本执行，普通编辑功能保持可用。
 - 等待回执发布成功再关闭编辑器的安排由端点与宿主承担，保留原有关闭时机和请求身份；编辑器核心无需为 MCP 增加依赖。其他编辑事务不因通道移动改变可撤销语义。
+- 端点关闭前在编辑器命令服务和运行宿主仍有效时重新采样状态，绕过普通心跳节流，保留最后一帧的真实故障；随后发布 closed，再由宿主关闭借用的编辑器与运行服务。
+- start_project 的受理结果包含 prepareId；启动查询和终态记录释放转发至 GameplaySession，复用 [运行时 MCP 工具契约](../../runtime/class-diagrams/mcp-runtime-test.md#状态与工具契约)。EditorMcpEndpoint 不推进启动、不复制启动状态机；命令回执不代替业务完成。普通编辑器构建可查询原生启动状态，临时脚本注入仍须测试构建。
 - 本节只定义新增 EditorMcpEndpoint，McpSystem、McpCommandChannel 和 McpEndpointConfig 的唯一契约见各自引用页。现有 EditorMcpTools 仍是工具进程的客户端适配，端点不是其别名或第二个客户端。
 
 

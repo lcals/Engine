@@ -86,6 +86,13 @@ def main():
             require(status.get("hostKind") == "runtime-test" and not status.get("editorAlive"),
                     f"MCP connected to the wrong host: {status}")
             run = status["runId"]
+            prepare_id = status.get("prepareId")
+            require(isinstance(prepare_id, str) and prepare_id.isdecimal() and int(prepare_id) > 0,
+                    f"Runtime startup has no native identity: {status}")
+            preparation = session.wait_prepare(prepare_id, args.timeout)
+            require(preparation.get("runId") == run,
+                    f"Runtime startup result belongs to another Run: {preparation}")
+            report["startup"] = preparation
             report.update(session=session.session_id, runId=run, activeRevision=status.get("activeRevision"))
             written = execute(session, run, WRITE, filename="mcp-runtime-write.ts")
             read = execute(session, run, READ, filename="mcp-runtime-read.ts")
@@ -107,6 +114,9 @@ def main():
                 raise RuntimeError("Editor-only command was accepted by the runtime target")
             report["invalidIdentitiesRejected"] = True
             report["readyScope"] = session.wait_scene(args.timeout)
+            session.call("release_gameplay_prepare", {"prepareId": prepare_id})
+            require(get_status(session).get("runId") == run,
+                    "Releasing the startup result replaced the active runtime Run")
             capture = capture_for_review(session, report, output, "runtime-frame")
             require(capture.get("frame", {}).get("uiDraws", 0) > 0,
                     f"Runtime menu capture contains no actual UI draws: {capture}")

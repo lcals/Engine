@@ -2,7 +2,7 @@
 
 [类图索引](../../../class-diagrams/index.md) · [状态机与配置](camera-state-machine.md) · [C++ 模块组合](camera-modules.md) · [TS 接口](camera-script-api.md) · [编辑器接入](../../editor/class-diagrams/camera-controller.md)
 
-**状态：已实现；验证范围见[测试文档](../../../testing.md)。** 本页及关联图定义当前契约。Schema、原生插件、编辑器、MCP、TS 与公开范例使用同一版本。
+初始化先建立安全状态，类型登记在世界就绪后的宿主回调完成；能力与验证范围见[测试文档](../../../testing.md)。本页及关联图维护同一契约。
 
 相机能力归独立运行时插件 `engine::plugins::camera`。普通相机节点组合 `Transform`、核心 `Camera` 和 `CameraController`；控制组件保存完整配置，C++ 根据参数评估状态机、组合镜头模块并提交最终视角。没有脚本插件时，同一份场景配置也能直接运行。
 
@@ -49,7 +49,7 @@ classDiagram
     CameraController ..> CameraWorldRuntime : 取得本世界登记契约
     CameraSystem --> WorldSystem : 借用
     CameraSystem --> PhysicsSystem : 可空借用
-    CameraSystem ..> CameraWorldRuntime : 初始化时校验关联
+    CameraSystem ..> CameraWorldRuntime : 装配完成后按世界校验关联
     CameraSystem ..> CameraStateMachine : 本帧使用的无状态执行器
     CameraSystem ..> CameraControllerDataT : 查询已发布且启用的组件
     CameraSystem ..> CameraControllerRuntime : 准备并提交下一帧
@@ -62,6 +62,7 @@ classDiagram
 - `CameraController` 是值句柄，不拥有模块对象、状态机对象或虚函数表。真实配置唯一存于生成的 ECS Data 列；运行时索引、参数值和缓存存于领域 Runtime 列。
 - `CameraSystem` 只负责准备、求解、混合及输出。状态机执行器和各模块不直接写真实相机；同一个受控相机的姿态与投影只由该系统提交。
 - 宿主先创建 `CameraTypeRegistry`、显式登记所需类型并冻结，再调用插件入口 `register_camera_components(WorldSystem&, const CameraTypeRegistry&) -> bool`，关联世界并复用 `ComponentRegistry::add<CameraController>()`。同一世界不能重复绑定不同登记表；失败保留原关联。登记表必须活到该世界关闭之后，不建立进程全局表或通用服务定位器。
+- `CameraSystem::on_initialize` 建立空的安全状态并校验基础借用，不要求尚未进行的类型表关联。世界及子系统初始化完成后，宿主在现有 `RuntimeStage::initialized` 回调中调用上述登记入口；登记入口同时验证表已冻结、世界有效和组件登记完整。回调成功前宿主不接受场景加载或开始帧调度，失败由宿主回滚整个初始化。首个正常 tick 消费已经完成的关联；绕过宿主装配的直接调用方同样须先登记，缺少关联明确失败。完整顺序见[运行宿主](../../../runtime/class-diagrams/runtime-host.md#插件装配完成边界)。
 - `PhysicsSystem` 可空，纯固定镜头等不需要物理。启用要求物理查询的模块时必须具备已初始化的物理系统；缺少能力明确报告，不静默关闭避障。
 - 宿主选用具体插件实现。角色、脚本和编辑器只消费组件、数据及登记契约，不查找或向下转型默认 `CameraSystem`。可替换不包含运行时卸载代码、ABI 兼容或状态迁移。
 

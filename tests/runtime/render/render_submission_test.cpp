@@ -419,7 +419,7 @@ int benchmark(int argc, char** argv)
         }
         sample.prepare_ms = elapsed(prepare_start);
         const auto render_start = Clock::now();
-        if (!renderer.render())
+        if (!(renderer.render() == engine::RenderSubmitStatus::submitted))
         {
             std::fprintf(stderr, "benchmark failed at line %d (SDL: %s)\n", __LINE__,
                          SDL_GetError());

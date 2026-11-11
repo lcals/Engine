@@ -66,7 +66,7 @@ classDiagram
     class Resource
     WorldSystem *-- SceneRestoreConfig
     WorldSystem --> Resource : 候选共享持有已加载闭包
-    WorldSystem "1" *-- "0..1" Scene : 独占未发布候选
+    WorldSystem "1" *-- "0..*" Scene : 按有界 scope 独占未发布候选
     WorldSystem ..> ResourceHandle : 已加载资源获取身份
     WorldSystem --> ResourceLoader : 可空借用 只获取已加载场景
     WorldSystem "1" *-- "0..*" Scene : 独占已发布场景容器
@@ -104,6 +104,8 @@ C++ 限定符：构造、析构及 `on_shutdown()` 为 `noexcept`；析构和受
 异步恢复、封存、发布及模拟激活使用 SceneScopeId，状态和预算见[场景范围契约](scene-loading.md)。普通查询只返回已发布节点；领域准备通过明确 scope 访问同一世界中的候选。
 
 宿主在加载场景前通过 `component_registry()` 登记插件组件；WorldSystem 拥有登记表，Scene 在恢复时借用，不引用具体插件。登记函数地址须保持有效直到世界关闭。
+
+多个候选对应不同 SceneScopeId，支持并行追加。GameplaySession 排定同一目标的发布顺序，WorldSystem 只执行显式范围操作并保存发布事实；直接销毁目标会使关联身份失效，由会话在下一安全点结束受影响请求。完整失败与退休规则只在[场景加载](scene-loading.md#发布顺序与失败收尾)维护。
 
 ## 世界暂停契约
 

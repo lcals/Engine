@@ -1,5 +1,7 @@
 # 渲染系统
 
+`render` 以三态结果区分实际提交、暂缓与故障；实际交付与验证范围见所属说明及测试文档。
+
 [按范围准备、首帧与截图](render-readiness.md)维护场景准备和观察的公开契约；本页维护渲染系统与内部绘制能力。
 
 准备预算和调用关系见[大场景准备关系](large-scene-preparation.md)。
@@ -411,6 +413,37 @@ classDiagram
 - `complete` 后 `take_hdr_capture` 将结果移动给调用方并回到 idle；其他状态取图返回 false 并清空输出。取消、场景释放、设备重置或关闭时安全退役 GPU 资源并报告 cancelled，失效异步结果不能覆盖后续请求；尚未完成时不得访问结果缓冲。捕获和既有漫反射捕获各自保持独立状态，不改变原接口。
 - 该接口使用 bgfx 的 `TextureRegion`、`blit` 和异步 `read`，借用现有帧号确定回读完成；RGBA16F 转换使用 bx 半浮点转换，行方向按 bgfx `originBottomLeft` 归一化。
 
+## 渲染提交结果
+
+`render` 返回以下枚举，只报告本次绘制事实；场景激活、会话停止与设备恢复决策归调用方。
+
+```mermaid
+classDiagram
+    class RenderSystem
+    class RenderSubmitStatus {
+        <<enumeration>>
+        submitted
+        deferred
+        failed
+    }
+    class RuntimeHost
+    class GameplaySession
+    class RenderFrameSnapshot
+    RenderSystem ..> RenderSubmitStatus : render 返回值
+    RuntimeHost *-- RenderSystem : 拥有并请求绘制
+    RuntimeHost ..> RenderSubmitStatus : 决定继续 暂缓或失败
+    GameplaySession --> RenderSystem : 查询范围帧
+    GameplaySession ..> RenderFrameSnapshot : 核验实际提交身份
+```
+
+| 结果 | 完成含义 | 宿主行为 |
+| --- | --- | --- |
+| submitted | 本次提交成功；具体 kind、scope、设备代次由 frame_status 查询 | 使用范围帧证据推进激活，clear/movie 不满足场景首帧 |
+| deferred | 已识别的暂时不可提交，例如窗口不可绘制或已有表面重建仍在推进 | 保留请求及资源，下帧按正常循环继续，不能记为场景就绪 |
+| failed | 实际提交失败、必要能力失效或无法恢复的设备错误 | 锁存故障并按宿主契约停止会话，不自动改为清屏成功 |
+
+`render` 返回值标注 nodiscard。deferred 不递增成功提交序号，不触发范围激活；未知错误明确归 failed。范围内错误保存在该范围已有准备快照，宿主级错误保存在 RuntimeHostStatus。该枚举不承诺新增设备自动恢复能力；设备代次变化后必须重新取得当前代次的准备和帧证据。
+
 ```mermaid
 classDiagram
     direction TB
@@ -448,7 +481,7 @@ classDiagram
         +hdr_capture_status() SceneCaptureStatus
         +take_hdr_capture(SceneCaptureImage& output) bool
         +cancel_hdr_capture() void
-        +render(Camera camera) bool
+        +render(Camera camera) RenderSubmitStatus
         #on_initialize(const EngineConfig& config) bool
         #on_shutdown() void
     }
@@ -594,7 +627,7 @@ classDiagram
 - Android 暂停期间保留系统对象，GPU 初始化可推迟；Activity 与 Surface 均就绪后按需重建场景所需的渲染资源。系统生命周期就绪与 GPU 暂时关闭是两个不同状态，公共系统接口不变。
 - 初始化、继承的更新、`render()` 和关闭均由 `SDL_main` 所在线程（见[线程约定](engine-system.md)）调用；窗口指针及原生句柄借用不跨线程传递。
 - 继承 `System` 的公共生命周期入口及默认 `on_tick()`；它管理的子系统随统一入口更新。
-- `render()` 在本帧系统及子系统更新完成后检查窗口尺寸和表面状态，完成图形资源适配及一帧提交。成功返回 `true`，无法完成返回 `false`。若宿主暂停在本帧中途到达，RuntimeHost 重新检查窗口可绘制性并返回 `paused`；项目场景渲染失败时，RuntimeHost 通过 GameplaySession 停止玩法并尝试恢复空白，无法恢复时进入宿主失败状态。
+- `render()` 在本帧系统及子系统更新完成后检查窗口尺寸和表面状态，按下述 `RenderSubmitStatus` 返回提交、暂缓或故障。宿主按[统一错误边界](runtime-host.md)处理，渲染器不停止玩法、不销毁世界、不以清屏成功代替目标场景帧。
 - RuntimeHost 在提交前检查窗口退出和暂停状态。恢复和表面重建由渲染系统与[窗口系统](window-system.md)协作处理。
 - 拥有 bgfx 创建的资源，使用对应 API 释放；不拥有窗口系统，也不拥有第三方库本身。初始化、清理和复制移动限制遵守[系统约定](engine-system.md)。
 

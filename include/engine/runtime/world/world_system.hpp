@@ -51,7 +51,7 @@ public:
                                    SceneScopeId& output);
     [[nodiscard]] bool restore_scope(SceneScopeId scope, const ResourceHandle& resource);
     [[nodiscard]] SceneWorkState step_scope(SceneScopeId scope, const SceneWorkBudget& budget);
-    [[nodiscard]] Scene* scope_candidate(SceneScopeId scope) noexcept;
+    [[nodiscard]] Scene* scope_candidate(SceneScopeId scope) const noexcept;
     [[nodiscard]] bool seal_scope(SceneScopeId scope);
     [[nodiscard]] bool scope_status(SceneScopeId scope, ScenePreparationSnapshot& output) const;
     [[nodiscard]] bool publish_scope(SceneScopeId scope);

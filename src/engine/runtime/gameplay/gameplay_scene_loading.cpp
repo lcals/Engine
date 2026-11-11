@@ -154,10 +154,9 @@ bool GameplaySession::scene_load_status(SceneLoadId id, SceneLoadSnapshot& outpu
         return false;
     }
     output = found->second->snapshot;
-    output.target_alive =
-        const_cast<WorldSystem&>(world_).scope_candidate(output.scope) != nullptr &&
-        (output.state != SceneLoadState::active ||
-         (world_.scene() && world_.scene()->id() == output.scene_id));
+    output.target_alive = world_.scope_candidate(output.scope) != nullptr &&
+                          (output.state != SceneLoadState::active ||
+                           (world_.scene() && world_.scene()->id() == output.scene_id));
     return true;
 }
 
@@ -178,8 +177,31 @@ bool GameplaySession::activate_scene_load(SceneLoadId id)
     {
         return false;
     }
+    if (activation_sequence_ == UINT64_MAX)
+    {
+        last_error_ = "Scene activation identity space is exhausted";
+        return false;
+    }
+    if (operation.spec.kind == SceneLoadKind::append_batch)
+    {
+        for (const auto& [key, queued] : scene_loads_)
+        {
+            (void)key;
+            if (queued->spec.kind == SceneLoadKind::replace_scene &&
+                queued->snapshot.state == SceneLoadState::activating &&
+                queued->replaced_scene_id == operation.spec.destination_scene_id)
+            {
+                last_error_ = "The target scene is scheduled for replacement";
+                return false;
+            }
+        }
+    }
+    operation.activation_order = ++activation_sequence_;
+    operation.replaced_scene_id = world_.scene() ? world_.scene()->id() : 0;
     operation.activate = true;
     operation.snapshot.state = SceneLoadState::activating;
+    ++operation.snapshot.progress_revision;
+    operation.snapshot.last_progress_ns = load_time();
     return true;
 }
 
@@ -196,7 +218,7 @@ bool GameplaySession::cancel_scene_load(SceneLoadId id)
         return true;
     }
     if (terminal(operation.snapshot.state) ||
-        operation.snapshot.state == SceneLoadState::activating)
+        (operation.snapshot.state == SceneLoadState::activating && !operation.activate))
     {
         return false;
     }
@@ -219,7 +241,11 @@ bool GameplaySession::cancel_scene_load(SceneLoadId id)
     operation.resources.clear();
     operation.retained.clear();
     operation.snapshot.state = SceneLoadState::cancelled;
+    operation.snapshot.error_code = "cancelled";
+    ++operation.snapshot.progress_revision;
+    operation.snapshot.last_progress_ns = load_time();
     renderer_.release_scope(operation.snapshot.scope);
+    world_.release_scope(operation.snapshot.scope);
     return true;
 }
 
@@ -247,6 +273,43 @@ bool GameplaySession::collect_scene_loads(std::vector<SceneLoadId>& output) cons
     return true;
 }
 
+void GameplaySession::finish_scene_loads(GameplayStopCause cause, std::string_view reason) noexcept
+{
+    for (auto& [key, operation] : scene_loads_)
+    {
+        (void)key;
+        if (terminal(operation->snapshot.state))
+        {
+            continue;
+        }
+        auto& snapshot = operation->snapshot;
+        snapshot.state = cause == GameplayStopCause::failure ? SceneLoadState::failed
+                                                             : SceneLoadState::cancelled;
+        snapshot.error_code =
+            cause == GameplayStopCause::failure ? "session_failed" : "session_stopped";
+        snapshot.error = reason;
+        ++snapshot.progress_revision;
+        snapshot.last_progress_ns = load_time();
+        operation->resources.clear();
+        operation->retained.clear();
+        if (physics_)
+        {
+            physics_->release_scope(snapshot.scope);
+        }
+        if (animation_)
+        {
+            animation_->release_scope(snapshot.scope);
+        }
+        if (ui_)
+        {
+            ui_->release_scope(snapshot.scope);
+        }
+        renderer_.release_scope(snapshot.scope);
+        (void)world_.cancel_scope(snapshot.scope);
+        world_.release_scope(snapshot.scope);
+    }
+}
+
 void GameplaySession::step_scene_loads(const SceneWorkBudget& budget)
 {
     const auto started = load_time();
@@ -255,16 +318,11 @@ void GameplaySession::step_scene_loads(const SceneWorkBudget& budget)
         (void)key;
         auto& op = *operation;
         auto& snapshot = op.snapshot;
-        if (terminal(snapshot.state) || snapshot.state == SceneLoadState::staged ||
-            snapshot.state == SceneLoadState::ready)
+        if (terminal(snapshot.state))
         {
             continue;
         }
         const double remaining = budget.seconds - (load_time() - started) * 1e-9;
-        if (remaining <= 0)
-        {
-            break;
-        }
         auto step = budget;
         step.seconds = remaining;
         const auto previous_state = snapshot.state;
@@ -288,9 +346,52 @@ void GameplaySession::step_scene_loads(const SceneWorkBudget& budget)
             }
             (void)world_.cancel_scope(snapshot.scope);
             renderer_.release_scope(snapshot.scope);
+            world_.release_scope(snapshot.scope);
+            op.resources.clear();
+            op.retained.clear();
             ++snapshot.progress_revision;
             snapshot.last_progress_ns = load_time();
         };
+        if (snapshot.scope.world_epoch != world_.epoch() || !world_.is_initialized())
+        {
+            fail("world_invalidated", "The scene world is no longer valid");
+            continue;
+        }
+        if (op.spec.kind == SceneLoadKind::append_batch &&
+            std::none_of(world_.scenes().begin(), world_.scenes().end(), [&](const auto& scene)
+                         { return scene->id() == op.spec.destination_scene_id; }))
+        {
+            fail("target_unloaded", "The scene loading target was unloaded");
+            continue;
+        }
+        if (op.spec.kind == SceneLoadKind::replace_scene &&
+            snapshot.state == SceneLoadState::activating && op.activate &&
+            (world_.scene() ? world_.scene()->id() : 0) != op.replaced_scene_id)
+        {
+            fail("target_unloaded", "The scene replacement target changed before publication");
+            continue;
+        }
+        if (!world_.scope_candidate(snapshot.scope))
+        {
+            fail("scope_invalidated", "The scene candidate scope is no longer valid");
+            continue;
+        }
+        if (snapshot.state == SceneLoadState::ready)
+        {
+            ScenePreparationSnapshot current;
+            if (world_.scope_status(snapshot.scope, current) &&
+                current.state == SceneWorkState::working)
+            {
+                snapshot.state = SceneLoadState::preparing;
+                ++snapshot.progress_revision;
+                snapshot.last_progress_ns = load_time();
+            }
+        }
+        if (snapshot.state == SceneLoadState::staged || snapshot.state == SceneLoadState::ready ||
+            (remaining <= 0 && snapshot.state != SceneLoadState::activating))
+        {
+            continue;
+        }
         if (snapshot.state == SceneLoadState::loading ||
             snapshot.state == SceneLoadState::preparing)
         {
@@ -431,14 +532,54 @@ void GameplaySession::step_scene_loads(const SceneWorkBudget& budget)
         }
         else if (snapshot.state == SceneLoadState::activating)
         {
+            SceneWorkProgress progress;
+            progress.domain = op.activate ? "world" : "render";
+            progress.stage = op.activate ? "publication" : "first_frame";
+            progress.state = op.activate ? SceneWorkState::queued : SceneWorkState::working;
+            progress.total_known = true;
+            progress.total = 1;
+            snapshot.stages = {progress};
             if (op.activate)
             {
-                if (!world_.publish_scope(snapshot.scope))
+                const auto target = op.spec.kind == SceneLoadKind::replace_scene
+                                        ? op.replaced_scene_id
+                                        : op.spec.destination_scene_id;
+                const bool blocked =
+                    std::any_of(scene_loads_.begin(), scene_loads_.end(),
+                                [&](const auto& entry)
+                                {
+                                    const auto& earlier = *entry.second;
+                                    const auto earlier_target =
+                                        earlier.spec.kind == SceneLoadKind::replace_scene
+                                            ? earlier.replaced_scene_id
+                                            : earlier.spec.destination_scene_id;
+                                    return earlier.snapshot.state == SceneLoadState::activating &&
+                                           earlier.activation_order < op.activation_order &&
+                                           earlier_target == target;
+                                });
+                if (blocked || remaining <= 0)
+                {
+                    continue;
+                }
+                const auto prepared = world_.step_scope(snapshot.scope, step);
+                if (prepared == SceneWorkState::working)
+                {
+                    ScenePreparationSnapshot world_status;
+                    if (world_.scope_status(snapshot.scope, world_status))
+                    {
+                        snapshot.stages = world_status.stages;
+                    }
+                    continue;
+                }
+                if (prepared != SceneWorkState::ready || !world_.publish_scope(snapshot.scope))
                 {
                     fail("publish_failed", "Cannot publish prepared scene scope");
                     continue;
                 }
                 op.activate = false;
+                snapshot.stages.front().domain = "render";
+                snapshot.stages.front().stage = "first_frame";
+                snapshot.stages.front().state = SceneWorkState::working;
             }
             RenderFrameSnapshot frame;
             if (renderer_.frame_status(snapshot.scope, frame) &&
@@ -446,6 +587,25 @@ void GameplaySession::step_scene_loads(const SceneWorkBudget& budget)
             {
                 snapshot.first_scene_submission_id = frame.submission_id;
                 snapshot.state = SceneLoadState::active;
+                snapshot.stages.front().state = SceneWorkState::ready;
+                snapshot.stages.front().completed = 1;
+                op.resources.clear();
+                op.retained.clear();
+                if (op.spec.kind == SceneLoadKind::replace_scene)
+                {
+                    for (auto& [other_key, other] : scene_loads_)
+                    {
+                        (void)other_key;
+                        if (other->spec.kind == SceneLoadKind::append_batch &&
+                            other->spec.destination_scene_id == op.replaced_scene_id &&
+                            !terminal(other->snapshot.state) &&
+                            cancel_scene_load(other->snapshot.id))
+                        {
+                            other->snapshot.error_code = "target_replaced";
+                            other->snapshot.error = "The target scene was replaced";
+                        }
+                    }
+                }
             }
         }
         bool progressed =

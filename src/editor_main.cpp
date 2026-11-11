@@ -671,6 +671,19 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
                 return 1;
             }
 #endif
+            const auto render_preview = [&](engine::Camera camera = {})
+            {
+                switch (runtime.renderer()->render(camera))
+                {
+                case engine::RenderSubmitStatus::submitted:
+                    return engine::FrameStatus::running;
+                case engine::RenderSubmitStatus::deferred:
+                    return engine::FrameStatus::paused;
+                case engine::RenderSubmitStatus::failed:
+                    return engine::FrameStatus::failed;
+                }
+                return engine::FrameStatus::failed;
+            };
             auto status = engine::FrameStatus::running;
             if (preview->active())
             {
@@ -715,10 +728,7 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
                         }
                     }
                     preview->close();
-                    if (!runtime.renderer()->render())
-                    {
-                        status = engine::FrameStatus::failed;
-                    }
+                    status = render_preview();
                 }
 #endif
 #if ENGINE_HAS_DESTRUCTION_PLUGIN
@@ -745,10 +755,7 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
                         }
                     }
                     preview->close();
-                    if (!runtime.renderer()->render())
-                    {
-                        status = engine::FrameStatus::failed;
-                    }
+                    status = render_preview();
                 }
 #endif
                 else if (
@@ -758,17 +765,14 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
                         const auto prepared = runtime.renderer()->scope_status({}, progress)
                                                   ? progress.state
                                                   : engine::SceneWorkState::not_required;
-                        const bool rendered = runtime.renderer()->render(preview->camera());
+                        status = render_preview(preview->camera());
                         return prepared == engine::SceneWorkState::failed ||
-                               (prepared == engine::SceneWorkState::ready && !rendered);
+                               status == engine::FrameStatus::failed;
                     }())
                 {
                     LogSystem::write(LogLevel::error, "Scene preview rendering failed");
                     preview->close();
-                    if (!runtime.renderer()->render())
-                    {
-                        status = engine::FrameStatus::failed;
-                    }
+                    status = render_preview();
                 }
             }
             else
@@ -843,10 +847,10 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
     }
     if (editor != nullptr)
     {
-        editor->shutdown();
 #if ENGINE_HAS_MCP_ENDPOINT
         mcp_endpoint.shutdown();
 #endif
+        editor->shutdown();
         editor.reset();
     }
 #if ENGINE_HAS_ASSET_PIPELINE

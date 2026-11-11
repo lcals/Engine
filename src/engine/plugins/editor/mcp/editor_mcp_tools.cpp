@@ -365,7 +365,8 @@ bool EditorMcpTools::call_command(std::string_view command, const Json& argument
     }
     if (status.value("hostKind", std::string{}) == "runtime-test" &&
         command != "execute_project_script" && command != "capture_frame" &&
-        command != "get_frame_capture" && command != "get_scene_load")
+        command != "get_frame_capture" && command != "get_scene_load" &&
+        command != "get_gameplay_prepare" && command != "release_gameplay_prepare")
     {
         return fail(reply, "This editor command is unavailable in the runtime test target");
     }

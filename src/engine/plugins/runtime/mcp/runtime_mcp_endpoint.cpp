@@ -66,21 +66,31 @@ struct RuntimeMcpEndpoint::State
         const auto* script = gameplay ? gameplay->script_status() : nullptr;
         RuntimeHostStatus status;
         (void)host.status(status);
-        const bool running = script && script->running && script->run_id != 0;
+        GameplayPrepareSnapshot preparation;
+        const bool preparing = gameplay && status.prepare_id != 0 &&
+                               gameplay->prepare_status(status.prepare_id, preparation) &&
+                               (preparation.state == GameplayPrepareStatus::preparing ||
+                                preparation.state == GameplayPrepareStatus::ready);
+        const bool running = !preparing && script && script->running && script->run_id != 0;
         Json result = {{"snapshotId", std::to_string(++snapshot_sequence)},
                        {"hostKind", "runtime-test"},
                        {"session", session},
                        {"projectRoot", PathUtils::to_utf8(cache.parent_path())},
-                       {"projectState", closed    ? "closed"
-                                        : running ? "running"
-                                                  : "idle"},
+                       {"projectState", closed      ? "closed"
+                                        : preparing ? "starting"
+                                        : running   ? "running"
+                                                    : "idle"},
                        {"running", running},
                        {"runId", std::to_string(running ? script->run_id : 0)},
                        {"activeRevision", script ? script->active_revision : ""},
                        {"tickId", std::to_string(status.tick_id)},
                        {"sampledAtNs", std::to_string(status.sampled_at_ns)},
                        {"windowDrawable", status.window_drawable},
-                       {"lastError", last_error},
+                       {"initialized", status.initialized},
+                       {"prepareId", std::to_string(status.prepare_id)},
+                       {"hostErrorCode", status.error_code},
+                       {"hostError", status.error},
+                       {"lastError", status.error.empty() ? last_error : status.error},
                        {"lastRequestId", ""},
                        {"lastCommand", ""},
                        {"lastRequestSucceeded", false},
@@ -271,6 +281,20 @@ bool RuntimeMcpEndpoint::initialize(RuntimeHost& host, const McpEndpointConfig& 
                           {
                               return observation_command(value->host, value->cache,
                                                          "get_scene_load", args, result, error);
+                          }) ||
+        !register_command("get_gameplay_prepare",
+                          [value](const Json& args, Json& result, std::string& error)
+                          {
+                              return observation_command(value->host, value->cache,
+                                                         "get_gameplay_prepare", args, result,
+                                                         error);
+                          }) ||
+        !register_command("release_gameplay_prepare",
+                          [value](const Json& args, Json& result, std::string& error)
+                          {
+                              return observation_command(value->host, value->cache,
+                                                         "release_gameplay_prepare", args, result,
+                                                         error);
                           }) ||
         !value->system.initialize({}))
     {

@@ -316,6 +316,8 @@ bool Node::set_persistent(bool value) noexcept
     }
     flecs::world current(world_->native_world());
     current.entity(entity_id_).try_get_mut<ecs_detail::NodeRuntime>()->persistent = value;
+    world_->invalidate_scene_state();
+    current.event<Node>().id<ecs_detail::NodeRuntime>().entity(entity_id_).ctx(*this).emit();
     return true;
 }
 Component Node::add_component(ComponentType type)

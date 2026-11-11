@@ -71,6 +71,8 @@ class EditorMcpSession:
         self.next_id = 1
         self.session_id = None
         self.tools = set()
+        self.prepare_id = None
+        self.scene_load_baseline = set()
 
     def __enter__(self):
         try:
@@ -202,6 +204,13 @@ class EditorMcpSession:
     def call(self, name, arguments=None):
         if name not in self.tools:
             raise RuntimeError(f"Current MCP has not registered tool {name}")
+        if name == "start_project":
+            before = self.status()
+            if not before.get("running"):
+                self.scene_load_baseline = {
+                    (item.get("owner"), item.get("request"))
+                    for item in before.get("loadIds", [])
+                }
         deadline = time.monotonic() + self.timeout
         result, receipt = self.request_tool(name, arguments or {})
         while receipt is not None:
@@ -222,7 +231,13 @@ class EditorMcpSession:
             raise RuntimeError(f"MCP {name} failed: {json.dumps(receipt or result, ensure_ascii=False)}")
         if receipt.get("activation") != "completed":
             raise RuntimeError(f"MCP {name} is incomplete; stopping capture")
-        return receipt.get("result", {})
+        value = receipt.get("result", {})
+        if name == "start_project" and value.get("accepted") and value.get("prepareId") != "0":
+            self.prepare_id = value["prepareId"]
+        if (name == "release_gameplay_prepare" and value.get("released") and
+                value.get("prepareId") == self.prepare_id):
+            self.prepare_id = None
+        return value
 
     def capture(self, relative_path, inspect_black=False, scope=None):
         cache = (self.project / "cache").resolve()
@@ -279,14 +294,35 @@ class EditorMcpSession:
         self.validate_identity("get_status", values[0])
         return values[0]
 
+    def wait_prepare(self, prepare_id, max_wait=30):
+        """Observe one accepted startup without replaying the start command."""
+        deadline = time.monotonic() + min(max_wait, self.timeout)
+        last = None
+        while time.monotonic() < deadline:
+            last = self.call("get_gameplay_prepare", {"prepareId": prepare_id})
+            if last.get("id") != prepare_id:
+                raise RuntimeError(f"Startup result identity does not match: {last}")
+            if last.get("state") == "active":
+                return last
+            if last.get("state") in {"failed", "cancelled"}:
+                raise RuntimeError(f"Gameplay startup did not complete: {last}")
+            time.sleep(0.1)
+        raise RuntimeError(f"Gameplay startup timed out; keep querying {prepare_id}: {last}")
+
     def wait_scene(self, max_wait=30):
         """Wait on runtime scene/load/frame facts; pixel color is only a visual assertion."""
         deadline = time.monotonic() + min(max_wait, self.timeout)
+        if self.prepare_id:
+            self.wait_prepare(self.prepare_id, max_wait)
         last_status = None
         while time.monotonic() < deadline:
             last_status = self.status()
+            if last_status.get("hostErrorCode"):
+                raise RuntimeError(f"Runtime host failed: {last_status}")
             loads = [self.call("get_scene_load", {"loadId": identity})
-                     for identity in last_status.get("loadIds", [])]
+                     for identity in last_status.get("loadIds", [])
+                     if (identity.get("owner"), identity.get("request"))
+                     not in self.scene_load_baseline]
             failed = [load for load in loads if load.get("state") == "failed"]
             if failed:
                 raise RuntimeError(f"Scene preparation failed: {failed}")
@@ -295,6 +331,9 @@ class EditorMcpSession:
             frame = last_status.get("frame") or {}
             if not pending and frame.get("kind") == "scene" and last_status.get("windowDrawable", True):
                 active = [load for load in loads if load.get("targetAlive") and load.get("state") == "active"]
+                self.scene_load_baseline.update(
+                    (identity.get("owner"), identity.get("request"))
+                    for identity in last_status.get("loadIds", []))
                 return active[-1]["scope"] if active else {
                     "worldEpoch": frame["worldEpoch"], "value": frame["sceneId"]}
             time.sleep(0.1)

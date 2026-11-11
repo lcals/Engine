@@ -409,7 +409,7 @@ struct GameplaySession::State
         if (!owner.script_->start_prepared_gameplay())
         {
             const auto reason = owner.script_->status().last_error;
-            owner.stop(reason);
+            owner.stop(GameplayStopCause::failure, reason);
             return false;
         }
         prepare_generation = resources->generation();
@@ -436,7 +436,7 @@ GameplaySession::GameplaySession(ResourceSystem& resources, WorldSystem& world,
 
 GameplaySession::~GameplaySession() noexcept
 {
-    stop();
+    stop(GameplayStopCause::requested);
     if (script_)
     {
         (void)script_->bind_gameplay_session(nullptr);
@@ -465,7 +465,8 @@ bool GameplaySession::set_resources(const schema::AssetCatalogDataT& data, const
         last_error_ = "Gameplay resource services are not initialized";
         return false;
     }
-    if (script_ != nullptr && script_->status().running)
+    if ((script_ != nullptr && script_->status().running) ||
+        (state_ && state_->prepare_phase != State::PreparePhase::idle))
     {
         last_error_ = "Stop gameplay before replacing its resource directory";
         return false;
@@ -525,12 +526,15 @@ bool GameplaySession::set_resources(const schema::AssetCatalogDataT& data, const
 }
 
 bool GameplaySession::begin_prepare(const ResourceCatalog& catalog, const MountList& mounts,
-                                    std::string_view entry, std::string_view scene)
+                                    std::string_view entry, std::string_view scene,
+                                    std::uint64_t& output_id)
 {
+    output_id = 0;
     auto* resources = &resources_;
     if (!resources || !world_.is_initialized() || !renderer_.is_initialized() ||
         (script_ && (!script_->is_initialized() || script_->status().running)) ||
-        (state_ && state_->prepare_phase != State::PreparePhase::idle))
+        (state_ && state_->prepare_phase != State::PreparePhase::idle) ||
+        preparations_.size() >= 64)
     {
         last_error_ = "Gameplay preparation is unavailable or already active";
         return false;
@@ -557,9 +561,26 @@ bool GameplaySession::begin_prepare(const ResourceCatalog& catalog, const MountL
     state_->prepare_script_completed = 0;
     if (!state_->prepare_builtins(state_->builtins))
     {
+        state_->prepare_snapshot.reset();
         return false;
     }
+    static std::atomic<std::uint64_t> sequence{0};
+    auto previous = sequence.load(std::memory_order_relaxed);
+    do
+    {
+        if (previous == UINT64_MAX)
+        {
+            state_->prepare_snapshot.reset();
+            last_error_ = "Gameplay preparation identity space is exhausted";
+            return false;
+        }
+    } while (!sequence.compare_exchange_weak(previous, previous + 1, std::memory_order_relaxed));
+    GameplayPrepareSnapshot snapshot;
+    snapshot.id = previous + 1;
+    current_prepare_id_ = snapshot.id;
+    preparations_.emplace(snapshot.id, std::move(snapshot));
     state_->prepare_phase = State::PreparePhase::load;
+    output_id = current_prepare_id_;
     last_error_.clear();
     return true;
 }
@@ -569,11 +590,14 @@ GameplayPrepareStatus GameplaySession::step_prepare(std::uint32_t resource_budge
 {
     using Phase = State::PreparePhase;
     auto* resources = &resources_;
-    if (!state_ || !resources || !std::isfinite(max_seconds) || max_seconds <= 0 ||
-        state_->prepare_phase == Phase::idle || state_->prepare_phase == Phase::failed ||
-        state_->prepare_phase == Phase::active)
+    if (!state_ || !resources || resource_budget == 0 || !std::isfinite(max_seconds) ||
+        max_seconds <= 0 || state_->prepare_phase == Phase::idle ||
+        state_->prepare_phase == Phase::failed || state_->prepare_phase == Phase::active)
     {
-        return GameplayPrepareStatus::failed;
+        return state_ && state_->prepare_phase == Phase::active && resource_budget > 0 &&
+                       std::isfinite(max_seconds) && max_seconds > 0
+                   ? GameplayPrepareStatus::active
+                   : GameplayPrepareStatus::failed;
     }
     if (state_->prepare_phase == Phase::ready)
     {
@@ -581,27 +605,18 @@ GameplayPrepareStatus GameplaySession::step_prepare(std::uint32_t resource_budge
     }
     auto fail = [&](std::string_view message)
     {
-        last_error_ = message;
-        if (state_->startup_load.request)
+        const std::string error(message);
+        if (const auto found = preparations_.find(current_prepare_id_);
+            found != preparations_.end())
         {
-            (void)cancel_scene_load(state_->startup_load);
-            (void)release_scene_load(state_->startup_load);
-            state_->startup_load = {};
+            found->second.state = GameplayPrepareStatus::failed;
+            found->second.error_code = "preparation_failed";
+            found->second.error = error;
         }
-        state_->prepare_script_load.reset();
-        state_->prepare_script.reset();
-        if (script_)
-        {
-            script_->stop_gameplay();
-        }
-        release_scene();
+        stop(GameplayStopCause::failure, error);
         state_->prepare_phase = Phase::failed;
         return GameplayPrepareStatus::failed;
     };
-    if (resource_budget == 0)
-    {
-        return GameplayPrepareStatus::preparing;
-    }
     if (resources->generation() != state_->prepare_generation)
     {
         return fail("Resource directory changed during gameplay preparation");
@@ -639,6 +654,11 @@ GameplayPrepareStatus GameplaySession::step_prepare(std::uint32_t resource_budge
             if (!begin_scene_load(spec, state_->startup_load))
             {
                 return fail("Cannot begin startup scene load");
+            }
+            if (const auto found = preparations_.find(current_prepare_id_);
+                found != preparations_.end())
+            {
+                found->second.scene_load_id = state_->startup_load;
             }
         }
         auto advance = [&](std::unique_ptr<ResourceLoad>& load, ResourceReference& output,
@@ -753,6 +773,11 @@ GameplayPrepareStatus GameplaySession::step_prepare(std::uint32_t resource_budge
             const std::string error = script_->status().last_error;
             return fail(error);
         }
+        if (const auto found = preparations_.find(current_prepare_id_);
+            found != preparations_.end())
+        {
+            found->second.run_id = script_ ? script_->status().run_id : 0;
+        }
         state_->prepare_phase = Phase::gpu;
         return GameplayPrepareStatus::preparing;
     }
@@ -779,6 +804,11 @@ GameplayPrepareStatus GameplaySession::step_prepare(std::uint32_t resource_budge
             }
         }
         state_->prepare_phase = Phase::ready;
+        if (const auto found = preparations_.find(current_prepare_id_);
+            found != preparations_.end())
+        {
+            found->second.state = GameplayPrepareStatus::ready;
+        }
         return GameplayPrepareStatus::ready;
     }
     return GameplayPrepareStatus::failed;
@@ -791,14 +821,42 @@ bool GameplaySession::activate_prepared()
         return false;
     }
     state_->prepare_phase = State::PreparePhase::active;
+    if (const auto found = preparations_.find(current_prepare_id_); found != preparations_.end())
+    {
+        found->second.state = GameplayPrepareStatus::active;
+    }
     state_->gameplay_requested = script_ != nullptr;
     state_->prepare_script.reset();
     if (state_->startup_load.request)
     {
-        (void)release_scene_load(state_->startup_load);
         state_->startup_load = {};
     }
     state_->prepare_snapshot.reset();
+    return true;
+}
+
+bool GameplaySession::prepare_status(std::uint64_t id, GameplayPrepareSnapshot& output) const
+{
+    output = {};
+    const auto found = preparations_.find(id);
+    if (found == preparations_.end())
+    {
+        return false;
+    }
+    output = found->second;
+    return true;
+}
+
+bool GameplaySession::release_prepare(std::uint64_t id)
+{
+    const auto found = preparations_.find(id);
+    if (found == preparations_.end() || (found->second.state != GameplayPrepareStatus::active &&
+                                         found->second.state != GameplayPrepareStatus::failed &&
+                                         found->second.state != GameplayPrepareStatus::cancelled))
+    {
+        return false;
+    }
+    preparations_.erase(found);
     return true;
 }
 
@@ -878,7 +936,7 @@ bool GameplaySession::tick()
         const auto status = step_prepare(1, 0.002);
         if (status == GameplayPrepareStatus::ready && !activate_prepared())
         {
-            stop("Cannot activate reloaded gameplay");
+            stop(GameplayStopCause::failure, "Cannot activate reloaded gameplay");
         }
     }
     if (complete && state_->gameplay_requested &&
@@ -896,12 +954,7 @@ bool GameplaySession::tick()
 
 void GameplaySession::release_scene() noexcept
 {
-    for (auto& [key, operation] : scene_loads_)
-    {
-        (void)key;
-        (void)world_.cancel_scope(operation->snapshot.scope);
-    }
-    scene_loads_.clear();
+    finish_scene_loads(GameplayStopCause::requested, "Scene content was released");
     if (ui_)
     {
         ui_->release_scene();
@@ -926,20 +979,31 @@ void GameplaySession::release_scene() noexcept
     renderer_.release_scene();
 }
 
-void GameplaySession::stop(std::string_view reason) noexcept
+void GameplaySession::stop(GameplayStopCause cause, std::string_view reason) noexcept
 {
     if (!reason.empty())
     {
         last_error_ = reason;
     }
+    if (const auto found = preparations_.find(current_prepare_id_);
+        found != preparations_.end() && (found->second.state == GameplayPrepareStatus::preparing ||
+                                         found->second.state == GameplayPrepareStatus::ready))
+    {
+        auto& result = found->second;
+        result.state = cause == GameplayStopCause::failure ? GameplayPrepareStatus::failed
+                                                           : GameplayPrepareStatus::cancelled;
+        result.error_code =
+            cause == GameplayStopCause::failure ? "session_failed" : "session_stopped";
+        result.error = reason;
+    }
+    current_prepare_id_ = 0;
+    finish_scene_loads(cause, reason);
     if (state_)
     {
         state_->gameplay_requested = false;
         state_->invalidate_background();
         if (state_->startup_load.request)
         {
-            (void)cancel_scene_load(state_->startup_load);
-            (void)release_scene_load(state_->startup_load);
             state_->startup_load = {};
         }
         state_->prepare_script_load.reset();
@@ -965,6 +1029,12 @@ bool GameplaySession::execute_project_script(const ProjectScriptRequest& request
 {
     result_json.clear();
     error.clear();
+    if (const auto found = preparations_.find(current_prepare_id_);
+        found != preparations_.end() && found->second.state != GameplayPrepareStatus::active)
+    {
+        error = "Project script execution requires activated gameplay";
+        return false;
+    }
     if (script_ == nullptr)
     {
         error = "Project script execution requires the script plugin";

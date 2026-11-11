@@ -2,7 +2,7 @@
 
 [类图索引](../../../class-diagrams/index.md) · [场景加载状态](../../../runtime/class-diagrams/scene-loading.md) · [首帧与截图](../../../runtime/class-diagrams/render-readiness.md) · [当前独立测试桥接](../../editor/class-diagrams/runtime-mcp-debug.md)
 
-状态与方法按本页契约实现；平台验证与限制集中见[测试文档](../../../testing.md)。
+命令回执确认执行或受理，异步启动结果转发原生查询；协议拆分与状态/截图能力的实际验证范围见[测试文档](../../../testing.md)。
 
 ## 模块和依赖
 
@@ -44,6 +44,7 @@ classDiagram
     class RuntimeHost
     class GameplaySession
     class RenderSystem
+    class GameplayPrepareSnapshot
     class EditorMcpEndpoint
     class EditorSystem
     class EditorCommands
@@ -60,6 +61,8 @@ classDiagram
     RuntimeMcpEndpoint ..> McpEndpointConfig
     RuntimeMcpEndpoint ..> GameplaySession : status and test execution
     RuntimeMcpEndpoint ..> RenderSystem : frame and capture status
+    RuntimeMcpEndpoint ..> GameplayPrepareSnapshot : copied native startup result
+    EditorMcpEndpoint ..> GameplayPrepareSnapshot : same native startup result
     McpCommandChannel ..> Json : request and receipt values
     EditorMcpEndpoint ..> EditorCommands : handler invokes existing execute
 ```
@@ -69,10 +72,20 @@ classDiagram
 - 编辑器端由可执行宿主装配 [EditorMcpEndpoint](../../editor/class-diagrams/editor-mcp-tools.md#独立-mcp-端点)，借用 EditorSystem.commands() 的既有接口；编辑器库不包含或链接具体 MCP 插件。原内部通道随这次迁移移出编辑器核心。
 - poll 只在宿主协调安全点执行一批有界命令，按请求身份防重复。publish_status 只复制普通接口返回的状态并发布快照。文件编码和落盘复用现有任务域，保留原子文件和请求回执语义，不让每帧等待磁盘。
 - 工具协议仍由独立 mcp_app 处理客户端 stdio；运行程序按帧处理通道，不在游戏主循环调用阻塞 run_stdio。启动方式明确提供同一目标的通道目录，不能误连另一个编辑器或测试进程。
-- McpEndpointConfig 的 cache_root 为目标的缓存根，channel_directory 必须位于其独立测试目录。session 在每次宿主启动时重新生成；目标核对真实路径、目录归属和会话，拒绝越界及符号链接。
+- McpEndpointConfig 的 cache_root 为目标的缓存根，运行测试端点的 channel_directory 位于其独立测试目录，编辑端点使用目标项目的缓存通道目录。session 在每次宿主启动时重新生成；目标核对真实路径、目录归属和会话，拒绝越界及符号链接。
 - 端点在呈现系统初始化后、影片与玩法加载之前启用。启动、加载、暂停、失败及关闭过程都能读取相应状态；没有活动 Run 时不登记为可执行脚本状态。
 - 状态与截图不要求脚本插件、项目源码或编辑器资源构建器。只消费已部署运行资源即可测试原生场景；TS 注入工具仅在明确提供开发端编译环境和脚本能力时可用。
 - 所有业务工具由所属文件登记，协议层不添加中央业务 switch。运行端点只登记状态、测试执行及截图工具；编辑器专有修改工具仍通过编辑器适配登记。
+
+## 请求与回执格式
+
+通道唯一拥有传输与去重记录，EditorSystem 不监听文件、不保存协议回执。文件位于明确的 channel_directory：`editor-command.json` 输入，`editor-receipt.json` 为最近回执，`editor-receipts/<session>/<requestId>.json` 保存原请求回执。基础请求为 `{session,requestId,command,arguments}`，回执为 `{session,requestId,command,success,result,error,completedAtMs}`；编辑目标的 projectRoot 由编辑端适配验证，不进入普通运行时核心。
+
+- 输入与回执均限制为 1 MiB，读取前后检查长度；session/requestId 仅允许不超过 128 个 ASCII 字母、数字、下划线或连字符。旧会话拒绝，历史回执须校验身份与字段类型。
+- 同一 session/requestId 只执行一次。先持久化独立回执，再更新最近快照；写回失败保留已经执行的结果，只重试落盘，不重放操作。回执文件被删除不清除进程内已执行身份。超大结果产生同 ID 的有界失败回执。
+- Handler 返回值及 success 表示本次命令校验、同步执行或受理是否成功；completedAtMs 是 Handler 完成时间。异步启动、加载、截图各自返回原生操作身份，命令成功不等于这些操作已经完成。
+- 原回执一经执行确定就保持不变。异步业务错误保存在对应原生结果记录，不回写成另一条命令的 last_error，也不把受理成功回执后来改成失败。业务终态与原命令回执一起归档。
+- 传输超时表示尚未取得回执，继续查询原 requestId；取得 prepareId/loadId/captureId 后，业务等待使用对应查询。两种 pending 的解释明确区分，不重复发起副作用。
 
 ## 构建用途与正式包排除
 
@@ -100,18 +113,22 @@ MCP 使用与业务相同的 SceneLoadId、SceneScopeId 和截图身份。核心
 | 工具 | 输入重点 | 返回与完成含义 |
 | --- | --- | --- |
 | get_status | 固定目标 | 会话、能力、宿主状态、当前 Run、当前场景、保留的 loadIds 及最近帧的同安全点快照 |
+| get_gameplay_prepare | session、prepareId | GameplayPrepareSnapshot；本次启动的状态、Run、初始场景请求和独立错误 |
+| release_gameplay_prepare | session、prepareId | 转发 release_prepare，只释放终态记录，不停止玩法 |
 | get_scene_load | session、loadId | 原生 SceneLoadSnapshot；包含各阶段进度、scope 和独立错误 |
 | execute_project_script | session、runId、临时 TS 源码及 JSON 参数 | 当前 VM 中执行一次，回执记录实际执行身份与宿主 tick |
 | capture_frame | session、selection、scope、帧下界、cache 相对路径 | 受理后返回 captureId；受理不代表完成 |
 | get_frame_capture | session、captureId | ScreenshotSnapshot，含实际帧归属、状态、路径和错误 |
-| get_request_receipt | session、requestId | 查询该次命令最终回执，不重放操作 |
+| get_request_receipt | session、requestId | 查询不可变的命令执行/受理回执；不等同于异步业务终态，不重放操作 |
 
-- get_status 中 capabilities 明确区分 scene_loading、frame_capture、script_execution；未装配能力标记不可用，不能返回假的 ready。运行态状态不再借用 projectState=running 代表整个场景已经可玩。
+- get_status 中 capabilities 明确区分 sceneLoading、frameCapture、scriptExecution；未装配能力标记不可用，不能返回假的 ready。运行态状态不再借用 projectState=running 代表整个场景已经可玩。
 - RuntimeHostStatus 只负责宿主循环事实，GameplaySession 负责加载请求，RenderSystem 负责帧和截图；端点在同一个协调安全点组装 JSON，使用 snapshotId 和 sampledAtNs 标明采样。序列化对象不反向成为引擎状态来源。
 - MCP 保留查询和动作入口，不单独增加 list_scene_loads 或 wait_for_state 工具。请求 ID 随 get_status 返回，详细状态复用 get_scene_load；有界等待复用现有测试辅助，轮询加载就绪、激活、目标帧和截图完成等事实。游戏端没有阻塞等待命令，查询不能推进准备；超时不取消请求、不重试执行脚本、不悄悄换成新的加载身份。
 - 活动 Run 尚未产生时 runId 为 0，状态与截图仍可用。执行脚本必须校验非零当前 runId；热重载或重开导致旧身份明确失效。
 - 请求失败保存在原回执；加载失败保存在对应加载请求；截图失败保存在对应截图请求。它们与最近的命令错误不能互相覆盖。
-- 原请求等待超时后继续查询其 receipt/captureId/loadId；不得因网络或工具等待超时重复注入伤害、移动、场景切换等副作用。
+- 启动失败保存在对应 GameplayPrepareSnapshot。编辑器 start_project 返回 `{accepted:true,prepareId}`；若项目已经运行，返回当前 runId 与明确的 alreadyRunning 结果，不伪造新的启动请求。测试先取得原命令回执，再等待同一 prepareId 的 active/failed/cancelled；需要关卡画面时继续等待 scene_load_id 对应的范围与截图。准备结果在释放或会话对象销毁前可查，后续启动不覆盖旧错误。
+- get_gameplay_prepare/release_gameplay_prepare 在编辑端与显式运行测试端复用同一原生接口；前者为纯查询，后者只管理结果记录。调用方归档终态后显式释放记录；初始场景记录沿用各自释放契约。正式游戏通过 GameplaySession 查询相同状态，不依赖这两个工具或 MCP。
+- 原请求等待超时后继续查询其 receipt/prepareId/captureId/loadId；不得因网络或工具等待超时重复注入伤害、移动、场景切换等副作用。
 - get_frame_capture 必须指定 captureId；get_request_receipt 统一查询运行端与编辑器端的命令回执，不保留旧工具别名。
 - 通过脚本开始业务加载后，返回 SceneLoadRequest.GetStatus().id 供测试等待。引擎事实状态不需要脚本注入读取；项目任务结果、分数和动画状态等业务断言继续通过当前 Run 的脚本接口取得。
 

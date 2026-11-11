@@ -115,14 +115,14 @@ struct EditorSystem::State
     fs::path directory;
     std::string project_root;
     std::string session;
-    std::string last_request;
     std::string last_command;
     std::string last_error;
     bool last_success = true;
     bool closed = false;
-    std::string transition;
     std::string previous_status;
     std::chrono::steady_clock::time_point last_write{};
+    std::string transition;
+    std::uint64_t prepare_id = 0;
     std::unique_ptr<SceneCommands> scene_commands;
     std::unique_ptr<EditorCommands> commands;
     std::optional<std::int32_t> editor_frame_rate;
@@ -219,7 +219,8 @@ struct EditorSystem::State
             restore_frame_rate();
             return false;
         }
-        if (!gameplay.begin_prepare(catalog, {{"content", environment.builtin_path_}}))
+        if (!gameplay.begin_prepare(catalog, {{"content", environment.builtin_path_}}, {}, {},
+                                    prepare_id))
         {
             restore_frame_rate();
             return false;
@@ -230,7 +231,8 @@ struct EditorSystem::State
     Json status_value() const
     {
         const auto* script = gameplay.script_status();
-        const bool running = !closed && script != nullptr && script->running;
+        const bool running =
+            !closed && transition != "starting" && script != nullptr && script->running;
         std::string error = last_error;
         if (error.empty())
         {
@@ -251,9 +253,7 @@ struct EditorSystem::State
                        {"running", running},
                        {"runId", std::to_string(running ? script->run_id : 0)},
                        {"targetFrameRate", Engine::instance().target_frame_rate()},
-                       {"lastRequestId", last_request},
-                       {"lastCommand", last_command},
-                       {"lastRequestSucceeded", last_success},
+                       {"prepareId", std::to_string(prepare_id)},
                        {"lastError", error}};
         return status;
     }
@@ -304,7 +304,7 @@ struct EditorSystem::State
         if (!publish(true))
         {
             transition.clear();
-            error = "Cannot publish project transition";
+            error = "Cannot publish the native editor ownership state";
             return false;
         }
 #if ENGINE_HAS_ASSET_PIPELINE
@@ -346,7 +346,7 @@ struct EditorSystem::State
             {
                 preview->close();
             }
-            gameplay.stop();
+            gameplay.stop(GameplayStopCause::requested);
             restore_frame_rate();
             if (commands != nullptr)
             {
@@ -354,20 +354,34 @@ struct EditorSystem::State
             }
             last_success = true;
         }
-        if (!start || !last_success ||
-            gameplay.step_prepare(0, 0.002) == GameplayPrepareStatus::failed)
+        GameplayPrepareSnapshot preparation;
+        const bool pending = start && last_success &&
+                             gameplay.prepare_status(prepare_id, preparation) &&
+                             preparation.state == GameplayPrepareStatus::preparing;
+        if (!pending)
         {
             transition.clear();
         }
         if (!publish(true))
         {
             last_success = false;
-            last_error = "Cannot publish final project status";
+            last_error = "Cannot publish the native editor ownership state";
+            if (pending)
+            {
+                gameplay.stop(GameplayStopCause::failure, last_error);
+                transition.clear();
+                restore_frame_rate();
+            }
         }
         error = last_error;
         const auto* script = gameplay.script_status();
         const bool running = script != nullptr && script->running;
-        result = {{"projectState", running ? "running" : "idle"},
+        result = {{"accepted", last_success},
+                  {"prepareId", std::to_string(pending ? prepare_id : 0)},
+                  {"alreadyRunning", start && running && !pending},
+                  {"projectState", pending   ? "starting"
+                                   : running ? "running"
+                                             : "idle"},
                   {"running", running},
                   {"runId", std::to_string(running ? script->run_id : 0)},
                   {"targetFrameRate", Engine::instance().target_frame_rate()}};
@@ -499,7 +513,7 @@ bool EditorSystem::on_tick(double)
                 if (!state_->last_success)
                 {
                     state_->last_error = state_->gameplay.last_error();
-                    state_->gameplay.stop();
+                    state_->gameplay.stop(GameplayStopCause::failure, state_->last_error);
                 }
                 state_->transition.clear();
             }
@@ -531,12 +545,12 @@ void EditorSystem::on_shutdown() noexcept
         {
             preview_->close();
         }
-        gameplay_->stop();
+        gameplay_->stop(GameplayStopCause::requested);
         state_->restore_frame_rate();
         state_->closed = true;
-        if (!state_->session.empty() && !state_->publish(true))
+        if (!state_->publish(true))
         {
-            LogSystem::write(LogLevel::error, "Cannot publish editor shutdown status");
+            LogSystem::write(LogLevel::error, "Cannot publish editor shutdown ownership state");
         }
         state_.reset();
     }

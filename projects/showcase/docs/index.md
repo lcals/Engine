@@ -54,16 +54,16 @@ python3 projects/showcase/tests/mcp_interaction_test.py --server build/ninja-eng
 python3 projects/showcase/tests/runtime_mcp_test.py --executable <test-executable> --server build/ninja-engine-release/mcp_app
 ```
 
-真实交互前用 MCP status 核对项目、运行目录和有效会话；`--server` 与编辑器使用同一构建。待处理请求只查询原回执，不重复发起。原始操作回执保存在项目 `cache/`，不进入 Git。
+真实交互前用 MCP status 核对项目、运行目录和有效会话；`--server` 与编辑器使用同一构建。待处理命令查询原回执，启动受理后用 prepareId 查询原生结果并核对 Run，归档后释放结果记录，不重复发起启动。原始操作回执保存在项目 `cache/`，不进入 Git。
 
 需要归档所有菜单场景的当前画面时运行 `python3 projects/showcase/tools/capture_visual_cases.py`；
 可用 `--case <id>` 只采集某个入口。工具启动独立 Release 编辑器，通过实际菜单进入已登记的场景，
 把原始 PNG、灯光与后处理设置、场景身份、版本和 MCP 回执保存在 `cache/scene-captures/`。
-整张黑图会保留并有限重试，超时仍为黑图或无法检查时标为失败；非黑画面不保证场景已经完全准备好，截图不替代各用例的功能验证。
+工具等待原生加载终态和目标场景帧，再按 captureId 等待读回与文件发布；整张黑图或无法检查像素时保留原图并标为失败，不以非黑重试代替场景就绪判断。截图不替代各用例的功能验证。
 PBR 材质球对照使用[原有采集工具](pbr-comparison.md#预览与截图)保留其固定分辨率。
 实际 UI 交互、多对象和渲染功能测试分别在运行过程中归档画面；发生错误时会尽力捕获当时画面并记录回执。
 仅计算或数据验证的测试没有渲染帧，不生成虚构截图。
 
-2026-11-10，在 macOS arm64 / Metal / QuickJS 的 Release 测试编辑器中，全部 14 个已登记入口使用当前阴影滤波完成菜单进入、有效场景帧截图和返回。采集报告完整，原始 PNG 均非整张黑图；该检查用于视觉归档，不代表所有动作、音频和交互均完成逐项功能验收。
+2026-11-11，在 macOS arm64 / Metal / QuickJS 的 Release 测试编辑器中，全部 14 个已登记入口使用当前阴影滤波完成菜单进入、有效场景帧截图和返回。采集报告完整，原始 PNG 均非整张黑图；该检查用于视觉归档，不代表所有动作、音频和交互均完成逐项功能验收。
 
 脚本替身、原生功能、真实 UI 输入和图像质量分别验证；没有执行的路径不宣称通过。菜单入口、资源登记与类型检查不代表所有效果、声音或设备已验收。平台结果与必要性能摘要统一见[引擎测试文档](../../../docs/testing.md)。

@@ -505,18 +505,19 @@ bool RenderSystem::prepare_frame()
     return true;
 }
 
-bool RenderSystem::render(Camera camera)
+RenderSubmitStatus RenderSystem::render(Camera camera)
 {
     render_detail::ui_draws = 0;
     scene_collected_ = false;
     ENGINE_PROFILE_ZONE("Render.frame");
     if (camera.instance_id() != 0 && !camera)
     {
-        return false;
+        return RenderSubmitStatus::failed;
     }
     if (!prepare_frame())
     {
-        return false;
+        return is_initialized() && !windows_.can_render() ? RenderSubmitStatus::deferred
+                                                          : RenderSubmitStatus::failed;
     }
 
     RenderSettings current_settings;
@@ -524,7 +525,7 @@ bool RenderSystem::render(Camera camera)
         ENGINE_PROFILE_ZONE("Render.resolveSettings");
         if (!resolve_settings(current_settings))
         {
-            return false;
+            return RenderSubmitStatus::failed;
         }
     }
     bgfx::setViewFrameBuffer(render_detail::main_view, BGFX_INVALID_HANDLE);
@@ -591,7 +592,7 @@ bool RenderSystem::render(Camera camera)
 #if defined(ENGINE_ENABLE_TRACY)
     profile_renderer_stats();
 #endif
-    return drawn;
+    return drawn ? RenderSubmitStatus::submitted : RenderSubmitStatus::failed;
 }
 
 bool RenderSystem::present_movie_frame(const MovieFrame& frame)

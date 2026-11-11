@@ -39,6 +39,13 @@ class MoviePass;
 enum class RenderPrepareStatus;
 struct RenderPrepareProgress;
 
+enum class RenderSubmitStatus
+{
+    submitted,
+    deferred,
+    failed
+};
+
 struct RenderConfig
 {
     std::size_t texture_batch_size = 4;
@@ -126,7 +133,7 @@ public:
     // 主线程调用；开关与场景无关，图形设备临时关闭后保留并恢复。
     void set_stats_visible(bool visible);
     [[nodiscard]] bool stats_visible() const noexcept;
-    [[nodiscard]] bool render(Camera camera = {});
+    [[nodiscard]] RenderSubmitStatus render(Camera camera = {});
     [[nodiscard]] bool present_movie_frame(const MovieFrame& frame);
 
 protected:

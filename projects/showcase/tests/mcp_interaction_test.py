@@ -129,34 +129,23 @@ def wait_for(label, operation, predicate, timeout):
 
 
 def lifecycle(session, command, expected):
-    # 生命周期工具可能在 10 秒后返回 pending；只查询原 requestId，禁止重发。
-    result, receipt = session.request_tool(command, {})
-    require(receipt is not None, f"{command} has no lifecycle receipt: {result}")
-    if receipt.get("activation") == "pending":
-        request_id = receipt.get("requestId")
-        require(isinstance(request_id, str) and request_id, "Lifecycle receipt is missing requestId")
-        status = wait_for(command, lambda: get_status(session),
-                          lambda item: item.get("lastRequestId") == request_id and
-                          item.get("projectState") not in ("starting", "stopping"),
-                          session.timeout)
-    else:
-        session.validate_identity(command, receipt)
-        require(not result.get("isError") and receipt.get("activation") == "completed",
-                f"{command} did not complete: {receipt}")
-        # Completed editor receipts carry operation state under result; status owns the
-        # current run/session fields. Read it instead of treating the receipt as status.
-        require(receipt.get("success", receipt.get("lastRequestSucceeded")) is True,
-                f"{command} returned a failed receipt: {receipt}")
-        request_id = receipt.get("requestId")
-        require(isinstance(request_id, str) and request_id, "Lifecycle receipt is missing requestId")
-        status = wait_for(command, lambda: get_status(session),
-                          lambda item: item.get("lastRequestId") == request_id and
-                          item.get("projectState") not in ("starting", "stopping"),
-                          session.timeout)
-    require(status.get("lastRequestSucceeded") is True and
-            status.get("projectState") == expected,
-            f"{command} did not enter {expected}: {status}")
-    return get_status(session)
+    accepted = session.call(command)
+    preparation = None
+    if command == "start_project" and not accepted.get("alreadyRunning"):
+        prepare_id = accepted.get("prepareId")
+        require(isinstance(prepare_id, str) and prepare_id.isdecimal() and int(prepare_id) > 0,
+                f"Accepted startup has no native preparation identity: {accepted}")
+        preparation = session.wait_prepare(prepare_id, session.timeout)
+    status = wait_for(command, lambda: get_status(session),
+                      lambda item: item.get("projectState") == expected, session.timeout)
+    if preparation is not None:
+        require(status.get("runId") == preparation.get("runId"),
+                f"Startup result belongs to another Run: {preparation}, {status}")
+        session.call("release_gameplay_prepare", {"prepareId": preparation["id"]})
+        current = get_status(session)
+        require(current.get("runId") == status.get("runId") and current.get("running"),
+                f"Releasing a startup result stopped or replaced gameplay: {current}")
+    return status
 
 
 def script_arguments(session, run_id, source, arguments=None, filename="mcp-interaction.ts"):
@@ -247,7 +236,8 @@ def capture_for_review(session, results, output, name):
 def check(session, results, output):
     required = {"get_status", "start_project", "stop_project", "execute_project_script",
                 "get_ui_documents", "get_ui_tree", "get_ui_element", "click_ui", "ui_input",
-                "get_ui_input", "get_request_receipt", "close_editor"}
+                "get_ui_input", "get_request_receipt", "get_gameplay_prepare",
+                "release_gameplay_prepare", "close_editor"}
     require(required <= session.tools, f"Missing MCP tools: {sorted(required - session.tools)}")
     status = get_status(session)
     require(status.get("editorAlive") is True, "The caller must start the showcase editor first")

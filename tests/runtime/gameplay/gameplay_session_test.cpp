@@ -209,7 +209,7 @@ bool test_background_protocol(const std::filesystem::path& root)
     {
         return false;
     }
-    session.stop("test stopped");
+    session.stop(GameplayStopCause::requested, "test stopped");
     return true;
 }
 

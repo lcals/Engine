@@ -65,7 +65,8 @@ bool EditorMcpEndpoint::initialize(editor::EditorSystem& editor, RuntimeHost& ho
         [value](std::string_view command, const Json& args, Json& result, std::string& error)
         {
             if (command == "capture_frame" || command == "get_frame_capture" ||
-                command == "get_scene_load")
+                command == "get_scene_load" || command == "get_gameplay_prepare" ||
+                command == "release_gameplay_prepare")
             {
                 return observation_command(value->host, value->config.cache_root, command, args,
                                            result, error);
@@ -172,6 +173,13 @@ bool EditorMcpEndpoint::publish_status()
     };
     status["tickId"] = std::to_string(host.tick_id);
     status["windowDrawable"] = host.window_drawable;
+    status["initialized"] = host.initialized;
+    status["hostErrorCode"] = host.error_code;
+    status["hostError"] = host.error;
+    if (!host.error.empty())
+    {
+        status["lastError"] = host.error;
+    }
     status["loadIds"] = Json::array();
     if (state_->host.gameplay())
     {
@@ -185,6 +193,10 @@ bool EditorMcpEndpoint::publish_status()
             }
         }
     }
+    status["lastRequestId"] = "";
+    status["lastCommand"] = "";
+    status["lastRequestSucceeded"] = true;
+    status["lastCommandError"] = "";
     const auto& receipt = state_->channel->last_receipt();
     if (receipt.is_object())
     {
@@ -203,6 +215,8 @@ void EditorMcpEndpoint::shutdown() noexcept
     {
         return;
     }
+    state_->last_write = {};
+    (void)publish_status();
     auto status = state_->last_status;
     if (status.is_object())
     {

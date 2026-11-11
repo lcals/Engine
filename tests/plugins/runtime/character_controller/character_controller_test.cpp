@@ -303,7 +303,23 @@ bool camera_adapter()
     {
         return false;
     }
-    return check(value.float_value == 2, "lost adapter ownership restores parameter default");
+    if (!check(value.float_value == 2, "lost adapter ownership restores parameter default") ||
+        !adapter.set_enabled(true) || !f.frame(crouch) || !solver.get_parameter("height", value))
+    {
+        return false;
+    }
+    const auto previous = value.float_value;
+    SceneScopeId replacement;
+    if (!f.world.begin_scope(SceneLoadKind::replace_scene, 0, replacement) ||
+        !f.world.seal_scope(replacement) ||
+        f.world.step_scope(replacement, {64, 0.01}) != SceneWorkState::ready ||
+        !f.world.publish_scope(replacement))
+    {
+        return false;
+    }
+    return check(solver.valid() && !f.world.find_node(f.view.id()) && f.parameters.tick(0) &&
+                     solver.get_parameter("height", value) && value.float_value == previous,
+                 "retiring cameras drop adapter ownership without writing unpublished data");
 }
 } // namespace
 int main()

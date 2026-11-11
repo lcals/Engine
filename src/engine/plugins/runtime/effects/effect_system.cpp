@@ -144,16 +144,21 @@ struct EffectSystem::State
         release_gpu();
     }
 
-    void release_scene() noexcept
+    void release_playback() noexcept
     {
         manager.Reset();
         instances.clear();
-        preparing.clear();
-        prepared_effects.clear();
         effects.clear();
         resources.release_textures();
         time = 0.0F;
         prepared = false;
+    }
+
+    void release_scene() noexcept
+    {
+        preparing.clear();
+        prepared_effects.clear();
+        release_playback();
     }
 
     void release_gpu() noexcept
@@ -552,10 +557,11 @@ bool EffectSystem::on_tick(double delta_time)
     }
     if (!has_effect_resources(world_))
     {
-        if (!state_ || state_->prepared_effects.empty())
+        if (state_ && state_->prepared_effects.empty())
         {
-            release_scene();
+            state_->release_playback();
         }
+        pending_seconds_ = 0.0;
         return true;
     }
     const bool paused = world_.paused();
@@ -678,10 +684,11 @@ bool EffectSystem::draw(const RenderContext& context)
     }
     if (!has_effect_resources(world_))
     {
-        if (!state_ || state_->prepared_effects.empty())
+        if (state_ && state_->prepared_effects.empty())
         {
-            release_scene();
+            state_->release_playback();
         }
+        pending_seconds_ = 0.0;
         last_error_.clear();
         return true;
     }

@@ -9,10 +9,16 @@
 #include "runtime/gameplay/script_runtime.hpp"
 #include "runtime/movie/movie_frame.hpp"
 #include "runtime/movie/movie_player.hpp"
+#include "runtime/render/render_extension.hpp"
 #include "runtime/render/render_system.hpp"
+#include "runtime/scene/camera.hpp"
+#include "runtime/scene/scene.hpp"
 #include "runtime/task/task_system.hpp"
+#include "runtime/world/world_system.hpp"
 
+#include <SDL3/SDL_events.h>
 #include <SDL3/SDL_main.h>
+#include <SDL3/SDL_video.h>
 #include <nlohmann/json.hpp>
 
 #include <array>
@@ -21,6 +27,7 @@
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <map>
 #include <string>
 #include <thread>
 
@@ -338,6 +345,378 @@ bool test_movie_clock_and_startup(const EngineConfig& config, const RuntimeParal
            host.activate_gameplay() && host.tick(0) == FrameStatus::running;
 }
 
+bool test_prepare_results(const EngineConfig& config, const RuntimeParallelConfig& parallel)
+{
+    test_support::ResourceFixture fixture;
+    test_support::ResourceServices services;
+    RuntimeHost host;
+    if (!services.initialize(config) || !fixture.publish(services.core) ||
+        !host.initialize(config, &services.core, &services.loader, nullptr, nullptr,
+                         &services.threads, parallel))
+    {
+        return false;
+    }
+    auto& session = *host.gameplay();
+    const auto catalog = services.core.catalog();
+    const MountList mounts{{"content", fixture.root}};
+    std::uint64_t cancelled = 0;
+    GameplayPrepareSnapshot snapshot;
+    if (!session.begin_prepare(catalog, mounts, {}, {}, cancelled) ||
+        !expect(session.prepare_status(cancelled, snapshot) &&
+                    snapshot.state == GameplayPrepareStatus::preparing &&
+                    !session.release_prepare(cancelled),
+                "startup acceptance has an identity but is not a releasable success"))
+    {
+        return false;
+    }
+    session.stop(GameplayStopCause::requested, "A normal stop can include diagnostic text");
+    if (!expect(session.prepare_status(cancelled, snapshot) &&
+                    snapshot.state == GameplayPrepareStatus::cancelled,
+                "an explicit stop cause determines cancellation independently of its text"))
+    {
+        return false;
+    }
+    std::uint64_t active = 0;
+    if (!session.begin_prepare(catalog, mounts, {}, {}, active))
+    {
+        return false;
+    }
+    const auto advance = [&]()
+    {
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+        auto status = GameplayPrepareStatus::preparing;
+        while (status == GameplayPrepareStatus::preparing &&
+               std::chrono::steady_clock::now() < deadline)
+        {
+            if (!services.tick() || host.tick(0) != FrameStatus::running)
+            {
+                return GameplayPrepareStatus::failed;
+            }
+            status = session.step_prepare(64, 0.01);
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        return status;
+    };
+    if (!expect(active > cancelled && advance() == GameplayPrepareStatus::ready &&
+                    session.prepare_status(active, snapshot) &&
+                    snapshot.state == GameplayPrepareStatus::ready &&
+                    !session.release_prepare(active) && session.activate_prepared() &&
+                    session.prepare_status(active, snapshot) &&
+                    snapshot.state == GameplayPrepareStatus::active &&
+                    session.release_prepare(active),
+                "ready waits for explicit activation and releasing success does not stop gameplay"))
+    {
+        return false;
+    }
+    std::uint64_t rejected = 99;
+    if (!expect(!session.begin_prepare(catalog, mounts, {}, {}, rejected) && rejected == 0,
+                "a running native session rejects a second startup and clears its output"))
+    {
+        return false;
+    }
+    session.stop(GameplayStopCause::requested);
+    std::uint64_t failed = 0;
+    if (!session.begin_prepare(catalog, mounts, {}, "scenes/missing.scene", failed) ||
+        !expect(advance() == GameplayPrepareStatus::failed &&
+                    session.prepare_status(failed, snapshot) &&
+                    snapshot.state == GameplayPrepareStatus::failed && !snapshot.error.empty(),
+                "an accepted startup keeps its own asynchronous failure"))
+    {
+        return false;
+    }
+    const auto error = snapshot.error;
+    session.stop(GameplayStopCause::requested);
+    std::uint64_t next = 0;
+    if (!session.begin_prepare(catalog, mounts, {}, {}, next))
+    {
+        return false;
+    }
+    session.stop(GameplayStopCause::failure, "Synthetic runtime failure");
+    return expect(session.prepare_status(failed, snapshot) && snapshot.error == error &&
+                      session.prepare_status(next, snapshot) &&
+                      snapshot.state == GameplayPrepareStatus::failed &&
+                      session.prepare_status(cancelled, snapshot) &&
+                      snapshot.state == GameplayPrepareStatus::cancelled &&
+                      session.release_prepare(cancelled) && session.release_prepare(failed) &&
+                      session.release_prepare(next) && !session.prepare_status(active, snapshot) &&
+                      snapshot.id == 0,
+                  "restart, stop and release preserve independent terminal results");
+}
+
+bool test_scene_publication_order(const EngineConfig& config, const RuntimeParallelConfig& parallel)
+{
+    test_support::ResourceFixture fixture;
+    schema::SceneDataT replacement;
+    replacement.schema_version = 3;
+    replacement.info = std::make_unique<schema::SceneInfoT>();
+    replacement.info->name = "Replacement";
+    test_support::ResourceServices services;
+    RuntimeHost host;
+    if (!fixture.add("scenes/replacement.scene", replacement) || !services.initialize(config) ||
+        !fixture.publish(services.core) ||
+        !host.initialize(config, &services.core, &services.loader, nullptr, nullptr,
+                         &services.threads, parallel))
+    {
+        return false;
+    }
+    auto& world = *host.world();
+    auto& session = *host.gameplay();
+    auto* original = world.create_scene("Original");
+    if (!original || !original->create_node("Old content") || host.tick(0) != FrameStatus::running)
+    {
+        return false;
+    }
+    const auto original_id = original->id();
+    std::map<std::uint64_t, Node> prepared_nodes;
+    const auto ready = [&](SceneLoadId id)
+    {
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+        while (std::chrono::steady_clock::now() < deadline)
+        {
+            SceneLoadSnapshot status;
+            if (!services.tick() || host.poll_events(0) == FrameStatus::failed || !session.tick() ||
+                !session.scene_load_status(id, status))
+            {
+                return false;
+            }
+            if (status.state == SceneLoadState::staged)
+            {
+                auto* candidate = session.scene_load_scene(id);
+                auto node = candidate ? candidate->create_node("Prepared content") : Node{};
+                if (!node || !session.prepare_scene_load(id))
+                {
+                    return false;
+                }
+                prepared_nodes[id.request] = node;
+            }
+            if (status.state == SceneLoadState::ready)
+            {
+                return true;
+            }
+            if (status.state == SceneLoadState::failed)
+            {
+                std::fprintf(stderr, "scene publication: %s\n", status.error.c_str());
+                return false;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        return false;
+    };
+    SceneLoadSpec append;
+    append.kind = SceneLoadKind::append_batch;
+    append.destination_scene_id = original_id;
+    SceneLoadId first, earlier, pending, replace;
+    SceneLoadSpec replacing;
+    replacing.scene_path = "scenes/replacement.scene";
+    if (!session.begin_scene_load(append, first) || !ready(first) ||
+        !session.begin_scene_load(append, earlier) || !ready(earlier) ||
+        !session.begin_scene_load(append, pending) || !ready(pending) ||
+        !session.begin_scene_load(replacing, replace) || !ready(replace))
+    {
+        return false;
+    }
+    auto late_removed = original->create_node("Late old content");
+    auto persistent_root = original->create_node("Late persistent root");
+    auto persistent_child = original->create_node("Late persistent child");
+    if (!late_removed || !persistent_root || !persistent_child ||
+        !persistent_root.set_persistent(true) || !persistent_child.set_parent(persistent_root) ||
+        !session.activate_scene_load(earlier) || !session.activate_scene_load(first) ||
+        !session.activate_scene_load(replace) || !session.tick())
+    {
+        return false;
+    }
+    SceneLoadSnapshot status;
+    RenderFrameSnapshot frame;
+    if (!expect(
+            session.scene_load_status(first, status) &&
+                status.state == SceneLoadState::activating &&
+                status.stages.front().state == SceneWorkState::queued &&
+                session.cancel_scene_load(first) && !session.cancel_scene_load(earlier) &&
+                !session.activate_scene_load(pending) && world.scene()->id() == original_id,
+            "activation order, queued cancellation and the replacement cutoff share one target"))
+    {
+        return false;
+    }
+    if (host.tick(0) != FrameStatus::running || !session.tick() ||
+        !expect(session.scene_load_status(earlier, status) &&
+                    status.state == SceneLoadState::active &&
+                    status.first_scene_submission_id != 0 &&
+                    session.scene_load_status(replace, status) &&
+                    status.state == SceneLoadState::activating &&
+                    !host.renderer()->frame_status(status.scope, frame) &&
+                    !session.cancel_scene_load(replace) && world.scenes().size() >= 2 &&
+                    world.find_node(persistent_root.id()) && world.find_node(persistent_child.id()),
+                "replacement publishes after the earlier batch frame and retains old ownership"))
+    {
+        return false;
+    }
+    if (host.tick(0) != FrameStatus::running || !session.tick() ||
+        !expect(
+            session.scene_load_status(replace, status) && status.state == SceneLoadState::active &&
+                session.scene_load_status(pending, status) &&
+                status.state == SceneLoadState::cancelled && status.error_code == "target_replaced",
+            "only a real replacement frame completes the switch and cancels old candidates"))
+    {
+        return false;
+    }
+    for (std::size_t pass = 0; pass < 8; ++pass)
+    {
+        if (!world.tick(0))
+        {
+            return false;
+        }
+    }
+    if (!expect(!late_removed && !prepared_nodes.at(earlier.request) && persistent_root &&
+                    persistent_child && world.find_node(persistent_child.id()),
+                "late old nodes and earlier batches retire while late persistent trees remain "
+                "published"))
+    {
+        return false;
+    }
+    append.destination_scene_id = world.scene()->id();
+    SceneLoadId unloaded;
+    if (!session.begin_scene_load(append, unloaded) || !ready(unloaded) ||
+        !world.destroy_scene(append.destination_scene_id) || !session.tick())
+    {
+        return false;
+    }
+    if (!expect(session.scene_load_status(unloaded, status) &&
+                    status.state == SceneLoadState::failed &&
+                    status.error_code == "target_unloaded" && session.release_scene_load(first) &&
+                    session.release_scene_load(earlier) && session.release_scene_load(pending) &&
+                    session.release_scene_load(replace) && session.release_scene_load(unloaded),
+                "an unloaded target ends ready requests and every terminal result can be released"))
+    {
+        return false;
+    }
+    auto* target = world.create_scene("Replacement target");
+    if (!target)
+    {
+        return false;
+    }
+    append.destination_scene_id = target->id();
+    SceneLoadId cancelled_replace, blocked_append;
+    if (!session.begin_scene_load(replacing, cancelled_replace) || !ready(cancelled_replace) ||
+        !session.begin_scene_load(append, blocked_append) || !ready(blocked_append) ||
+        !expect(session.activate_scene_load(cancelled_replace) &&
+                    !session.activate_scene_load(blocked_append) &&
+                    session.cancel_scene_load(cancelled_replace) &&
+                    session.activate_scene_load(blocked_append) &&
+                    session.cancel_scene_load(blocked_append) &&
+                    session.release_scene_load(cancelled_replace) &&
+                    session.release_scene_load(blocked_append),
+                "cancelling an unpublished replacement removes its publication cutoff"))
+    {
+        return false;
+    }
+    SceneLoadId orphaned;
+    return session.begin_scene_load(replacing, orphaned) && ready(orphaned) &&
+           session.activate_scene_load(orphaned) && world.destroy_scene(target->id()) &&
+           session.tick() &&
+           expect(session.scene_load_status(orphaned, status) &&
+                      status.state == SceneLoadState::failed &&
+                      status.error_code == "target_unloaded" && !world.scene() &&
+                      session.release_scene_load(orphaned),
+                  "an accepted replacement cannot publish after its original target is destroyed");
+}
+
+class FailingRenderExtension final : public RenderExtension
+{
+public:
+    bool reject = false;
+    bool draw(const RenderContext&) override
+    {
+        return !reject;
+    }
+    void release_scene() noexcept override
+    {
+    }
+    void release_gpu() noexcept override
+    {
+    }
+};
+
+bool test_render_failure(const EngineConfig& config, const RuntimeParallelConfig& parallel)
+{
+    test_support::ResourceFixture fixture;
+    test_support::ResourceServices services;
+    RuntimeHost host;
+    FailingRenderExtension extension;
+    if (!services.initialize(config) || !fixture.publish(services.core) ||
+        !host.initialize(config, &services.core, &services.loader, nullptr, nullptr,
+                         &services.threads, parallel))
+    {
+        return false;
+    }
+    auto* scene = host.world()->create_scene("Render failure");
+    auto camera = scene ? scene->create_node("Camera").add_component<Camera>() : Camera{};
+    if (!camera || !scene->set_active_camera(camera) || !host.renderer()->add_extension(extension))
+    {
+        return false;
+    }
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+    RenderFrameSnapshot frame;
+    while ((!host.renderer()->frame_status({}, frame) || frame.kind != RenderFrameKind::scene) &&
+           std::chrono::steady_clock::now() < deadline)
+    {
+        if (!services.tick() || host.tick(0) != FrameStatus::running)
+        {
+            return false;
+        }
+    }
+    SceneLoadSpec spec;
+    spec.kind = SceneLoadKind::append_batch;
+    spec.destination_scene_id = scene->id();
+    SceneLoadId id;
+    if (!host.gameplay()->begin_scene_load(spec, id))
+    {
+        return false;
+    }
+    extension.reject = true;
+    RuntimeHostStatus status;
+    SceneLoadSnapshot load;
+    return expect(host.tick(0) == FrameStatus::failed && host.status(status) &&
+                      status.error_code == "render_failed" && !status.error.empty() &&
+                      host.gameplay()->scene_load_status(id, load) &&
+                      load.state == SceneLoadState::failed && host.tick(0) == FrameStatus::failed &&
+                      host.status(status) && status.error_code == "render_failed",
+                  "render failure preserves request errors and cannot become blank-frame success");
+}
+
+bool test_input_failure(const EngineConfig& config, const RuntimeParallelConfig& parallel)
+{
+    test_support::ResourceServices services;
+    RuntimeHost host;
+    if (!services.initialize(config) ||
+        !host.initialize(config, &services.core, &services.loader, nullptr, nullptr,
+                         &services.threads, parallel))
+    {
+        return false;
+    }
+    auto* scene = host.world()->create_scene("Input failure");
+    SceneLoadSpec spec;
+    spec.kind = SceneLoadKind::append_batch;
+    spec.destination_scene_id = scene ? scene->id() : 0;
+    SceneLoadId id;
+    SDL_Event event{};
+    event.type = SDL_EVENT_MOUSE_MOTION;
+    event.motion.windowID = SDL_GetWindowID(host.window()->native_window());
+    if (!scene || !host.gameplay()->begin_scene_load(spec, id) || !SDL_PushEvent(&event) ||
+        !host.window()->tick(0))
+    {
+        return false;
+    }
+    RuntimeHostStatus status;
+    SceneLoadSnapshot load;
+    return expect(host.poll_events(0) == FrameStatus::failed && host.status(status) &&
+                      status.error_code == "input_update_failed" && !status.error.empty() &&
+                      host.gameplay()->scene_load_status(id, load) &&
+                      load.state == SceneLoadState::failed &&
+                      host.poll_events(0) == FrameStatus::failed && host.status(status) &&
+                      status.error_code == "input_update_failed",
+                  "an event outside the input frame is finalized once at the next host safe point");
+}
+
 bool test_deployment_selection(const EngineConfig& config, const RuntimeParallelConfig& parallel)
 {
     test_support::ResourceServices services;
@@ -364,7 +743,7 @@ bool test_deployment_selection(const EngineConfig& config, const RuntimeParallel
     {
         return false;
     }
-    session.stop();
+    session.stop(GameplayStopCause::requested);
     if (!write_file(App::assets_path() / "catalog.bin", "invalid") ||
         !write_version(versions / "external", "external", platform, manifest))
     {
@@ -402,7 +781,7 @@ bool test_deployment_selection(const EngineConfig& config, const RuntimeParallel
     {
         return false;
     }
-    active.stop();
+    active.stop(GameplayStopCause::requested);
     if (!write_version(App::assets_path(), "builtin", platform) ||
         !write_version(versions / "incomplete", "incomplete", platform, manifest))
     {
@@ -423,7 +802,7 @@ bool test_deployment_selection(const EngineConfig& config, const RuntimeParallel
     {
         return false;
     }
-    host.gameplay()->stop();
+    host.gameplay()->stop(GameplayStopCause::requested);
     const auto wrong_platform = platform == "android" ? "windows" : "android";
     if (!write_version(versions / "wrong-platform", "wrong-platform", wrong_platform, manifest) ||
         !expect(host.gameplay()->start() &&
@@ -469,6 +848,10 @@ int main(int, char**)
     const bool success = test_movie_presentation(settings.engine, settings.parallel) &&
                          test_movie_clock_and_startup(settings.engine, settings.parallel) &&
                          test_completion_fairness(settings.engine, settings.parallel) &&
+                         test_prepare_results(settings.engine, settings.parallel) &&
+                         test_scene_publication_order(settings.engine, settings.parallel) &&
+                         test_render_failure(settings.engine, settings.parallel) &&
+                         test_input_failure(settings.engine, settings.parallel) &&
                          test_deployment_selection(settings.engine, settings.parallel);
     App::shutdown();
     return success ? 0 : 1;

@@ -2,6 +2,7 @@
 #include "plugins/runtime/character_controller/character_camera.hpp"
 #include "plugins/runtime/character_controller/character_controller.hpp"
 #include "runtime/scene/ecs_storage.hpp"
+#include "runtime/world/world_system.hpp"
 #include <algorithm>
 namespace engine::plugins::character_controller
 {
@@ -10,6 +11,13 @@ namespace
 bool defaults(camera::CameraController solver, const std::vector<std::string>& names)
 {
     if (!solver)
+    {
+        return true;
+    }
+    const auto node = solver.node();
+    auto* world = node.world();
+    if (!world || world->find_node(node.id()) != node ||
+        !flecs::world(world->native_world()).entity(node.id()).has<ecs_detail::Simulating>())
     {
         return true;
     }

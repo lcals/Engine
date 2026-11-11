@@ -496,7 +496,8 @@ bool test_scene_renderer(const engine::EngineConfig& config)
              {"shaders/tests/incomplete", "shaders/tests/unknown-uniform"})
         {
             if (!expect(mesh.material().set_shader(invalid_path), "select schema-valid shader") ||
-                !expect(!test_support::prepare_render(renderer) && renderer.render() &&
+                !expect(!test_support::prepare_render(renderer) &&
+                            (renderer.render() == engine::RenderSubmitStatus::submitted) &&
                             renderer.gpu_resource_count() > 0,
                         "failed replacement retains the previous valid GPU binding"))
             {
@@ -2182,7 +2183,8 @@ bool test_scope_frames_and_capture(const engine::EngineConfig& config)
     {
     }
     const auto initial = renderer.prepare_scope(batch, {1, 0.002});
-    if (!expect(initial == SceneWorkState::working && renderer.render() &&
+    if (!expect(initial == SceneWorkState::working &&
+                    (renderer.render() == engine::RenderSubmitStatus::submitted) &&
                     renderer.frame_status(original, after) &&
                     after.submission_id > before.submission_id &&
                     !renderer.frame_status(batch, before),
@@ -2194,7 +2196,7 @@ bool test_scope_frames_and_capture(const engine::EngineConfig& config)
     for (int i = 0; i < 256 && state == SceneWorkState::working; ++i)
     {
         state = renderer.prepare_scope(batch, {});
-        if (!renderer.render())
+        if (!(renderer.render() == engine::RenderSubmitStatus::submitted))
         {
             return false;
         }
@@ -2217,7 +2219,7 @@ bool test_scope_frames_and_capture(const engine::EngineConfig& config)
         !expect(world.publish_scope(batch), "the prepared batch publishes") ||
         !expect(!renderer.frame_status(batch, before),
                 "the last pre-publication frame cannot satisfy batch activation") ||
-        !renderer.render() ||
+        !(renderer.render() == engine::RenderSubmitStatus::submitted) ||
         !expect(renderer.frame_status(batch, after) && after.content_revision > 1 &&
                     world.activate_scope(batch),
                 "a submitted frame includes the whole published batch"))
@@ -2343,7 +2345,7 @@ bool test_incremental_preparation(const engine::EngineConfig& config)
         {
             return false;
         }
-        const bool rendered = renderer.render();
+        const bool rendered = (renderer.render() == engine::RenderSubmitStatus::submitted);
         if (status == engine::SceneWorkState::ready)
         {
             return expect(rendered && progress.state == engine::SceneWorkState::ready,

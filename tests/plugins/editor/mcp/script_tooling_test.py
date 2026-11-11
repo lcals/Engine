@@ -303,6 +303,8 @@ def test(
         "capture_frame",
         "get_frame_capture",
         "get_scene_load",
+        "get_gameplay_prepare",
+        "release_gameplay_prepare",
         "set_render_stats",
         "get_mesh_render_settings",
         "set_mesh_render_settings",

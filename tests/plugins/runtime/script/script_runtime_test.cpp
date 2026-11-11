@@ -2508,7 +2508,8 @@ export default class extends Gameplay {
         {
             if (!services.tick() || !script.tick(.016) || !session.tick() ||
                 renderer.prepare_scope({}, {}) == engine::SceneWorkState::failed ||
-                !renderer.render() || !world.tick(0) || !script.status().running)
+                !(renderer.render() == engine::RenderSubmitStatus::submitted) || !world.tick(0) ||
+                !script.status().running)
             {
                 return false;
             }

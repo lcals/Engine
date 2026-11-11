@@ -22,6 +22,27 @@ bool register_project_lifecycle_tools(McpSystem& system, EditorMcpTools& editor)
             return false;
         }
     }
+    for (const auto& [name, description] :
+         {std::pair{"get_gameplay_prepare", "Read an accepted gameplay startup result."},
+          {"release_gameplay_prepare",
+           "Release a terminal startup result without stopping gameplay."}})
+    {
+        const std::string command = name;
+        if (!system.register_tool(
+                {command,
+                 description,
+                 {{"type", "object"},
+                  {"properties",
+                   {{"prepareId",
+                     {{"type", "string"}, {"minLength", 1}, {"maxLength", 20}}}}},
+                  {"required", {"prepareId"}},
+                  {"additionalProperties", false}},
+                 [&editor, command](const Json& arguments, Json& output)
+                 { return editor.call_command(command, arguments, output); }}))
+        {
+            return false;
+        }
+    }
     return true;
 }
 } // namespace engine::plugins::mcp

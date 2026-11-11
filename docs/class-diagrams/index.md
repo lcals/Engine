@@ -8,6 +8,20 @@
 
 核心命名空间为 `engine`，编辑器为 `engine::editor`，插件为 `engine::plugins::<插件名>`。`*--` 表示独占拥有，`o--` 表示共享资源引用，`-->` 表示借用，`..>` 表示参数、返回值或使用依赖。
 
+## 场景加载与运行观察
+
+场景加载与截图复用运行时链路。下表汇总装配顺序、发布及失败边界、启动结果身份与协议适配的契约入口。
+
+| 职责 | 唯一契约与图 | 行为 |
+| --- | --- | --- |
+| 镜头初始化 | [相机](../plugins/runtime/class-diagrams/camera-controller.md#职责与所有权)、[宿主装配顺序](../runtime/class-diagrams/runtime-host.md#插件装配完成边界) | 系统先建立安全状态，initialized 回调完成登记后才允许加载与调度 |
+| 暂缓与故障 | [渲染返回值](../runtime/class-diagrams/render-system.md#渲染提交结果)、[宿主处理](../runtime/class-diagrams/runtime-host.md) | render 返回 submitted/deferred/failed；暂缓保留内容，实际故障先保存结果再停止 |
+| 批次与场景替换 | [加载类图与状态图](../runtime/class-diagrams/scene-loading.md#发布顺序与失败收尾)、[世界拥有关系](../runtime/class-diagrams/world-system.md) | 并行准备、按目标排序发布；首帧前保留旧场景，失效请求进入终态 |
+| 启动完成与回执 | [启动快照与接口](../runtime/class-diagrams/gameplay-session.md#启动请求的身份与结果)、[MCP 适配](../plugins/runtime/class-diagrams/mcp-runtime-test.md#状态与工具契约) | 启动增加身份和有界结果查询/释放，命令回执只证明执行或受理 |
+| 编辑器通道所有权 | [编辑器端点](../plugins/editor/class-diagrams/editor-mcp-tools.md#独立-mcp-端点)、[编辑器系统](../editor/class-diagrams/editor-system.md) | 宿主拥有端点，端点拥有通道，编辑器提供普通命令与准备推进 |
+
+RenderSubmitStatus 区分提交、暂缓和失败，GameplayStopCause 显式区分主动请求与故障，不解析诊断文字。GameplayPrepareSnapshot 保存启动事实，GameplayPrepareStatus 包含 active/cancelled 终态。启动身份使用非零 uint64_t，范围与帧保持各自身份；测试通过适配访问同一运行时实现。
+
 ## 核心与宿主
 
 - [Android 宿主](../runtime/class-diagrams/android-host.md)
@@ -30,7 +44,7 @@
 
 - [GUID 与逻辑路径映射](../runtime/class-diagrams/guid-map.md)
 - [大场景加载与准备](../runtime/class-diagrams/large-scene-preparation.md)
-- [场景加载、动态批次与业务状态（待评审）](../runtime/class-diagrams/scene-loading.md)
+- [场景加载、动态批次与业务状态](../runtime/class-diagrams/scene-loading.md)
 - [资源元数据目录](../runtime/class-diagrams/resource-catalog.md)
 - [逐类型资源处理器](../runtime/class-diagrams/resource-codecs.md)
 - [资源业务调用与模块任务](../runtime/class-diagrams/resource-consumers.md)
@@ -54,7 +68,7 @@
 - [渲染能力与调试控制](../runtime/class-diagrams/render-feature-controls.md)
 - [视图提交、剔除与静态实例化](../runtime/class-diagrams/render-submission.md)
 - [渲染系统](../runtime/class-diagrams/render-system.md)
-- [按范围准备、首帧与截图（待评审）](../runtime/class-diagrams/render-readiness.md)
+- [按范围准备、首帧与截图](../runtime/class-diagrams/render-readiness.md)
 
 ## 场景与领域组件
 
@@ -113,8 +127,8 @@
 
 ## 运行时插件
 
-- [可选运行时 MCP 与场景测试（待评审）](../plugins/runtime/class-diagrams/mcp-runtime-test.md)
-- [场景加载的脚本业务接口（待评审）](../plugins/runtime/class-diagrams/scene-loading-script-api.md)
+- [可选运行时 MCP 与场景测试](../plugins/runtime/class-diagrams/mcp-runtime-test.md)
+- [场景加载的脚本业务接口](../plugins/runtime/class-diagrams/scene-loading-script-api.md)
 - [动画重定向插件](../plugins/runtime/class-diagrams/animation-retarget.md)
 - [动画脚本接口](../plugins/runtime/class-diagrams/animation-script-api.md)
 - [TS 动画状态机](../plugins/runtime/class-diagrams/animation-state-machine.md)

@@ -52,6 +52,9 @@ struct RuntimeHostStatus
     bool window_drawable = false;
     bool exit_requested = false;
     FrameStatus frame_status = FrameStatus::running;
+    std::uint64_t prepare_id = 0;
+    std::string error_code;
+    std::string error;
 };
 
 // 工厂由宿主提供，创建尚未初始化的实例；返回空表示创建失败。
@@ -129,6 +132,10 @@ public:
 
 private:
     [[nodiscard]] FrameStatus tick_runtime(double delta_time);
+    [[nodiscard]] FrameStatus fail_runtime(std::string_view code, std::string_view message);
+    std::uint64_t startup_prepare_id_ = 0;
+    std::string error_code_;
+    std::string error_;
     std::uint64_t tick_sequence_ = 0;
     FrameStatus last_tick_status_ = FrameStatus::running;
     [[nodiscard]] bool initialize_gameplay(const EngineConfig& config,

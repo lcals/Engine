@@ -1,6 +1,6 @@
 # 角色物理组件
 
-固定步驱动、运行胶囊尺寸和支撑状态的扩展见[待评审草案](character-motor-control.md)；本页继续描述当前实现。
+固定步驱动、运行胶囊尺寸和支撑状态的契约见[角色物理固定步驱动](character-motor-control.md)；各方法只在所属图维护，验证范围见[测试文档](../../testing.md)。
 
 `engine::CharacterMotor` 只表达胶囊移动和物理状态，不解释按键或相机模式。
 

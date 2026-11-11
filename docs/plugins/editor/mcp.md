@@ -1,6 +1,6 @@
 # MCP 场景编辑
 
-`McpSystem` 只处理协议、工具注册和参数检查。`ProjectMcpTools` 登记原有项目启停、资源构建、同步与状态工具；`EditorMcpTools` 登记桌面场景工具。各模块提供工具名称、参数模型和回调，宿主在 MCP 初始化前登记。新增模块不需要改协议分派函数；需要主线程操作的工具回调可复用 `EditorMcpTools::call_command`，由对应编辑器模块注册和执行命令。
+`McpSystem` 只处理协议、工具注册和参数检查。`ProjectMcpTools` 登记资源构建、同步与目标状态工具；`EditorMcpTools` 登记项目启停及桌面场景工具。协议与通道归 runtime/mcp，编辑适配归 editor/mcp，编辑进程内的通道由宿主拥有的 EditorMcpEndpoint 管理。各模块提供工具名称、参数模型和回调，宿主在 MCP 初始化前登记。新增模块不需要改协议分派函数；需要主线程操作的工具回调复用 `EditorMcpTools::call_command`，由对应编辑器模块注册和执行命令。
 
 | 工具 | 参数与作用 |
 | --- | --- |
@@ -52,6 +52,8 @@ python3 scripts/mcp_client.py --server build/ninja-engine-release/mcp_app --proj
 提交使用操作系统文件锁 `editor-command.lock`，进程退出自动释放；当前会话的待完成请求不会被覆盖。请求和回执均核对项目、会话及编号，单文件最多 1 MiB。等待 10 秒仍未确认时返回 `activation: pending` 及原请求身份，表示**结果未确认而非取消**。回执保存在 `editor-receipts/<session>/<requestId>.json`，最新快照为 `editor-receipt.json`；同一 ID 重放不重复执行。查询回执无需编辑器在线；查询成功不代表原修改成功，须检查其中的 `success` 和 `error`。`execute_batch` 的回执命令名为编辑器内部的 `batch`。
 
 编辑器命令模块通过 `EditorCommands::register_command` 登记处理函数，修改返回一个实现 `EditorEdit::apply/revert` 的记录。宿主可借用 `EditorSystem::commands()` 在初始化后、进入主循环前登记模块；全部访问限于编辑器线程。运行时组件保持普通 C++ 接口，不引用 MCP、撤销系统或编辑器。对应类图见[命令执行](../../editor/class-diagrams/editor-commands.md)及[编辑器 MCP 工具](class-diagrams/editor-mcp-tools.md)。
+
+命令回执只确认同步执行或异步受理；启动以 prepareId 查询、场景加载以 loadId 查询、截图以 captureId 查询。启动结果通过 get_gameplay_prepare 查询、release_gameplay_prepare 释放，方法及身份契约统一见[运行时 MCP 类图](../runtime/class-diagrams/mcp-runtime-test.md#状态与工具契约)，不能把受理回执或当前 projectState 当作某次启动的最终结果。
 
 ## 渲染功能统一入口
 

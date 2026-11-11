@@ -192,6 +192,50 @@ bool advance(WindowSystem& windows, RenderSystem& renderer, EffectSystem& effect
 
 } // namespace
 
+bool empty_candidate_preparation(WorldSystem& world, EffectSystem& effects)
+{
+    SceneScopeId scope;
+    if (!world.begin_scope(SceneLoadKind::append_batch, world.scene()->id(), scope))
+    {
+        return false;
+    }
+    auto* candidate = world.scope_candidate(scope);
+    if (!candidate)
+    {
+        return false;
+    }
+    for (unsigned int index = 0; index < 16; ++index)
+    {
+        if (!candidate->create_node("Candidate without effects"))
+        {
+            return false;
+        }
+    }
+    if (!world.seal_scope(scope) || world.step_scope(scope, {64, 0.01}) != SceneWorkState::ready)
+    {
+        return false;
+    }
+    auto state = SceneWorkState::working;
+    std::uint64_t completed = 0;
+    for (unsigned int step = 0; step < 20 && state == SceneWorkState::working; ++step)
+    {
+        state = effects.prepare_scope(scope, {1, 0.01});
+        ScenePreparationSnapshot snapshot;
+        if (!expect(state != SceneWorkState::failed && effects.tick(0) &&
+                        effects.draw(RenderContext{*world.scene()}) &&
+                        effects.scope_status(scope, snapshot) &&
+                        snapshot.stages.front().completed > completed,
+                    "empty live scene preserves candidate progress across update and draw"))
+        {
+            return false;
+        }
+        completed = snapshot.stages.front().completed;
+    }
+    effects.release_scope(scope);
+    return expect(state == SceneWorkState::ready && world.cancel_scope(scope),
+                  "bounded effect preparation completes and releases an empty candidate");
+}
+
 int main(int argc, char** argv)
 {
     EngineConfig config;
@@ -277,6 +321,7 @@ int main(int argc, char** argv)
                 "create a camera-only scene") ||
         !expect(effects.draw(RenderContext{*scene}),
                 "empty effect scene does not initialize or call an unavailable GPU") ||
+        !empty_candidate_preparation(world, effects) ||
         !expect(windows.initialize(config) && renderer.initialize(config), "initialize GPU") ||
         !advance(windows, renderer, effects))
     {

@@ -28,7 +28,7 @@ inline bool prepare_render(engine::RenderSystem& renderer, engine::Camera camera
             }
             return false;
         }
-        if (!renderer.render(camera))
+        if (!(renderer.render(camera) == engine::RenderSubmitStatus::submitted))
         {
             return false;
         }
@@ -39,7 +39,8 @@ inline bool prepare_render(engine::RenderSystem& renderer, engine::Camera camera
 }
 inline bool render_frame(engine::RenderSystem& renderer, engine::Camera camera = {})
 {
-    return prepare_render(renderer, camera) && renderer.render(camera);
+    return prepare_render(renderer, camera) &&
+           (renderer.render(camera) == engine::RenderSubmitStatus::submitted);
 }
 inline bool render_ready(const engine::RenderSystem& renderer)
 {

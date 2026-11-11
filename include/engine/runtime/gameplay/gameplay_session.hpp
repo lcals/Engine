@@ -37,7 +37,25 @@ enum class GameplayPrepareStatus
 {
     preparing,
     ready,
-    failed
+    active,
+    failed,
+    cancelled
+};
+
+enum class GameplayStopCause
+{
+    requested,
+    failure
+};
+
+struct GameplayPrepareSnapshot
+{
+    std::uint64_t id = 0;
+    GameplayPrepareStatus state = GameplayPrepareStatus::preparing;
+    SceneLoadId scene_load_id;
+    std::uint64_t run_id = 0;
+    std::string error_code;
+    std::string error;
 };
 
 class GameplaySession final
@@ -59,13 +77,16 @@ public:
     [[nodiscard]] bool set_resources(const schema::AssetCatalogDataT& data, const MountList& mounts,
                                      std::string_view entry = {});
     [[nodiscard]] bool begin_prepare(const ResourceCatalog& catalog, const MountList& mounts,
-                                     std::string_view entry = {}, std::string_view scene = {});
+                                     std::string_view entry, std::string_view scene,
+                                     std::uint64_t& output_id);
     [[nodiscard]] GameplayPrepareStatus step_prepare(std::uint32_t resource_budget,
                                                      double max_seconds);
     [[nodiscard]] bool activate_prepared();
+    [[nodiscard]] bool prepare_status(std::uint64_t id, GameplayPrepareSnapshot& output) const;
+    [[nodiscard]] bool release_prepare(std::uint64_t id);
     [[nodiscard]] bool tick();
     [[nodiscard]] bool start(std::string_view entry = {});
-    void stop(std::string_view reason = {}) noexcept;
+    void stop(GameplayStopCause cause, std::string_view reason = {}) noexcept;
 #if defined(ENGINE_ENABLE_TEST_SUPPORT)
     [[nodiscard]] bool execute_project_script(const ProjectScriptRequest& request,
                                               std::string& result_json, std::string& error);
@@ -88,7 +109,11 @@ private:
     std::map<std::uint64_t, std::unique_ptr<SceneLoadOperation>> scene_loads_;
     std::uint64_t scene_load_owner_ = 0;
     std::uint64_t scene_load_sequence_ = 0;
+    std::uint64_t activation_sequence_ = 0;
+    std::map<std::uint64_t, GameplayPrepareSnapshot> preparations_;
+    std::uint64_t current_prepare_id_ = 0;
     void step_scene_loads(const SceneWorkBudget& budget);
+    void finish_scene_loads(GameplayStopCause cause, std::string_view reason) noexcept;
     void release_scene() noexcept;
     struct State;
     std::unique_ptr<State> state_;

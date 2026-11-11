@@ -138,6 +138,38 @@ bool observation_command(RuntimeHost& host, const std::filesystem::path& cache,
         error = "Observation arguments must be an object";
         return false;
     }
+    if (command == "get_gameplay_prepare" || command == "release_gameplay_prepare")
+    {
+        std::uint64_t id = 0;
+        GameplayPrepareSnapshot snapshot;
+        auto* gameplay = host.gameplay();
+        if (args.size() != 1 || !decimal(args, "prepareId", id) || id == 0 || !gameplay ||
+            !gameplay->prepare_status(id, snapshot))
+        {
+            error = "Gameplay preparation identity is invalid";
+            return false;
+        }
+        if (command == "release_gameplay_prepare")
+        {
+            if (!gameplay->release_prepare(id))
+            {
+                error = "Gameplay preparation is not terminal";
+                return false;
+            }
+            result = {{"prepareId", std::to_string(id)}, {"released", true}};
+            return true;
+        }
+        constexpr const char* states[] = {"preparing", "ready", "active", "failed", "cancelled"};
+        result = {{"id", std::to_string(snapshot.id)},
+                  {"state", states[static_cast<unsigned>(snapshot.state)]},
+                  {"sceneLoadId",
+                   {{"owner", std::to_string(snapshot.scene_load_id.owner)},
+                    {"request", std::to_string(snapshot.scene_load_id.request)}}},
+                  {"runId", std::to_string(snapshot.run_id)},
+                  {"errorCode", snapshot.error_code},
+                  {"error", snapshot.error}};
+        return true;
+    }
     if (command == "get_scene_load")
     {
         SceneLoadId id;

@@ -2,7 +2,7 @@
 
 [类图索引](../../class-diagrams/index.md) · [当前加载链路](large-scene-preparation.md) · [渲染就绪与截图](render-readiness.md) · [脚本业务接口](../../plugins/runtime/class-diagrams/scene-loading-script-api.md) · [测试 MCP](../../plugins/runtime/class-diagrams/mcp-runtime-test.md)
 
-状态与方法按本页契约实现；平台验证与限制集中见[测试文档](../../testing.md)。
+本页维护发布顺序、取消边界及失败收尾；平台验证与限制集中见[测试文档](../../testing.md)。
 
 ## 目标与职责
 
@@ -58,10 +58,13 @@ classDiagram
     }
     class SceneLoadOperation {
         <<private>>
+        -uint64_t activation_order
+        -uint64_t replaced_scene_id
     }
     class SceneLoadSpec
     class SceneLoadId
     class SceneLoadSnapshot
+    class SceneScopeId
     class Scene
     class ResourceLoad
     class ResourceLoader
@@ -73,6 +76,7 @@ classDiagram
     GameplaySession *-- SceneLoadOperation : owns requests
     SceneLoadOperation *-- ResourceLoad : owns resource requests
     SceneLoadOperation *-- SceneLoadId : stable identity
+    SceneLoadOperation *-- SceneScopeId : scope identity only
     GameplaySession --> ResourceLoader : borrows loader contract
     GameplaySession --> WorldSystem : stages and publishes
     GameplaySession --> RenderSystem : prepares and observes frames
@@ -94,9 +98,43 @@ classDiagram
 - `scene_load_status` 只读取已发布阶段记录，不执行 step、不刷新 ECS、不等待任务、不创建渲染资源。无效身份返回 false 并清空输出。collect 只复制当前保留的请求 ID，不扫描场景节点；详细信息继续调用同一状态接口。
 - `activate_scene_load` 只接受 ready 请求，排队在下一安全点发布；true 表示已受理。对同一 activating/active 请求幂等，其他状态明确拒绝。真正完成由状态查询报告。
 - `cancel_scene_load` 可取消尚未发布的请求；重复取消幂等。发布已开始或已 active 时拒绝，不能把取消误当撤销已发生的玩法操作。取消只撤销本请求持有的工作和引用，不中断其他请求共享的资源加载。
-- `release_scene_load` 仅释放 active/failed/cancelled 的操作记录；活动场景和资源已交给实际消费者持有，释放请求不会卸载场景。仍在途的请求须先取消。终态持续可查到显式释放，结束会话统一清理；请求记录设有容量上限，不能静默淘汰仍被业务观察的请求。
-- 一个会话最多一个 replace_scene 请求，可以有多个有界的 append_batch 请求。新的替换请求在旧替换仍在途时返回 busy；调用方明确取消后再发起。成功切走目标场景会取消该场景未发布的追加批次。
+- `release_scene_load` 仅释放 active/failed/cancelled 的操作记录；活动场景和资源已交给实际消费者持有，释放请求不会卸载场景。尚未发布的在途请求可先取消；已发布请求等待完成、目标失效或整会话停止，不提供单项撤销。终态持续可查到显式释放或 GameplaySession 对象销毁；stop 清理实际运行内容，但保留结果记录。请求记录设有容量上限，不能静默淘汰仍被业务观察的请求。
+- 一个会话最多一个在途 replace_scene 请求，可以有多个有界的 append_batch 请求；历史终态不占用在途名额。新的替换请求在旧替换仍在途时返回 busy。尚未发布的替换可先显式取消再发起；发布后的替换须先结清。准备并行、发布排序及旧目标上的追加批次按下节统一处理。
 - 普通 Gameplay.Update 和加载 UI 在准备期间仍可执行。新场景的敌人、关卡计时及对象行为由业务在请求 active 后开始；核心不猜测哪些项目变量属于关卡计时。原生物理与动画的激活由范围状态约束。
+
+## 发布顺序与失败收尾
+
+排序由 GameplaySession 已有操作记录承担；`activation_order` 是激活受理时分配的单调顺序，`replaced_scene_id` 锁存本次替换切走的场景身份。场景对象仍由 WorldSystem 拥有，发布事实仍从世界的 scope 记录读取，不增加另一套 Published 标记或发布管理器。
+
+- 资源读取、候选构建与领域准备继续并行。对同一目标场景，追加与替换共用发布顺序；从 `publish_scope` 成功到首帧确认及 `activate_scope` 完成，同时最多一个请求占用该区间。排队只影响发布资格，不阻塞主线程或其他目标的准备。
+- `activate_scene_load` 按受理顺序排队，状态为 activating。队列等待通过已有 stages 报告 `domain=world / stage=publication / state=queued`；发布后改为 `domain=render / stage=first_frame / state=working`。不新增公开排队枚举或重复 getter。
+- 替换的激活请求被受理后，为旧目标建立发布截止点：此前已受理的追加依序完成，之后对旧目标的追加激活返回 busy 并保持 ready；尚未发布的候选可以继续准备。替换在发布前取消/失败时撤销截止点，调用方可以重新请求激活。替换进入 active 后，旧目标上剩余未发布追加转为 cancelled，原因 `target_replaced`。
+- 正在排队但尚未发布的 activating 请求仍允许取消；取消移除其发布资格。已发布请求拒绝单项 cancel，不把停止整个会话与撤销单项发布混为一谈。
+- 旧场景在准备期间新建对象、改变父子/常驻关系或完成先前追加时，WorldSystem 按实际结构更新退休计划。追加成员以不可变清单共享，旧节点分类继续计入 step_scope 的数量与时间预算；普通变换和可见性更新不重建整份计划。未排队的 ready 请求有新增必要工作时回到 preparing，已排队请求在取得发布资格后再次预算检查世界就绪；publish_scope 仍只执行切换。候选发布前旧目标被显式销毁时，本次替换同样失败，不能把另一个场景当作原目标继续提交。
+- 目标被显式销毁、世界身份失效或候选范围消失时，所有依赖该身份的未完成请求在下一协调安全点进入 failed，原因分别为 `target_unloaded`、`world_invalidated` 或 `scope_invalidated`；移除其排队资格并安全释放本请求的准备引用。不得永远等待不可能出现的帧。已 active 请求保留成功终态，仅更新 target_alive。
+- 发布前的局部失败仅结束本请求。已发布范围发生不可继续的实际渲染故障时，按[宿主失败边界](runtime-host.md)先记录失败再停止会话。窗口暂不可绘制或渲染返回 deferred 时保留 activating 和全部拥有关系，不占用 CPU 阻塞等待，也不伪造首帧成功。
+
+下图中的两个内部节点是 activating 的执行阶段，不增加 SceneLoadState 枚举值。
+
+```mermaid
+stateDiagram-v2
+    state "ready" as Ready
+    state "activating" as Activating {
+        state "等待发布资格（未发布）" as Queued
+        state "等待范围首帧（已发布）" as AwaitingFrame
+        Queued --> AwaitingFrame: 到达顺序且 publish_scope 成功
+        AwaitingFrame --> AwaitingFrame: deferred / 暂无匹配帧
+    }
+    state "active" as Active
+    state "failed" as Failed
+    state "cancelled" as Cancelled
+    Ready --> Queued: 受理 activate
+    Queued --> Cancelled: 发布前取消
+    Queued --> Failed: 目标失效 / 发布失败
+    AwaitingFrame --> Active: 匹配首帧且 activate_scope 成功
+    AwaitingFrame --> Failed: 目标失效 / 实际故障
+    Activating --> Cancelled: 整会话主动停止
+```
 
 ## 身份、状态与进度
 
@@ -288,8 +326,8 @@ classDiagram
 - 封存后生成不可变的准备范围。变换动画等正常帧更新不创建新的加载请求；活动对象的资源替换只使其所属的局部准备失效，不能把全部已就绪场景变回 preparing。
 - 发布、可绘制和可模拟分开：publish_scope 使完整范围可被渲染，activate_scope 在确认首帧后启用其模拟。领域系统依据同一 ECS 范围状态，不各自维护互不一致的发布标记。
 - 原子切换只改变已经准备好的范围状态、活动镜头和索引入口；节点恢复、批量索引构建、碰撞注册和 GPU 上传不放在此刻执行。实现可以用 ECS 范围元数据及关联表达统一开关，不能以一次主线程大循环重新给全部节点创建对象。
-- 替换场景准备期间旧场景继续有效。提交前失败/取消保留旧场景；新场景首帧成功提交后，再退休旧的非持久内容。发布阶段发生设备失败时维持 activating 并报告渲染故障，由宿主恢复或终止，不声称新场景已经成功。
-- 首帧尚未成功时保留旧场景的拥有关系；如果恢复已经不可能，宿主明确报告失败。回收旧场景的实体与 GPU 引用按预算退休，保留资源和提交序列要求的实际寿命。
+- 替换场景准备期间旧场景继续有效。发布前失败/取消保留旧场景；发布时新范围可绘制但尚不模拟，旧非持久范围停止模拟和 UI 输入、仍保留拥有关系。新范围取得当前设备代次的有效场景帧并成功 activate_scope 后，再退休旧的非持久内容。业务在 active 前只执行其加载流程，不继续驱动已停止模拟的旧关卡对象。
+- 首帧暂缓时保持 activating，旧场景拥有关系和候选资源继续有效；设备不可用时不承诺还能显示旧画面。实际故障由宿主明确停止，不能靠清空场景获得一个清屏帧后宣布切换成功。回收旧场景实体与 GPU 引用按预算退休，保留资源和提交序列要求的实际寿命。
 - 新场景通常需要同时容纳旧场景和候选的内存。超过预算明确失败；如果业务选择先退出旧场景显示加载画面，应作为调用方显式流程，不能由加载器偷偷销毁旧内容。
 
 ## 领域准备与调度
@@ -353,7 +391,7 @@ classDiagram
 ```
 
 - prepare_scope 的第一次调用建立本领域私有准备状态，后续调用按预算推进。scope_status 为 const 纯查询；release_scope 撤销该范围未完成任务并回收本领域资源，幂等，活动范围的释放只在 WorldSystem 已退休它后进行。
-- PhysicsSystem 准备碰撞形状、刚体与角色的初始状态；准备期间不求解、不发布接触事件，待范围 active 后加入活动模拟。AnimationSystem 准备骨架映射、初始姿态及必要蒙皮数据，不推进播放时间或发送事件。
+- PhysicsSystem 准备碰撞形状、刚体与角色的初始状态；准备期间不求解、不发布接触事件，待范围 active 后加入活动模拟。未加入模拟的预备条目保存在同一物理状态中，普通冲量处理、固定步、结果发布及变换回写均跳过它们；仅发布范围仍不足以开始模拟。AnimationSystem 准备骨架映射、初始姿态及必要蒙皮数据，不推进播放时间或发送事件。
 - UiSystem 准备候选文档、布局与所需字体/图片，文档在发布前不可见且不参与输入。FontSystem 保持所属字体能力，由 UI 与渲染准备链显式使用；不把首次字体 GPU 创建藏在激活后的首帧。
 - [FontSystem.prepare_font](font-system.md) 只消费已经加载的字体与 Shader 获取；按预算准备并共享 GPU 字体数据，返回本次阶段结果。它不读取文件、不推进场景和模拟，UiSystem/RenderSystem 将结果纳入自己的范围状态；相同字体和 Shader 不重复准备。
 - 音频播放、导航作业及项目程序化生成仍使用所属显式接口；要求在进入前完成的项目工作在 staged 阶段完成后再 Prepare，或在 ready 后等待项目条件再 Activate。SceneLoad 的 ready 不冒充这些任意业务作业的完成。

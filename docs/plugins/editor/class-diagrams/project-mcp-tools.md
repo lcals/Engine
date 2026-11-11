@@ -50,7 +50,7 @@ classDiagram
 - 三个 Android 方法为私有实现接口，向 `reply` 输出工具回执文本，通过 `bool` 报告操作状态；不对玩法或其他系统公开新的设备控制接口。
 - `Path` 与 `string` 分别简写 `std::filesystem::path` 与 `std::string`，不是新增包装类型。文件读取使用 [ResourceSystem](../../../runtime/class-diagrams/resource-system.md)，编码转换使用 [PathUtils](../../../runtime/class-diagrams/path-utils.md)；路径安全检查仍归调用者。
 - stdio 支持 `initialize`、`notifications/initialized`、`ping`、`tools/list`、`tools/call`。工具包括 `build_resources`、`sync_assets`、`set_hot_reload`、`get_status` ；无参数 `start_project`、`stop_project` 由 EditorMcpTools 登记并复用统一命令通道。项目启停面向本机编辑器；Android 支持同步与热重载控制，项目启停返回未支持错误。
-- 启停通过 EditorMcpTools 的统一通道检查会话、心跳及项目，使用 OS 提交锁与逐请求持久回执。超时保留原身份并返回 pending，可用 get_request_receipt 查询；project-status 继续报告运行状态，不承担第二套请求去重。
+- 启停通过 EditorMcpTools 的统一通道检查会话、心跳及项目，使用 OS 提交锁与逐请求持久回执。传输超时保留原 requestId 并返回 pending，可用 get_request_receipt 查询命令执行/受理结果；project-status 只报告当前运行观察，不承担去重或历史启动结果。start_project 返回 prepareId，业务完成通过 get_gameplay_prepare 查询，归档后 release_gameplay_prepare；唯一契约见[运行时 MCP](../../runtime/class-diagrams/mcp-runtime-test.md#状态与工具契约)。
 - `get_status` 保留脚本版本字段，并合并编辑器运行状态、会话、最后请求结果和错误。心跳过期标记离线，磁盘历史状态不能当作活动进程证明。
 - 本机目标延续持久目录协议。Android 目标必须明确 adb 序列号和包名，先核验设备状态与 `run-as` 可用性；只支持 debuggable 包。Release 不开放此调试通路。
 - Android 文件位于包的私有 `files/`。设备已有 `assets/available.json` 时，以该完整发布版本作为同步基线；首次同步直接复用 `AssetSyncSystem` 发布完整 catalog 及引用载体，与桌面一致，无需先启动应用导出包内清单。运行时只使用选中的完整目录，缺失条目不从 APK 回退，因此无需 APK 文件删除基线。

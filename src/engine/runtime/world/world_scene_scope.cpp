@@ -172,16 +172,34 @@ SceneWorkState WorldSystem::step_scope(SceneScopeId id, const SceneWorkBudget& b
             }
             ++scope.progress.completed;
         }
-        else if (scope.sealed && scope.previous_prepared < scope.previous_nodes.size())
+        else if (scope.sealed && (scope.previous_prepared < scope.previous_nodes.size() ||
+                                  scope.previous_batch < scope.previous_batches.size()))
         {
-            const auto node = scope.previous_nodes[scope.previous_prepared++];
+            Node node;
+            if (scope.previous_prepared < scope.previous_nodes.size())
+            {
+                node = scope.previous_nodes[scope.previous_prepared++];
+            }
+            else
+            {
+                const auto& batch = *scope.previous_batches[scope.previous_batch];
+                if (scope.previous_batch_node >= batch.size())
+                {
+                    ++scope.previous_batch;
+                    scope.previous_batch_node = 0;
+                    continue;
+                }
+                node = batch[scope.previous_batch_node++];
+            }
             if (node)
             {
+                scope.previous_entities.insert(node.id());
                 auto root = node;
                 while (root.parent())
                 {
                     root = root.parent();
                 }
+                scope.prepared_roots[node.id()] = {root.id(), root.persistent()};
                 if (root.persistent())
                 {
                     flecs::world current(world_);
@@ -211,7 +229,8 @@ SceneWorkState WorldSystem::step_scope(SceneScopeId id, const SceneWorkBudget& b
     const bool complete =
         scope.restored &&
         (!scope.sealed || (scope.mapped == scope.members.size() &&
-                           scope.previous_prepared == scope.previous_nodes.size()));
+                           scope.previous_prepared == scope.previous_nodes.size() &&
+                           scope.previous_batch == scope.previous_batches.size()));
     scope.progress.state = complete ? SceneWorkState::ready : SceneWorkState::working;
     if (before != scope.progress.completed || previous_state != scope.progress.state)
     {
@@ -222,7 +241,7 @@ SceneWorkState WorldSystem::step_scope(SceneScopeId id, const SceneWorkBudget& b
     return scope.progress.state;
 }
 
-Scene* WorldSystem::scope_candidate(SceneScopeId id) noexcept
+Scene* WorldSystem::scope_candidate(SceneScopeId id) const noexcept
 {
     const auto found = scopes_.find(id.value);
     if (id.world_epoch != world_epoch_)
@@ -287,6 +306,7 @@ bool WorldSystem::seal_scope(SceneScopeId id)
                      entity.has<ecs_detail::Published>())
             {
                 scope.previous_nodes.push_back(node);
+                scope.previous_entities.insert(node.id());
             }
         });
     scope.sealed = true;
@@ -393,6 +413,28 @@ bool WorldSystem::activate_scope(SceneScopeId id)
     metadata.add<ecs_detail::Simulating>();
     metadata.get_mut<ecs_detail::ScopeState>().simulating = true;
     scope.active = true;
+    if (scope.kind == SceneLoadKind::append_batch && !scope.members.empty())
+    {
+        std::shared_ptr<const std::vector<Node>> batch;
+        for (auto& [key, preparing] : scopes_)
+        {
+            (void)key;
+            if (preparing->kind != SceneLoadKind::replace_scene || !preparing->sealed ||
+                preparing->published)
+            {
+                continue;
+            }
+            if (!batch)
+            {
+                batch = std::make_shared<const std::vector<Node>>(std::move(scope.members));
+            }
+            preparing->previous_batches.push_back(batch);
+            preparing->progress.total += batch->size();
+            preparing->progress.state = SceneWorkState::working;
+            ++preparing->progress.progress_revision;
+            preparing->progress.last_progress_ns = scope_time();
+        }
+    }
     if (scope.kind == SceneLoadKind::replace_scene)
     {
         for (auto root : scope.retirement_roots)
@@ -408,6 +450,9 @@ bool WorldSystem::activate_scope(SceneScopeId id)
             }
         }
         scope.previous_nodes.clear();
+        scope.previous_entities.clear();
+        scope.previous_batches.clear();
+        scope.prepared_roots.clear();
         scope.retirement_roots.clear();
     }
     return true;

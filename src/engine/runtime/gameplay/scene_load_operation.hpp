@@ -17,6 +17,8 @@ struct GameplaySession::SceneLoadOperation
     std::vector<ResourceReference> retained;
     std::uint64_t started_ns = 0;
     std::uint64_t resource_ready_ns = 0;
+    std::uint64_t activation_order = 0;
+    std::uint64_t replaced_scene_id = 0;
     bool restored = false;
     bool activate = false;
 };

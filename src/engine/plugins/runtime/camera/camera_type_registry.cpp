@@ -45,7 +45,7 @@ const CameraTypeRegistry* camera_types(WorldSystem& world)
 }
 bool register_camera_components(WorldSystem& world, const CameraTypeRegistry& types)
 {
-    if (!types.frozen() || !world.native_world())
+    if (!types.frozen() || !world.is_initialized() || !world.native_world())
     {
         return false;
     }

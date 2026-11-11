@@ -1,4 +1,4 @@
-"""Actual desktop window, V8 scene and MCP lifecycle integration checks, enabled only with GPU tests."""
+"""Actual desktop window, scripted scene and MCP lifecycle integration checks, enabled only with GPU tests."""
 
 import argparse
 import json
@@ -105,25 +105,30 @@ def tool(mcp, project, runtime, name, arguments=None, expect_error=False, timeou
             raise AssertionError(f"{name} original editor request timed out: {identity}")
     if name in ("start_project", "stop_project") and isinstance(body.get("result"), dict):
         body = dict(body, **body["result"])
-    if name == "start_project" and not failed:
-        # 命令受理与原生加载完成是不同边界；只查询同一请求的运行状态。
+    if name == "start_project" and not failed and not body.get("alreadyRunning"):
+        # 回执只确认受理；启动完成以同一原生准备请求的终态为准。
+        prepare_id = body.get("prepareId")
+        require(isinstance(prepare_id, str) and prepare_id.isdecimal() and int(prepare_id) > 0,
+                f"Project startup identity missing: {body}")
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
-            query_failed, status = request("get_status", {})
-            require(not query_failed and status.get("session") == body.get("session"),
-                    f"Project startup observation changed session: {status}")
-            if (status.get("lastRequestId") == body.get("requestId") and
-                    status.get("projectState") not in ("starting", "stopping")):
-                body = dict(body, projectState=status["projectState"],
-                            running=status.get("running", False), runId=status.get("runId", "0"),
-                            runtimeStatus=status)
-                failed = not body["running"]
+            query_failed, receipt = request("get_gameplay_prepare", {"prepareId": prepare_id})
+            preparation = receipt.get("result", {})
+            require(not query_failed and receipt.get("session") == body.get("session") and
+                    preparation.get("id") == prepare_id,
+                    f"Project startup observation changed identity: {receipt}")
+            state = preparation.get("state")
+            if state in ("active", "failed", "cancelled"):
+                failed = state != "active"
+                body = dict(body, projectState="idle" if failed else "running",
+                            running=not failed, runId=preparation.get("runId", "0"),
+                            preparation=preparation)
                 if failed:
-                    body["startupError"] = status.get("lastError", "")
+                    body["startupError"] = preparation.get("error", "")
                 break
             time.sleep(0.04)
         else:
-            raise AssertionError(f"Project startup timed out; last status: {status}")
+            raise AssertionError(f"Project startup timed out; last preparation: {preparation}")
     require(failed is expect_error, f"{name} unexpected result: {body}")
     return body
 

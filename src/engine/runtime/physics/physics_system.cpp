@@ -2829,6 +2829,10 @@ bool PhysicsSystem::on_tick(double delta_time)
         state_->synchronize_contacts(*world_);
         for (auto& [id, entry] : state_->bodies)
         {
+            if (!entry.added)
+            {
+                continue;
+            }
             auto node = world_->find_node(id);
             auto body = !node.valid() ? RigidBody{} : node.get_component<RigidBody>();
             RigidBody::Data body_settings;
@@ -2894,6 +2898,10 @@ bool PhysicsSystem::on_tick(double delta_time)
             ENGINE_PROFILE_ZONE("Physics.characters_step");
             for (auto& [id, entry] : state_->characters)
             {
+                if (!entry.added)
+                {
+                    continue;
+                }
                 auto node = world_->find_node(id);
                 auto motor = node.valid() ? node.get_component<CharacterMotor>() : CharacterMotor{};
                 CharacterMotor::Data motor_settings;
@@ -3089,6 +3097,10 @@ bool PhysicsSystem::on_tick(double delta_time)
         }
         for (auto& [id, entry] : state_->characters)
         {
+            if (!entry.added)
+            {
+                continue;
+            }
             auto motor = world_->find_node(id).get_component<CharacterMotor>();
             auto& runtime = *ecs_detail::component_runtime(motor);
             runtime.status = entry.result.status;
@@ -3109,6 +3121,10 @@ bool PhysicsSystem::on_tick(double delta_time)
         ENGINE_PROFILE_ZONE("Physics.sync_results");
         for (auto& [id, entry] : state_->characters)
         {
+            if (!entry.added)
+            {
+                continue;
+            }
             auto node = world_->find_node(id);
             auto motor = node.valid() ? node.get_component<CharacterMotor>() : CharacterMotor{};
             auto transform = node.valid() ? node.get_component<Transform>() : Transform{};
@@ -3136,7 +3152,7 @@ bool PhysicsSystem::on_tick(double delta_time)
         }
         for (auto& [id, entry] : state_->bodies)
         {
-            if (entry.snapshot.rigid_body.motion == schema::BodyMotion::static_body)
+            if (!entry.added || entry.snapshot.rigid_body.motion == schema::BodyMotion::static_body)
             {
                 continue;
             }
