@@ -526,8 +526,8 @@ bool GameplaySession::set_resources(const schema::AssetCatalogDataT& data, const
 }
 
 bool GameplaySession::begin_prepare(const ResourceCatalog& catalog, const MountList& mounts,
-                                    std::string_view entry, std::string_view scene,
-                                    std::uint64_t& output_id)
+                                    std::string_view revision, std::string_view entry,
+                                    std::string_view scene, std::uint64_t& output_id)
 {
     output_id = 0;
     auto* resources = &resources_;
@@ -539,7 +539,8 @@ bool GameplaySession::begin_prepare(const ResourceCatalog& catalog, const MountL
         last_error_ = "Gameplay preparation is unavailable or already active";
         return false;
     }
-    if (catalog.revision().empty() || catalog.revision() != resources->catalog().revision() ||
+    if (revision.empty() || catalog.revision().empty() ||
+        catalog.revision() != resources->catalog().revision() ||
         catalog.data().target_platform != resources->catalog().data().target_platform)
     {
         last_error_ = "Gameplay snapshot does not match the current directory";
@@ -552,7 +553,7 @@ bool GameplaySession::begin_prepare(const ResourceCatalog& catalog, const MountL
     state_->prepare_snapshot = std::make_unique<Snapshot>();
     state_->prepare_snapshot->catalog = catalog;
     state_->prepare_snapshot->mounts = mounts;
-    state_->prepare_snapshot->revision = std::string(catalog.revision());
+    state_->prepare_snapshot->revision = revision;
     state_->prepare_snapshot->entry = entry.empty() ? "scripts/game.js" : std::string(entry);
     state_->builtin = *state_->prepare_snapshot;
     state_->prepare_entry = state_->prepare_snapshot->entry;

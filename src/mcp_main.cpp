@@ -115,6 +115,8 @@ int main(int argc, char** argv)
     std::filesystem::path project;
     engine::plugins::mcp::McpTarget target;
     bool adb_supplied = false;
+    bool ios_supplied = false;
+    bool xcrun_supplied = false;
     for (int index = 1; index < argc; ++index)
     {
         const std::string_view argument(argv[index]);
@@ -122,7 +124,9 @@ int main(int argc, char** argv)
         {
             std::fputs("Usage: mcp_app --project <project-directory> "
                        "(--runtime-dir <persistent-directory> | "
-                       "--android-serial <serial> --android-package <package> [--adb <path>])\n",
+                       "--android-serial <serial> --android-package <package> [--adb <path>] | "
+                       "(--ios-device <udid> | --ios-simulator <udid>) "
+                       "--ios-bundle-id <bundle> --ios-application-name <name> [--xcrun <path>])\n",
                        stdout);
             return 0;
         }
@@ -153,6 +157,30 @@ int main(int argc, char** argv)
             target.adb_executable = engine::PathUtils::from_utf8(argv[++index]);
             adb_supplied = true;
         }
+        else if ((argument == "--ios-device" || argument == "--ios-simulator") &&
+                 index + 1 < argc && !ios_supplied)
+        {
+            target.ios_udid = argv[++index];
+            target.ios_simulator = argument == "--ios-simulator";
+            ios_supplied = true;
+        }
+        else if ((argument == "--ios-bundle-id" || argument == "--ios-application-name") &&
+                 index + 1 < argc)
+        {
+            auto& destination = argument == "--ios-bundle-id" ? target.ios_bundle_identifier
+                                                              : target.ios_application_name;
+            if (!destination.empty())
+            {
+                std::fputs("Duplicate iOS target argument\n", stderr);
+                return 2;
+            }
+            destination = argv[++index];
+        }
+        else if (argument == "--xcrun" && index + 1 < argc && !xcrun_supplied)
+        {
+            target.xcrun_executable = engine::PathUtils::from_utf8(argv[++index]);
+            xcrun_supplied = true;
+        }
         else
         {
             std::fputs("Invalid MCP startup arguments; use --help\n", stderr);
@@ -160,12 +188,20 @@ int main(int argc, char** argv)
         }
     }
     const bool android = !target.android_serial.empty() || !target.android_package.empty();
+    const bool ios = ios_supplied || !target.ios_bundle_identifier.empty() ||
+                     !target.ios_application_name.empty();
+    const bool device_target = android || ios;
     if (project.empty() ||
+        (ios && (android || !target.runtime_dir.empty() || target.ios_udid.empty() ||
+                 target.ios_bundle_identifier.empty() || target.ios_application_name.empty() ||
+                 adb_supplied)) ||
+        (xcrun_supplied && (!ios || !target.ios_simulator)) ||
         (android && (!target.runtime_dir.empty() || target.android_serial.empty() ||
                      target.android_package.empty())) ||
-        (!android && (target.runtime_dir.empty() || adb_supplied)))
+        (!device_target && (target.runtime_dir.empty() || adb_supplied)))
     {
-        std::fputs("Require --project and exactly one explicit local or Android target\n", stderr);
+        std::fputs("Require --project and exactly one explicit local, Android or iOS target\n",
+                   stderr);
         return 2;
     }
     const engine::EngineConfig config{};
@@ -322,19 +358,23 @@ int main(int argc, char** argv)
     if (!builder.initialize(config) || !sync.initialize(config) || !project_tools.initialize() ||
         !project_tools.register_tools(mcp) || !editor_tools.register_tools(mcp) ||
 #if ENGINE_HAS_ANIMATION_TOOLS_MCP
-        (!android && !engine::plugins::animation_tools::register_animation_authoring_mcp_tools(
-                         mcp, editor_tools)) ||
+        (!device_target &&
+         !engine::plugins::animation_tools::register_animation_authoring_mcp_tools(mcp,
+                                                                                   editor_tools)) ||
 #endif
-        (!android && !engine::plugins::mcp::register_render_tools(mcp, editor_tools)) ||
-        (!android && !engine::plugins::mcp::register_scene_preview_tools(mcp, editor_tools)) ||
+        (!device_target && !engine::plugins::mcp::register_render_tools(mcp, editor_tools)) ||
+        (!device_target &&
+         !engine::plugins::mcp::register_scene_preview_tools(mcp, editor_tools)) ||
 #if ENGINE_HAS_UI_EDITOR
-        (!android && !engine::plugins::ui::register_ui_editor_tools(mcp, editor_tools)) ||
+        (!device_target && !engine::plugins::ui::register_ui_editor_tools(mcp, editor_tools)) ||
 #endif
 #if ENGINE_HAS_SCENE_BAKE
-        (!android && !engine::plugins::scene_bake::register_scene_bake_tools(mcp, editor_tools)) ||
+        (!device_target &&
+         !engine::plugins::scene_bake::register_scene_bake_tools(mcp, editor_tools)) ||
 #endif
 #if ENGINE_HAS_MODELING_PLUGIN
-        (!android && !engine::plugins::modeling::register_modeling_tools(mcp, editor_tools)) ||
+        (!device_target &&
+         !engine::plugins::modeling::register_modeling_tools(mcp, editor_tools)) ||
 #endif
         !mcp.initialize(config))
     {

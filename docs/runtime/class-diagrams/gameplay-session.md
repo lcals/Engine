@@ -19,7 +19,7 @@ classDiagram
         <<final>>
         +GameplaySession(ResourceSystem& resources, WorldSystem& world, RenderSystem& renderer, ScriptRuntime#42; script, PhysicsSystem#42; physics, AudioSystem#42; audio, AnimationSystem#42; animation, FontSystem#42; fonts, UiSystem#42; ui, TaskSystem#42; background)
         +~GameplaySession()
-        +set_resources(const AssetCatalogDataT& data, const MountList& mounts, string_view entry) bool
+        +set_resources(const AssetCatalogDataT& data, const MountList& mounts, string_view revision, string_view entry) bool
         +start(string_view entry) bool
         +begin_prepare(const ResourceCatalog& catalog, const MountList& mounts, string_view entry, string_view scene, uint64_t& output_id) bool
         +step_prepare(uint32_t resource_budget, double max_seconds) GameplayPrepareStatus
@@ -122,3 +122,5 @@ classDiagram
 - `stop()` 先按上述原因语义锁存启动及加载结果，再退出脚本、停止音频、清理物理、销毁场景和 GPU；资源随共享引用释放，保留资源索引和内置定义以供下次启动。重复关闭安全，不清除仍由调用方观察的结果记录。
 - `script_status()` 直接返回脚本执行状态的只读借用，不复制或覆盖插件状态；无脚本模块返回空。会话发布 `script-status.json` 时组合执行状态、自身热重载许可及可用版本；部署错误通过会话 `last_error()` 报告，发布时优先于执行错误。
 - 类型不可复制或移动。构造、析构、stop、script_status 与 last_error 为 noexcept；状态查询为 const，可能失败方法与重要查询标注 nodiscard。停止原因必须由调用方明确给出；入口和诊断文字允许为空。
+
+发布版本身份由调用方显式传入 `revision`，不可为空；包内启动使用 catalog.revision，持久版本启动使用已校验 available.json 的 revision。目录内容身份与发布版本身份可以不同，准备和激活必须保留传入的发布身份，避免重启后误报版本或进行无效重复重载；不通过路径猜测版本，也不改变 catalog 元数据。

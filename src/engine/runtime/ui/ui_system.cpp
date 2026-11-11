@@ -1238,6 +1238,18 @@ bool UiSystem::set_image(UiElementHandle handle, std::string_view path)
     tracked->reference->SetAttribute("src", guid);
     return true;
 }
+void UiSystem::release_gpu() noexcept
+{
+    if (!state_ || !state_->initialized)
+    {
+        return;
+    }
+    cancel_input();
+    Rml::ReleaseCompiledGeometry(&state_->renderer);
+    Rml::ReleaseTextures(&state_->renderer);
+    state_->renderer.release();
+}
+
 void UiSystem::release_scene() noexcept
 {
     if (!state_ || !state_->initialized)

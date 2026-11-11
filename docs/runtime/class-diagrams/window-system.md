@@ -17,6 +17,7 @@ classDiagram
         +can_render() bool
         +request_exit() bool
         +size(WindowSize& output) bool
+        +safe_area(WindowRect& output) bool
         +display_modes(vector~DisplayMode~& output) bool
         +mode(WindowMode& output) bool
         +set_size(uint32_t logical_width, uint32_t logical_height) bool
@@ -40,6 +41,13 @@ classDiagram
         windowed
         borderless
         fullscreen
+    }
+    class WindowRect {
+        <<struct>>
+        +x : int32_t
+        +y : int32_t
+        +width : uint32_t
+        +height : uint32_t
     }
     class WindowSize {
         <<struct>>
@@ -71,6 +79,7 @@ classDiagram
     class SDL_Event
     System <|-- WindowSystem
     WindowSystem ..> EngineConfig : on_initialize 参数
+    WindowSystem ..> WindowRect : 安全区域输出
     WindowSystem ..> WindowSize : size 输出当前逻辑与像素尺寸
     WindowSystem ..> DisplayMode : 枚举输出及set_mode调用期间借用
     WindowSystem ..> WindowMode : 模式查询输出与设置参数
@@ -127,3 +136,13 @@ C++ 限定符：构造、析构、状态及窗口访问器为 `noexcept`；访�
 - 尺寸查询与设置直接使用 [SDL_GetWindowSize](https://wiki.libsdl.org/SDL3/SDL_GetWindowSize)、[SDL_GetWindowSizeInPixels](https://wiki.libsdl.org/SDL3/SDL_GetWindowSizeInPixels) 和 [SDL_SetWindowSize](https://wiki.libsdl.org/SDL3/SDL_SetWindowSize)，保留上游的逻辑尺寸与像素语义。
 - 模式枚举和切换直接使用 [SDL_GetFullscreenDisplayModes](https://wiki.libsdl.org/SDL3/SDL_GetFullscreenDisplayModes)、[SDL_SetWindowFullscreenMode](https://wiki.libsdl.org/SDL3/SDL_SetWindowFullscreenMode) 与 [SDL_SetWindowFullscreen](https://wiki.libsdl.org/SDL3/SDL_SetWindowFullscreen)。密度换算遵循 [SDL_DisplayMode](https://wiki.libsdl.org/SDL3/SDL_DisplayMode) 的正式字段，不另建模式算法。
 - 鼠标模式使用 [SDL_SetWindowRelativeMouseMode](https://wiki.libsdl.org/SDL3/SDL_SetWindowRelativeMouseMode)、[SDL_ShowCursor](https://wiki.libsdl.org/SDL3/SDL_ShowCursor) 和 [SDL_HideCursor](https://wiki.libsdl.org/SDL3/SDL_HideCursor)，查询复用对应 SDL 状态。职责沿用 [SDL3 鼠标接口](https://wiki.libsdl.org/SDL3/CategoryMouse)。
+
+## 安全区域查询
+
+- Android、iOS 共用此窗口服务契约；数据取自当前平台，不维护机型尺寸表。引擎保持完整窗口渲染，安全矩形只供项目查询；项目决定哪些 UI 需要避让，不由核心自动添加边距或裁剪场景。
+- `[[nodiscard]] bool safe_area(WindowRect& output) const noexcept`。仅在 SDL 主线程、窗口有效期间可调用；通过现有 SDL_GetWindowSafeArea 查询，失败时 output 全部清零。
+- 矩形相对窗口客户区左上角，单位为与 size().logical_width / logical_height 一致的逻辑坐标；x、y 为 int32_t，width、height 为 uint32_t。不返回平台对象或内部指针。
+- 查询成功必须是当前窗口范围内的有效矩形；没有遮挡限制时返回完整客户区。窗口尚无有效尺寸时返回失败，不能拿旧方向或旧设备的缓存冒充当前值。
+- 旋转、窗口布局或安全区域事件后重新查询，不在此接口保存场景设置，也不自动缩小相机视口或 3D 渲染分辨率。
+- 脚本同步增加 `WindowRect` 只读值接口和 `Window.GetSafeArea(): WindowRect | null`，遵守现有 Window 绑定的活动 Run / 生命周期校验；失败返回 null。声明与绑定同步维护于 engine.d.ts。
+- 类型属于 engine 窗口模块，WindowSystem 仍继承 System 并独占 SDL_Window；完整既有继承和窗口所有权见本页主图。iOS 适配见 [iOS 宿主](ios-host.md)。

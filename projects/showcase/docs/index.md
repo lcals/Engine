@@ -42,6 +42,8 @@
 
 菜单注册以 [showcase_cases.ts](../assets/scripts/models/showcase_cases.ts) 为唯一来源；具体模块操作见上面的项目文档。项目测试按需要选择，不把全部场景加入日常回归。
 
+菜单通过跨平台 `Window.GetSafeArea()` 查询当前逻辑坐标矩形，按窗口尺寸计算四边间距并避让返回按钮；安全区域或尺寸变化时刷新布局。该策略属于范例脚本，Android、iOS 使用同一调用，完整场景画面继续全屏渲染。
+
 - [case_contract_test.mjs](../tests/case_contract_test.mjs)：用例入口、项目 Controller 和 Model/View 契约；直接脚本调用不等于真实 SDL/RmlUi 输入。
 - [persistent_ui_test.mjs](../tests/persistent_ui_test.mjs)：常驻文档、状态和跨场景生命周期。
 - [mcp_interaction_test.py](../tests/mcp_interaction_test.py)：显式连接已启动、完成导入的编辑器，检查会话/Run 身份、菜单点击、滚轮、文字输入、跨场景 UI 与正常关闭。只有需要实际交互验收时运行，它会关闭该测试拥有的编辑器。

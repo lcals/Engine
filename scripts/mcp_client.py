@@ -43,8 +43,13 @@ def main():
     targets = parser.add_mutually_exclusive_group(required=True)
     targets.add_argument("--runtime-dir", type=Path)
     targets.add_argument("--android-serial")
+    targets.add_argument("--ios-device", help="Explicit paired iOS device UDID")
+    targets.add_argument("--ios-simulator", help="Explicit booted simulator UDID")
     parser.add_argument("--android-package")
     parser.add_argument("--adb", type=Path)
+    parser.add_argument("--ios-bundle-id")
+    parser.add_argument("--ios-application-name")
+    parser.add_argument("--xcrun", type=Path)
     parser.add_argument(
         "--timeout", type=float, default=120, help="Whole operation timeout in seconds"
     )
@@ -80,6 +85,13 @@ def main():
         parser.error("--android-serial requires --android-package")
     if not args.android_serial and (args.android_package or args.adb):
         parser.error("--android-package and --adb require --android-serial")
+    ios = args.ios_device or args.ios_simulator
+    if ios and (not args.ios_bundle_id or not args.ios_application_name):
+        parser.error("An iOS target requires --ios-bundle-id and --ios-application-name")
+    if not ios and (args.ios_bundle_id or args.ios_application_name or args.xcrun):
+        parser.error("iOS application options require an explicit iOS target")
+    if args.xcrun and not args.ios_simulator:
+        parser.error("--xcrun requires --ios-simulator")
     tool = {
         "start": "start_project",
         "stop": "stop_project",
@@ -123,6 +135,14 @@ def main():
             ]
             if args.adb:
                 command += ["--adb", str(args.adb.resolve())]
+        elif ios:
+            command += [
+                "--ios-simulator" if args.ios_simulator else "--ios-device", ios,
+                "--ios-bundle-id", args.ios_bundle_id,
+                "--ios-application-name", args.ios_application_name,
+            ]
+            if args.xcrun:
+                command += ["--xcrun", str(args.xcrun.resolve())]
         else:
             command += ["--runtime-dir", str(args.runtime_dir.resolve())]
         process = subprocess.Popen(

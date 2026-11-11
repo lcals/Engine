@@ -2378,7 +2378,8 @@ bool run_runtime_control_cases(test_support::ResourceServices& services, const f
                                                  nullptr, nullptr, nullptr, &window);
     constexpr std::string_view source = R"js(
 import {Gameplay,Window,Scene,App,Render,Time} from 'engine';
-const blocked = Window.GetSize() === null && Window.GetMode() === null &&
+const blocked = Window.GetSize() === null && Window.GetSafeArea() === null &&
+    Window.GetMode() === null &&
     !Window.SetMouseMode('hidden') && !App.RequestQuit() && !Scene.BeginLoad('scenes/main.scene');
 function check(value, message) {
     if (!value) throw new Error('Runtime controls: ' + message);
@@ -2391,6 +2392,10 @@ export default class extends Gameplay {
         check(blocked && this.blocked, 'module and constructor calls must be blocked');
         check(this.scene && size && size.logicalWidth > 0 && size.pixelWidth > 0,
               'active callback must query actual window sizes');
+        const safe = Window.GetSafeArea();
+        check(safe && safe.x >= 0 && safe.y >= 0 && safe.width > 0 && safe.height > 0 &&
+              safe.x + safe.width <= size.logicalWidth &&
+              safe.y + safe.height <= size.logicalHeight, 'query current logical safe area');
         check(Window.GetMode() === 'windowed', 'query windowed mode');
         check(Array.isArray(Window.GetDisplayModes()), 'query display modes');
         check(!Window.SetSize(0, 10) && !Window.SetSize(1.5, 20), 'reject invalid logical size');

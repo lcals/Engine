@@ -2,7 +2,7 @@
 
 [类图索引](../../../class-diagrams/index.md) · [协议与注册](../../runtime/class-diagrams/mcp-system.md)
 
-ProjectMcpTools 是现有项目工具的业务适配模块，显式保存项目与运行目标，借用资源系统并向通用 McpSystem 登记工具。资源与运行调试分别维护注册及实现文件；Android 传输继续由模块私有实现负责。项目启停由 EditorMcpTools 通过统一命令通道登记。
+ProjectMcpTools 是现有项目工具的业务适配模块，显式保存项目与运行目标，借用资源系统并向通用 McpSystem 登记工具。资源与运行调试分别维护注册及实现文件；Android 和 iOS 传输由各自平台目录中的模块私有实现负责。项目启停由 EditorMcpTools 通过统一命令通道登记。
 
 规划入口：[影片编辑与 MCP（待实现）](movie-mcp-tools.md)通过普通 `register_movie_tools()` 与既有编辑器命令通道组织参数、预览和通用异步导入。参数查询仅提供 meta、已导入 Movie 描述与过期状态，不由 MCP 或编辑器核心再探测原始媒体；资源构建与发布继续复用本页 `build_resources/sync_assets`。当前这两个工具仍同步执行，不能将[异步导入规划](../../../editor/class-diagrams/asset-import-jobs.md)当作已经实现的能力；本页现行方法保持不变。
 
@@ -26,6 +26,11 @@ classDiagram
         +adb_executable : Path
         +android_serial : string
         +android_package : string
+        +ios_udid : string
+        +ios_bundle_identifier : string
+        +ios_application_name : string
+        +ios_simulator : bool
+        +xcrun_executable : Path
     }
     class McpSystem
     class McpTool
@@ -49,7 +54,7 @@ classDiagram
 - `ProjectMcpTools` 构造按值保存项目根目录和目标，三个系统引用须存活到 MCP 关闭。普通业务模块不继承 System；初始化与工具注册通过 bool 报告状态。
 - 三个 Android 方法为私有实现接口，向 `reply` 输出工具回执文本，通过 `bool` 报告操作状态；不对玩法或其他系统公开新的设备控制接口。
 - `Path` 与 `string` 分别简写 `std::filesystem::path` 与 `std::string`，不是新增包装类型。文件读取使用 [ResourceSystem](../../../runtime/class-diagrams/resource-system.md)，编码转换使用 [PathUtils](../../../runtime/class-diagrams/path-utils.md)；路径安全检查仍归调用者。
-- stdio 支持 `initialize`、`notifications/initialized`、`ping`、`tools/list`、`tools/call`。工具包括 `build_resources`、`sync_assets`、`set_hot_reload`、`get_status` ；无参数 `start_project`、`stop_project` 由 EditorMcpTools 登记并复用统一命令通道。项目启停面向本机编辑器；Android 支持同步与热重载控制，项目启停返回未支持错误。
+- stdio 支持 `initialize`、`notifications/initialized`、`ping`、`tools/list`、`tools/call`。工具包括 `build_resources`、`sync_assets`、`set_hot_reload`、`get_status` ；无参数 `start_project`、`stop_project` 由 EditorMcpTools 登记并复用统一命令通道。项目启停面向本机编辑器；Android、iOS 支持同步与热重载控制，编辑器项目启停返回未支持错误。
 - 启停通过 EditorMcpTools 的统一通道检查会话、心跳及项目，使用 OS 提交锁与逐请求持久回执。传输超时保留原 requestId 并返回 pending，可用 get_request_receipt 查询命令执行/受理结果；project-status 只报告当前运行观察，不承担去重或历史启动结果。start_project 返回 prepareId，业务完成通过 get_gameplay_prepare 查询，归档后 release_gameplay_prepare；唯一契约见[运行时 MCP](../../runtime/class-diagrams/mcp-runtime-test.md#状态与工具契约)。
 - `get_status` 保留脚本版本字段，并合并编辑器运行状态、会话、最后请求结果和错误。心跳过期标记离线，磁盘历史状态不能当作活动进程证明。
 - 本机目标延续持久目录协议。Android 目标必须明确 adb 序列号和包名，先核验设备状态与 `run-as` 可用性；只支持 debuggable 包。Release 不开放此调试通路。
@@ -65,8 +70,61 @@ classDiagram
 
 ## 资源构建和部署接入
 
-ProjectMcpTools 持续借用已初始化的 AssetPipelineSystem、AssetBuildSystem 与 AssetSyncSystem。`build_resources(manifest?, items?, targetPlatform?)` 读取项目 settings 内的可选清单（默认 editor-resource-build.toml，缺失全量），由调用参数选择平台，调用构建系统并返回 revision、resources、packages、reusedPackages 和 output。
+ProjectMcpTools 持续借用已初始化的 AssetPipelineSystem、AssetBuildSystem 与 AssetSyncSystem。`build_resources(manifest?, items?, targetPlatform?)` 读取项目 settings 内的可选清单（默认 editor-resource-build.toml，缺失全量），未指定 targetPlatform 时使用已配置目标的平台，显式参数可覆盖，调用构建系统并返回 revision、resources、packages、reusedPackages 和 output。
 
 `sync_assets()` 增量导入后同步整个运行目录；可选 `source` 为项目内已构建输出目录，提供后只同步，不导入、不改写 cache/gen。两种输入均按 catalog 的存储定位收集散文件或包，不猜测每个 GUID 都有独立物理文件。
 
 导入与打包复用管线的活动编辑器检查；项目仍运行时返回明确错误要求先 stop_project，不自动停启。同步已有不可变输出不会覆盖活动编辑器缓存，可在运行时准备新候选，hot_reload 关闭时不激活。构建、同步、启动是独立操作。
+
+
+## iOS 应用容器同步
+
+```mermaid
+classDiagram
+    direction TB
+    class ProjectMcpTools {
+        -sync_ios(Path source, string& reply) bool
+        -set_ios_hot_reload(bool enabled, string& reply) bool
+        -read_ios_status(string& reply) bool
+    }
+    class IosContainer {
+        <<platform_private>>
+        +IosContainer(const McpTarget& target)
+        +~IosContainer()
+        +open(string& error) bool
+        +runtime_dir() string_view
+        +lock(string& error) bool
+        +directory(string_view path, bool& exists, string& error) bool
+        +make_directory(string_view path, string& error) bool
+        +read(string_view path, string& output, bool& exists, string& error) bool
+        +upload(Path source, string_view path, string& error) bool
+        +verify(string_view path, uint64 size, string_view hash, string& error) bool
+        +rename(string_view source, string_view target, string& error) bool
+        +remove(string_view path, string& error) bool
+    }
+    class McpTarget
+    class AssetSyncSystem
+    class AppContainerAfc["libimobiledevice / AFC"] {
+        <<external>>
+    }
+    class SimulatorContainer["simctl / native filesystem"] {
+        <<external>>
+    }
+    ProjectMcpTools ..> IosContainer : 每次操作独占临时连接
+    ProjectMcpTools --> AssetSyncSystem : 借用并生成同一完整版本
+    IosContainer --> McpTarget : 操作期间借用配置
+    IosContainer *-- AppContainerAfc : 真机连接与文件锁
+    IosContainer ..> SimulatorContainer : 模拟器容器与主机文件锁
+```
+
+- 本机、Android、iOS 目标互斥。iOS 必须显式指定设备 UDID、bundle identifier 和编译时 application_name；模拟器与真机明确区分，不接受 booted 等隐式设备选择。xcrun_executable 仅供模拟器的宿主工具定位，默认 xcrun。
+- IosContainer 仅属于 platforms/ios/editor/plugins/mcp/，不链接进游戏。一次工具调用独占连接、句柄和发布锁；析构反序释放，支持部分初始化。它只处理应用容器文件操作，不提供场景或脚本运行能力。
+- 真机使用 vcpkg 固定版本的 libimobiledevice，通过 House Arrest 的 VendContainer 访问明确应用，拒绝退回 Documents 或其他应用；设备必须已配对、信任电脑且允许该开发应用容器访问。模拟器只用 simctl 获取指定已安装应用的数据容器，之后通过主机文件系统处理同一相对目录。
+- 运行根为 Library/Application Support/<application_name>，相对选中应用容器；模拟器回执同时带真实主机目录，真机回执带容器内目录、UDID 与 bundle identity。不能用本机镜像代替设备事实。
+- 完整版本仍由 AssetSyncSystem 生成 catalog、散文件/合并包及 available.json；iOS 传输暂存后逐项分块读回校验，先提交不可变版本，最后原子重命名 available.json。发布失败保留原清单；最终提交回执不明时明确报告未确认，不虚报回滚。
+- lock 使用模拟器主机文件锁或真机 AFC flock；锁句柄持有到本次事务结束，常驻锁文件不是活动发布证明。不得用先检查再 mkdir 代替互斥锁，也不删除其他发布者的锁或旧资源版本。
+- read 用于有上限的 JSON 文件；verify 按最多 1 MiB 分块检查大小和已有资源哈希。所有路径均相对应用运行根，拒绝越界、符号链接、异常文件类型及不完整读写；输出在失败时清空或保持明确状态。
+- set_hot_reload 只原子写入 script-control.json；get_status 读取真实 script-status.json 和已发布清单。版本选择、资源准备、玩法切换和失败保留原运行全部复用 GameplaySession，正式应用不增加网络或运行态 MCP 端点。
+- 平台传输通过 bool 返回成功/失败，error 为英文上下文。rename 的成功边界为原子改名完成；remove 只用于本次拥有的暂存文件。所有公开于本私有模块的方法均在宿主调用线程同步执行，不暗示已激活新版本。
+
+上游接口见 [House Arrest](https://libimobiledevice.org/docs/libimobiledevice/latest/house__arrest_8h.html)、[AFC 文件系统](https://libimobiledevice.org/docs/libimobiledevice/latest/afc_8h.html)。

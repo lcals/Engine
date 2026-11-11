@@ -1145,6 +1145,32 @@ bool run(Systems& systems, const fs::path& project, const fs::path& screenshots)
             return false;
         }
         const auto original_document = systems.ui.document_id(ui_node_id);
+        if (cycle == 0)
+        {
+            engine::UiElementHandle button;
+            if (!expect(systems.ui.find_element(ui_node_id, "scene-cube", button) &&
+                            systems.ui.set_text(button, "Retained GPU state") &&
+                            systems.ui.set_style(button, "padding-top", "19px"),
+                        "modify the live document before releasing GPU resources"))
+            {
+                return false;
+            }
+            systems.renderer.release_scene();
+            systems.ui.release_gpu();
+            std::string text;
+            std::string padding;
+            if (!expect(systems.ui.document_id(ui_node_id) == original_document &&
+                            systems.ui.is_valid(button) && systems.ui.text(button, text) &&
+                            text == "Retained GPU state" &&
+                            systems.ui.element_style(button, "padding-top", padding) &&
+                            padding == "19px",
+                        "GPU release preserves document identity, live handles, text and styles") ||
+                !systems.frames() || !click_launcher(systems, ui_node_id) ||
+                !systems.screenshot(screenshots, "launcher-gpu-restored.png"))
+            {
+                return false;
+            }
+        }
         if (!component.set_enabled(false))
         {
             std::abort();

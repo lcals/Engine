@@ -19,12 +19,13 @@ classDiagram
         +~RuntimeHost()
         +initialize(const EngineConfig& config, ResourceSystem#42; resources, ResourceLoader#42; loader, ScriptRuntimeFactory script_factory, RuntimeSetup setup, ThreadSystem#42; threads, const RuntimeParallelConfig& parallel, AnimationRetargeterFactory retargeter_factory = nullptr) bool
         +initialize_presentation(const EngineConfig& config, ResourceSystem#42; resources, ResourceLoader#42; loader, ThreadSystem#42; threads, const RuntimeParallelConfig& parallel) bool
-        +begin_gameplay(ScriptRuntimeFactory script_factory, RuntimeSetup setup, AnimationRetargeterFactory retargeter_factory, shared_ptr~const ResourceCatalog~ catalog, shared_ptr~const MountList~ mounts, string_view entry, string_view scene) bool
+        +begin_gameplay(ScriptRuntimeFactory script_factory, RuntimeSetup setup, AnimationRetargeterFactory retargeter_factory, shared_ptr~const ResourceCatalog~ catalog, shared_ptr~const MountList~ mounts, string_view revision, string_view entry, string_view scene) bool
         +step_gameplay(double max_seconds) RuntimeStartupStatus
         +activate_gameplay() bool
         +movie_player() MoviePlayer#42;
         +tick(double delta_time) FrameStatus
         +poll_events(double delta_time) FrameStatus
+        +set_suspended(bool suspended) bool
         +gameplay() GameplaySession#42;
         +tasks() TaskSystem#42;
         +world() WorldSystem#42;
@@ -267,3 +268,17 @@ flowchart TD
 `tick(delta_time)` 接收宿主计时器的真实、未缩放秒数。影片使用完整时间推进；世界模拟沿用最多 0.1 秒的单步上限。窗口恢复后的首帧影片增量为零，不累计后台暂停时长。有音轨时以音频设备消费位置为主时钟。
 
 GPU 或窗口暂缓期间，影片计时与整个音频设备保持暂停；恢复帧成功提交后才恢复音频消费，避免有音轨影片在设备申请期间提前走完。
+
+## 宿主显式暂停
+
+
+
+- `[[nodiscard]] bool set_suspended(bool suspended)`，仅由已初始化宿主的所属主线程串行调用；不在 tick、事件路由或 Task 完成委托内重入。宿主健康时重复设置相同值成功，不增加暂停栈、令牌或平台枚举。
+- true 立即暂停整个音频设备，并冻结影片时间；随后 tick 可处理原有事件，但不推进世界模拟或提交 GPU 帧，返回现有 FrameStatus::paused。方法本身不泵事件、不派发任务、不运行脚本。
+- false 只解除调用方的显式暂停请求。窗口不可绘制或设备仍未就绪时继续 paused / deferred；音频要等恢复的第一帧实际提交后再恢复消费。恢复帧的世界和影片时间增量为零，之后使用正常宿主计时，不补算后台时长。
+- 显式暂停不改变场景、玩法运行身份、资源引用或任务域所有权。已排队的后台输入取消仍由现有事件路由在下一次模拟前处理；不以暂停为由重新启动 Gameplay。
+- 初始化前、错误线程或状态无效返回 false；音频暂停失败保持禁止模拟／呈现的安全状态，并写入既有 RuntimeHostStatus 的故障字段，使后续 tick 返回 failed。不能返回成功掩盖设备失败。
+- 此接口管理调用方的运行暂停需求；平台表面的同步 GPU 收尾继续由 RenderSurface 的既有 SuspendCallback 完成，方法不重复关闭 bgfx。iOS 入口负责在系统生命周期回调返回前完成这两项操作，见 [iOS 宿主](ios-host.md#前后台输入与时钟)。
+- 不增加项目 TS 暂停接口。正式运行状态仍从已有 status / FrameStatus 查询，测试不获得另一套暂停状态模型。
+
+发布版本身份由调用方显式传入 `revision`，不可为空；包内启动使用 catalog.revision，持久版本启动使用已校验 available.json 的 revision。目录内容身份与发布版本身份可以不同，准备和激活必须保留传入的发布身份，避免重启后误报版本或进行无效重复重载；不通过路径猜测版本，也不改变 catalog 元数据。

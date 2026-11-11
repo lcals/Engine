@@ -39,6 +39,10 @@ if("editor/asset_import" IN_LIST ENGINE_SELECTED_PLUGINS)
     include("${PROJECT_SOURCE_DIR}/cmake/dependencies/usd_import.cmake")
 endif()
 
+if("editor/mcp" IN_LIST ENGINE_SELECTED_PLUGINS)
+    include("${PROJECT_SOURCE_DIR}/cmake/dependencies/ios_device_tools.cmake")
+endif()
+
 include("${PROJECT_SOURCE_DIR}/cmake/dependencies/v8.cmake")
 
 include("${PROJECT_SOURCE_DIR}/cmake/dependencies/script.cmake")

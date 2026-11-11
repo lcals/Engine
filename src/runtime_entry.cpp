@@ -351,8 +351,8 @@ bool initialize_runtime_app(RuntimeAppState& state, const AppConfig& requested_a
             [published, persistent, builtin, platform]()
             {
                 const bool selected = engine::gameplay_detail::select_published_deployment(
-                    persistent, platform, published->catalog, published->mounts, published->entry,
-                    published->warning);
+                    persistent, platform, published->catalog, published->mounts,
+                    published->revision, published->entry, published->warning);
                 if (selected && !published->catalog.revision().empty())
                 {
                     return true;
@@ -363,6 +363,7 @@ bool initialize_runtime_app(RuntimeAppState& state, const AppConfig& requested_a
                     return false;
                 }
                 published->mounts = {{"content", builtin}};
+                published->revision = published->catalog.revision();
                 published->entry.clear();
                 return true;
             });
@@ -505,7 +506,8 @@ FrameStatus step_runtime_app(RuntimeAppState& state, double delta_time)
                 engine::LogSystem::write(engine::LogLevel::error, resource_graph.last_error());
             }
             if (!engine.begin_gameplay(script_factory, state.setup, retargeter_factory,
-                                       startup_catalog, startup_mounts, published->entry))
+                                       startup_catalog, startup_mounts, published->revision,
+                                       published->entry))
             {
                 engine::LogSystem::write(engine::LogLevel::error,
                                          "Cannot begin gameplay preparation");

@@ -1325,7 +1325,7 @@ void RenderSystem::release_scene() noexcept
     release_extensions_scene();
     if (ui_)
     {
-        ui_->release_scene();
+        ui_->release_gpu();
     }
     if (fonts_)
     {

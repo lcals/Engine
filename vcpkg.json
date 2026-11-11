@@ -7,6 +7,12 @@
     "nlohmann-json"
   ],
   "features": {
+    "ios-device-sync": {
+      "description": "Desktop MCP app-container transport for paired iOS devices",
+      "dependencies": [
+        "libimobiledevice"
+      ]
+    },
     "tracy": {
       "description": "Optional on-demand performance profiling client",
       "dependencies": [

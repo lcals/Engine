@@ -65,6 +65,51 @@ bool valid_android_target(const McpTarget& target)
     return !component_start;
 }
 
+bool valid_ios_target(const McpTarget& target)
+{
+    if (target.ios_udid.size() < 20 || target.ios_udid.size() > 64 ||
+        target.ios_bundle_identifier.empty() || target.ios_application_name.empty() ||
+        !target.runtime_dir.empty() || (target.ios_simulator && target.xcrun_executable.empty()))
+    {
+        return false;
+    }
+    for (const unsigned char value : target.ios_udid)
+    {
+        if (!((value >= '0' && value <= '9') || (value >= 'a' && value <= 'f') ||
+              (value >= 'A' && value <= 'F') || value == '-'))
+        {
+            return false;
+        }
+    }
+    if (target.ios_bundle_identifier.find('.') == std::string::npos ||
+        target.ios_bundle_identifier.front() == '.' || target.ios_bundle_identifier.back() == '.' ||
+        target.ios_bundle_identifier.find("..") != std::string::npos)
+    {
+        return false;
+    }
+    for (const unsigned char value : target.ios_bundle_identifier)
+    {
+        if (!((value >= 'a' && value <= 'z') || (value >= 'A' && value <= 'Z') ||
+              (value >= '0' && value <= '9') || value == '-' || value == '.'))
+        {
+            return false;
+        }
+    }
+    if (target.ios_application_name.front() < 'a' || target.ios_application_name.front() > 'z')
+    {
+        return false;
+    }
+    for (const unsigned char value : target.ios_application_name)
+    {
+        if (!((value >= 'a' && value <= 'z') || (value >= '0' && value <= '9') || value == '-' ||
+              value == '_'))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
 } // namespace
 
 namespace tools
@@ -119,12 +164,12 @@ bool editor_alive(const Json& status)
     return time <= now && time >= now - 5000 && status["projectState"] != "closed";
 }
 
-bool android_receipt(bool success, const std::string& text, Json& output)
+bool device_receipt(bool success, const std::string& text, Json& output)
 {
     output = Json::parse(text, nullptr, false);
     if (!output.is_object())
     {
-        output = {{"error", "Invalid Android operation receipt"}};
+        output = {{"error", "Invalid device operation receipt"}};
         return false;
     }
     return success;
@@ -166,7 +211,27 @@ bool ProjectMcpTools::initialize()
             return false;
         }
     }
-    if (!target_.android_serial.empty() || !target_.android_package.empty())
+    const bool android = !target_.android_serial.empty() || !target_.android_package.empty();
+    const bool ios = !target_.ios_udid.empty() || !target_.ios_bundle_identifier.empty() ||
+                     !target_.ios_application_name.empty() || target_.ios_simulator;
+    if (android && ios)
+    {
+        std::fputs("MCP requires exactly one explicit runtime target\n", stderr);
+        return false;
+    }
+    if (ios)
+    {
+        if (!valid_ios_target(target_))
+        {
+            std::fputs("iOS MCP requires an explicit UDID, bundle identifier and application name; "
+                       "local and Android targets are mutually exclusive\n",
+                       stderr);
+            return false;
+        }
+        initialized_ = true;
+        return true;
+    }
+    if (android)
     {
         if (!valid_android_target(target_))
         {
@@ -180,7 +245,7 @@ bool ProjectMcpTools::initialize()
     }
     if (target_.runtime_dir.empty())
     {
-        std::fputs("MCP requires an explicit local or Android target\n", stderr);
+        std::fputs("MCP requires an explicit local, Android or iOS target\n", stderr);
         return false;
     }
     target_.runtime_dir = fs::absolute(target_.runtime_dir, error).lexically_normal();

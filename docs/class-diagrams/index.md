@@ -24,6 +24,17 @@
 
 Web 专用入口、启动器、Canvas／设备与存储适配、模板和打包工具集中在 `platforms/web/`；共享宿主与通用契约仍留在所属模块。现有平台参数支持 web，资源 Schema 和项目脚本接口保持不变；原生影片与普通场景共用呈现结果。
 
+## iOS 原生运行包
+
+iOS 使用原生 Metal、共享游戏入口与普通运行时；平台入口、App 路径和打包资源集中在 platforms/ios/。已提供真机／模拟器构建与导出，实际运行验证状态见[测试文档](../testing.md#ios-原生运行包)。
+
+| 评审项 | 唯一设计入口 |
+| --- | --- |
+| 帧回调、所有权、前后台与 Metal 收尾 | [iOS 宿主](../runtime/class-diagrams/ios-host.md) |
+| 新增宿主暂停方法 | [RuntimeHost 增量](../runtime/class-diagrams/runtime-host.md#宿主显式暂停) |
+| 新增安全区域查询与值类型 | [WindowSystem 增量](../runtime/class-diagrams/window-system.md#安全区域查询) |
+| 真机／模拟器、资产快照、签名与输出 | [iOS 导出](../editor/class-diagrams/ios-export.md) |
+
 ## 场景加载与运行观察
 
 场景加载与截图复用运行时链路。下表汇总装配顺序、发布及失败边界、启动结果身份与协议适配的契约入口。

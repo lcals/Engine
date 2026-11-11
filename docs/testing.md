@@ -218,3 +218,26 @@ cmake --build --preset web-wasm32-release --target engine_web_render_test
 持久化闭环使用 [Web 存储夹具](../tests/runtime/storage/fixtures/web-game.ts)：在缓存中复制公开项目，以该文件替换副本的 `assets/scripts/game.ts`，保留邻接 meta，使用独立产品身份导出。夹具通过普通 TS `Storage.Save()` 写入递增值并记录回执；成功后直接刷新验证旧值，浏览器对该测试应用的 KV 写事务注入一次 abort，再确认失败及正常停止均保留旧值。正常路径还在 `OnShutdown` 中 Save，验证代理队列关闭顺序。测试夹具和运行副本不得用于正式发布。
 
 已在 macOS arm64、Chrome 156 的真实 WebGPU 上验证公开 PBR 和室内场景、菜单往返、正常停止／重启、普通运行时 PNG 回读与 2400×1350 到 1280×720 的缩放，以及 C++ Save 到 IndexedDB 的成功、刷新、中止回滚与关闭保存。截图与回执保存在本地忽略的 `build/research/webgpu/`。其他浏览器和设备、全部 showcase 功能以及真实配额耗尽尚未逐项验收；不据此宣称完整跨浏览器或所有可选效果等价。首版要求完整预载和 COOP/COEP，不支持编辑器 Web 化、后台流式资源下载或 V8。
+
+
+## iOS 原生运行包
+
+iOS 使用公开 showcase 与现有模块用例，运行时类及生命周期见 [iOS 宿主](runtime/class-diagrams/ios-host.md)，构建和签名入口见 [构建指南](building.md#ios-原生游戏导出)。
+
+已在 macOS arm64 / Xcode iPhoneOS 与 iPhoneSimulator 27.2 SDK 上完成真机和 arm64 模拟器的 Debug、Release 编译，所选资源、QuickJS、角色、镜头、重定向、导航、特效、地形和破坏插件参与实际链接；最低部署设置为 17.0。Release 普通包和显式 MCP 测试包均可导出，公开范例资源快照为 1370 项。模拟器包的 ad-hoc 签名已验证；真机包目前为 unsigned，未使用开发者证书安装。
+
+- `engine.runtime_host` 覆盖显式暂停、不提交帧、影片时间冻结、恢复首帧零增量及拒绝 worker 调用。
+- `engine.script_runtime` 覆盖 Window.GetSafeArea 的活动上下文限制和逻辑坐标范围。
+- `engine.font_ui_render` 覆盖渲染资源释放后保留原文档、控件句柄、动态文本和样式，重新绘制并继续接收原控件事件。
+- `engine.desktop_export` 中的 iOS 用例覆盖独立资源布局、SDK / 测试包身份拒绝、陈旧二进制拒绝、签名失败保留旧包，签名证书须匹配描述文件，以及 arm64 真机对象不能冒充模拟器对象。
+- 正式链接回执与符号检查用于确认运行端点和临时脚本只存在于测试构建；iOS MCP 复用现有文件通道，不另建协议或加载状态。
+
+arm64 iOS 26.2 模拟器已安装并启动普通包及测试包，实际后端为 Metal，画面为 1206×2622、逻辑窗口为 402×874。公开菜单、PBR 方块和公寓场景均已显示；测试端点在当前 Gameplay 中执行临时脚本、查询安全矩形，并按场景身份和设备代次完成 PNG 截图回读。该结果只覆盖这两个 3D 范例，不代表全部菜单场景已在 iOS 逐项验收。
+
+前后台切换时设备进入不可绘制状态；恢复后设备代次递增，原会话、Run、场景、文档及控件句柄保留，公寓继续绘制并成功截图。设备释放调用 UiSystem.release_gpu，保留 CPU 文档、运行时修改和订阅；停止会话仍完整释放文档。同一持久目录下 Storage.Save 后终止并重新启动测试应用，已确认键值保留。测试通道参数会显式覆盖持久目录，不能把更换通道目录当作同目录存档重启测试。
+
+Android、iOS 使用同一安全区域查询；本次实际坐标仅在 iOS 模拟器验收，Android 设备未补测。核心仍全屏绘制，菜单边距由公开范例脚本处理。真实触摸、旋转、音频中断及真机后台 GPU 行为尚未验收；真机包未签名。SDL/UIKit 在启动和前后台切换时仍输出 appearance-transition 警告，当前未造成退出或画面丢失，保留为设备验收项。模拟器通过不能代表真机通过。
+
+资源同步复用 `engine.asset_sync`；`engine.android_mcp` 与 `engine.ios_mcp` 分别回归设备目标、完整目录、损坏资源拒绝、锁、原子控制及状态真实性。iOS 容器用例覆盖多块载体、符号链接拒绝、异平台 catalog 拒绝、旧版本保留及同版本不重复发布。`engine.runtime_host` 额外验证准备身份与 catalog 内容版本不同的情况。模拟器在不装配运行态 MCP 的普通 Release 应用中，同步完整 1,370 项资源后启动，再同步改变的 UI 和脚本，已确认画面更新、Run 切换，以及 activeRevision 与 availableRevision 一致。真机 House Arrest/AFC 传输已参与 Debug / Release 编译链接，尚未用已签名真机验收。
+
+本地构建日志、导出测试结果与回执位于忽略的 `build/research/ios-runtime/`，产物位于 `output/ios/arm64/`。平台补丁及用途见 [iOS 依赖说明](../third_party/notices/ios.md)。

@@ -168,11 +168,17 @@ bool ProjectMcpTools::register_runtime_tools(McpSystem& mcp)
          [this](const Json& arguments, Json& output)
          {
              const bool enabled = arguments["enabled"].get<bool>();
+             if (!target_.ios_udid.empty())
+             {
+                 std::string receipt;
+                 const bool success = set_ios_hot_reload(enabled, receipt);
+                 return tools::device_receipt(success, receipt, output);
+             }
              if (!target_.android_serial.empty())
              {
                  std::string receipt;
                  const bool success = set_android_hot_reload(enabled, receipt);
-                 return tools::android_receipt(success, receipt, output);
+                 return tools::device_receipt(success, receipt, output);
              }
              if (!atomic_control(target_.runtime_dir, enabled))
              {
@@ -192,11 +198,17 @@ bool ProjectMcpTools::register_runtime_tools(McpSystem& mcp)
          {{"type", "object"}, {"properties", Json::object()}, {"additionalProperties", false}},
          [this](const Json&, Json& output)
          {
+             if (!target_.ios_udid.empty())
+             {
+                 std::string receipt;
+                 const bool success = read_ios_status(receipt);
+                 return tools::device_receipt(success, receipt, output);
+             }
              if (!target_.android_serial.empty())
              {
                  std::string receipt;
                  const bool success = read_android_status(receipt);
-                 return tools::android_receipt(success, receipt, output);
+                 return tools::device_receipt(success, receipt, output);
              }
              return read_status(target_.runtime_dir, output);
          }});

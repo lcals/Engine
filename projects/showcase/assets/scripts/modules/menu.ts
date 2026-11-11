@@ -1,4 +1,4 @@
-import { Resources, ResourceHandle, Debug, Gameplay, Movie, MoviePlaybackHandle, MovieState, MovieStopReason, Scene, UiComponent } from "engine";
+import { Resources, ResourceHandle, Debug, Gameplay, Movie, MoviePlaybackHandle, MovieState, MovieStopReason, Scene, UiComponent, Window } from "engine";
 import { LauncherController } from "../controllers/launcher_controller.js";
 import { LauncherChoice, LauncherModel } from "../models/launcher_model.js";
 import { ShowcaseGame } from "../models/showcase_cases.js";
@@ -9,6 +9,7 @@ export default class Game extends Gameplay {
     private active: ShowcaseGame | null = null;
     private readonly model = new LauncherModel();
     private movie: MoviePlaybackHandle | null = null;
+    private layout_signature = "";
 
     override OnInitialize(): boolean {
         for (const path of ["scenes/launcher.scene"]) {
@@ -23,6 +24,15 @@ export default class Game extends Gameplay {
     }
 
     override Update(): void {
+        const size = Window.GetSize();
+        const safe = Window.GetSafeArea();
+        if (size && safe) {
+            const signature = `${size.logicalWidth}:${size.logicalHeight}:${safe.x}:${safe.y}:${safe.width}:${safe.height}`;
+            if (signature !== this.layout_signature) {
+                this.layout_signature = signature;
+                if (!this.controller?.Refresh()) throw new Error("Cannot update the launcher safe area");
+            }
+        }
         if (this.model.movie_requested) {
             this.model.movie_requested = false;
             const resource = Resources.Load("movies/lcals.mp4");

@@ -219,8 +219,8 @@ struct EditorSystem::State
             restore_frame_rate();
             return false;
         }
-        if (!gameplay.begin_prepare(catalog, {{"content", environment.builtin_path_}}, {}, {},
-                                    prepare_id))
+        if (!gameplay.begin_prepare(catalog, {{"content", environment.builtin_path_}},
+                                    catalog.revision(), {}, {}, prepare_id))
         {
             restore_frame_rate();
             return false;

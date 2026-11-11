@@ -305,7 +305,7 @@ bool test_movie_clock_and_startup(const EngineConfig& config, const RuntimeParal
     }
     MoviePlaybackHandle handle;
     if (!player.play(movie.handle(), handle) ||
-        !host.begin_gameplay(nullptr, nullptr, nullptr, catalog, mounts) ||
+        !host.begin_gameplay(nullptr, nullptr, nullptr, catalog, mounts, catalog->revision()) ||
         !expect(host.step_gameplay(0.002) == RuntimeStartupStatus::preparing && !host.world(),
                 "world preparation waits for this movie's submitted first frame"))
     {
@@ -326,6 +326,25 @@ bool test_movie_clock_and_startup(const EngineConfig& config, const RuntimeParal
                     player.status(handle, playback) &&
                     std::abs(playback.position_seconds - 1.25) < 0.0001,
                 "silent movie receives full wall time beyond the simulation step cap"))
+    {
+        return false;
+    }
+    const auto paused_frame = host.renderer()->frame_number();
+    bool worker_rejected = false;
+    std::thread worker([&]() { worker_rejected = !host.set_suspended(true); });
+    worker.join();
+    RuntimeHostStatus paused;
+    if (!expect(worker_rejected && host.set_suspended(true) && host.set_suspended(true) &&
+                    host.status(paused) && paused.frame_status == FrameStatus::paused &&
+                    host.tick(4.0) == FrameStatus::paused &&
+                    host.renderer()->frame_number() == paused_frame &&
+                    player.status(handle, playback) &&
+                    std::abs(playback.position_seconds - 1.25) < 0.0001,
+                "suspension freezes presentation and movie time and rejects worker calls") ||
+        !expect(host.set_suspended(false) && host.tick(17.0) == FrameStatus::running &&
+                    player.status(handle, playback) &&
+                    std::abs(playback.position_seconds - 1.25) < 0.0001,
+                "the first resumed frame discards all background time"))
     {
         return false;
     }
@@ -363,7 +382,14 @@ bool test_prepare_results(const EngineConfig& config, const RuntimeParallelConfi
     const MountList mounts{{"content", fixture.root}};
     std::uint64_t cancelled = 0;
     GameplayPrepareSnapshot snapshot;
-    if (!session.begin_prepare(catalog, mounts, {}, {}, cancelled) ||
+    std::uint64_t empty_revision = 99;
+    if (!expect(!session.begin_prepare(catalog, mounts, {}, {}, {}, empty_revision) &&
+                    empty_revision == 0,
+                "preparation requires an explicit publication identity"))
+    {
+        return false;
+    }
+    if (!session.begin_prepare(catalog, mounts, catalog.revision(), {}, {}, cancelled) ||
         !expect(session.prepare_status(cancelled, snapshot) &&
                     snapshot.state == GameplayPrepareStatus::preparing &&
                     !session.release_prepare(cancelled),
@@ -379,7 +405,7 @@ bool test_prepare_results(const EngineConfig& config, const RuntimeParallelConfi
         return false;
     }
     std::uint64_t active = 0;
-    if (!session.begin_prepare(catalog, mounts, {}, {}, active))
+    if (!session.begin_prepare(catalog, mounts, "prepared-publication", {}, {}, active))
     {
         return false;
     }
@@ -411,14 +437,16 @@ bool test_prepare_results(const EngineConfig& config, const RuntimeParallelConfi
         return false;
     }
     std::uint64_t rejected = 99;
-    if (!expect(!session.begin_prepare(catalog, mounts, {}, {}, rejected) && rejected == 0,
+    if (!expect(!session.begin_prepare(catalog, mounts, catalog.revision(), {}, {}, rejected) &&
+                    rejected == 0,
                 "a running native session rejects a second startup and clears its output"))
     {
         return false;
     }
     session.stop(GameplayStopCause::requested);
     std::uint64_t failed = 0;
-    if (!session.begin_prepare(catalog, mounts, {}, "scenes/missing.scene", failed) ||
+    if (!session.begin_prepare(catalog, mounts, catalog.revision(), {}, "scenes/missing.scene",
+                               failed) ||
         !expect(advance() == GameplayPrepareStatus::failed &&
                     session.prepare_status(failed, snapshot) &&
                     snapshot.state == GameplayPrepareStatus::failed && !snapshot.error.empty(),
@@ -429,7 +457,7 @@ bool test_prepare_results(const EngineConfig& config, const RuntimeParallelConfi
     const auto error = snapshot.error;
     session.stop(GameplayStopCause::requested);
     std::uint64_t next = 0;
-    if (!session.begin_prepare(catalog, mounts, {}, {}, next))
+    if (!session.begin_prepare(catalog, mounts, catalog.revision(), {}, {}, next))
     {
         return false;
     }
@@ -762,6 +790,38 @@ bool test_deployment_selection(const EngineConfig& config, const RuntimeParallel
         return false;
     }
     auto& active = *host.gameplay();
+    active.stop(GameplayStopCause::requested);
+    const auto prepared_catalog = services.core.catalog();
+    const MountList prepared_mounts{{"content", versions / "external"}};
+    std::uint64_t prepare_id = 0;
+    if (!active.set_resources(prepared_catalog.data(), prepared_mounts) ||
+        !active.begin_prepare(prepared_catalog, prepared_mounts, "prepared-publication", {}, {},
+                              prepare_id))
+    {
+        return false;
+    }
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+    auto preparation = GameplayPrepareStatus::preparing;
+    while (preparation == GameplayPrepareStatus::preparing &&
+           std::chrono::steady_clock::now() < deadline)
+    {
+        if (!services.tick() || host.poll_events(0.0) == FrameStatus::failed)
+        {
+            return false;
+        }
+        preparation = active.step_prepare(64, 0.01);
+    }
+    if (!expect(preparation == GameplayPrepareStatus::ready && active.activate_prepared() &&
+                    active.script_status()->active_revision == "prepared-publication",
+                "prepared startup keeps publication identity distinct from catalog identity"))
+    {
+        return false;
+    }
+    active.stop(GameplayStopCause::requested);
+    if (!active.start())
+    {
+        return false;
+    }
     const auto run = active.script_status()->run_id;
     if (!write_file(App::persistent_data_path() / "script-control.json", R"({"hotReload":true})") ||
         !write_file(manifest, "invalid"))

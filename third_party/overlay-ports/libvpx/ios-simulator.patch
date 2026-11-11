@@ -1,0 +1,79 @@
+--- a/configure
++++ b/configure
+@@ -99,6 +99,7 @@
+ # alphabetically by architecture, generic-gnu last.
+ all_platforms="${all_platforms} arm64-android-gcc"
+ all_platforms="${all_platforms} arm64-darwin-gcc"
++all_platforms="${all_platforms} arm64-iphonesimulator-gcc"
+ all_platforms="${all_platforms} arm64-darwin20-gcc"
+ all_platforms="${all_platforms} arm64-darwin21-gcc"
+ all_platforms="${all_platforms} arm64-darwin22-gcc"
+--- a/build/make/configure.sh
++++ b/build/make/configure.sh
+@@ -958,10 +958,10 @@
+   # Shared library framework builds are only possible on iOS 8 and later.
+   if enabled shared; then
+     IOS_VERSION_OPTIONS="--enable-shared"
+-    IOS_VERSION_MIN="8.0"
++    IOS_VERSION_MIN="${IOS_VERSION_MIN:-8.0}"
+   else
+     IOS_VERSION_OPTIONS=""
+-    IOS_VERSION_MIN="7.0"
++    IOS_VERSION_MIN="${IOS_VERSION_MIN:-7.0}"
+   fi
+ 
+   # Handle darwin variants. Newer SDKs allow targeting older
+@@ -1038,8 +1038,8 @@
+       add_ldflags "-arch ${toolchain%%-*}"
+       ;;
+     *-iphonesimulator-*)
+-      add_cflags  "-miphoneos-version-min=${IOS_VERSION_MIN}"
+-      add_ldflags "-miphoneos-version-min=${IOS_VERSION_MIN}"
++      add_cflags  "-mios-simulator-version-min=${IOS_VERSION_MIN}"
++      add_ldflags "-mios-simulator-version-min=${IOS_VERSION_MIN}"
+       iossim_sdk_dir="$(show_darwin_sdk_path iphonesimulator)"
+       if [ -d "${iossim_sdk_dir}" ]; then
+         add_cflags  "-isysroot ${iossim_sdk_dir}"
+@@ -1223,9 +1223,15 @@
+           esac
+           ;;
+ 
+-        darwin)
++        darwin|iphonesimulator)
+           if ! enabled external_build; then
+-            XCRUN_FIND="xcrun --sdk iphoneos --find"
++            ios_sdk=iphoneos
++            ios_min_flag=-miphoneos-version-min
++            if [ "${tgt_os}" = "iphonesimulator" ]; then
++              ios_sdk=iphonesimulator
++              ios_min_flag=-mios-simulator-version-min
++            fi
++            XCRUN_FIND="xcrun --sdk ${ios_sdk} --find"
+             CXX="$(${XCRUN_FIND} clang++)"
+             CC="$(${XCRUN_FIND} clang)"
+             AR="$(${XCRUN_FIND} ar)"
+@@ -1242,13 +1248,13 @@
+             add_cflags -arch ${tgt_isa}
+             add_ldflags -arch ${tgt_isa}
+ 
+-            alt_libc="$(show_darwin_sdk_path iphoneos)"
++            alt_libc="$(show_darwin_sdk_path ${ios_sdk})"
+             if [ -d "${alt_libc}" ]; then
+               add_cflags -isysroot ${alt_libc}
+             fi
+ 
+             if [ "${LD}" = "${CXX}" ]; then
+-              add_ldflags -miphoneos-version-min="${IOS_VERSION_MIN}"
++              add_ldflags "${ios_min_flag}=${IOS_VERSION_MIN}"
+             else
+               add_ldflags -ios_version_min "${IOS_VERSION_MIN}"
+             fi
+@@ -1271,7 +1277,7 @@
+                 ;;
+             esac
+ 
+-            if [ "$(show_darwin_sdk_major_version iphoneos)" -gt 8 ] \
++            if [ "$(show_darwin_sdk_major_version ${ios_sdk})" -gt 8 ] \
+                && [ "$(show_xcode_version | cut -d. -f1)" -lt 16 ]; then
+               check_add_cflags -fembed-bitcode
+               check_add_asflags -fembed-bitcode

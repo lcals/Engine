@@ -39,6 +39,7 @@ struct RuntimeAppState
         ResourceCatalog catalog;
         MountList mounts;
         std::string entry;
+        std::string revision;
         std::string error;
         std::string warning;
     };

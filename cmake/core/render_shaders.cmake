@@ -44,10 +44,17 @@ function(engine_embed_render_shaders target)
             endif()
         endif()
         if(NOT _shaderc OR NOT EXISTS "${_shaderc}")
+            set(_shaderc_hints "${VCPKG_INSTALLED_DIR}/${VCPKG_HOST_TRIPLET}/tools/bgfx")
+            if(VCPKG_INSTALLED_DIR AND NOT VCPKG_HOST_TRIPLET)
+                file(GLOB _shaderc_installed_tools LIST_DIRECTORIES TRUE
+                    "${VCPKG_INSTALLED_DIR}/*/tools/bgfx")
+                list(APPEND _shaderc_hints ${_shaderc_installed_tools})
+            endif()
+            unset(_shaderc_program CACHE)
             find_program(
                 _shaderc_program
                 NAMES shaderc bgfx-shaderc
-                HINTS "${VCPKG_INSTALLED_DIR}/${VCPKG_HOST_TRIPLET}/tools/bgfx"
+                HINTS ${_shaderc_hints} NO_CACHE
                 NO_CMAKE_FIND_ROOT_PATH)
             set(_shaderc "${_shaderc_program}")
         endif()

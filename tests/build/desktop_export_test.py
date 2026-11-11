@@ -6,6 +6,7 @@ import hashlib
 import importlib.util
 import shutil
 import plistlib
+from datetime import datetime
 import tempfile
 import sys
 from types import SimpleNamespace
@@ -23,6 +24,10 @@ from build.prepare_android_assets_test import PACK as android, catalog_fixture, 
 _web_spec = importlib.util.spec_from_file_location("web_export", ROOT / "platforms/web/export.py")
 web = importlib.util.module_from_spec(_web_spec)
 _web_spec.loader.exec_module(web)
+
+_ios_spec = importlib.util.spec_from_file_location("ios_export", ROOT / "platforms/ios/export.py")
+ios = importlib.util.module_from_spec(_ios_spec)
+_ios_spec.loader.exec_module(ios)
 
 
 class DesktopExportTest(unittest.TestCase):
@@ -352,6 +357,132 @@ class DesktopExportTest(unittest.TestCase):
                 pass
             (stage / "new").write_text("next")
         self.assertTrue((self.destination / "new").exists())
+
+
+class IosExportTest(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory(prefix="engine-ios-export-")
+        self.root = Path(self.temporary.name).resolve()
+        self.bundle = self.root / "runtime/game.app"
+        self.bundle.mkdir(parents=True)
+        (self.bundle / "game").write_bytes(b"Mach-O fixture")
+        info = {"CFBundleIdentifier": "org.engine.game", "CFBundleExecutable": "game",
+                "MinimumOSVersion": "17.0"}
+        (self.bundle / "Info.plist").write_bytes(plistlib.dumps(info))
+        self.info = dict(platform="ios", arch="arm64", sdk="simulator", product="game",
+                         executable="game", configuration="release", scriptBackend="quickjs",
+                         minimumOS="17.0", bundleIdentifier="org.engine.game", testSupport=False,
+                         plugins=["runtime/resource_graph", "runtime/script"],
+                         checksums={n: ios.checksum(self.bundle / n) for n in ("game", "Info.plist")})
+        self.receipt = self.root / "ios-build.json"
+        self.write_info()
+        self.project = self.root / "project"
+        (self.project / "settings").mkdir(parents=True)
+        for source in (ROOT / "projects/showcase/settings").glob("runtime-*.toml"):
+            shutil.copy2(source, self.project / "settings" / source.name)
+        self.source = self.root / "resources"
+        self.source.mkdir()
+        entry = resource_entry(b"export default class Game {}")
+        path = self.source / entry["path"]
+        path.parent.mkdir()
+        path.write_bytes(entry["entity"])
+        (self.source / "catalog.bin").write_bytes(catalog_fixture([entry], "ios"))
+        for name in ("third_party/notices/fixture.md", "third_party/ozz-animation/LICENSE.md",
+                     "licenses/fixture/copyright"):
+            path = self.root / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("Fixture license")
+        self.output = self.root / "output/ios/arm64/release/runtime/simulator/game"
+        self.output.mkdir(parents=True)
+        (self.output / "previous").write_text("complete old package")
+        self.args = SimpleNamespace(product="game", configuration="release", sdk="simulator",
+            project=self.project, builder=self.root / "builder", bundle=self.bundle,
+            receipt=self.receipt, output=self.output, manifest=None, test_package=False,
+            dependency_licenses=self.root / "licenses", sign_identity=None,
+            provisioning_profile=None, icon=None, privacy_manifest=None, ipa=False)
+
+    def tearDown(self):
+        self.temporary.cleanup()
+
+    def write_info(self):
+        self.receipt.write_text(json.dumps(self.info))
+
+    def run_export(self):
+        receipt = json.dumps(dict(status="ok", targetPlatform="ios", output=str(self.source)))
+        with (mock.patch.object(ios, "ROOT", self.root),
+              mock.patch.object(ios, "validate_binary"),
+              mock.patch.object(ios.subprocess, "run", return_value=SimpleNamespace(
+                  returncode=0, stdout=receipt, stderr="")), mock.patch("builtins.print")):
+            ios.export(self.args)
+
+    def test_bundle_uses_ios_layout_and_independent_resources(self):
+        self.run_export()
+        app = self.output / "game.app"
+        self.assertTrue((app / "assets/catalog.bin").is_file())
+        self.assertTrue((app / "settings/runtime.json").is_file())
+        self.assertFalse((app / "Contents").exists())
+        self.assertEqual(plistlib.loads((app / "Info.plist").read_bytes())["CFBundleSupportedPlatforms"],
+                         ["iPhoneSimulator"])
+        self.assertEqual(json.loads((self.output / "export.json").read_text())["signing"],
+                         "simulator-ad-hoc")
+        exported = json.loads((self.output / "export.json").read_text())
+        self.assertEqual(exported["checksums"]["Info.plist"], ios.checksum(app / "Info.plist"))
+        self.assertNotEqual(exported["checksums"]["Info.plist"], self.info["checksums"]["Info.plist"])
+
+    def test_device_and_test_binaries_cannot_replace_formal_simulator_package(self):
+        for key, value in (("sdk", "device"), ("testSupport", True),
+                           ("plugins", ["editor/modeling"])):
+            with self.subTest(field=key):
+                old = self.info[key]
+                self.info[key] = value
+                self.write_info()
+                with self.assertRaises(ValueError):
+                    self.run_export()
+                self.assertEqual((self.output / "previous").read_text(), "complete old package")
+                self.info[key] = old
+
+    def test_modified_executable_is_rejected(self):
+        (self.bundle / "game").write_bytes(b"stale runtime")
+        with self.assertRaisesRegex(ValueError, "link receipt"):
+            self.run_export()
+        self.assertTrue((self.output / "previous").is_file())
+
+    def test_signing_failure_preserves_previous_package(self):
+        with mock.patch.object(ios, "sign_bundle", side_effect=ValueError("Signing failed")):
+            with self.assertRaisesRegex(ValueError, "Signing failed"):
+                self.run_export()
+        self.assertTrue((self.output / "previous").is_file())
+
+    def test_arm64_device_object_is_rejected_for_simulator(self):
+        with mock.patch.object(ios, "run", side_effect=["arm64\n", "platform IOS\n"]):
+            with self.assertRaisesRegex(ValueError, "selected iOS SDK"):
+                ios.validate_binary(self.bundle / "game", "simulator")
+
+    def test_device_signer_must_match_the_profile_certificate(self):
+        self.args.sdk = "device"
+        self.args.sign_identity = "Fixture signer"
+        self.args.provisioning_profile = self.root / "fixture.mobileprovision"
+        self.args.provisioning_profile.write_bytes(b"Provisioning fixture")
+        profile = plistlib.dumps({"ExpirationDate": datetime(2099, 1, 1),
+            "DeveloperCertificates": [b"allowed certificate"], "Entitlements": {
+                "com.apple.developer.team-identifier": "TEAM",
+                "application-identifier": "TEAM.org.engine.game"}})
+        stage = self.root / "signing"
+        stage.mkdir()
+        for certificate in (b"allowed certificate", b"unrelated certificate"):
+            def signing(command):
+                if "--extract-certificates" in command:
+                    (stage / "signing-certificate-0").write_bytes(certificate)
+                return ""
+            with (self.subTest(certificate=certificate),
+                  mock.patch.object(ios, "run", side_effect=signing),
+                  mock.patch.object(ios.subprocess, "run", return_value=SimpleNamespace(stdout=profile))):
+                if certificate == b"allowed certificate":
+                    self.assertEqual(ios.sign_bundle(self.bundle, self.args, self.info, stage),
+                                     "device-signed")
+                else:
+                    with self.assertRaisesRegex(ValueError, "not authorized"):
+                        ios.sign_bundle(self.bundle, self.args, self.info, stage)
 
 
 class WebExportTest(unittest.TestCase):

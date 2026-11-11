@@ -56,6 +56,8 @@ public:
     [[nodiscard]] bool set_style(UiElementHandle handle, std::string_view name,
                                  std::string_view value);
     [[nodiscard]] bool set_image(UiElementHandle handle, std::string_view path);
+    // 设备仍有效时释放绘制缓存；保留文档、控件身份及运行时修改。
+    void release_gpu() noexcept;
     void release_scene() noexcept;
     [[nodiscard]] bool process_event(const SDL_Event& event);
     // Explicit SDL modifier bits for caller-generated input; does not change OS input state.

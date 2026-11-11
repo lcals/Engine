@@ -151,7 +151,7 @@ private:
     static void suspend_renderer(void* context) noexcept;
     [[nodiscard]] bool initialize_renderer();
     [[nodiscard]] bool resolve_settings(RenderSettings& settings) const noexcept;
-    void shutdown_renderer() noexcept;
+    void shutdown_renderer(bool drain_screenshots = true) noexcept;
     void poll_diffuse_capture();
     void poll_hdr_capture();
     void submit_hdr_capture();

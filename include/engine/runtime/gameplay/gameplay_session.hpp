@@ -77,8 +77,8 @@ public:
     [[nodiscard]] bool set_resources(const schema::AssetCatalogDataT& data, const MountList& mounts,
                                      std::string_view entry = {});
     [[nodiscard]] bool begin_prepare(const ResourceCatalog& catalog, const MountList& mounts,
-                                     std::string_view entry, std::string_view scene,
-                                     std::uint64_t& output_id);
+                                     std::string_view revision, std::string_view entry,
+                                     std::string_view scene, std::uint64_t& output_id);
     [[nodiscard]] GameplayPrepareStatus step_prepare(std::uint32_t resource_budget,
                                                      double max_seconds);
     [[nodiscard]] bool activate_prepared();

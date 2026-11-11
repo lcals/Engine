@@ -13,12 +13,20 @@ classDiagram
     class Window {
         <<static facade>>
         +GetSize() WindowSize_or_null$
+        +GetSafeArea() WindowRect_or_null$
         +GetDisplayModes() DisplayMode_array_or_null$
         +GetMode() WindowMode_or_null$
         +SetSize(number logicalWidth, number logicalHeight) boolean$
         +SetMode(WindowMode mode, DisplayMode_or_null fullscreen) boolean$
         +GetMouseMode() MouseMode_or_null$
         +SetMouseMode(MouseMode mode) boolean$
+    }
+    class WindowRect {
+        <<readonly TS value>>
+        +number x
+        +number y
+        +number width
+        +number height
     }
     class WindowSize {
         <<readonly TS value>>
@@ -46,6 +54,7 @@ classDiagram
         hidden
         relative
     }
+    Window ..> WindowRect : 逻辑坐标安全区域
     Window ..> WindowSize : 当前逻辑与像素尺寸快照
     Window ..> DisplayMode : 当前显示器的SDL模式与像素密度
     Window ..> WindowMode : 模式参数和查询值
@@ -56,6 +65,7 @@ classDiagram
   Promise jobs 和失效上下文不能读写窗口。无窗口时查询返回 null，修改返回 false。
 - `SetSize` 使用 SDL 逻辑窗口单位，只适用于 windowed；必须是正整数且不超过 SDL 的 int
   范围。`GetSize` 同时给出实际像素尺寸，避免把 Retina 帧缓冲像素当作逻辑窗口尺寸。
+- `GetSafeArea` 返回当前窗口可安全放置交互内容的逻辑坐标矩形；无有效窗口时返回 null。旋转或布局变化后重新查询，3D 画面仍使用完整视口。
 - `GetDisplayModes` 返回当前窗口所在显示器的有效全屏模式快照，不泄露 SDL 指针。
   width/height 对应 SDL 模式尺寸，物理输出为尺寸乘 pixelDensity，不能忽略 Retina 密度。
   `SetMode("fullscreen", mode)` 只接受当前显示器实际支持的模式；`fullscreen` 以外的模式
@@ -136,7 +146,7 @@ nodiscard，非活动回调返回空。窗口有效期覆盖全部 Run，先结�
   游戏和编辑器使用同一公开接口，由调用方决定调用时机。
 - 进入战斗时启用 relative，暂停菜单/图鉴/设置/断连页恢复 normal，返回战斗再启用 relative。
 - 暂停由 Scene 实例控制；菜单继续响应 Gameplay.Update 和 UI 事件，项目只在 HUD 页面推进玩法。
-- 加载界面遵循[加载阶段与限制](../../../runtime/class-diagrams/resource-loader.md#加载阶段与限制)，
+- 加载界面遵循[资源与使用阶段](../../../runtime/class-diagrams/resource-loader.md#资源与使用阶段)，
   分别呈现资源进度、场景恢复和图形准备。
 
 ## 已选成熟实现

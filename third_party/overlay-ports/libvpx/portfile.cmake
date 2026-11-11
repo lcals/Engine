@@ -14,6 +14,7 @@ vcpkg_from_github(
         0007-msvc-use-Fo-in-toolchain-probe.patch
         # mingw shared .dll patch
         0008-enable-shared-on-mingw.patch
+        ios-simulator.patch
 )
 
 if(CMAKE_HOST_WIN32)
@@ -258,10 +259,14 @@ else()
             set(LIBVPX_TARGET "${LIBVPX_TARGET_ARCH}-darwin17-gcc") # enable latest CPU instructions for best performance and less CPU usage on MacOS
         endif()
     elseif(VCPKG_TARGET_IS_IOS)
+        set(ENV{IOS_VERSION_MIN} "${VCPKG_OSX_DEPLOYMENT_TARGET}")
         if(VCPKG_TARGET_ARCHITECTURE STREQUAL arm)
             set(LIBVPX_TARGET "armv7-darwin-gcc")
         elseif(VCPKG_TARGET_ARCHITECTURE STREQUAL arm64)
             set(LIBVPX_TARGET "arm64-darwin-gcc")
+            if(VCPKG_OSX_SYSROOT MATCHES "iphonesimulator")
+                set(LIBVPX_TARGET "arm64-iphonesimulator-gcc")
+            endif()
         else()
             message(FATAL_ERROR "libvpx does not support architecture ${VCPKG_TARGET_ARCHITECTURE} on iOS")
         endif()

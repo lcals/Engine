@@ -89,6 +89,28 @@ bool WindowSystem::size(WindowSize& output) const noexcept
     return true;
 }
 
+bool WindowSystem::safe_area(WindowRect& output) const noexcept
+{
+    output = {};
+    if (!is_initialized() || window_ == nullptr || !SDL_IsMainThread())
+    {
+        return false;
+    }
+    SDL_Rect area{};
+    int width = 0;
+    int height = 0;
+    if (!SDL_GetWindowSafeArea(window_, &area) || !SDL_GetWindowSize(window_, &width, &height) ||
+        width <= 0 || height <= 0 || area.x < 0 || area.y < 0 || area.x >= width ||
+        area.y >= height || area.w <= 0 || area.h <= 0 || area.w > width - area.x ||
+        area.h > height - area.y)
+    {
+        return false;
+    }
+    output = {area.x, area.y, static_cast<std::uint32_t>(area.w),
+              static_cast<std::uint32_t>(area.h)};
+    return true;
+}
+
 bool WindowSystem::display_modes(std::vector<DisplayMode>& output) const
 {
     output.clear();
@@ -137,7 +159,7 @@ bool WindowSystem::mode(WindowMode& output) const noexcept
     if ((SDL_GetWindowFlags(window_) & SDL_WINDOW_FULLSCREEN) != 0)
     {
         output = SDL_GetWindowFullscreenMode(window_) == nullptr ? WindowMode::borderless
-                                                                : WindowMode::fullscreen;
+                                                                 : WindowMode::fullscreen;
     }
     return true;
 }
@@ -218,8 +240,8 @@ bool WindowSystem::mouse_mode(MouseMode& output) const noexcept
         return false;
     }
     output = SDL_GetWindowRelativeMouseMode(window_) ? MouseMode::relative
-             : SDL_CursorVisible()                 ? MouseMode::normal
-                                                   : MouseMode::hidden;
+             : SDL_CursorVisible()                   ? MouseMode::normal
+                                                     : MouseMode::hidden;
     return true;
 }
 

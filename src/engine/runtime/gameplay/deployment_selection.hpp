@@ -13,5 +13,6 @@ namespace engine::gameplay_detail
 [[nodiscard]] bool select_published_deployment(const std::filesystem::path& persistent_root,
                                                std::string_view target_platform,
                                                ResourceCatalog& catalog, MountList& mounts,
-                                               std::string& entry, std::string& error);
+                                               std::string& revision, std::string& entry,
+                                               std::string& error);
 } // namespace engine::gameplay_detail

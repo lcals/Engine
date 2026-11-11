@@ -185,7 +185,7 @@ cmake --build --preset macos-native-release --target engine_export
 - macOS ARM64 默认原生模式：`output/macos/arm64/release/runtime/engine-showcase`；编辑器为相邻 `editor/editor_app`，直接从终端运行。必要私有库放 `lib/`，离线导入工具放 `tools/`，不经过 `.app` 安装或交互签名流程。`macos-native-debug` / `macos-native-release` 预设显式固定此模式；其他 Mac 桌面预设也默认 `ENGINE_MACOS_APP_BUNDLE=OFF`。
 - Android ARM64：`output/android/arm64/<debug|release>/runtime/engine-showcase.apk`；原生部分仅一个 `libmain.so`。APK 继续使用测试签名。
 
-原生桌面模式的 `catalog.bin`、`packs/` 或 `gen/` 位于程序旁的 `assets/`；默认不包含 ICU 数据。可选 `.app` 模式将它们放在 `Contents/Resources/assets/`，由 SDL 直接读取；宿主优先使用已发布的外部持久资源版本，否则使用包内版本，缺失条目不混用旧包。运行时直接读取资源，不使用自解压程序。编辑器继续要求 `--project`；运行包直接进入 Gameplay。若需要 macOS 原生应用包，配置时显式加 `-DENGINE_MACOS_APP_BUNDLE=ON`，再运行相同导出目标；程序、私有工具和初始资源均进入 `.app`，外部持久目录用于更新资源版本。本地构建仅使用系统要求的 ad-hoc 代码签名，不要求证书或用户确认；正式分发的开发者签名和公证另由发布流程提供。Linux / iOS 暂未提供或验证上述导出入口。
+原生桌面模式的 `catalog.bin`、`packs/` 或 `gen/` 位于程序旁的 `assets/`；默认不包含 ICU 数据。可选 `.app` 模式将它们放在 `Contents/Resources/assets/`，由 SDL 直接读取；宿主优先使用已发布的外部持久资源版本，否则使用包内版本，缺失条目不混用旧包。运行时直接读取资源，不使用自解压程序。编辑器继续要求 `--project`；运行包直接进入 Gameplay。若需要 macOS 原生应用包，配置时显式加 `-DENGINE_MACOS_APP_BUNDLE=ON`，再运行相同导出目标；程序、私有工具和初始资源均进入 `.app`，外部持久目录用于更新资源版本。本地构建仅使用系统要求的 ad-hoc 代码签名，不要求证书或用户确认；正式分发的开发者签名和公证另由发布流程提供。Linux 暂未提供或验证上述导出入口；iOS 使用下文的独立平台导出入口。
 
 编辑器导出包含 Shader 编译器、Node.js、引擎声明、Schema 和固定版本的 TypeScript。导入优先使用项目安装的 TypeScript；项目未安装时，只有声明版本与随包版本一致才使用随包编译器。部署目录存在但工具缺失会报告失败，避免意外借用构建电脑的工具。资源运行包不包含这些编辑器工具。
 
@@ -248,3 +248,29 @@ Web 依赖安装到 `build/dependencies/web/`；原生 shaderc 启用 WGSL/Tint�
 页面需要安全上下文、WebGPU、OffscreenCanvas 和跨源隔离；部署服务器设置 `Cross-Origin-Opener-Policy: same-origin`、`Cross-Origin-Embedder-Policy: require-corp`，为 `.wasm` 返回 `application/wasm`、`.mjs` 返回 JavaScript MIME。附带服务仅绑定本机回环地址。页面 Start 由用户触发，浏览器音频及输入权限继续遵守浏览器规则。
 
 首版完整预载所选运行包，再复用普通运行时资源加载；没有 WebGL/Noop 回退、远程分包流式更新或 Web 编辑器。正式构建排除运行态测试端点及临时脚本执行。覆盖范围见 [WebGPU 验证](testing.md#webgpu-导出)。
+
+
+## iOS 原生游戏导出
+
+在 Apple Silicon Mac 上安装并完成 Xcode 首次初始化，准备 Ninja、ccache 和固定的 vcpkg。平台入口、沙盒实现及打包器位于 `platforms/ios/`，装配见 `cmake/platforms/ios.cmake`，生命周期见 [iOS 类图](runtime/class-diagrams/ios-host.md)。
+
+```sh
+cmake --preset ninja-engine-release
+cmake --build --preset ninja-engine-release --target asset_build_app
+cmake --preset ios-arm64-device-release -DENGINE_IOS_ASSET_BUILDER="$PWD/build/ninja-engine-release/asset_build_app"
+cmake --build --preset ios-arm64-device-release --target engine_export_ios
+cmake --preset ios-arm64-simulator-release -DENGINE_IOS_ASSET_BUILDER="$PWD/build/ninja-engine-release/asset_build_app"
+cmake --build --preset ios-arm64-simulator-release --target engine_export_ios
+```
+
+`ENGINE_IOS_ASSET_BUILDER` 指向已按桌面预设编译的原生 `asset_build_app`；示例沿用已有本机工具目录，实际可使用自己的桌面构建目录，不在目标 SDK 中执行导入工具。配置前设置 `VCPKG_ROOT`；项目、产品和资源清单仍通过 `ENGINE_EXPORT_PROJECT`、`ENGINE_EXPORT_PRODUCT`、`ENGINE_EXPORT_MANIFEST` 指定。导出需关闭同一项目的原生编辑器，避免跨目标缓存互相覆盖。
+
+Debug 对应 `ios-arm64-device-debug` / `ios-arm64-simulator-debug`，只要求编译成功。真机与模拟器均为 arm64，分别使用 iphoneos / iphonesimulator SDK、独立 triplet、构建目录和 `build/dependencies/ios-device/` / `ios-simulator/` 安装根；不能复用另一个 SDK 的库。预设最低部署目标为 iOS 17.0，允许提高但拒绝降到依赖下限以下。当前脚本后端为 QuickJS，可关闭脚本插件；选择 V8 明确失败。
+
+产物根为 `output/ios/arm64/<debug|release>/runtime/<device|simulator>/<product>/`，内含 `<product>.app`、输入运行文件的成功链接回执 `ios-build.json`，以及签名后可执行文件 / Info.plist 校验值和导出状态 `export.json`。应用资源位于 `.app/assets/`，汇总设置位于 `.app/settings/runtime.json`，不使用 macOS Contents 布局。导出器检查 Mach-O SDK / 架构、链接回执、资源实体与元数据；全部复制和签名成功后才原子替换产品目录。
+
+模拟器包使用 ad-hoc 签名。真机缺少签名材料时导出状态明确为 unsigned，只能用于编译和包内容检查；不会生成可安装 IPA。需要真机部署时，通过本机 CMake 参数提供 `ENGINE_IOS_SIGN_IDENTITY` 与 `ENGINE_IOS_PROVISIONING_PROFILE`，可显式设置 `ENGINE_IOS_EXPORT_IPA=ON`；证书和描述文件不进入 Git。`ENGINE_IOS_BUNDLE_IDENTIFIER` 指定应用标识，描述文件必须覆盖该标识、未过期且包含实际签名证书。
+
+`ENGINE_IOS_ICON` 可指向编译后的 Assets.car，`ENGINE_IOS_PRIVACY_MANIFEST` 可指向应用自己的隐私 plist；导出器校验格式并随包签名，发布声明仍由应用维护，不自动推断上架合规性。
+
+测试使用 `ios-arm64-simulator-test-release` 预设，显式选用 runtime/mcp 和 `ENGINE_ENABLE_TEST_SUPPORT`；测试应用使用 `-test` 可执行名和 `.test` bundle identifier。复用现有沙盒文件通道、场景准备状态和 PNG 截图，不增加网络端点。正式预设排除这些声明和链接目标。安装、通道文件和截图的读取使用 Xcode / iOS 平台工具，运行前须完成 Xcode 初始化及所需设备授权。当前验证边界见 [iOS 测试](testing.md#ios-原生运行包)。

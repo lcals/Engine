@@ -210,6 +210,10 @@ if(TARGET mcp_app)
              COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/plugins/editor/mcp/android_mcp_test.py"
                      --mcp "$<TARGET_FILE:mcp_app>" --root "${PROJECT_SOURCE_DIR}")
     set_tests_properties(engine.android_mcp PROPERTIES TIMEOUT 180 SKIP_RETURN_CODE 77)
+    add_test(NAME engine.ios_mcp
+             COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/plugins/editor/mcp/ios_mcp_test.py"
+                     --mcp "$<TARGET_FILE:mcp_app>" --root "${PROJECT_SOURCE_DIR}")
+    set_tests_properties(engine.ios_mcp PROPERTIES TIMEOUT 180 SKIP_RETURN_CODE 77)
     add_test(
         NAME engine.script_tooling
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/plugins/editor/mcp/script_tooling_test.py" --mcp

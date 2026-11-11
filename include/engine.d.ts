@@ -76,6 +76,12 @@ declare module "engine" {
 
     export type WindowMode = "windowed" | "borderless" | "fullscreen";
     export type MouseMode = "normal" | "hidden" | "relative";
+    export interface WindowRect {
+        readonly x: number;
+        readonly y: number;
+        readonly width: number;
+        readonly height: number;
+    }
     export interface WindowSize {
         readonly logicalWidth: number;
         readonly logicalHeight: number;
@@ -93,6 +99,8 @@ declare module "engine" {
     export class Window {
         private constructor();
         static GetSize(): WindowSize | null;
+        /** Safe interactive area in logical window coordinates. */
+        static GetSafeArea(): WindowRect | null;
         static GetDisplayModes(): DisplayMode[] | null;
         static GetMode(): WindowMode | null;
         /** Logical window units, only in windowed mode. Query the actual size after events. */
