@@ -1,5 +1,7 @@
 #include "runtime/physics/physics_system.hpp"
+#include "runtime/scene/scope_work.hpp"
 
+#include "runtime/physics/character_motor_driver.hpp"
 #include "runtime/scene/character_motor_runtime.hpp"
 #include "runtime/scene/collider_runtime.hpp"
 #include "runtime/scene/rigid_body_runtime.hpp"
@@ -535,6 +537,7 @@ struct CharacterSnapshot
     schema::CharacterMotorDataT settings;
     JPH::Vec3 position = JPH::Vec3::sZero();
     bool reset_velocity = false;
+    float yaw_degrees = 0;
 };
 
 bool read_character(Node node, CharacterMotor motor, CharacterSnapshot& output)
@@ -557,6 +560,7 @@ bool read_character(Node node, CharacterMotor motor, CharacterSnapshot& output)
     output.scene_id = node.scene()->id();
     output.node_id = node.id();
     output.position = vector(pose.position);
+    output.yaw_degrees = static_cast<float>(pose.rotation.y());
     return true;
 }
 
@@ -1001,6 +1005,7 @@ struct PhysicsSystem::State final : JPH::ContactListener, JPH::CharacterContactL
         flecs::world ecs(world.native_world());
         nodes = ecs.query_builder<>(ecs.entity())
                     .with<ecs_detail::Published>()
+                    .with<ecs_detail::Simulating>()
                     .with<ecs_detail::ComponentStorage<Collider::Data>>()
                     .oper(flecs::Or)
                     .with<ecs_detail::ComponentStorage<CharacterMotor::Data>>()
@@ -1008,24 +1013,118 @@ struct PhysicsSystem::State final : JPH::ContactListener, JPH::CharacterContactL
                     .c_ptr();
         motors = ecs.query_builder<CharacterMotorRuntime>(ecs.entity())
                      .with<ecs_detail::Published>()
+                     .with<ecs_detail::Simulating>()
                      .build()
                      .c_ptr();
     }
+
+    std::map<SceneScopeId, scene_detail::ScopeWork> preparing;
 
     struct Entry
     {
         BodySnapshot snapshot;
         JPH::BodyID body;
         std::uint64_t seen_frame = 0;
+        bool added = true;
     };
 
     struct CharacterEntry
     {
         CharacterSnapshot snapshot;
+        bool added = true;
         JPH::Ref<JPH::CharacterVirtual> character;
         JPH::Vec3 external_velocity = JPH::Vec3::sZero();
         std::uint64_t seen_frame = 0;
+        Component owner{};
+        JPH::Vec3 carried_velocity = JPH::Vec3::sZero();
+        float active_half_height = 0;
+        float yaw_degrees = 0;
+        CharacterMotorStepResult result{};
+        std::map<float, JPH::RefConst<JPH::Shape>> shapes;
     };
+
+    WorldSystem* world = nullptr;
+    CharacterMotorDriver* driver = nullptr;
+    bool in_callback = false;
+    void callback(bool active)
+    {
+        in_callback = active;
+        if (world && world->native_world())
+        {
+            auto* binding =
+                flecs::world(world->native_world()).try_get_mut<CharacterMotorWorldRuntime>();
+            if (binding)
+            {
+                binding->in_callback = active;
+            }
+        }
+    }
+    void reset_owner(CharacterEntry& entry)
+    {
+        auto motor = world
+                         ? world->find_node(entry.snapshot.node_id).get_component<CharacterMotor>()
+                         : CharacterMotor{};
+        if (motor.instance_id() != entry.snapshot.instance_id)
+        {
+            motor = {};
+        }
+        if (driver && entry.owner != Component{})
+        {
+            callback(true);
+            driver->reset(entry.owner, motor);
+            callback(false);
+        }
+        if (motor)
+        {
+            auto* r = ecs_detail::component_runtime(motor);
+            r->desired_velocity_ = {};
+            r->pending_jump_ = 0;
+            r->owner = {};
+        }
+        entry.owner = {};
+    }
+    CharacterMotorStatus status(const CharacterEntry& entry, bool simulated) const
+    {
+        CharacterMotorStatus out;
+        const auto& c = *entry.character;
+        out.step = step;
+        out.simulation_time = step * fixed_step;
+        out.has_simulated = simulated;
+        out.feet_position = vector(JPH::Vec3(c.GetPosition()));
+        out.yaw_degrees = entry.yaw_degrees;
+        out.velocity = vector(c.GetLinearVelocity());
+        out.active_half_height = entry.active_half_height;
+        out.external_planar_velocity = vector(entry.external_velocity);
+        out.carried_planar_velocity = vector(entry.carried_velocity);
+        switch (c.GetGroundState())
+        {
+        case JPH::CharacterBase::EGroundState::OnGround:
+            out.ground_state = CharacterGroundState::supported;
+            break;
+        case JPH::CharacterBase::EGroundState::OnSteepGround:
+            out.ground_state = CharacterGroundState::steep;
+            break;
+        case JPH::CharacterBase::EGroundState::NotSupported:
+            out.ground_state = CharacterGroundState::unsupported;
+            break;
+        case JPH::CharacterBase::EGroundState::InAir:
+            out.ground_state = CharacterGroundState::airborne;
+            break;
+        }
+        out.grounded = out.ground_state == CharacterGroundState::supported &&
+                       c.GetLinearVelocity().GetY() - c.GetGroundVelocity().GetY() < 0.1F;
+        if (out.grounded)
+        {
+            const auto found = body_objects.find(c.GetGroundBodyID());
+            if (found != body_objects.end())
+            {
+                out.support = found->second;
+            }
+            out.support_normal = vector(c.GetGroundNormal());
+            out.support_velocity = vector(c.GetGroundVelocity());
+        }
+        return out;
+    }
 
     BroadPhaseLayers layers;
     BroadPhaseFilter broad_filter;
@@ -1066,7 +1165,7 @@ struct PhysicsSystem::State final : JPH::ContactListener, JPH::CharacterContactL
 
     bool can_query(const WorldSystem* world) const noexcept
     {
-        return world != nullptr &&
+        return !in_callback && world != nullptr &&
                std::any_of(world->scenes().begin(), world->scenes().end(),
                            [&](const auto& scene)
                            {
@@ -1559,7 +1658,17 @@ struct PhysicsSystem::State final : JPH::ContactListener, JPH::CharacterContactL
     {
         jobs.wait_for_wrappers();
         character_collisions.mCharacters.clear();
+        for (auto& [id, entry] : characters)
+        {
+            (void)id;
+            if (!entry.added)
+            {
+                physics.GetBodyInterface().AddBody(entry.character->GetInnerBodyID(),
+                                                   JPH::EActivation::DontActivate);
+            }
+        }
         characters.clear();
+        preparing.clear();
         auto& interface = physics.GetBodyInterface();
         for (const auto& [id, entry] : bodies)
         {
@@ -1594,7 +1703,10 @@ struct PhysicsSystem::State final : JPH::ContactListener, JPH::CharacterContactL
         auto affected = interface.GetTransformedShape(found->second.body).GetWorldSpaceBounds();
         affected.ExpandBy(JPH::Vec3::sReplicate(0.1F));
         body_objects.erase(found->second.body);
-        interface.RemoveBody(found->second.body);
+        if (found->second.added)
+        {
+            interface.RemoveBody(found->second.body);
+        }
         interface.DestroyBody(found->second.body);
         bodies.erase(found);
         interface.ActivateBodiesInAABox(affected,
@@ -1602,7 +1714,106 @@ struct PhysicsSystem::State final : JPH::ContactListener, JPH::CharacterContactL
                                         physics.GetDefaultLayerFilter(static_layer));
     }
 
-    bool publish_body(const BodySnapshot& snapshot)
+    bool prepare_node(Node node, std::vector<BodySnapshot>& snapshots,
+                      std::vector<CharacterSnapshot>& character_snapshots)
+    {
+        if (auto motor = node.get_component<CharacterMotor>())
+        {
+            if (motor.active() && active_transform(node))
+            {
+                CharacterSnapshot snapshot;
+                if (!read_character(node, motor, snapshot))
+                {
+                    std::fputs("Physics rejects character pose or conflicting body "
+                               "components\n",
+                               stderr);
+                    return false;
+                }
+                snapshot.instance_id = motor.instance_id();
+                snapshot.reset_velocity =
+                    engine::ecs_detail::component_runtime(motor)->reset_pending_;
+                character_snapshots.push_back(std::move(snapshot));
+            }
+            else
+            {
+                engine::ecs_detail::component_runtime(motor)->desired_velocity_ = {};
+                engine::ecs_detail::component_runtime(motor)->velocity_ = {};
+                engine::ecs_detail::component_runtime(motor)->pending_velocity_ = {};
+                engine::ecs_detail::component_runtime(motor)->pending_jump_ = 0.0F;
+                engine::ecs_detail::component_runtime(motor)->grounded_ = false;
+                engine::ecs_detail::component_runtime(motor)->reset_pending_ = false;
+            }
+        }
+        auto collider = node.get_component<Collider>();
+        auto rigid_body = node.get_component<RigidBody>();
+        if (!collider.valid() || !collider.active() ||
+            (rigid_body.valid() && !rigid_body.active()) || !active_transform(node))
+        {
+            if (rigid_body.valid())
+            {
+                engine::ecs_detail::component_runtime(rigid_body)->pending_impulse_ = {};
+            }
+            return true;
+        }
+        BodySnapshot snapshot;
+        const auto handle = engine::ecs_detail::component_runtime(collider)->mesh_.handle();
+        snapshot.mesh = {handle.owner, handle.id, handle.generation};
+        snapshot.transient_mesh = engine::ecs_detail::component_runtime(collider)->transient_mesh_;
+        snapshot.mesh_parts = engine::ecs_detail::component_runtime(collider)->mesh_parts_;
+        const auto existing = bodies.find(node.id());
+        const auto* previous = existing != bodies.end() ? &existing->second.snapshot : nullptr;
+        Collider::Data collider_settings;
+        if (!collider.get_settings(collider_settings) ||
+            !read_snapshot(node, collider_settings, collider.mesh_data(), rigid_body, snapshot,
+                           previous))
+        {
+            std::fputs("Physics rejects invalid settings, shear, reflection or a "
+                       "dynamic parent\n",
+                       stderr);
+            return false;
+        }
+        if (snapshot.transient_mesh && snapshot.transient_mesh->vertices.empty() &&
+            snapshot.transient_mesh->indices.empty())
+        {
+            return true;
+        }
+        if (snapshot.mesh_parts)
+        {
+            if (!prepare_mesh_parts(snapshot, previous))
+            {
+                std::fputs("Physics cannot create segmented mesh collision\n", stderr);
+                return false;
+            }
+            if (snapshot.shape == nullptr)
+            {
+                return true;
+            }
+        }
+        else if (existing != bodies.end() &&
+                 existing->second.snapshot.collider == snapshot.collider &&
+                 existing->second.snapshot.mesh == snapshot.mesh &&
+                 existing->second.snapshot.transient_mesh == snapshot.transient_mesh &&
+                 existing->second.snapshot.shape_scale.IsClose(snapshot.scale, 1.0e-8F))
+        {
+            snapshot.shape = existing->second.snapshot.shape;
+            snapshot.shape_scale = existing->second.snapshot.shape_scale;
+        }
+        else
+        {
+            snapshot.shape_scale = snapshot.scale;
+            if (!make_shape(*snapshot.collider, collider.mesh_data(), snapshot.shape_scale,
+                            snapshot.shape))
+            {
+                std::fputs("Physics cannot create collider with the requested world scale\n",
+                           stderr);
+                return false;
+            }
+        }
+        snapshots.push_back(std::move(snapshot));
+        return true;
+    }
+
+    bool publish_body(const BodySnapshot& snapshot, bool enabled = true)
     {
         auto& interface = physics.GetBodyInterface();
         auto found = bodies.find(snapshot.node_id);
@@ -1621,6 +1832,12 @@ struct PhysicsSystem::State final : JPH::ContactListener, JPH::CharacterContactL
                              found->second.snapshot.mesh_parts != snapshot.mesh_parts ||
                              previous_settings != snapshot.rigid_body ||
                              found->second.snapshot.shape != snapshot.shape;
+        if (found != bodies.end() && !found->second.added && enabled)
+        {
+            interface.AddBody(found->second.body,
+                              moving ? JPH::EActivation::Activate : JPH::EActivation::DontActivate);
+            found->second.added = true;
+        }
         if (!rebuild)
         {
             const bool moved_static =
@@ -1727,8 +1944,16 @@ struct PhysicsSystem::State final : JPH::ContactListener, JPH::CharacterContactL
             JPH::BodyID body;
             {
                 ENGINE_PROFILE_ZONE("Physics.create_body");
-                body = interface.CreateAndAddBody(
-                    settings, moving ? JPH::EActivation::Activate : JPH::EActivation::DontActivate);
+                if (enabled)
+                {
+                    body = interface.CreateAndAddBody(settings,
+                                                      moving ? JPH::EActivation::Activate
+                                                             : JPH::EActivation::DontActivate);
+                }
+                else if (auto* candidate = interface.CreateBody(settings))
+                {
+                    body = candidate->GetID();
+                }
             }
             if (body.IsInvalid())
             {
@@ -1747,10 +1972,11 @@ struct PhysicsSystem::State final : JPH::ContactListener, JPH::CharacterContactL
                 found = bodies.emplace(snapshot.node_id, Entry{snapshot, body}).first;
             }
         }
+        found->second.added = enabled;
         body_objects.insert_or_assign(
             found->second.body, PhysicsObject{snapshot.scene_id, snapshot.node_id,
                                               PhysicsObjectKind::collider, snapshot.collider_id});
-        if (!moving)
+        if (!moving && enabled)
         {
             if (!local_change)
             {
@@ -1784,7 +2010,7 @@ struct PhysicsSystem::State final : JPH::ContactListener, JPH::CharacterContactL
         }
         for (auto iterator = bodies.begin(); iterator != bodies.end();)
         {
-            if (iterator->second.seen_frame != frame)
+            if (iterator->second.seen_frame != frame && iterator->second.added)
             {
                 const auto id = iterator->first;
                 ++iterator;
@@ -1804,7 +2030,8 @@ struct PhysicsSystem::State final : JPH::ContactListener, JPH::CharacterContactL
         }
         return true;
     }
-    bool synchronize_characters(const std::vector<CharacterSnapshot>& snapshots)
+    bool synchronize_characters(const std::vector<CharacterSnapshot>& snapshots,
+                                bool enabled = true, bool retire = true)
     {
         for (const auto& snapshot : snapshots)
         {
@@ -1815,8 +2042,9 @@ struct PhysicsSystem::State final : JPH::ContactListener, JPH::CharacterContactL
         }
         for (auto iterator = characters.begin(); iterator != characters.end();)
         {
-            if (iterator->second.seen_frame != frame)
+            if (retire && iterator->second.seen_frame != frame && iterator->second.added)
             {
+                reset_owner(iterator->second);
                 body_objects.erase(iterator->second.character->GetInnerBodyID());
                 character_objects.erase(iterator->second.character->GetID());
                 character_collisions.Remove(iterator->second.character.GetPtr());
@@ -1841,6 +2069,7 @@ struct PhysicsSystem::State final : JPH::ContactListener, JPH::CharacterContactL
             {
                 if (found != characters.end())
                 {
+                    reset_owner(found->second);
                     body_objects.erase(found->second.character->GetInnerBodyID());
                     character_objects.erase(found->second.character->GetID());
                     character_collisions.Remove(found->second.character.GetPtr());
@@ -1871,6 +2100,10 @@ struct PhysicsSystem::State final : JPH::ContactListener, JPH::CharacterContactL
                 configuration.mSupportingVolume = JPH::Plane(JPH::Vec3::sAxisY(), -settings.radius);
                 CharacterEntry entry;
                 entry.snapshot = snapshot;
+                entry.added = enabled;
+                entry.active_half_height = settings.half_height;
+                entry.yaw_degrees = snapshot.yaw_degrees;
+                entry.shapes.emplace(settings.half_height, shape.Get());
                 entry.character =
                     new JPH::CharacterVirtual(&configuration, JPH::RVec3(snapshot.position),
                                               JPH::Quat::sIdentity(), snapshot.node_id, &physics);
@@ -1884,16 +2117,29 @@ struct PhysicsSystem::State final : JPH::ContactListener, JPH::CharacterContactL
                 character_objects.insert_or_assign(entry.character->GetID(), object);
                 entry.character->SetListener(this);
                 entry.character->SetCharacterVsCharacterCollision(&character_collisions);
-                character_collisions.Add(entry.character.GetPtr());
+                if (enabled)
+                {
+                    character_collisions.Add(entry.character.GetPtr());
+                }
+                else
+                {
+                    physics.GetBodyInterface().RemoveBody(entry.character->GetInnerBodyID());
+                }
                 found = characters.emplace(snapshot.node_id, std::move(entry)).first;
-                found->second.character->RefreshContacts(
-                    physics.GetDefaultBroadPhaseLayerFilter(moving_layer),
-                    physics.GetDefaultLayerFilter(moving_layer), CharacterBodyFilter{}, {},
-                    allocator);
+                if (enabled)
+                {
+                    found->second.character->RefreshContacts(
+                        physics.GetDefaultBroadPhaseLayerFilter(moving_layer),
+                        physics.GetDefaultLayerFilter(moving_layer), CharacterBodyFilter{}, {},
+                        allocator);
+                }
             }
             else if (snapshot.reset_velocity || !found->second.character->GetPosition().IsClose(
                                                     JPH::RVec3(snapshot.position), 1.0e-10F))
             {
+                reset_owner(found->second);
+                found->second.carried_velocity = JPH::Vec3::sZero();
+                found->second.result = {};
                 found->second.character->SetPosition(JPH::RVec3(snapshot.position));
                 found->second.character->SetLinearVelocity(JPH::Vec3::sZero());
                 found->second.external_velocity = JPH::Vec3::sZero();
@@ -1902,7 +2148,15 @@ struct PhysicsSystem::State final : JPH::ContactListener, JPH::CharacterContactL
                     physics.GetDefaultLayerFilter(moving_layer), CharacterBodyFilter{}, {},
                     allocator);
             }
+            if (!found->second.added && enabled)
+            {
+                physics.GetBodyInterface().AddBody(found->second.character->GetInnerBodyID(),
+                                                   JPH::EActivation::DontActivate);
+                character_collisions.Add(found->second.character.GetPtr());
+                found->second.added = true;
+            }
             found->second.snapshot = snapshot;
+            found->second.yaw_degrees = snapshot.yaw_degrees;
         }
         return true;
     }
@@ -1918,9 +2172,20 @@ PhysicsSystem::~PhysicsSystem() noexcept
     shutdown();
 }
 
+bool PhysicsSystem::set_character_motor_driver(CharacterMotorDriver* driver) noexcept
+{
+    if (state_ || is_initialized())
+    {
+        return false;
+    }
+    character_driver_ = driver;
+    return true;
+}
+
 bool PhysicsSystem::on_initialize(const EngineConfig&)
 {
-    if (tasks_ != nullptr && !tasks_->is_initialized())
+    if ((world_ != nullptr && world_->native_world() == nullptr) ||
+        (tasks_ != nullptr && !tasks_->is_initialized()))
     {
         return false;
     }
@@ -1943,6 +2208,10 @@ bool PhysicsSystem::on_initialize(const EngineConfig&)
     state_->physics.SetContactListener(state_.get());
     if (world_)
     {
+        state_->world = world_;
+        state_->driver = character_driver_;
+        flecs::world(world_->native_world())
+            .set<CharacterMotorWorldRuntime>({character_driver_, false});
         state_->bind_queries(*world_);
     }
     return true;
@@ -1950,6 +2219,13 @@ bool PhysicsSystem::on_initialize(const EngineConfig&)
 
 void PhysicsSystem::clear() noexcept
 {
+    if (state_)
+    {
+        for (auto& [id, entry] : state_->characters)
+        {
+            state_->reset_owner(entry);
+        }
+    }
     if (state_ && world_ && world_->is_initialized())
     {
         state_->bind_queries(*world_);
@@ -1966,6 +2242,8 @@ void PhysicsSystem::clear() noexcept
                     motor.pending_jump_ = 0.0F;
                     motor.grounded_ = false;
                     motor.reset_pending_ = false;
+                    motor.status = {};
+                    motor.owner = {};
                 });
     }
     if (state_)
@@ -2391,6 +2669,87 @@ bool PhysicsSystem::set_mesh_parts(Collider collider, const MeshCollisionData& p
     return true;
 }
 
+SceneWorkState PhysicsSystem::prepare_scope(SceneScopeId scope, const SceneWorkBudget& budget)
+{
+    if (!state_ || !world_ || !world_->refresh_scene_state())
+    {
+        return SceneWorkState::failed;
+    }
+    std::erase_if(state_->preparing,
+                  [&](const auto& entry) { return !world_->scope_candidate(entry.first); });
+    auto found = state_->preparing.find(scope);
+    if (found == state_->preparing.end())
+    {
+        scene_detail::ScopeWork work;
+        if (!scene_detail::begin_work(*world_, scope, "physics", work))
+        {
+            return SceneWorkState::failed;
+        }
+        found = state_->preparing.emplace(scope, std::move(work)).first;
+    }
+    return scene_detail::step_work(found->second, budget,
+                                   [&](Node node)
+                                   {
+                                       std::vector<BodySnapshot> bodies;
+                                       std::vector<CharacterSnapshot> characters;
+                                       if (!state_->prepare_node(node, bodies, characters))
+                                       {
+                                           return false;
+                                       }
+                                       for (const auto& body : bodies)
+                                       {
+                                           if (!state_->publish_body(body, false))
+                                           {
+                                               return false;
+                                           }
+                                       }
+                                       return characters.empty() || state_->synchronize_characters(
+                                                                        characters, false, false);
+                                   });
+}
+bool PhysicsSystem::scope_status(SceneScopeId scope, ScenePreparationSnapshot& output) const
+{
+    output = {};
+    const auto found =
+        state_ ? state_->preparing.find(scope) : decltype(state_->preparing)::const_iterator{};
+    if (!state_ || found == state_->preparing.end())
+    {
+        return false;
+    }
+    output = found->second.snapshot;
+    return true;
+}
+void PhysicsSystem::release_scope(SceneScopeId scope) noexcept
+{
+    if (!state_)
+    {
+        return;
+    }
+    const auto found = state_->preparing.find(scope);
+    if (found == state_->preparing.end())
+    {
+        return;
+    }
+    for (auto node : found->second.nodes)
+    {
+        const auto body = state_->bodies.find(node.id());
+        if (body != state_->bodies.end() && !body->second.added)
+        {
+            state_->remove_body(node.id());
+        }
+        const auto character = state_->characters.find(node.id());
+        if (character != state_->characters.end() && !character->second.added)
+        {
+            state_->physics.GetBodyInterface().AddBody(
+                character->second.character->GetInnerBodyID(), JPH::EActivation::DontActivate);
+            state_->body_objects.erase(character->second.character->GetInnerBodyID());
+            state_->character_objects.erase(character->second.character->GetID());
+            state_->characters.erase(character);
+        }
+    }
+    state_->preparing.erase(found);
+}
+
 bool PhysicsSystem::on_tick(double delta_time)
 {
     ENGINE_PROFILE_ZONE("Physics.tick");
@@ -2446,110 +2805,8 @@ bool PhysicsSystem::on_tick(double delta_time)
                     {
                         return;
                     }
-                    const auto node = world_->find_node(entity.id());
-                    if (auto motor = node.get_component<CharacterMotor>())
-                    {
-                        if (motor.active() && active_transform(node))
-                        {
-                            CharacterSnapshot snapshot;
-                            if (!read_character(node, motor, snapshot))
-                            {
-                                std::fputs("Physics rejects character pose or conflicting body "
-                                           "components\n",
-                                           stderr);
-                                prepared = false;
-                                return;
-                            }
-                            snapshot.instance_id = motor.instance_id();
-                            snapshot.reset_velocity =
-                                engine::ecs_detail::component_runtime(motor)->reset_pending_;
-                            character_snapshots.push_back(std::move(snapshot));
-                        }
-                        else
-                        {
-                            engine::ecs_detail::component_runtime(motor)->desired_velocity_ = {};
-                            engine::ecs_detail::component_runtime(motor)->velocity_ = {};
-                            engine::ecs_detail::component_runtime(motor)->pending_velocity_ = {};
-                            engine::ecs_detail::component_runtime(motor)->pending_jump_ = 0.0F;
-                            engine::ecs_detail::component_runtime(motor)->grounded_ = false;
-                            engine::ecs_detail::component_runtime(motor)->reset_pending_ = false;
-                        }
-                    }
-                    auto collider = node.get_component<Collider>();
-                    auto rigid_body = node.get_component<RigidBody>();
-                    if (!collider.valid() || !collider.active() ||
-                        (rigid_body.valid() && !rigid_body.active()) || !active_transform(node))
-                    {
-                        if (rigid_body.valid())
-                        {
-                            engine::ecs_detail::component_runtime(rigid_body)
-                                ->pending_impulse_ = {};
-                        }
-                        return;
-                    }
-                    BodySnapshot snapshot;
-                    const auto handle =
-                        engine::ecs_detail::component_runtime(collider)->mesh_.handle();
-                    snapshot.mesh = {handle.owner, handle.id, handle.generation};
-                    snapshot.transient_mesh =
-                        engine::ecs_detail::component_runtime(collider)->transient_mesh_;
-                    snapshot.mesh_parts =
-                        engine::ecs_detail::component_runtime(collider)->mesh_parts_;
-                    const auto existing = state_->bodies.find(node.id());
-                    const auto* previous =
-                        existing != state_->bodies.end() ? &existing->second.snapshot : nullptr;
-                    Collider::Data collider_settings;
-                    if (!collider.get_settings(collider_settings) ||
-                        !read_snapshot(node, collider_settings, collider.mesh_data(), rigid_body,
-                                       snapshot, previous))
-                    {
-                        std::fputs("Physics rejects invalid settings, shear, reflection or a "
-                                   "dynamic parent\n",
-                                   stderr);
-                        prepared = false;
-                        return;
-                    }
-                    if (snapshot.transient_mesh && snapshot.transient_mesh->vertices.empty() &&
-                        snapshot.transient_mesh->indices.empty())
-                    {
-                        return;
-                    }
-                    if (snapshot.mesh_parts)
-                    {
-                        if (!prepare_mesh_parts(snapshot, previous))
-                        {
-                            std::fputs("Physics cannot create segmented mesh collision\n", stderr);
-                            prepared = false;
-                            return;
-                        }
-                        if (snapshot.shape == nullptr)
-                        {
-                            return;
-                        }
-                    }
-                    else if (existing != state_->bodies.end() &&
-                             existing->second.snapshot.collider == snapshot.collider &&
-                             existing->second.snapshot.mesh == snapshot.mesh &&
-                             existing->second.snapshot.transient_mesh == snapshot.transient_mesh &&
-                             existing->second.snapshot.shape_scale.IsClose(snapshot.scale, 1.0e-8F))
-                    {
-                        snapshot.shape = existing->second.snapshot.shape;
-                        snapshot.shape_scale = existing->second.snapshot.shape_scale;
-                    }
-                    else
-                    {
-                        snapshot.shape_scale = snapshot.scale;
-                        if (!make_shape(*snapshot.collider, collider.mesh_data(),
-                                        snapshot.shape_scale, snapshot.shape))
-                        {
-                            std::fputs(
-                                "Physics cannot create collider with the requested world scale\n",
-                                stderr);
-                            prepared = false;
-                            return;
-                        }
-                    }
-                    snapshots.push_back(std::move(snapshot));
+                    prepared = state_->prepare_node(world_->find_node(entity.id()), snapshots,
+                                                    character_snapshots);
                 });
         if (!prepared)
         {
@@ -2572,6 +2829,10 @@ bool PhysicsSystem::on_tick(double delta_time)
         state_->synchronize_contacts(*world_);
         for (auto& [id, entry] : state_->bodies)
         {
+            if (!entry.added)
+            {
+                continue;
+            }
             auto node = world_->find_node(id);
             auto body = !node.valid() ? RigidBody{} : node.get_component<RigidBody>();
             RigidBody::Data body_settings;
@@ -2587,6 +2848,31 @@ bool PhysicsSystem::on_tick(double delta_time)
                 }
             }
         }
+    }
+    for (auto& [id, entry] : state_->characters)
+    {
+        if (!entry.added)
+        {
+            continue;
+        }
+        auto motor = world_->find_node(id).get_component<CharacterMotor>();
+        Component owner;
+        if (character_driver_)
+        {
+            state_->callback(true);
+            owner = character_driver_->control_owner(motor);
+            state_->callback(false);
+            if (!owner.active() || owner.node().world() != world_)
+            {
+                owner = {};
+            }
+        }
+        if (entry.owner != owner)
+        {
+            state_->reset_owner(entry);
+            entry.owner = owner;
+        }
+        ecs_detail::component_runtime(motor)->owner = owner;
     }
     ENGINE_PROFILE_PLOT("Physics.bodies", static_cast<double>(state_->bodies.size()));
     ENGINE_PROFILE_PLOT("Physics.characters", static_cast<double>(state_->characters.size()));
@@ -2612,6 +2898,10 @@ bool PhysicsSystem::on_tick(double delta_time)
             ENGINE_PROFILE_ZONE("Physics.characters_step");
             for (auto& [id, entry] : state_->characters)
             {
+                if (!entry.added)
+                {
+                    continue;
+                }
                 auto node = world_->find_node(id);
                 auto motor = node.valid() ? node.get_component<CharacterMotor>() : CharacterMotor{};
                 CharacterMotor::Data motor_settings;
@@ -2621,32 +2911,129 @@ bool PhysicsSystem::on_tick(double delta_time)
                     return false;
                 }
                 auto& character = *entry.character;
+                auto& runtime = *ecs_detail::component_runtime(motor);
                 character.UpdateGroundVelocity();
+                auto before = state_->status(entry, runtime.status.has_simulated);
+                before.step = runtime.status.step;
+                before.simulation_time = runtime.status.simulation_time;
                 const auto ground_velocity = character.GetGroundVelocity();
-                const bool on_ground =
-                    character.GetGroundState() == JPH::CharacterBase::EGroundState::OnGround;
-                const bool toward_ground =
-                    character.GetLinearVelocity().GetY() - ground_velocity.GetY() < 0.1F;
-                JPH::Vec3 velocity(0, character.GetLinearVelocity().GetY(), 0);
-                if (on_ground && toward_ground)
+                CharacterMotorCommand command;
+                command.yaw_degrees = entry.yaw_degrees;
+                command.half_height = motor_settings.half_height;
+                command.planar_velocity = runtime.desired_velocity_;
+                command.vertical_impulse = before.grounded ? runtime.pending_jump_ : 0;
+                command.detach_support = command.vertical_impulse > 0;
+                bool control_error = false;
+                if (entry.owner && character_driver_)
                 {
-                    velocity = ground_velocity;
-                    if (engine::ecs_detail::component_runtime(motor)->pending_jump_ > 0.0F)
+                    command.planar_velocity = {};
+                    command.vertical_impulse = 0;
+                    command.detach_support = false;
+                    command.half_height = entry.active_half_height;
+                    CharacterMotorStepContext context{state_->step, fixed_step,
+                                                      (state_->step - 1) * fixed_step,
+                                                      &motor_settings, before};
+                    state_->callback(true);
+                    control_error =
+                        !character_driver_->prepare_step(entry.owner, motor, context, command);
+                    state_->callback(false);
+                }
+                const bool valid_command =
+                    finite(vector(command.planar_velocity)) && command.planar_velocity.y() == 0 &&
+                    vector(command.planar_velocity).Abs().ReduceMax() <= 10000 &&
+                    std::isfinite(command.yaw_degrees) && std::abs(command.yaw_degrees) <= 360000 &&
+                    std::isfinite(command.vertical_impulse) &&
+                    std::abs(command.vertical_impulse) <= 1000 &&
+                    std::isfinite(command.gravity_scale) && command.gravity_scale >= 0 &&
+                    command.gravity_scale <= 16 && std::isfinite(command.half_height) &&
+                    command.half_height >= 0.01F && command.half_height <= 1000;
+                if (control_error || !valid_command)
+                {
+                    command = {};
+                    command.yaw_degrees = entry.yaw_degrees;
+                    command.half_height = entry.active_half_height;
+                    control_error = true;
+                }
+                auto shape_result = CharacterShapeResult::unchanged;
+                if (command.half_height != entry.active_half_height)
+                {
+                    auto shape = entry.shapes.find(command.half_height);
+                    if (shape == entry.shapes.end())
                     {
-                        velocity += JPH::Vec3(
-                            0, engine::ecs_detail::component_runtime(motor)->pending_jump_, 0);
+                        auto capsule =
+                            JPH::CapsuleShapeSettings(command.half_height, motor_settings.radius)
+                                .Create();
+                        if (capsule.HasError())
+                        {
+                            clear();
+                            return false;
+                        }
+                        auto result =
+                            JPH::RotatedTranslatedShapeSettings(
+                                JPH::Vec3(0, command.half_height + motor_settings.radius, 0),
+                                JPH::Quat::sIdentity(), capsule.Get().GetPtr())
+                                .Create();
+                        if (result.HasError())
+                        {
+                            clear();
+                            return false;
+                        }
+                        shape = entry.shapes.emplace(command.half_height, result.Get()).first;
+                    }
+                    if (character.SetShape(
+                            shape->second.GetPtr(), 0.02F,
+                            state_->physics.GetDefaultBroadPhaseLayerFilter(moving_layer),
+                            state_->physics.GetDefaultLayerFilter(moving_layer),
+                            CharacterBodyFilter{}, {}, state_->allocator))
+                    {
+                        character.SetInnerBodyShape(shape->second.GetPtr());
+                        entry.active_half_height = command.half_height;
+                        shape_result = CharacterShapeResult::applied;
+                    }
+                    else
+                    {
+                        shape_result = CharacterShapeResult::blocked;
+                        if (!entry.owner)
+                        {
+                            command.planar_velocity = {};
+                        }
                     }
                 }
-                engine::ecs_detail::component_runtime(motor)->pending_jump_ = 0.0F;
-                const auto delta =
-                    vector(engine::ecs_detail::component_runtime(motor)->pending_velocity_);
-                engine::ecs_detail::component_runtime(motor)->pending_velocity_ = {};
+                entry.yaw_degrees = command.yaw_degrees;
+                character.SetRotation(JPH::Quat::sRotation(
+                    JPH::Vec3::sAxisY(), entry.yaw_degrees * std::numbers::pi_v<float> / 180.0F));
+                if (before.grounded)
+                {
+                    entry.carried_velocity = JPH::Vec3::sZero();
+                }
+                if (command.inherit_support_planar_velocity &&
+                    ((before.grounded && command.detach_support) ||
+                     (!before.grounded && runtime.status.grounded)))
+                {
+                    const auto support =
+                        before.grounded ? ground_velocity : vector(runtime.status.support_velocity);
+                    entry.carried_velocity = JPH::Vec3(support.GetX(), 0, support.GetZ());
+                }
+                JPH::Vec3 velocity(0, character.GetLinearVelocity().GetY(), 0);
+                if (before.grounded)
+                {
+                    velocity = ground_velocity;
+                }
+                if (command.detach_support)
+                {
+                    velocity.SetX(0);
+                    velocity.SetZ(0);
+                }
+                runtime.pending_jump_ = 0;
+                const auto delta = vector(runtime.pending_velocity_);
+                runtime.pending_velocity_ = {};
                 entry.external_velocity += JPH::Vec3(delta.GetX(), 0, delta.GetZ());
-                const auto gravity = state_->physics.GetGravity() * motor_settings.gravity_factor;
-                velocity +=
-                    gravity * static_cast<float>(fixed_step) +
-                    vector(engine::ecs_detail::component_runtime(motor)->desired_velocity_) +
-                    entry.external_velocity + JPH::Vec3(0, delta.GetY(), 0);
+                const auto gravity = state_->physics.GetGravity() * motor_settings.gravity_factor *
+                                     command.gravity_scale;
+                velocity += gravity * static_cast<float>(fixed_step) +
+                            vector(command.planar_velocity) + entry.external_velocity +
+                            entry.carried_velocity +
+                            JPH::Vec3(0, delta.GetY() + command.vertical_impulse, 0);
                 if (!finite(velocity) || !finite(entry.external_velocity))
                 {
                     clear();
@@ -2654,8 +3041,8 @@ bool PhysicsSystem::on_tick(double delta_time)
                 }
                 character.SetLinearVelocity(velocity);
                 JPH::CharacterVirtual::ExtendedUpdateSettings settings;
-                settings.mStickToFloorStepDown =
-                    JPH::Vec3(0, -motor_settings.ground_snap_distance, 0);
+                settings.mStickToFloorStepDown = JPH::Vec3(
+                    0, command.detach_support ? 0 : -motor_settings.ground_snap_distance, 0);
                 settings.mWalkStairsStepUp = JPH::Vec3(0, motor_settings.step_height, 0);
                 character.ExtendedUpdate(
                     static_cast<float>(fixed_step), gravity, settings,
@@ -2693,6 +3080,10 @@ bool PhysicsSystem::on_tick(double delta_time)
                 character.SetLinearVelocity(resolved);
                 entry.external_velocity *=
                     std::exp(-motor_settings.external_damping * static_cast<float>(fixed_step));
+                entry.result.status = state_->status(entry, true);
+                entry.result.status.shape_result = shape_result;
+                entry.result.status.control_error = control_error;
+                entry.result.impulse_applied = command.vertical_impulse != 0;
             }
         }
         {
@@ -2704,6 +3095,24 @@ bool PhysicsSystem::on_tick(double delta_time)
                 return false;
             }
         }
+        for (auto& [id, entry] : state_->characters)
+        {
+            if (!entry.added)
+            {
+                continue;
+            }
+            auto motor = world_->find_node(id).get_component<CharacterMotor>();
+            auto& runtime = *ecs_detail::component_runtime(motor);
+            runtime.status = entry.result.status;
+            runtime.velocity_ = runtime.status.velocity;
+            runtime.grounded_ = runtime.status.grounded;
+            if (entry.owner && character_driver_)
+            {
+                state_->callback(true);
+                character_driver_->finish_step(entry.owner, motor, entry.result);
+                state_->callback(false);
+            }
+        }
         state_->publish_contacts();
         state_->accumulated = std::max(0.0, state_->accumulated - fixed_step);
         advanced = true;
@@ -2712,6 +3121,10 @@ bool PhysicsSystem::on_tick(double delta_time)
         ENGINE_PROFILE_ZONE("Physics.sync_results");
         for (auto& [id, entry] : state_->characters)
         {
+            if (!entry.added)
+            {
+                continue;
+            }
             auto node = world_->find_node(id);
             auto motor = node.valid() ? node.get_component<CharacterMotor>() : CharacterMotor{};
             auto transform = node.valid() ? node.get_component<Transform>() : Transform{};
@@ -2722,6 +3135,7 @@ bool PhysicsSystem::on_tick(double delta_time)
                 return false;
             }
             pose.position = vector(JPH::Vec3(entry.character->GetPosition()));
+            pose.rotation = Vec3(0, entry.yaw_degrees, 0);
             if (!transform.set_settings(pose))
             {
                 clear();
@@ -2738,7 +3152,7 @@ bool PhysicsSystem::on_tick(double delta_time)
         }
         for (auto& [id, entry] : state_->bodies)
         {
-            if (entry.snapshot.rigid_body.motion == schema::BodyMotion::static_body)
+            if (!entry.added || entry.snapshot.rigid_body.motion == schema::BodyMotion::static_body)
             {
                 continue;
             }
@@ -2811,6 +3225,10 @@ void PhysicsSystem::on_shutdown() noexcept
     {
         clear();
         state_.reset();
+        if (world_ && world_->native_world())
+        {
+            flecs::world(world_->native_world()).set<CharacterMotorWorldRuntime>({});
+        }
         release_jolt();
     }
 }

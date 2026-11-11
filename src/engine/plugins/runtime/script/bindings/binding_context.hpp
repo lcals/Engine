@@ -5,6 +5,7 @@
 #include "runtime/movie/movie_player.hpp"
 #include "runtime/resource/resource_load.hpp"
 #include "runtime/resource/resource_reference.hpp"
+#include "runtime/scene/scene_loading.hpp"
 #include "runtime/schema/input_generated.h"
 #include "runtime/storage/key_value_store.hpp"
 #include "runtime/window/window_system.hpp"
@@ -20,6 +21,7 @@
 
 namespace engine
 {
+class GameplaySession;
 class WorldSystem;
 class RenderSystem;
 class UiSystem;
@@ -85,12 +87,12 @@ public:
     [[nodiscard]] InputSystem* input() const noexcept;
     [[nodiscard]] WindowSystem* window() const noexcept;
     [[nodiscard]] bool set_mouse_mode(MouseMode mode);
-    [[nodiscard]] bool begin_scene_load(std::string_view path);
-    [[nodiscard]] ResourceLoadStatus step_scene_load(std::uint32_t resource_budget,
-                                                     ResourceLoadProgress& output);
-    [[nodiscard]] Scene* commit_scene_load();
-    void cancel_scene_load() noexcept;
-    [[nodiscard]] std::string_view scene_load_error() const noexcept;
+    void set_gameplay_session(GameplaySession* session) noexcept;
+    [[nodiscard]] GameplaySession* gameplay() const noexcept;
+    [[nodiscard]] std::uint64_t begin_scene_load(const SceneLoadSpec& spec);
+    [[nodiscard]] SceneLoadId scene_request(std::uint64_t token) const noexcept;
+    [[nodiscard]] bool release_scene_request(std::uint64_t token);
+    [[nodiscard]] Scene* owned_scene(std::uint64_t id) const noexcept;
     [[nodiscard]] std::uint64_t
     submit_async(const std::function<bool(std::function<void(bool)>)>& start);
     // -2 失效、-1 未完成、0 失败、1 成功；已完成结果领取后删除。
@@ -126,9 +128,6 @@ public:
     [[nodiscard]] static bool text(const Arguments& arguments, int index, std::string& output);
 
 private:
-    [[nodiscard]] bool scene_load_context_valid() const noexcept;
-    void fail_scene_load(std::string_view error);
-
     struct AsyncResult
     {
         bool ready = false;
@@ -155,12 +154,8 @@ private:
     MoviePlaybackHandle movie_handle_{};
     MouseMode previous_mouse_mode_ = MouseMode::normal;
     bool restore_mouse_mode_ = false;
-    ResourceReference scene_load_;
-    ResourceLoadProgress scene_load_progress_;
-    ResourceLoadStatus scene_load_status_ = ResourceLoadStatus::loading;
-    std::uint64_t scene_restore_request_ = 0;
-    std::string scene_load_path_;
-    std::string scene_load_error_;
+    GameplaySession* gameplay_ = nullptr;
+    std::map<std::uint64_t, SceneLoadId> scene_requests_;
     std::vector<schema::InputChannelHandle> input_channels_;
     std::vector<std::pair<schema::InputChannelHandle, schema::InputCaptureHandle>> input_captures_;
     std::string input_error_;

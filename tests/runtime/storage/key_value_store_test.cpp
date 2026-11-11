@@ -1,5 +1,7 @@
 #include "runtime/storage/key_value_store.hpp"
 #include "runtime/storage/storage_file.hpp"
+#include "runtime/utils/path_utils.hpp"
+#include "utf8_fixture.hpp"
 
 #include <array>
 #include <chrono>
@@ -93,7 +95,8 @@ bool read_file(const std::filesystem::path& path, std::string& text)
 
 bool exclusive_creation(const std::filesystem::path& root)
 {
-    const auto path = root / std::filesystem::path(u8"独占-🙂.tmp");
+    const auto path =
+        root / engine::PathUtils::from_utf8(test_support::utf8_fixture("exclusive_filename"));
     std::error_code error;
     auto* file = engine::storage_detail::open_exclusive_file(path, error);
     if (!expect(file != nullptr && !error, "exclusively create a Unicode temporary path"))
@@ -141,7 +144,8 @@ bool exclusive_creation(const std::filesystem::path& root)
 
 bool persistence(const std::filesystem::path& root)
 {
-    const auto directory = root / std::filesystem::path(u8"用户数据");
+    const auto directory =
+        root / engine::PathUtils::from_utf8(test_support::utf8_fixture("user_directory"));
     const auto target = directory / "kv.json";
     engine::KeyValueStore writer;
     std::string value = "stale output";
@@ -153,10 +157,12 @@ bool persistence(const std::filesystem::path& root)
         !expect(writer.load(directory) && writer.is_loaded() && writer.last_error().empty() &&
                     !path_exists(target),
                 "a missing directory or file loads as an empty store without writing") ||
-        !expect(writer.set_string("coins", "42") &&
-                    writer.set_string("角色", "你好🙂\n\"value\"") &&
-                    writer.set_string("empty", "") && !path_exists(target),
-                "Unicode and empty string changes stay in memory until Save"))
+        !expect(
+            writer.set_string("coins", "42") &&
+                writer.set_string(test_support::utf8_fixture("character_key"),
+                                  test_support::utf8_fixture("stored_greeting") + "\n\"value\"") &&
+                writer.set_string("empty", "") && !path_exists(target),
+            "Unicode and empty string changes stay in memory until Save"))
     {
         return false;
     }
@@ -167,9 +173,10 @@ bool persistence(const std::filesystem::path& root)
                     observer.last_error().empty() && observer.delete_key("missing"),
                 "another instance cannot see unsaved values and missing keys are not errors") ||
         !expect(writer.save() && observer.load(directory) && observer.get_string("coins", value) &&
-                    value == "42" && observer.get_string("角色", value) &&
-                    value == "你好🙂\n\"value\"" && observer.get_string("empty", value) &&
-                    value.empty(),
+                    value == "42" &&
+                    observer.get_string(test_support::utf8_fixture("character_key"), value) &&
+                    value == test_support::utf8_fixture("stored_greeting") + "\n\"value\"" &&
+                    observer.get_string("empty", value) && value.empty(),
                 "Save publishes a complete Unicode snapshot readable by another instance") ||
         !expect(!path_exists(directory / "kv.json.tmp"),
                 "successful publication consumes its temporary") ||
@@ -178,7 +185,7 @@ bool persistence(const std::filesystem::path& root)
                 "subsequent in-memory edits do not implicitly replace the disk snapshot") ||
         !expect(writer.delete_key("coins") && writer.delete_key("coins") && writer.save() &&
                     observer.load(directory) && !observer.has_key("coins") &&
-                    observer.has_key("角色"),
+                    observer.has_key(test_support::utf8_fixture("character_key")),
                 "deletion persists without dropping unrelated values"))
     {
         return false;

@@ -1,4 +1,5 @@
 #pragma once
+#include "runtime/scene/scene_loading.hpp"
 
 namespace engine
 {
@@ -16,6 +17,11 @@ public:
     RenderExtension(RenderExtension&&) = delete;
     RenderExtension& operator=(RenderExtension&&) = delete;
 
+    [[nodiscard]] virtual SceneWorkState prepare_scope(SceneScopeId scope,
+                                                       const SceneWorkBudget& budget);
+    [[nodiscard]] virtual bool scope_status(SceneScopeId scope,
+                                            ScenePreparationSnapshot& output) const;
+    virtual void release_scope(SceneScopeId scope) noexcept;
     [[nodiscard]] virtual bool draw(const RenderContext& context) = 0;
     // 清理只能访问自身状态；场景节点此时可能已经销毁。
     virtual void release_scene() noexcept = 0;

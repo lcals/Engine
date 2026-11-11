@@ -3,6 +3,7 @@
 #include "resource_services.hpp"
 #include "runtime/engine_config.hpp"
 #include "runtime/resource/resource_system.hpp"
+#include "runtime/scene/light.hpp"
 #include "runtime/scene/mesh_renderer.hpp"
 #include "runtime/scene/scene.hpp"
 #include "runtime/scene/transform.hpp"
@@ -11,8 +12,8 @@
 
 #ifdef ENGINE_TEST_MODELING_MCP
 #include "plugins/editor/mcp/editor_mcp_tools.hpp"
-#include "plugins/editor/mcp/mcp_system.hpp"
 #include "plugins/editor/modeling/modeling_mcp_tools.hpp"
+#include "plugins/runtime/mcp/mcp_system.hpp"
 #endif
 
 #include <nlohmann/json.hpp>
@@ -47,7 +48,7 @@ bool registry_test()
                 "register all modeling schemas", {}) ||
         !expect(!engine::plugins::modeling::register_modeling_tools(system, editor),
                 "duplicate modeling registration rejected", {}) ||
-        !expect(system.list_tools()["tools"].size() == 11, "all tools are discoverable", {}) ||
+        !expect(system.list_tools()["tools"].size() == 12, "all tools are discoverable", {}) ||
         !expect(system.initialize({}), "initialize registry", {}))
     {
         return false;
@@ -116,6 +117,19 @@ bool registry_test()
             return false;
         }
     }
+    if (!expect(system.call_tool(
+                    "modeling_create",
+                    {{"sceneId", "1"}, {"shape", "sphere"}, {"parameters", {{"size", {1, 2, 1}}}}},
+                    reply) == engine::plugins::mcp::McpCallStatus::invalid_arguments,
+                "shape-specific schema rejects obsolete parameters", {}) ||
+        !expect(
+            system.call_tool("modeling_rebuild",
+                             {{"sceneId", "1"}, {"modelId", "1"}, {"parameters", Json::object()}},
+                             reply) == engine::plugins::mcp::McpCallStatus::failed,
+            "rebuild reaches editor transport", {}))
+    {
+        return false;
+    }
     return expect(system.call_tool("modeling_edit", {{"sceneId", "1"}, {"modelId", 1}}, reply) ==
                       engine::plugins::mcp::McpCallStatus::invalid_arguments,
                   "invalid schema arguments rejected before editor transport", {}) &&
@@ -128,7 +142,6 @@ bool registry_test()
 bool run(const fs::path& project)
 {
     test_support::ResourceServices services;
-    engine::ResourceSystem& resources = services.core;
     engine::WorldSystem world{&services.loader};
     if (!(services.initialize({}) && services.prepare_builtins()) || !world.initialize({}))
     {
@@ -207,8 +220,15 @@ bool run(const fs::path& project)
     }
     auto load = identity;
     load["path"] = "models/cube.mesh";
-    if (!expect(execute("modeling_load", load) && test_support::scene_nodes(*scene).size() == 2,
-                "load saved model", error) ||
+    if (!expect(execute("modeling_load", load), "load saved model", error))
+    {
+        return false;
+    }
+    auto loaded = identity;
+    loaded["modelId"] = result["modelId"];
+    if (!expect(execute("modeling_get", loaded) && test_support::scene_nodes(*scene).size() == 2 &&
+                    result["model"]["primitive"] == original["model"]["primitive"],
+                "saved source preserves primitive recipe", error) ||
         !expect(execute("undo", identity) && test_support::scene_nodes(*scene).size() == 1,
                 "undo loaded model", error))
     {
@@ -329,6 +349,57 @@ bool run(const fs::path& project)
     auto parent_settings = test_support::read_settings(parent.get_component<engine::Transform>());
     parent_settings.position = {10, 0, 0};
     if (!expect(parent.get_component<engine::Transform>().set_settings(parent_settings) &&
+                    source_node.set_parent(parent) && source_node.add_component<engine::Light>() &&
+                    execute("modeling_get", target),
+                "prepare parented rebuild", error))
+    {
+        return false;
+    }
+    const auto before_rebuild = result;
+    auto renderer = source_node.get_component<engine::MeshRenderer>();
+    const auto material_identity = renderer.material().instance_id();
+    auto rebuild = target;
+    rebuild["parameters"] = {{"size", {2, 3, 4}}, {"uvTilesPerUnit", 2}};
+    if (!expect(
+            execute("modeling_rebuild", rebuild) && result["geometryReset"] == true &&
+                execute("modeling_get", target) &&
+                result["model"]["bounds"]["local"]["size"] == Json({2, 3, 4}) &&
+                result["model"]["bounds"]["world"]["min"] == Json({9, -1.5, -2}) &&
+                result["model"]["nodeId"] == before_rebuild["model"]["nodeId"] &&
+                source_node.parent() == parent && source_node.get_component<engine::Light>() &&
+                renderer.material().instance_id() == material_identity &&
+                result["vertices"][0]["id"] != before_rebuild["vertices"][0]["id"],
+            "rebuild preserves scene identity and bindings, replaces topology and updates bounds",
+            error))
+    {
+        return false;
+    }
+    const auto rebuilt = result;
+    auto invalid_rebuild = rebuild;
+    invalid_rebuild["parameters"] = {{"radius", 2}};
+    if (!expect(!execute("modeling_rebuild", invalid_rebuild) && execute("modeling_get", target) &&
+                    result == rebuilt,
+                "invalid rebuild leaves full query unchanged", error) ||
+        !expect(execute("undo", identity) && execute("modeling_get", target) &&
+                    result == before_rebuild,
+                "undo restores geometry and generation recipe", error) ||
+        !expect(execute("redo", identity) && execute("modeling_get", target) && result == rebuilt,
+                "redo restores rebuilt topology", error) ||
+        !expect(execute("undo", identity) &&
+                    source_node.remove_component(engine::Light::component_type),
+                "restore scene after rebuild", error))
+    {
+        return false;
+    }
+    if (!expect(execute("modeling_help", {{"operation", "rebuild"}, {"shape", "sphere"}}) &&
+                    result["contract"]["parameters"]["properties"].contains("radius") &&
+                    !result["contract"]["parameters"]["properties"].contains("size") &&
+                    !execute("modeling_help", {{"operation", "extrude"}, {"shape", "cube"}}),
+                "shape help matches current contract", error))
+    {
+        return false;
+    }
+    if (!expect(parent.get_component<engine::Transform>().set_settings(parent_settings) &&
                     source_node.set_parent(parent) && execute("modeling_duplicate", target),
                 "duplicate parented model", error))
     {
@@ -338,7 +409,8 @@ bool run(const fs::path& project)
     parented_copy["modelId"] = result["modelId"];
     if (!expect(execute("modeling_get", parented_copy) &&
                     result["vertices"][0]["position"][0].get<double>() ==
-                        original["vertices"][0]["position"][0].get<double>() + 10,
+                        original["vertices"][0]["position"][0].get<double>() + 10 &&
+                    result["model"]["primitive"].is_null(),
                 "parented copy bakes world transform instead of jumping to local position",
                 error) ||
         !expect(execute("undo", identity) && source_node.set_parent({}) &&
@@ -362,7 +434,8 @@ bool run(const fs::path& project)
     }
     auto combined_target = identity;
     combined_target["modelId"] = result["modelId"];
-    if (!expect(execute("modeling_get", combined_target) && result["model"]["faceCount"] == 12,
+    if (!expect(execute("modeling_get", combined_target) && result["model"]["faceCount"] == 12 &&
+                    result["model"]["primitive"].is_null(),
                 "combine uses core topology append", error) ||
         !expect(execute("undo", identity) && test_support::scene_nodes(*scene).size() == 2,
                 "undo combined object", error) ||
@@ -413,7 +486,8 @@ bool run(const fs::path& project)
     finish.update({{"operation", "mirror_mode"}, {"parameters", {{"action", "finish"}}}});
     if (!expect(execute("modeling_edit", finish), "finish mirror mode", error) ||
         !expect(execute("modeling_get", target) && result["model"]["faceCount"] == 12 &&
-                    result["model"]["mirror"]["enabled"] == false,
+                    result["model"]["mirror"]["enabled"] == false &&
+                    result["model"]["primitive"].is_null(),
                 "finish mirror bakes source topology", error) ||
         !expect(execute("undo", identity), "undo mirror finish", error) ||
         !expect(execute("modeling_get", target) && result["model"]["faceCount"] == 6 &&

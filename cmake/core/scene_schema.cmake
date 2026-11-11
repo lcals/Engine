@@ -85,6 +85,8 @@ function(engine_add_scene_schema)
         _name
         common
         input
+        camera
+        character_controller
         scene
         prefab
         mesh
@@ -99,7 +101,6 @@ function(engine_add_scene_schema)
         terrain_state
         destruction
         destruction_state
-        modeling
         shader
         material
         texture
@@ -116,10 +117,13 @@ function(engine_add_scene_schema)
     # 聚合入口只用于生成统一 TS 导出，避免同 namespace 的独立 schema 相互覆盖 barrel。
     set(_ts_schema "${PROJECT_BINARY_DIR}/generated/all.fbs")
     file(MAKE_DIRECTORY "${PROJECT_BINARY_DIR}/generated")
-    file(
-        WRITE "${_ts_schema}"
-        "include \"common.fbs\";\ninclude \"input.fbs\";\ninclude \"scene.fbs\";\ninclude \"prefab.fbs\";\ninclude \"mesh.fbs\";\ninclude \"model.fbs\";\ninclude \"skeleton.fbs\";\ninclude \"animation.fbs\";\ninclude \"animation_pose.fbs\";\ninclude \"animation_retarget.fbs\";\ninclude \"effect.fbs\";\ninclude \"terrain.fbs\";\ninclude \"terrain_state.fbs\";\ninclude \"destruction.fbs\";\ninclude \"destruction_state.fbs\";\ninclude \"modeling.fbs\";\ninclude \"shader.fbs\";\ninclude \"material.fbs\";\ninclude \"texture.fbs\";\ninclude \"light_probe.fbs\";\ninclude \"audio.fbs\";\ninclude \"movie.fbs\";\ninclude \"font.fbs\";\ninclude \"ui.fbs\";\ninclude \"asset_catalog.fbs\";\ninclude \"resource_header.fbs\";\nnamespace engine.schema;\nroot_type SceneData;\n"
-    )
+    set(_ts_content "")
+    foreach(_schema IN LISTS _schemas)
+        cmake_path(GET _schema FILENAME _filename)
+        string(APPEND _ts_content "include \"${_filename}\";\n")
+    endforeach()
+    string(APPEND _ts_content "namespace engine.schema;\nroot_type SceneData;\n")
+    file(CONFIGURE OUTPUT "${_ts_schema}" CONTENT "${_ts_content}" @ONLY)
     set(_stamp "${PROJECT_BINARY_DIR}/generated/schema.stamp")
     set(_ts_aggregate "${PROJECT_BINARY_DIR}/generated/typescript-aggregate")
     set(_ts_barrel "${_ts_dir}/engine/schema.ts")
@@ -137,11 +141,22 @@ function(engine_add_scene_schema)
         COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${_ts_aggregate}/engine/schema.ts"
                 "${_ts_barrel}"
         COMMAND "${CMAKE_COMMAND}" -E touch "${_stamp}"
-        DEPENDS ${_schemas} "${ENGINE_FLATC_EXECUTABLE}"
-        COMMENT "Generating shared C++ and TypeScript asset data from FlatBuffers"
+        DEPENDS ${_schemas} "${_ts_schema}" "${ENGINE_FLATC_EXECUTABLE}"
+        COMMENT "Generating runtime C++ and TypeScript data from FlatBuffers"
         VERBATIM)
-    add_custom_target(engine_scene_schema DEPENDS ${_cpp_headers} "${_stamp}" "${_ts_barrel}")
-    add_library(engine_scene_data INTERFACE)
+    find_package(Python3 REQUIRED COMPONENTS Interpreter)
+    set(_control_json "${_cpp_dir}/control_json_generated.hpp")
+    add_custom_command(
+        OUTPUT "${_control_json}"
+        COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/scripts/generate_control_codecs.py"
+                --schema-dir "${_schema_dir}" --output "${_control_json}"
+                --declarations "${PROJECT_SOURCE_DIR}/include/engine.d.ts" --check-declarations
+        DEPENDS "${PROJECT_SOURCE_DIR}/scripts/generate_control_codecs.py"
+                "${PROJECT_SOURCE_DIR}/include/engine.d.ts"
+                "${_schema_dir}/camera.fbs" "${_schema_dir}/character_controller.fbs"
+        VERBATIM)
+    add_custom_target(engine_scene_schema DEPENDS ${_cpp_headers} "${_stamp}" "${_ts_barrel}" "${_control_json}")
+    add_library(engine_scene_data INTERFACE ${_schemas})
     add_library(engine::scene_data ALIAS engine_scene_data)
     add_dependencies(engine_scene_data engine_scene_schema)
     target_include_directories(engine_scene_data INTERFACE "$<BUILD_INTERFACE:${_include_root}>")

@@ -53,23 +53,9 @@ classDiagram
 - `get_scene(offset?, limit?)` 按场景节点顺序分页，参数均为非负整数。offset 默认 0，省略 limit 返回该偏移后的全部节点，保持无参数查询行为；limit 为 0 或 offset 超出节点总数时返回空节点数组。结果顶层返回 `totalNodes` 和请求的 `offset`，`scene.nodes` 仅包含当前页；无活动场景时 `scene=null`、`totalNodes=0`。分页不锁定跨请求快照，调用方应核对 sceneId，并在结构变化后重新查询。
 - 节点 ID 与 sceneId 使用完整十进制 uint64 字符串；数值 JSON ID、零值、溢出及旧场景身份均拒绝。材料参数支持 float/v2/v3/v4，遵守原生材质类型与值域检查。
 
-通道位于编辑器持久目录：`editor-command.json` 输入，`editor-receipt.json` 为最新回执，`editor-receipts/<session>/<requestId>.json` 保存各请求原回执。输入上限 1 MiB。请求为 `{session,projectRoot,requestId,command,arguments}`；回执为 `{session,projectRoot,requestId,command,success,result,error,completedAtMs}`。session/requestId 仅允许不超过 128 个 ASCII 字母、数字、下划线或连字符。会话与项目必须匹配；同会话 requestId 只执行一次，先写独立回执再更新最新快照。写回失败保留已执行结果供重试。`start_project`、`stop_project` 与其他非撤销命令共用此通道；项目状态仍单独发布到 `project-status.json`，不再维护第二套启停请求文件。
+EditorCommands 只执行同步命令及编辑事务，不拥有协议通道。可执行宿主独占 [EditorMcpEndpoint](../../plugins/editor/class-diagrams/editor-mcp-tools.md#独立-mcp-端点)，端点组合 [McpCommandChannel](../../plugins/runtime/class-diagrams/mcp-runtime-test.md#请求与回执格式) 并借用本服务；协议去重、落盘重试、输入上限与请求回执只在通道契约维护。命令失败返回原请求结果，不要求编辑器退出。
 
-```mermaid
-classDiagram
-    class EditorCommandChannel {
-        +EditorCommandChannel(EditorCommands& commands, filesystem_path directory, string project_root, string session)
-        +poll() bool
-        +last_error() const string&
-        +last_receipt() const Json&
-    }
-    class EditorCommands
-    class EditorSystem
-    EditorSystem *-- EditorCommandChannel : 独占内部文件服务
-    EditorCommandChannel --> EditorCommands : 持续借用及执行
-```
-
-内部 `EditorCommandChannel` 仅负责上述文件传输。命令执行失败属于正常回执，不使编辑器退出；传输失败保留待写回执供下一帧重试。`last_receipt()` 借用最近完整发布的原回执；回执重试成功的这一帧先返回，宿主观察该结果后下一帧再处理新请求。已执行 ID 不因回执文件被删除而重新执行。回执同样限制为 1 MiB；超大查询返回同 ID 的有界失败回执。输入及历史回执在读取前后都校验长度，历史回执校验身份及字段类型。
+异步 start_project 的命令结果只报告受理及原生 prepareId，后续启动错误和完成状态由 [GameplaySession](../../runtime/class-diagrams/gameplay-session.md#启动请求的身份与结果) 保存；编辑器命令模块不复制启动状态机。
 
 EditorCommands 与 SceneCommands 明确禁止复制。EditorCommands 的析构、clear_history、undo_count、redo_count 为 noexcept；后两者为 const。EditorEdit 通过 noexcept 虚析构释放；场景查询、命令执行和编辑记录 apply/revert 不承诺 noexcept。需要检查的状态返回值标注 nodiscard。
 

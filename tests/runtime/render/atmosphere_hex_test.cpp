@@ -148,7 +148,6 @@ bool test()
     config.height = 108;
     config.window_title = "Upstream atmosphere and Hex PBR";
     test_support::ResourceServices services;
-    engine::ResourceSystem& resources = services.core;
     engine::WorldSystem world{&services.loader};
     engine::WindowSystem window;
     engine::RenderSystem renderer(window, &world);

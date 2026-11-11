@@ -1,4 +1,6 @@
 #include "runtime/render/render_system.hpp"
+#include "runtime/render/frame_counters.hpp"
+#include "runtime/render/passes/frame_output.hpp"
 
 #include "runtime/font/font_system.hpp"
 #include "runtime/performance/profiling.hpp"
@@ -278,6 +280,7 @@ bool RenderSystem::initialize_renderer()
         return false;
     }
     renderer_initialized_ = true;
+    ++device_generation_;
     vsync_applied_ = vsync_enabled_;
     max_anisotropy_applied_ = config_.max_anisotropy;
     active_renderer = this;
@@ -297,6 +300,15 @@ bool RenderSystem::initialize_renderer()
         return false;
     }
 
+    if (!frame_output_)
+    {
+        frame_output_ = std::make_unique<render_detail::FrameOutput>();
+    }
+    if (!frame_output_->prepare(static_cast<std::uint16_t>(width_),
+                                static_cast<std::uint16_t>(height_)))
+    {
+        return false;
+    }
     bgfx::setViewName(render_detail::main_view, "Main window");
     constexpr std::array shadow_names = {"Directional shadow 1", "Directional shadow 2",
                                          "Directional shadow 3", "Directional shadow 4"};
@@ -480,19 +492,32 @@ bool RenderSystem::prepare_frame()
         height_ = height;
     }
 
-    return true;
-}
-
-bool RenderSystem::render(Camera camera)
-{
-    ENGINE_PROFILE_ZONE("Render.frame");
-    if (camera.instance_id() != 0 && !camera)
+    if (!frame_output_)
+    {
+        frame_output_ = std::make_unique<render_detail::FrameOutput>();
+    }
+    if (!frame_output_->prepare(static_cast<std::uint16_t>(width_),
+                                static_cast<std::uint16_t>(height_)))
     {
         return false;
     }
+    advance_screenshots();
+    return true;
+}
+
+RenderSubmitStatus RenderSystem::render(Camera camera)
+{
+    render_detail::ui_draws = 0;
+    scene_collected_ = false;
+    ENGINE_PROFILE_ZONE("Render.frame");
+    if (camera.instance_id() != 0 && !camera)
+    {
+        return RenderSubmitStatus::failed;
+    }
     if (!prepare_frame())
     {
-        return false;
+        return is_initialized() && !windows_.can_render() ? RenderSubmitStatus::deferred
+                                                          : RenderSubmitStatus::failed;
     }
 
     RenderSettings current_settings;
@@ -500,7 +525,7 @@ bool RenderSystem::render(Camera camera)
         ENGINE_PROFILE_ZONE("Render.resolveSettings");
         if (!resolve_settings(current_settings))
         {
-            return false;
+            return RenderSubmitStatus::failed;
         }
     }
     bgfx::setViewFrameBuffer(render_detail::main_view, BGFX_INVALID_HANDLE);
@@ -540,7 +565,18 @@ bool RenderSystem::render(Camera camera)
     }
     {
         ENGINE_PROFILE_ZONE("Render.frameSubmit");
+        frame_output_->present(current_settings.clear_color, false);
+        if (drawn)
+        {
+            submit_screenshot(world_ && world_->scene() ? RenderFrameKind::scene
+                                                        : RenderFrameKind::clear);
+        }
         frame_number_ = bgfx::frame();
+        if (drawn)
+        {
+            record_frame(world_ && world_->scene() ? RenderFrameKind::scene
+                                                   : RenderFrameKind::clear);
+        }
     }
     {
         ENGINE_PROFILE_ZONE("Render.pollResults");
@@ -556,11 +592,12 @@ bool RenderSystem::render(Camera camera)
 #if defined(ENGINE_ENABLE_TRACY)
     profile_renderer_stats();
 #endif
-    return drawn;
+    return drawn ? RenderSubmitStatus::submitted : RenderSubmitStatus::failed;
 }
 
 bool RenderSystem::present_movie_frame(const MovieFrame& frame)
 {
+    render_detail::ui_draws = 0;
     if (!prepare_frame())
     {
         return false;
@@ -574,7 +611,10 @@ bool RenderSystem::present_movie_frame(const MovieFrame& frame)
     {
         return false;
     }
+    frame_output_->present(0x000000ff, true);
+    submit_screenshot(RenderFrameKind::movie);
     frame_number_ = bgfx::frame();
+    record_frame(RenderFrameKind::movie);
     collect_preparation(false);
     ENGINE_PROFILE_FRAME();
     return true;
@@ -593,6 +633,32 @@ void RenderSystem::on_shutdown() noexcept
 
 void RenderSystem::shutdown_renderer() noexcept
 {
+    if (renderer_initialized_ && active_screenshot_)
+    {
+        for (int attempt = 0; attempt < 16 && active_screenshot_; ++attempt)
+        {
+            frame_number_ = bgfx::frame();
+            advance_screenshots();
+            if (callbacks_)
+            {
+                callbacks_->finish();
+            }
+            advance_screenshots();
+        }
+    }
+    for (auto& [id, operation] : screenshots_)
+    {
+        (void)id;
+        if (operation.snapshot.state == ScreenshotState::waiting_frame ||
+            operation.snapshot.state == ScreenshotState::reading_back ||
+            operation.snapshot.state == ScreenshotState::writing)
+        {
+            operation.snapshot.state = ScreenshotState::failed;
+            operation.snapshot.error_code = "device_unavailable";
+            operation.snapshot.error = "Rendering device closed before the capture completed";
+        }
+    }
+    scope_frames_.clear();
     release_scene();
     collect_preparation(true);
     invoking_extensions_ = true;
@@ -604,7 +670,12 @@ void RenderSystem::shutdown_renderer() noexcept
     if (renderer_initialized_)
     {
         movie_pass_.reset();
+        if (frame_output_)
+        {
+            frame_output_->release();
+        }
         bgfx::shutdown();
+        frame_output_.reset();
         renderer_initialized_ = false;
         active_renderer = nullptr;
         frame_number_ = 0;

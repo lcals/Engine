@@ -150,7 +150,7 @@ classDiagram
     PhysicsSystem ..> EngineConfig : 初始化参数
 ```
 
-世界有效期须覆盖系统。无世界时仍可初始化和关闭空碰撞世界。`clear()` 和 `body_count()` 为 `noexcept`；状态返回值不可忽略。对象禁用、删除及普通场景卸载在下一次更新同步；常驻节点保留原 Scene、组件和 Jolt 实例，完整关闭由宿主显式清理。系统遍历 `WorldSystem::scenes()` 的已发布节点，恢复候选不参与模拟。固定步进与变换限制见[物理模块](../physics.md)。
+借用的世界必须先初始化并保持有效；无世界时仍可初始化和关闭空碰撞世界，传入尚未初始化的世界返回失败。`clear()` 和 `body_count()` 为 `noexcept`；状态返回值不可忽略。对象禁用、删除及普通场景卸载在下一次更新同步；常驻节点保留原 Scene、组件和 Jolt 实例，完整关闭由宿主显式清理。系统遍历 `WorldSystem::scenes()` 的已发布节点，恢复候选不参与模拟。固定步进与变换限制见[物理模块](../physics.md)。
 
 物理任务复用 Jolt v5.6.0 官方 `JobSystemWithBarrier` 与 `FixedSizeFreeList`，只桥接任务对象创建、释放和 `TaskSystem::enqueue`。任务域与引擎其他域共享 oneTBB worker；不创建物理专用线程池。任务域先初始化并存活到物理关闭后；不传任务域时由 Barrier 在调用线程串行执行，传入未初始化域则初始化失败。域的并发额度控制后台执行数，Jolt 的并发数另计参与 Barrier 的调用线程。包装在途数由原子预留限制为域并发额度与额外存储容量的较小值；满额直接留给已登记的官方 Barrier，投递被拒绝则释放桥接引用及预留。不在当前 Jolt Job 内递归运行后继，保留上游每任务 BodyAccess 作用域约束。
 
@@ -199,6 +199,8 @@ Jolt ContactListener 回调只读取传入 body 并收集数值，不访问 Scen
 临时物理内存复用 Jolt 官方 `TempAllocatorImplWithMallocFallback` 预留的 10 MiB 栈式分配缓冲区，超出后使用其官方 malloc 分配；不改变物体上限或求解设置。静态形状替换复用 `SetShape` 已完成的空间树通知，位姿没有变化时不重复提交位置/旋转；动态速度读取用 `GetLinearAndAngularVelocity` 合并锁操作。
 
 ## 范围与接触事件契约
+
+场景范围的准备、发布及激活复用[场景加载契约](scene-loading.md)。预备刚体和角色由现有物理状态拥有，在范围 active 前不加入活动模拟；常规更新同时跳过它们的冲量消费、固定步、结果发布和变换回写，旧场景继续模拟。发布后仍须等待范围激活，不能因内部已有预备对象就提前求解或访问未发布节点。
 
 球形范围和轴对齐盒形范围使用 Jolt NarrowPhaseQuery.CollideShape，按 PhysicsObject 去重并稳定排序；全部结果返回 vector，没有“最近一个”的替代。失败清空输出，成功空列表表示没有重叠。查询复用最近命中的身份、生命周期和过滤规则，不推进模拟。接触点不属于对象范围名单，需要接触位置时读取射线/球扫或接触事件。
 

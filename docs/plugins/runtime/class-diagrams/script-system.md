@@ -14,6 +14,7 @@ classDiagram
         <<final>>
         +ScriptSystem(ResourceLoader#42; resources, WorldSystem#42; world, RenderSystem#42; renderer, UiSystem#42; ui, PhysicsSystem#42; physics, NavigationSystem#42; navigation, InputSystem#42; input, WindowSystem#42; window, AnimationSystem#42; animation, MoviePlayer#42; movies)
         +~ScriptSystem()
+        +bind_gameplay_session(GameplaySession#42; session) bool
         +prepare_gameplay(const ResourceHandle& entry, string_view revision) bool
         +start_prepared_gameplay() bool
         +stop_gameplay() void
@@ -24,6 +25,7 @@ classDiagram
         #on_shutdown() void
     }
     class ScriptStatus
+    class GameplaySession
     class ScriptRuntime
     class WorldSystem
     class RenderSystem
@@ -49,6 +51,7 @@ classDiagram
     ScriptSystem --> AnimationSystem : 可空借用，覆盖事件接收器解绑
     ScriptSystem ..> AnimationEvent : 姿态提交后接收值批次
     ScriptSystem *-- ScriptStatus : 状态
+    ScriptSystem --> GameplaySession : 可空借用同一原生加载服务
     ScriptSystem ..> ResourceCatalog : 复制候选元数据
     ScriptSystem ..> ResourceMount : 候选存储输入
     ScriptSystem ..> ResourceSystem : 静态读取候选与目录查询
@@ -92,6 +95,7 @@ classDiagram
 - 热重载许可和可用部署版本由 GameplaySession 持有。ScriptSystem 只报告活动 Run 的执行状态，不轮询 available.json、控制文件或编辑器目录，也不自动激活资源。
 - `ENGINE_SCRIPT_BACKEND` 在编译期选择 `quickjs`（默认）或 `v8`，只编译所选后端；不提供运行时切换。QuickJS 的 runtime/context 与 V8 的 isolate/context 都由各 Run 独占，V8 platform 每进程共享。所有平台的 V8 默认关闭 WebAssembly、Intl/ICU、Temporal、系统 instrumentation，保留 JIT，默认无 ICU 数据部署。
 - `status()` 返回只读借用，下一次运行操作可更新内容。`entry` 默认空、`revision` 默认空；MountList 为标准容器别名。构造、析构、停止、查询及关闭为 noexcept，返回状态与重要查询标注 nodiscard，钩子标注 override。
+- `bind_gameplay_session()` 将宿主的普通会话借用传入每个 Run 的绑定上下文，不创建加载器副本。图中的 `ProjectScriptRequest` 和 `execute_project_script()` 仅在测试能力构建中存在。
 
 - 可执行宿主按插件清单向 RuntimeHost 提供创建工厂；工厂接收 WorldSystem、RenderSystem、UiSystem、PhysicsSystem、NavigationSystem 和 InputSystem 借用，返回未初始化实例。世界独占插件并统一调度；核心只包含 ScriptRuntime/ScriptStatus 头文件，不链接具体虚拟机或本插件。RuntimeHost 在关闭渲染器前通过 GameplaySession 停止玩法。
 

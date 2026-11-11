@@ -104,17 +104,28 @@ bloom_threshold = 1.0
 bloom_intensity = 0.17
 bloom_radius = 1.0
 
+
+[[nodes.components]]
+type = "camera_controller"
+enabled = true
+parameters = [ { name = "yaw", type = "float_value", default_value = { name = "yaw", type = "float_value", float_value = 0 }, has_range = true, minimum = -180, maximum = 180 }, { name = "pitch", type = "float_value", default_value = { name = "pitch", type = "float_value", float_value = -16 }, has_range = true, minimum = -80, maximum = 80 }, { name = "first_person", type = "bool_value", default_value = { name = "first_person", type = "bool_value", bool_value = false } }, { name = "height", type = "float_value", default_value = { name = "height", type = "float_value", float_value = 1.55 }, has_range = true, minimum = 0.1, maximum = 10 } ]
+targets = [ { name = "subject", node_local_id = "4" } ]
+rigs = [ { id = "third", modules = [ { id = "1", type = "lens" }, { id = "2", type = "orbit" } ] }, { id = "first", modules = [ { id = "1", type = "lens" }, { id = "3", type = "orbit" } ] } ]
+module_data = { lens = [ { id = "1", projection = "perspective", fov = { constant = 58.0, parameter = "", scale = 1, offset = 0 }, near_clip = { constant = 0.08, parameter = "", scale = 1, offset = 0 }, far_clip = { constant = 200.0, parameter = "", scale = 1, offset = 0 }, orthographic_size = { constant = 5, parameter = "", scale = 1, offset = 0 } } ], orbit = [ { id = "2", follow_slot = "subject", height_offset = { constant = 0, parameter = "height", scale = 1, offset = 0 }, distance = { constant = 5.0, parameter = "", scale = 1, offset = 0 }, yaw = { constant = 0, parameter = "yaw", scale = 1, offset = 0 }, pitch = { constant = 0, parameter = "pitch", scale = 1, offset = 0 }, pitch_min = -80, pitch_max = 80, shoulder_offset = { constant = 0, parameter = "", scale = 1, offset = 0 } }, { id = "3", follow_slot = "subject", height_offset = { constant = 0, parameter = "height", scale = 1, offset = 0 }, distance = { constant = 0, parameter = "", scale = 1, offset = 0 }, yaw = { constant = 0, parameter = "yaw", scale = 1, offset = 0 }, pitch = { constant = 0, parameter = "pitch", scale = 1, offset = 0 }, pitch_min = -80, pitch_max = 80, shoulder_offset = { constant = 0, parameter = "", scale = 1, offset = 0 } } ], collision = [ { id = "4", subject_slot = "subject", height_offset = { constant = 0, parameter = "height", scale = 1, offset = 0 }, radius = 0.15, margin = 0.02, sight_enabled = true, motion_enabled = false, include_characters = false, recovery_damping = 0.15, recovery_delay = 0.05 } ] }
+output_modules = [ { id = "4", type = "collision" } ]
+machine = { initial_state = "third", states = [ { id = "third", rig = "third" }, { id = "first", rig = "first" } ], transitions = [ { id = "to-first", from = "third", to = "first", interrupt = true, blend = { seconds = 0.2, curve = "smoothstep" }, any_of = [ { all_of = [ { id = "1", type = "parameter" } ] } ] }, { id = "to-third", from = "first", to = "third", interrupt = true, blend = { seconds = 0.2, curve = "smoothstep" }, any_of = [ { all_of = [ { id = "2", type = "parameter" } ] } ] } ], condition_data = { parameter_tests = [ { id = "1", parameter = "first_person", comparison = "equal", value = { type = "bool_value", bool_value = true } }, { id = "2", parameter = "first_person", comparison = "equal", value = { type = "bool_value", bool_value = false } } ] } }
+
 [[nodes.components]]
 type = "character_camera"
-target_node_id = 4
-mode = "third_person"
-eye_height = 1.55
-camera_distance = 5.0
-pitch_min = -80.0
-pitch_max = 80.0
-collision_radius = 0.15
-collision_margin = 0.02
-
+enabled = true
+subject_slot = "subject"
+yaw_parameter = "yaw"
+pitch_parameter = "pitch"
+first_person_parameter = "first_person"
+first_person_states = [ "first" ]
+pointer_scale_degrees = { x = 0.12, y = 0.12 }
+rate_degrees_per_second = { x = 96, y = 96 }
+status_bindings = [ { source = "active_height", parameter = "height", offset = -0.25 } ]
 [[nodes.components]]
 type = "audio_listener"
 enabled = false
@@ -140,13 +151,16 @@ step_height = 0.35
 ground_snap_distance = 0.2
 gravity_factor = 1.0
 
+
 [[nodes.components]]
 type = "character_controller"
-camera_node_id = 3
-move_speed = 4.0
-jump_speed = 5.5
-look_sensitivity = 0.12
-
+enabled = true
+camera_node_id = "3"
+movement = { space = "view", max_speed = 4.0, ground_acceleration = 30, ground_braking = 40, air_acceleration = 8, air_braking = 0, air_speed_limit = 4.0, inherit_support_planar_velocity = true }
+facing = { mode = "movement", turn_speed = 540 }
+actions = [ { name = "jump", buffer_seconds = 0.15 }, { name = "sprint", buffer_seconds = 0 }, { name = "crouch", buffer_seconds = 0 } ]
+abilities = [ { id = "crouch", type = "crouch", enabled = true, priority = 30 }, { id = "jump", type = "jump", enabled = true, priority = 20 }, { id = "sprint", type = "sprint", enabled = true, priority = 10 } ]
+ability_data = { crouch = [ { id = "crouch", action = "crouch", half_height = 0.3, speed = 1.8 } ], jump = [ { id = "jump", action = "jump", launch_delta_speed = 5.5, coyote_seconds = 0.1, hold_seconds = 0.18, held_gravity_scale = 0.7, released_gravity_scale = 1.6, allow_crouched = false } ], sprint = [ { id = "sprint", action = "sprint", speed = 6.8 } ] }
 [[nodes]]
 id = 9
 name = "Environment"

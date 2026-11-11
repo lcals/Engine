@@ -1,5 +1,6 @@
 #pragma once
 
+#include "editor/asset_pipeline/components/scene_component_codec.hpp"
 #include "editor/commands/editor_commands.hpp"
 #include "editor/commands/editor_edit.hpp"
 #include "runtime/resource/resource_reference.hpp"
@@ -72,7 +73,22 @@ template <typename T, typename Data, typename Read, typename Write>
                        return false;
                    }
                    std::vector<ResourceReference> prepared;
-                   if (!read(node, arguments, data, prepared, error) || !T::valid_settings(data))
+                   const auto valid = [&]()
+                   {
+                       if constexpr (requires { T::valid_settings(data); })
+                       {
+                           return T::valid_settings(data);
+                       }
+                       else
+                       {
+                           schema::ComponentDataT candidate;
+                           candidate.payload.Set(data);
+                           const auto* codec =
+                               asset_pipeline::find_scene_component_codec(T::component_type);
+                           return codec && codec->validate(candidate, error);
+                       }
+                   };
+                   if (!read(node, arguments, data, prepared, error) || !valid())
                    {
                        if (error.empty())
                        {

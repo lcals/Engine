@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""通过真实引擎 MCP 创建、布光并保存现代公寓；不直接生成模型或场景文件。"""
+"""Create, light and save an apartment through actual engine MCP without generating mesh or scene files directly."""
 
 import argparse
 from collections import Counter
@@ -119,7 +119,7 @@ class ApartmentPlan:
         self.add(
             name,
             "cylinder",
-            {"radius": radius, "size": [1, height, 1], "segments": segments},
+            {"radius": radius, "height": height, "segments": segments},
             position,
             material,
             rotation,
@@ -454,7 +454,7 @@ def apartment_plan():
         p.add(
             f"hob_ring_{index}",
             "torus",
-            {"radius": 0.12, "innerRadius": 0.009, "segments": 20, "rings": 6},
+            {"radius": 0.12, "tubeRadius": 0.009, "segments": 20, "rings": 6},
             (x, 1.132, z),
             "steel",
         )
@@ -586,7 +586,7 @@ def apartment_plan():
     )
     names = [piece.name for piece in p.pieces]
     if len(names) != len(set(names)):
-        raise RuntimeError("公寓模型名称重复")
+        raise RuntimeError("Duplicate apartment model name")
     return p
 
 
@@ -627,7 +627,7 @@ class McpSession:
             },
         )
         if initialized.get("protocolVersion") != "2025-06-18":
-            raise RuntimeError("MCP 协议版本不匹配")
+            raise RuntimeError("MCP protocol version mismatch")
         send(self.process, {"jsonrpc": "2.0", "method": "notifications/initialized"})
         cursor = None
         while True:
@@ -700,35 +700,35 @@ class McpSession:
                 receipt.get("projectRoot") != self.project
                 or receipt.get("runtimeDir") != self.runtime
             ):
-                raise RuntimeError(f"MCP {name} 待处理回执所属项目或运行实例不匹配")
+                raise RuntimeError(f"MCP {name} pending receipt belongs to another project or runtime instance")
             if name in ("start_project", "stop_project"):
                 raise RuntimeError(
-                    f"MCP {name} 生命周期请求尚未完成；请先查询 get_status，不要重复提交"
+                    f"MCP {name} lifecycle request is pending; query get_status before submitting again"
                 )
             identity = {"session": receipt.get("session"), "requestId": receipt.get("requestId")}
             if not all(isinstance(value, str) and value for value in identity.values()):
-                raise RuntimeError(f"MCP {name} 待处理回执缺少身份")
+                raise RuntimeError(f"MCP {name} pending receipt has no identity")
             if time.monotonic() >= deadline:
-                raise RuntimeError(f"MCP {name} 仍在处理；原请求 {identity} 已记入回执，不重复发送")
+                raise RuntimeError(f"MCP {name} is still processing; original request {identity} is recorded and will not be resent")
             time.sleep(0.25)
-            result, receipt = self.request_tool("get_editor_receipt", identity)
+            result, receipt = self.request_tool("get_request_receipt", identity)
             if receipt is not None and any(
                 receipt.get(key) != value for key, value in identity.items()
             ):
-                raise RuntimeError(f"MCP {name} 返回了其他请求的回执")
+                raise RuntimeError(f"MCP {name} returned a receipt for another request")
         succeeded = (
             receipt.get("success", receipt.get("lastRequestSucceeded")) if receipt else False
         )
         if result.get("isError") or receipt is None or succeeded is not True:
             raise RuntimeError(
-                f"MCP {name} 失败：{json.dumps(receipt or result, ensure_ascii=False)}"
+                f"MCP {name} failed:{json.dumps(receipt or result, ensure_ascii=False)}"
             )
         if receipt.get("projectRoot") != self.project:
-            raise RuntimeError(f"MCP {name} 返回了其他项目的回执")
+            raise RuntimeError(f"MCP {name} returned a receipt for another project")
         if receipt.get("runtimeDir") != self.runtime:
-            raise RuntimeError(f"MCP {name} 返回了其他运行实例的回执")
+            raise RuntimeError(f"MCP {name} returned a receipt for another runtime instance")
         if receipt.get("activation") != "completed":
-            raise RuntimeError(f"MCP {name} 尚未完成，停止发送后续编辑")
+            raise RuntimeError(f"MCP {name} is incomplete; no further edits will be sent")
         return receipt.get("result", {})
 
     def batch(self, commands):
@@ -757,7 +757,7 @@ VIEWS = {
 def scene_nodes(session):
     scene = session.call("get_scene").get("scene")
     if not scene:
-        raise RuntimeError("项目尚无活动场景；先通过 MCP start_project 启动项目")
+        raise RuntimeError("Project has no active scene; start it through MCP start_project first")
     return scene
 
 
@@ -765,13 +765,13 @@ def ensure_node(session, scene_id, name, component):
     scene = scene_nodes(session)
     matches = [node for node in scene["nodes"] if node["name"] == name]
     if len(matches) > 1:
-        raise RuntimeError(f"场景包含重名节点：{name}")
+        raise RuntimeError(f"Scene contains duplicate node names: {name}")
     if not matches:
         session.call("create_node", {"sceneId": scene_id, "name": name, "component": component})
         scene = scene_nodes(session)
         matches = [node for node in scene["nodes"] if node["name"] == name]
     if len(matches) != 1:
-        raise RuntimeError(f"无法确认节点创建结果：{name}")
+        raise RuntimeError(f"Cannot confirm node creation: {name}")
     return matches[0]["nodeId"]
 
 
@@ -866,7 +866,7 @@ def setup_lighting(session, scene_id):
             },
         )
     else:
-        print("渲染设置工具尚未注册；本次使用现有渲染器设置。", flush=True)
+        print("Render settings tool is not registered; using current renderer settings.", flush=True)
 
 
 def apply_style(session, scene_id, pairs):
@@ -912,7 +912,7 @@ def build_models(session, scene_id, pieces):
     models = session.call("modeling_get", identity).get("models", [])
     names = [model["name"] for model in models]
     if len(names) != len(set(names)):
-        raise RuntimeError("当前建模场景存在同名模型，无法安全恢复")
+        raise RuntimeError("Current modeling scene has duplicate names and cannot be resumed safely")
     by_name = {model["name"]: model for model in models}
     for offset in range(0, len(pieces), 12):
         chunk = pieces[offset : offset + 12]
@@ -975,7 +975,7 @@ def build_models(session, scene_id, pieces):
         by_name = {model["name"]: model for model in current}
         apply_style(session, scene_id, [(piece, by_name[piece.name]) for piece in chunk])
         print(
-            f"{min(offset + len(chunk), len(pieces))}/{len(pieces)} 模型完成 "
+            f"{min(offset + len(chunk), len(pieces))}/{len(pieces)} models completed "
             f"({chunk[-1].group})",
             flush=True,
         )
@@ -985,27 +985,27 @@ def build_models(session, scene_id, pieces):
 def capture_frame(session, relative_path):
     required = {"capture_frame", "get_frame_capture"}
     if not required.issubset(session.tools):
-        raise RuntimeError("当前 MCP 未注册截图工具；请使用已包含渲染截图模块的构建")
+        raise RuntimeError("Capture tool is not registered; use a build containing render capture support")
     expected = (session.args.project / "cache" / relative_path).resolve()
     deadline = time.monotonic() + session.args.timeout
     result = session.call("capture_frame", {"path": relative_path})
     while True:
         if result.get("path") != str(expected):
-            raise RuntimeError("截图回执路径与本次请求不一致")
+            raise RuntimeError("Capture receipt path does not match this request")
         state = result.get("state")
         if state == "complete":
             if not expected.is_file():
-                raise RuntimeError("截图回执已完成，但输出文件不存在")
+                raise RuntimeError("Capture receipt is complete but the output file is missing")
             with expected.open("rb") as source:
                 if source.read(8) != b"\x89PNG\r\n\x1a\n":
-                    raise RuntimeError("截图输出不是有效的 PNG 文件头")
+                    raise RuntimeError("Capture output has an invalid PNG header")
             return {"state": "complete", "path": str(expected), "bytes": expected.stat().st_size}
         if state == "failed":
-            raise RuntimeError("引擎截图失败；请查看运行日志后重新请求截图")
+            raise RuntimeError("Engine capture failed; inspect the runtime log before requesting another capture")
         if state != "pending":
-            raise RuntimeError(f"引擎返回了未知截图状态：{state}")
+            raise RuntimeError(f"Engine returned an unknown capture state: {state}")
         if time.monotonic() >= deadline:
-            raise RuntimeError("截图仍在处理；请查询 get_frame_capture，不要重复发送原请求")
+            raise RuntimeError("Capture is still processing; query get_frame_capture instead of resending the request")
         time.sleep(0.1)
         result = session.call("get_frame_capture")
 
@@ -1017,32 +1017,32 @@ def main():
     parser.add_argument("--runtime-dir", type=Path, default=Path("build/apartment-runtime"))
     parser.add_argument("--report", type=Path, default=Path("build/apartment-mcp-receipts.jsonl"))
     parser.add_argument("--timeout", type=float, default=120)
-    parser.add_argument("--dry-run", action="store_true", help="只打印构图与数量，不连接引擎")
-    parser.add_argument("--start", action="store_true", help="无活动场景时调用 start_project")
-    parser.add_argument("--groups", help="只处理逗号分隔的分区；默认全部")
+    parser.add_argument("--dry-run", action="store_true", help="Print composition and counts without connecting to the engine")
+    parser.add_argument("--start", action="store_true", help="Call start_project if no scene is active")
+    parser.add_argument("--groups", help="Process only comma-separated groups; default is all")
     parser.add_argument("--view", choices=VIEWS, default="wide")
     mode = parser.add_mutually_exclusive_group()
-    mode.add_argument("--view-only", action="store_true", help="只切换相机，不创建或保存模型")
+    mode.add_argument("--view-only", action="store_true", help="Change only the camera without creating or saving models")
     mode.add_argument(
-        "--save-only", action="store_true", help="只通过 MCP 保存当前场景，不重建模型或改视角"
+        "--save-only", action="store_true", help="Save the current scene through MCP without rebuilding models or changing the view"
     )
     parser.add_argument(
         "--configure-view",
         action="store_true",
-        help="切换视角时同时恢复公寓灯光和渲染设置；可与 --view-only 合用",
+        help="Restore apartment lighting and render settings when changing the view; can be combined with --view-only",
     )
     parser.add_argument(
         "--capture",
         metavar="CACHE_RELATIVE_PNG",
-        help="通过 MCP 截取真实引擎帧；路径相对于项目 cache，等待实际写入完成",
+        help="Capture an actual engine frame through MCP; path is relative to project cache, and waits for the file to be written",
     )
-    parser.add_argument("--no-save", action="store_true", help="保留内存场景供迭代，不保存")
+    parser.add_argument("--no-save", action="store_true", help="Keep the scene in memory for iteration without saving")
     parser.add_argument("--save-path", default="scenes/apartment.scene")
     args = parser.parse_args()
     if args.timeout <= 0:
-        parser.error("--timeout 必须大于零")
+        parser.error("--timeout must be greater than zero")
     if args.save_only and (args.no_save or args.configure_view or args.groups):
-        parser.error("--save-only 不能与 --no-save、--configure-view 或 --groups 合用")
+        parser.error("--save-only cannot be combined with --no-save, --configure-view or --groups")
     if args.capture:
         path = PurePosixPath(args.capture)
         if (
@@ -1053,14 +1053,14 @@ def main():
             or ":" in args.capture
             or any(part in ("", ".", "..") for part in args.capture.split("/"))
         ):
-            parser.error("--capture 必须是 cache 内的相对 .png 路径，不允许目录越界")
+            parser.error("--capture must be a relative .png path within cache without directory traversal")
     plan = apartment_plan()
     counts = Counter(piece.group for piece in plan.pieces)
     if args.groups:
         selected = set(args.groups.split(","))
         unknown = selected - set(counts)
         if unknown:
-            parser.error("未知分区：" + ", ".join(sorted(unknown)))
+            parser.error("Unknown group: " + ", ".join(sorted(unknown)))
         plan.pieces = [piece for piece in plan.pieces if piece.group in selected]
     if args.dry_run:
         print(
@@ -1088,7 +1088,7 @@ def main():
                 session.call("start_project")
                 scene = scene_nodes(session)
             if not scene:
-                raise RuntimeError("项目没有活动场景；先启动编辑器及项目，或传入 --start")
+                raise RuntimeError("Project has no active scene; start the editor and project, or pass --start")
             scene_id = scene["sceneId"]
             report = {"success": True, "sceneId": scene_id, "report": str(args.report.resolve())}
             if args.save_only:
@@ -1117,7 +1117,7 @@ def main():
         return 0
     except (OSError, ValueError, RuntimeError, KeyError, subprocess.TimeoutExpired) as error:
         print(
-            f"公寓创建未完成：{error}\n已完成操作写入回执；修复后可重跑，按名称复用已有模型。",
+            f"Apartment creation did not complete: {error}\nCompleted operations are recorded; fix the problem and rerun to reuse existing models by name.",
             file=sys.stderr,
         )
         return 1

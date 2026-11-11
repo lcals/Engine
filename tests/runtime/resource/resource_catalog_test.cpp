@@ -367,7 +367,7 @@ bool run(const std::filesystem::path& root)
         return false;
     }
     schema::SceneDataT scene_data;
-    scene_data.schema_version = 2;
+    scene_data.schema_version = 3;
     if (!scene->build_data(scene_data))
     {
         return false;

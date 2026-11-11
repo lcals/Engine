@@ -4,6 +4,13 @@ import argparse
 import json
 import os
 from pathlib import Path
+
+UNICODE = dict(
+    line.split("\t", 1) for line in
+    (Path(__file__).resolve().parents[4] / "tests/support/fixtures/unicode.tsv")
+    .read_text(encoding="utf-8").splitlines()
+)
+
 import shutil
 import subprocess
 import sys
@@ -174,9 +181,9 @@ def invoke(server, project, work, device, requests, package="org.engine.minimal"
 
 def test(server, root, work, initial_sync_only=False):
     (work / "fake-adb.py").write_text(FAKE_ADB, encoding="utf-8")
-    project = work / "project 中文 $literal"
+    project = work / UNICODE["shell_project"]
     prepare_minimal_project(root, project)
-    unusual = project / "assets" / "quote' $(touch injected) 中文.bin"
+    unusual = project / "assets" / UNICODE["shell_filename"]
     unusual.write_bytes(bytes(range(256)) + b"\x00binary\r\n")
     image_asset = project / "assets/raw-image.png"
     shutil.copy2(root / "tests/fixtures/asset_tools/blocks.png", image_asset)

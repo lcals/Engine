@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""真实 GPU 烘焙方向变化的线性 HDR，全流程结果与解析积分对照。"""
+"""Bake directional linear HDR on the GPU and compare the full result against analytic integration."""
 from __future__ import annotations
 
 import argparse

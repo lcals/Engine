@@ -16,7 +16,7 @@ function(engine_configure_effects_editor_plugin)
     endif()
     target_compile_definitions(engine_effects_editor PUBLIC TOML_HEADER_ONLY=1 TOML_EXCEPTIONS=0
                                PRIVATE JSON_NOEXCEPTION=1
-                                       ENGINE_SCHEMA_SOURCE_DIR="${PROJECT_SOURCE_DIR}/include/schemas/runtime")
+                                       ENGINE_SCHEMA_SOURCE_DIR="${PROJECT_SOURCE_DIR}/include/schemas")
     engine_apply_options(engine_effects_editor)
     if("editor/mcp" IN_LIST ENGINE_SELECTED_PLUGINS)
         add_library(engine_effects_mcp_tools STATIC

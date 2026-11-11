@@ -29,7 +29,7 @@ function(engine_configure_asset_import_plugin)
     target_compile_definitions(
         engine_asset_import
         PRIVATE TOML_HEADER_ONLY=1 TOML_EXCEPTIONS=0 JSON_NOEXCEPTION=1
-                ENGINE_SCHEMA_SOURCE_DIR="${PROJECT_SOURCE_DIR}/include/schemas/runtime")
+                ENGINE_SCHEMA_SOURCE_DIR="${PROJECT_SOURCE_DIR}/include/schemas")
     engine_apply_options(engine_asset_import)
 endfunction()
 

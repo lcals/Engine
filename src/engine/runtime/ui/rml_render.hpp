@@ -17,6 +17,10 @@ public:
     ~RmlRender() override;
     [[nodiscard]] bool begin(std::uint32_t width, std::uint32_t height, int logical_width,
                              int logical_height);
+    void set_preparing(bool value) noexcept
+    {
+        preparing_ = value;
+    }
     void release() noexcept;
     [[nodiscard]] bool activate(const std::string& key, const ResourceReference& document);
     void prune(std::span<const std::string> keys);
@@ -74,5 +78,6 @@ private:
     std::string active_key_;
     bool scissor_enabled_ = false;
     bool healthy_ = true;
+    bool preparing_ = false;
 };
 } // namespace engine::ui_detail

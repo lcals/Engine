@@ -29,27 +29,6 @@
 
 namespace engine
 {
-namespace
-{
-// 无可显示影片时仍提交黑帧，直至候选场景被正式激活。
-MovieFrame startup_black_frame()
-{
-    static constexpr std::array<std::uint8_t, 4> luma{16, 16, 16, 16};
-    static constexpr std::array<std::uint8_t, 2> chroma{128, 128};
-    MovieFrame frame;
-    frame.width = 2;
-    frame.height = 2;
-    frame.format = schema::MoviePixelFormat::nv12;
-    frame.color =
-        schema::MovieColorInfo(schema::MovieColorPrimaries::bt709, schema::MovieTransfer::srgb,
-                               schema::MovieColorMatrix::bt709, schema::MovieColorRange::limited,
-                               schema::MovieChromaLocation::center);
-    frame.planes[0] = {luma, 2, 2, 2};
-    frame.planes[1] = {chroma, 1, 1, 2};
-    return frame;
-}
-} // namespace
-
 RuntimeHost::RuntimeHost() noexcept : engine_(Engine::instance())
 {
 }
@@ -183,6 +162,11 @@ bool RuntimeHost::initialize_presentation(const EngineConfig& config, ResourceSy
             if (!host.input_->set_routing_state(routing) ||
                 !host.input_->process_event(event, claimed))
             {
+                if (!host.failed_)
+                {
+                    host.error_code_.clear();
+                    host.error_ = host.input_->last_error();
+                }
                 host.failed_ = true;
             }
         },
@@ -259,7 +243,10 @@ bool RuntimeHost::initialize_gameplay(const EngineConfig& config,
         reset_gameplay();
         return false;
     }
-    if (!engine_.initialize(config) || !renderer_->bind_world(world_, fonts_, ui_))
+    if (!engine_.initialize(config) ||
+        (setup && !setup(RuntimeStage::initialized, *world_, *window_, *physics_, *navigation_ptr,
+                         *renderer_, *background_tasks_)) ||
+        !renderer_->bind_world(world_, fonts_, ui_))
     {
         reset_gameplay();
         return false;
@@ -321,10 +308,19 @@ RuntimeStartupStatus RuntimeHost::step_gameplay(double max_seconds)
                              std::to_string(std::chrono::duration<double>(
                                                 std::chrono::steady_clock::now() - started)
                                                 .count()));
-        if (!ready || !gameplay_->begin_prepare(*startup_catalog_, *startup_mounts_, startup_entry_,
-                                                startup_scene_))
+        if (!ready)
         {
             reset_gameplay();
+            error_code_ = "world_initialize_failed";
+            error_ = "Cannot initialize the gameplay world and plugin registrations";
+            startup_status_ = RuntimeStartupStatus::failed;
+        }
+        else if (!gameplay_->begin_prepare(*startup_catalog_, *startup_mounts_, startup_entry_,
+                                           startup_scene_, startup_prepare_id_))
+        {
+            error_code_ = "gameplay_prepare_rejected";
+            error_ = gameplay_->last_error();
+            gameplay_->stop(GameplayStopCause::failure, error_);
             startup_status_ = RuntimeStartupStatus::failed;
         }
         return startup_status_;
@@ -336,7 +332,9 @@ RuntimeStartupStatus RuntimeHost::step_gameplay(double max_seconds)
     }
     else if (result == GameplayPrepareStatus::failed)
     {
-        reset_gameplay();
+        error_code_ = "gameplay_prepare_failed";
+        error_ = gameplay_->last_error();
+        gameplay_->stop(GameplayStopCause::failure, error_);
         startup_status_ = RuntimeStartupStatus::failed;
     }
     return startup_status_;
@@ -355,7 +353,48 @@ bool RuntimeHost::activate_gameplay()
     return true;
 }
 
+bool RuntimeHost::status(RuntimeHostStatus& output) const noexcept
+{
+    output = {};
+    output.tick_id = tick_sequence_;
+    output.sampled_at_ns =
+        static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                       std::chrono::steady_clock::now().time_since_epoch())
+                                       .count());
+    output.initialized = initialized_;
+    output.window_drawable = window_ && window_->can_render();
+    output.exit_requested = exit_requested_;
+    output.frame_status = failed_ ? FrameStatus::failed : last_tick_status_;
+    output.prepare_id = startup_prepare_id_;
+    output.error_code = error_code_;
+    output.error = error_;
+    return true;
+}
+
+FrameStatus RuntimeHost::fail_runtime(std::string_view code, std::string_view message)
+{
+    if (!failed_ || error_code_.empty())
+    {
+        error_code_ = code;
+        error_ = message;
+        failed_ = true;
+        gameplay_active_ = false;
+        if (gameplay_)
+        {
+            gameplay_->stop(GameplayStopCause::failure, error_);
+        }
+    }
+    return FrameStatus::failed;
+}
+
 FrameStatus RuntimeHost::tick(double delta_time)
+{
+    last_tick_status_ = tick_runtime(delta_time);
+    ++tick_sequence_;
+    return last_tick_status_;
+}
+
+FrameStatus RuntimeHost::tick_runtime(double delta_time)
 {
     ENGINE_PROFILE_ZONE("Host.runtime_tick");
     const FrameStatus events = poll_events(delta_time);
@@ -364,33 +403,26 @@ FrameStatus RuntimeHost::tick(double delta_time)
         return events;
     }
     const double movie_delta = std::exchange(movie_clock_paused_, false) ? 0.0 : delta_time;
-    const auto awaiting_activation = [&]
-    { return gameplay_ && gameplay_->step_prepare(0, 0.002) != GameplayPrepareStatus::failed; };
-    if (gameplay_active_ && !awaiting_activation() && !engine_.tick(std::min(delta_time, 0.1)))
+    if (gameplay_active_ && !engine_.tick(std::min(delta_time, 0.1)))
     {
-        failed_ = true;
-        return FrameStatus::failed;
+        return fail_runtime("system_update_failed", "Cannot update the gameplay systems");
     }
     if (!audio_->tick(delta_time))
     {
-        failed_ = true;
-        return FrameStatus::failed;
+        return fail_runtime("audio_update_failed", "Cannot update audio output");
     }
-    if (gameplay_active_ && gameplay_ && !gameplay_->tick())
+    if (gameplay_ && !gameplay_->tick())
     {
-        failed_ = true;
-        return FrameStatus::failed;
+        return fail_runtime("gameplay_update_failed", "Cannot update the gameplay session");
     }
     // 窗口不可绘制时暂停整个设备；世界暂停由音频系统只作用于场景声部。
     if (!audio_->set_paused(!window_->can_render()))
     {
-        failed_ = true;
-        return FrameStatus::failed;
+        return fail_runtime("audio_pause_failed", "Cannot update the audio pause state");
     }
     if (movie_player_ && !movie_player_->update(movie_delta))
     {
-        failed_ = true;
-        return FrameStatus::failed;
+        return fail_runtime("movie_update_failed", "Cannot update movie playback");
     }
     MoviePlaybackHandle movie_handle;
     MoviePlaybackStatus movie_status;
@@ -401,37 +433,25 @@ FrameStatus RuntimeHost::tick(double delta_time)
         (movie_status.state == MovieState::playing || movie_status.state == MovieState::paused ||
          movie_status.state == MovieState::completed) &&
         movie_player_->frame(movie_handle, movie_frame);
-    RenderPrepareProgress progress;
-    const auto prepared = gameplay_active_ && !awaiting_activation() && window_->can_render()
-                              ? renderer_->prepare_scene(RenderPrepareMode::incremental, progress)
-                              : RenderPrepareStatus::preparing;
-    if (prepared == RenderPrepareStatus::failed && gameplay_)
+    // Preparing a candidate never gates presentation of the published scene.
+    if (!showing_movie && window_->can_render())
     {
-        const std::string error(renderer_->preparation_error());
-        gameplay_->stop(error);
+        (void)renderer_->prepare_scope({}, {});
     }
-    const bool rendered = showing_movie ? renderer_->present_movie_frame(movie_frame)
-                          : !gameplay_active_ || prepared != RenderPrepareStatus::ready
-                              ? renderer_->present_movie_frame(startup_black_frame())
+    const auto rendered = showing_movie
+                              ? (renderer_->present_movie_frame(movie_frame)
+                                     ? RenderSubmitStatus::submitted
+                                     : (window_->can_render() ? RenderSubmitStatus::failed
+                                                              : RenderSubmitStatus::deferred))
                               : renderer_->render();
-    if (!rendered)
+    if (rendered == RenderSubmitStatus::deferred)
     {
-        // 平台暂停可以在本帧检查之后到达，等待恢复而不锁定为失败。
-        if (!window_->can_render())
-        {
-            movie_clock_paused_ = true;
-            return FrameStatus::paused;
-        }
-        if (!showing_movie && gameplay_active_ && world_ && gameplay_ && !world_->scenes().empty())
-        {
-            gameplay_->stop("Project rendering failed; the project was stopped");
-            if (renderer_->render())
-            {
-                return FrameStatus::running;
-            }
-        }
-        failed_ = true;
-        return FrameStatus::failed;
+        movie_clock_paused_ = true;
+        return FrameStatus::paused;
+    }
+    if (rendered == RenderSubmitStatus::failed)
+    {
+        return fail_runtime("render_failed", "Cannot submit the runtime frame");
     }
     if (showing_movie)
     {
@@ -443,9 +463,21 @@ FrameStatus RuntimeHost::tick(double delta_time)
 
 FrameStatus RuntimeHost::poll_events(double delta_time)
 {
-    if (!initialized_ || failed_ || !std::isfinite(delta_time) || delta_time < 0.0)
+    if (!initialized_ || !std::isfinite(delta_time) || delta_time < 0.0)
     {
         return FrameStatus::failed;
+    }
+    const auto fail_input = [&]()
+    {
+        const std::string_view message = failed_ && error_code_.empty() && !error_.empty()
+                                             ? std::string_view(error_)
+                                             : std::string_view(input_->last_error());
+        return fail_runtime("input_update_failed",
+                            message.empty() ? "Cannot update runtime window and input" : message);
+    };
+    if (failed_)
+    {
+        return fail_input();
     }
     if (exit_requested_)
     {
@@ -480,8 +512,7 @@ FrameStatus RuntimeHost::poll_events(double delta_time)
     // 上一回调可能改变文档 / 可见性；没有 SDL 事件也必须刷新持续占用事实。
     if (window_->can_render() && gameplay_active_ && ui_ && !ui_->synchronize())
     {
-        failed_ = true;
-        return FrameStatus::failed;
+        return fail_runtime("ui_update_failed", "Cannot synchronize runtime UI documents");
     }
     schema::InputRoutingDataT routing;
     routing.keyboard_claimed = gameplay_active_ && ui_ && ui_->keyboard_claimed();
@@ -489,8 +520,7 @@ FrameStatus RuntimeHost::poll_events(double delta_time)
     if (!input_->begin_frame() || !input_->set_routing_state(routing) ||
         !window_->tick(delta_time) || failed_ || !input_->tick(delta_time))
     {
-        failed_ = true;
-        return FrameStatus::failed;
+        return fail_input();
     }
     if (window_->exit_requested())
     {
@@ -499,8 +529,7 @@ FrameStatus RuntimeHost::poll_events(double delta_time)
     }
     if (!audio_->set_paused(!window_->can_render()))
     {
-        failed_ = true;
-        return FrameStatus::failed;
+        return fail_runtime("audio_pause_failed", "Cannot update the audio pause state");
     }
     if (!window_->can_render())
     {
@@ -622,6 +651,9 @@ void RuntimeHost::shutdown() noexcept
     startup_mounts_.reset();
     startup_entry_.clear();
     startup_scene_.clear();
+    startup_prepare_id_ = 0;
+    error_code_.clear();
+    error_.clear();
     presented_movie_id_ = 0;
     presented_movie_generation_ = 0;
     movie_clock_paused_ = false;

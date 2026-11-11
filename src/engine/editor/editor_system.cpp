@@ -1,7 +1,6 @@
 #include "editor/editor_system.hpp"
 #include "editor/file_text.hpp"
 
-#include "editor/commands/editor_command_channel.hpp"
 #include "editor/commands/editor_commands.hpp"
 #include "editor/commands/scene_commands.hpp"
 #include "editor/editor_environment.hpp"
@@ -116,84 +115,22 @@ struct EditorSystem::State
     fs::path directory;
     std::string project_root;
     std::string session;
-    std::string last_request;
     std::string last_command;
     std::string last_error;
     bool last_success = true;
     bool closed = false;
-    std::string transition;
     std::string previous_status;
     std::chrono::steady_clock::time_point last_write{};
+    std::string transition;
+    std::uint64_t prepare_id = 0;
     std::unique_ptr<SceneCommands> scene_commands;
     std::unique_ptr<EditorCommands> commands;
-    std::unique_ptr<EditorCommandChannel> command_channel;
-    std::string channel_error;
     std::optional<std::int32_t> editor_frame_rate;
-    std::optional<std::uint32_t> close_delay_ms;
-    std::optional<std::chrono::steady_clock::time_point> close_at;
 
     State(GameplaySession& session, EditorEnvironment& editor_environment,
           ScenePreview* scene_preview)
         : gameplay(session), environment(editor_environment), preview(scene_preview)
     {
-    }
-
-    bool schedule_close(const Json& arguments, Json& reply, std::string& error)
-    {
-        if (!arguments.is_object() || arguments.size() > 1 ||
-            (!arguments.empty() && !arguments.contains("delayMs")))
-        {
-            error = "close_editor accepts only delayMs";
-            return false;
-        }
-        std::uint32_t delay = 500;
-        if (arguments.contains("delayMs"))
-        {
-            const auto& value = arguments["delayMs"];
-            if (!value.is_number_integer() || value < 100 || value > 10000)
-            {
-                error = "delayMs must be an integer within 100..10000";
-                return false;
-            }
-            delay = value.get<std::uint32_t>();
-        }
-        if (!close_delay_ms)
-        {
-            close_delay_ms = delay;
-        }
-        const auto remaining = close_at ? std::chrono::duration_cast<std::chrono::milliseconds>(
-                                              *close_at - std::chrono::steady_clock::now())
-                                              .count()
-                                        : static_cast<std::int64_t>(*close_delay_ms);
-        reply = {{"scheduled", true}, {"delayMs", remaining > 0 ? remaining : 0}};
-        return true;
-    }
-
-    void close_after_receipt()
-    {
-        if (!close_delay_ms)
-        {
-            return;
-        }
-        const auto now = std::chrono::steady_clock::now();
-        if (!close_at)
-        {
-            close_at = now + std::chrono::milliseconds(*close_delay_ms);
-        }
-        if (now >= *close_at)
-        {
-            SDL_Event event{};
-            event.type = SDL_EVENT_QUIT;
-            if (SDL_PushEvent(&event))
-            {
-                close_delay_ms.reset();
-            }
-            else
-            {
-                LogSystem::write(LogLevel::error,
-                                 "Cannot request editor exit; retrying next frame");
-            }
-        }
     }
 
     void restore_frame_rate() noexcept
@@ -217,6 +154,7 @@ struct EditorSystem::State
         }
     }
 
+#if defined(ENGINE_ENABLE_TEST_SUPPORT)
     bool execute_script(const Json& arguments, Json& result, std::string& error)
     {
         result = Json::object();
@@ -259,6 +197,8 @@ struct EditorSystem::State
         return true;
     }
 
+#endif
+
     bool start_gameplay()
     {
         const auto* current = gameplay.script_status();
@@ -279,7 +219,8 @@ struct EditorSystem::State
             restore_frame_rate();
             return false;
         }
-        if (!gameplay.begin_prepare(catalog, {{"content", environment.builtin_path_}}))
+        if (!gameplay.begin_prepare(catalog, {{"content", environment.builtin_path_}}, {}, {},
+                                    prepare_id))
         {
             restore_frame_rate();
             return false;
@@ -287,10 +228,11 @@ struct EditorSystem::State
         return true;
     }
 
-    bool publish(bool force = false)
+    Json status_value() const
     {
         const auto* script = gameplay.script_status();
-        const bool running = !closed && script != nullptr && script->running;
+        const bool running =
+            !closed && transition != "starting" && script != nullptr && script->running;
         std::string error = last_error;
         if (error.empty())
         {
@@ -311,10 +253,13 @@ struct EditorSystem::State
                        {"running", running},
                        {"runId", std::to_string(running ? script->run_id : 0)},
                        {"targetFrameRate", Engine::instance().target_frame_rate()},
-                       {"lastRequestId", last_request},
-                       {"lastCommand", last_command},
-                       {"lastRequestSucceeded", last_success},
+                       {"prepareId", std::to_string(prepare_id)},
                        {"lastError", error}};
+        return status;
+    }
+    bool publish(bool force = false)
+    {
+        auto status = status_value();
         const auto serialized = status.dump(-1, ' ', false, Json::error_handler_t::replace);
         const auto now = std::chrono::steady_clock::now();
         if (!force && serialized == previous_status &&
@@ -323,7 +268,7 @@ struct EditorSystem::State
             return true;
         }
         status["updatedAtMs"] = timestamp_ms();
-        const auto target = directory / "project-status.json";
+        const auto target = directory / "editor-status.json";
         const auto temporary = directory / (".project-status-" + session + ".json");
         if (!plain_path(target) || !plain_path(temporary))
         {
@@ -359,7 +304,7 @@ struct EditorSystem::State
         if (!publish(true))
         {
             transition.clear();
-            error = "Cannot publish project transition";
+            error = "Cannot publish the native editor ownership state";
             return false;
         }
 #if ENGINE_HAS_ASSET_PIPELINE
@@ -401,7 +346,7 @@ struct EditorSystem::State
             {
                 preview->close();
             }
-            gameplay.stop();
+            gameplay.stop(GameplayStopCause::requested);
             restore_frame_rate();
             if (commands != nullptr)
             {
@@ -409,20 +354,34 @@ struct EditorSystem::State
             }
             last_success = true;
         }
-        if (!start || !last_success ||
-            gameplay.step_prepare(0, 0.002) == GameplayPrepareStatus::failed)
+        GameplayPrepareSnapshot preparation;
+        const bool pending = start && last_success &&
+                             gameplay.prepare_status(prepare_id, preparation) &&
+                             preparation.state == GameplayPrepareStatus::preparing;
+        if (!pending)
         {
             transition.clear();
         }
         if (!publish(true))
         {
             last_success = false;
-            last_error = "Cannot publish final project status";
+            last_error = "Cannot publish the native editor ownership state";
+            if (pending)
+            {
+                gameplay.stop(GameplayStopCause::failure, last_error);
+                transition.clear();
+                restore_frame_rate();
+            }
         }
         error = last_error;
         const auto* script = gameplay.script_status();
         const bool running = script != nullptr && script->running;
-        result = {{"projectState", running ? "running" : "idle"},
+        result = {{"accepted", last_success},
+                  {"prepareId", std::to_string(pending ? prepare_id : 0)},
+                  {"alreadyRunning", start && running && !pending},
+                  {"projectState", pending   ? "starting"
+                                   : running ? "running"
+                                             : "idle"},
                   {"running", running},
                   {"runId", std::to_string(running ? script->run_id : 0)},
                   {"targetFrameRate", Engine::instance().target_frame_rate()}};
@@ -499,6 +458,22 @@ bool EditorSystem::on_initialize(const EngineConfig&)
                 return false;
             }
         }
+        if (!state_->commands->register_command(
+                "get_project_status", false,
+                [state = state_.get()](const Json& arguments, Json& result,
+                                       std::unique_ptr<EditorEdit>&, std::string& error)
+                {
+                    if (!arguments.empty())
+                    {
+                        error = "Project status has no arguments";
+                        return false;
+                    }
+                    result = state->status_value();
+                    return true;
+                }))
+        {
+            return false;
+        }
         for (const bool start : {true, false})
         {
             if (!state_->commands->register_command(
@@ -510,21 +485,16 @@ bool EditorSystem::on_initialize(const EngineConfig&)
                 return false;
             }
         }
+#if defined(ENGINE_ENABLE_TEST_SUPPORT)
         if (!state_->commands->register_command(
                 "execute_project_script", false,
                 [state = state_.get()](const Json& arguments, Json& result,
                                        std::unique_ptr<EditorEdit>&, std::string& error)
-                { return state->execute_script(arguments, result, error); }) ||
-            !state_->commands->register_command(
-                "close_editor", false,
-                [state = state_.get()](const Json& arguments, Json& result,
-                                       std::unique_ptr<EditorEdit>&, std::string& error)
-                { return state->schedule_close(arguments, result, error); }))
+                { return state->execute_script(arguments, result, error); }))
         {
             return false;
         }
-        state_->command_channel = std::make_unique<EditorCommandChannel>(
-            *state_->commands, state_->directory, state_->project_root, state_->session);
+#endif
     }
     return true;
 }
@@ -543,7 +513,7 @@ bool EditorSystem::on_tick(double)
                 if (!state_->last_success)
                 {
                     state_->last_error = state_->gameplay.last_error();
-                    state_->gameplay.stop();
+                    state_->gameplay.stop(GameplayStopCause::failure, state_->last_error);
                 }
                 state_->transition.clear();
             }
@@ -553,40 +523,6 @@ bool EditorSystem::on_tick(double)
     if (!environment_.is_initialized() || (state_ != nullptr && !state_->publish()))
     {
         return false;
-    }
-    if (state_ != nullptr && state_->command_channel != nullptr)
-    {
-        if (!state_->command_channel->poll())
-        {
-            const auto& error = state_->command_channel->last_error();
-            if (state_->channel_error != error)
-            {
-                LogSystem::write(LogLevel::error, error);
-                state_->channel_error = error;
-            }
-        }
-        else
-        {
-            state_->channel_error.clear();
-            const auto& receipt = state_->command_channel->last_receipt();
-            if (receipt.is_object() &&
-                (receipt["command"] == "start_project" || receipt["command"] == "stop_project") &&
-                receipt["requestId"] != state_->last_request)
-            {
-                state_->last_request = receipt["requestId"].get<std::string>();
-                state_->last_command = receipt["command"].get<std::string>();
-                state_->last_success = receipt["success"].get<bool>();
-                state_->last_error = receipt["error"].get<std::string>();
-                if (!state_->publish(true))
-                {
-                    return false;
-                }
-            }
-            // 只有持久回执已成功发布才启动延时，发布失败时保留请求并重试。
-            state_->close_after_receipt();
-        }
-        // 预览命令可能结束玩法；恢复发生在其停止回调之后。
-        state_->restore_frame_rate_if_stopped();
     }
     return true;
 }
@@ -609,12 +545,12 @@ void EditorSystem::on_shutdown() noexcept
         {
             preview_->close();
         }
-        gameplay_->stop();
+        gameplay_->stop(GameplayStopCause::requested);
         state_->restore_frame_rate();
         state_->closed = true;
-        if (!state_->session.empty() && !state_->publish(true))
+        if (!state_->publish(true))
         {
-            LogSystem::write(LogLevel::error, "Cannot publish editor shutdown status");
+            LogSystem::write(LogLevel::error, "Cannot publish editor shutdown ownership state");
         }
         state_.reset();
     }

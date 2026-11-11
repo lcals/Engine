@@ -58,23 +58,30 @@ def main(arguments=None):
             for case in args.cases or CASES:
                 scene = f'scenes/pbr-test-{case}.scene'
                 opened = session.call('open_scene_preview', {'path': scene})
-                capture = session.capture(f'material-comparison/current-{run_id}/{case}.png')
+                attempts = session.capture_scene(f'material-comparison/current-{run_id}/{case}.png')
+                capture = attempts[-1]
                 if [capture['width'], capture['height']] != [1280, 720]:
                     raise RuntimeError(f'expected native 1280x720, got {capture}')
                 reference = {'normal-orm': 'normal-orm-gltf-same-mesh',
                              'specular': 'specular-ior'}.get(case, case)
                 report['cases'][case] = {
-                    'scene': scene, 'opened': opened, 'capture': capture,
+                    'scene': scene, 'opened': opened, 'capture': capture, 'captureAttempts': attempts,
                     'reference': None if case == 'ao' else str(
                         ROOT / f'build/material-comparison/display-srgb/blender-{reference}.png'),
                     'labels': str(ROOT / 'build/material-comparison/expanded' /
                                   f'{"specular-ior" if case == "specular" else case}-labels.json'),
                 }
-                print(f'CAPTURED {case}: 1280x720', flush=True)
+                if capture['opaqueBlack'] is not False:
+                    report.setdefault('invalidCaptures', []).append(case)
+                    print(f'INVALID CAPTURE {case}: black or unsupported image', flush=True)
+                else:
+                    print(f'CAPTURED {case}: 1280x720', flush=True)
             report['close'] = session.call('close_editor', {'delayMs': 500})
             report['exit'] = editor.wait(timeout=15)
             if report['exit'] != 0:
                 raise RuntimeError(f'editor exit {report["exit"]}')
+            if report.get('invalidCaptures'):
+                raise RuntimeError(f'Invalid screenshots: {report["invalidCaptures"]}')
             report['complete'] = True
     except Exception as error:
         report['error'] = str(error)

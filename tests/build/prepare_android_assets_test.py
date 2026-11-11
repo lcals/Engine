@@ -1,9 +1,16 @@
-"""使用标准库验证 Android 项目资源快照、清单与失败回滚；不下载或安装依赖。"""
+"""Validate Android asset snapshots, catalogs and rollback with the standard library and no dependency installation."""
 
 import importlib.util
 import json
 import shutil
 from pathlib import Path
+
+UNICODE = dict(
+    line.split("\t", 1) for line in
+    (Path(__file__).resolve().parents[2] / "tests/support/fixtures/unicode.tsv")
+    .read_text(encoding="utf-8").splitlines()
+)
+
 import re
 import subprocess
 import sys
@@ -25,7 +32,7 @@ from resource_catalog import FNV_MASK, FNV_OFFSET, FNV_PRIME, catalog_entries
 
 
 class BufferBuilder:
-    """测试用 FlatBuffers 构造器；只实现本测试所需的真实表布局。"""
+    """Test FlatBuffers builder implementing only the actual table layouts required by these checks."""
 
     def __init__(self, identifier):
         self.data = bytearray(8)
@@ -210,7 +217,7 @@ class PrepareAndroidAssetsTest(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix="engine-android-assets-")
         self.root = Path(self.temporary.name).resolve()
-        self.project = self.root / "项目 with spaces $literal"
+        self.project = self.root / UNICODE["android_project"]
         for name in ("settings", "assets", "cache"):
             (self.project / name).mkdir(parents=True)
         for source in (ROOT / "projects/showcase/settings").glob("runtime-*.toml"):
@@ -268,7 +275,7 @@ class PrepareAndroidAssetsTest(unittest.TestCase):
             return copy(source, destination, limit)
 
         with mock.patch.object(catalog, "copy_asset", side_effect=changed):
-            with self.assertRaisesRegex(ValueError, "catalog 发生变化"):
+            with self.assertRaisesRegex(ValueError, "catalog changed"):
                 self.prepare()
         self.assertEqual(self.snapshot(), previous)
         self.assert_clean()
@@ -303,7 +310,7 @@ class PrepareAndroidAssetsTest(unittest.TestCase):
 
     def test_only_catalog_carriers_ship_and_output_is_deterministic(self):
         self.entries += [
-            resource_entry(b"", 2, 0, "空文件.txt", ""),
+            resource_entry(b"", 2, 0, UNICODE["empty_filename"], ""),
             resource_entry(b"\0\xff\x80\n", 3, 0, "binary.bin", ""),
         ]
         self.write_resources()
@@ -340,7 +347,7 @@ class PrepareAndroidAssetsTest(unittest.TestCase):
         content = bytearray(path.read_bytes())
         content[-1] ^= 1
         path.write_bytes(content)
-        with self.assertRaisesRegex(ValueError, "校验不符"):
+        with self.assertRaisesRegex(ValueError, "checksum mismatch"):
             self.prepare()
         self.assertEqual(self.snapshot(), previous)
         self.assert_clean()
@@ -351,7 +358,7 @@ class PrepareAndroidAssetsTest(unittest.TestCase):
         path = self.source / self.entries[0]["path"]
         with path.open("ab") as stream:
             stream.write(b"unindexed bytes")
-        with self.assertRaisesRegex(ValueError, "字节上限"):
+        with self.assertRaisesRegex(ValueError, "byte limit"):
             self.prepare()
         self.assertEqual(self.snapshot(), previous)
         self.assert_clean()
@@ -367,7 +374,7 @@ class PrepareAndroidAssetsTest(unittest.TestCase):
         entity[position] = ord("4")
         entry["entity"] = bytes(entity)
         self.write_resources()
-        with self.assertRaisesRegex(ValueError, "实体头与 catalog 不一致"):
+        with self.assertRaisesRegex(ValueError, "entity header does not match catalog"):
             self.prepare()
         self.assertEqual(self.snapshot(), previous)
 
@@ -406,7 +413,7 @@ class PrepareAndroidAssetsTest(unittest.TestCase):
         previous = self.snapshot()
         package = self.source / "packs/game"
         package.write_bytes(package.read_bytes()[:-1])
-        with self.assertRaisesRegex(ValueError, "校验不符"):
+        with self.assertRaisesRegex(ValueError, "checksum mismatch"):
             self.prepare()
         self.assertEqual(self.snapshot(), previous)
         self.assert_clean()
@@ -417,7 +424,7 @@ class PrepareAndroidAssetsTest(unittest.TestCase):
         struct.pack_into("<B", entity, 8 + header.field(header.root, 1), 15)
         config["entity"] = bytes(entity)
         self.write_resources()
-        with self.assertRaisesRegex(ValueError, "实体头与 catalog 不一致"):
+        with self.assertRaisesRegex(ValueError, "entity header does not match catalog"):
             self.prepare()
         self.assertEqual(self.snapshot(), previous)
         self.assert_clean()
@@ -495,12 +502,12 @@ class PrepareAndroidAssetsTest(unittest.TestCase):
         previous = self.snapshot()
         path = self.source / self.entries[0]["path"]
         path.unlink()
-        with self.assertRaisesRegex(ValueError, "普通文件"):
+        with self.assertRaisesRegex(ValueError, "regular file"):
             self.prepare()
         self.write_resources()
         self.entries[0]["offset"] = 1 << 63
         (self.source / "catalog.bin").write_bytes(catalog_fixture(self.entries))
-        with self.assertRaisesRegex(ValueError, "定位"):
+        with self.assertRaisesRegex(ValueError, "location"):
             self.prepare()
         self.assertEqual(self.snapshot(), previous)
 
@@ -514,8 +521,8 @@ class PrepareAndroidAssetsTest(unittest.TestCase):
         try:
             path.symlink_to(target)
         except (OSError, NotImplementedError):
-            self.skipTest("当前环境不允许创建符号链接")
-        with self.assertRaisesRegex(ValueError, "符号链接"):
+            self.skipTest("Current environment cannot create symbolic links")
+        with self.assertRaisesRegex(ValueError, "symbolic links"):
             self.prepare()
         self.assertEqual(self.snapshot(), previous)
         self.assert_clean()
@@ -584,7 +591,7 @@ class PrepareAndroidAssetsTest(unittest.TestCase):
             return original(path, target)
 
         with mock.patch.object(PACK.os, "replace", side_effect=failed):
-            with self.assertRaisesRegex(ValueError, "旧版保留"):
+            with self.assertRaisesRegex(ValueError, "previous version preserved"):
                 self.prepare()
         backups = list(self.output.parent.glob(".assets-export-*/previous"))
         self.assertEqual(len(backups), 1)
@@ -601,7 +608,7 @@ class PrepareAndroidAssetsTest(unittest.TestCase):
         previous = self.snapshot()
         self.entries[0]["path"] = "v8/icudtl.dat"
         self.write_resources()
-        with self.assertRaisesRegex(ValueError, "gen/ 或 packs/"):
+        with self.assertRaisesRegex(ValueError, "gen/ or packs/"):
             self.prepare()
         self.assertEqual(self.snapshot(), previous)
         self.assert_clean()
@@ -609,8 +616,8 @@ class PrepareAndroidAssetsTest(unittest.TestCase):
     def test_compile_failure_preserves_output(self):
         self.prepare()
         previous = self.snapshot()
-        with mock.patch.object(PACK, "compile_catalog", side_effect=ValueError("编译失败")):
-            with self.assertRaisesRegex(ValueError, "编译失败"):
+        with mock.patch.object(PACK, "compile_catalog", side_effect=ValueError("compilation failed")):
+            with self.assertRaisesRegex(ValueError, "compilation failed"):
                 self.prepare()
         self.assertEqual(self.snapshot(), previous)
         self.assert_clean()
@@ -631,7 +638,7 @@ class PrepareAndroidAssetsTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 PACK.safe_relative(path)
         for output in (self.project, self.project / "cache/android", self.root):
-            with self.assertRaisesRegex(ValueError, "相互包含"):
+            with self.assertRaisesRegex(ValueError, "must not contain each other"):
                 PACK.prepare(self.project, output)
 
     def test_manifest_build_uses_receipt_output_without_reading_toml(self):
@@ -665,7 +672,7 @@ class PrepareAndroidAssetsTest(unittest.TestCase):
 
     def test_failed_builder_preserves_actionable_error(self):
         with mock.patch.object(PACK.subprocess, "run", return_value=mock.Mock(returncode=1)):
-            with self.assertRaisesRegex(ValueError, "资产任务编译失败"):
+            with self.assertRaisesRegex(ValueError, "asset build failed"):
                 PACK.compile_catalog(self.project, self.root / "builder")
 
 

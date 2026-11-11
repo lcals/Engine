@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""用公开临时项目验证真实 GPU IBL 烘焙、资源发布和场景加载。"""
+"""Validate actual GPU IBL baking, resource publication and scene loading with a public temporary project."""
 from __future__ import annotations
 
 import argparse
@@ -113,7 +113,7 @@ def read_ktx(path: Path):
 
 
 def integrate_brdf(no_v, roughness, samples=8192):
-    """独立准蒙特卡洛积分 Smith GGX 与 Schlick Fresnel 的线性 split-sum。"""
+    """Independent quasi-Monte Carlo integration of linear split-sum Smith GGX and Schlick Fresnel."""
     vx = math.sqrt(1 - no_v * no_v)
     alpha_squared = roughness ** 4
     a = b = 0.0

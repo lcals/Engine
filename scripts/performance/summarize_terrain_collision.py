@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""在已有 Tracy 窗口内统计地形碰撞提交，区分完整同步成本与异步发布片段。"""
+"""Summarize terrain collision submissions in an existing Tracy window, separating synchronous cost from asynchronous publication."""
 from __future__ import annotations
 
 import argparse
@@ -45,7 +45,7 @@ class Event:
 
 
 class ZoneIndex:
-    """只保留相关 zone；区间查询按线程和名称二分，避免为每次提交重扫原始 TSV。"""
+    """Keep relevant zones and search intervals by thread/name without rescanning the raw TSV for each submission."""
 
     def __init__(self, events: list[Event]):
         self.groups: dict[tuple[str, str], list[Event]] = defaultdict(list)
@@ -60,7 +60,7 @@ class ZoneIndex:
             # containing() 只用于这些不递归的同线程父区间，重叠会造成错误归属。
             if key[1] in (COMMIT, PUBLISH, FRAME, FRAGMENT, COLLAPSE):
                 if any(left.end > right.start for left, right in zip(group, group[1:])):
-                    raise ValueError(f"同线程父区间发生重叠，无法唯一归属：{key[1]}")
+                    raise ValueError(f"Same-thread parent intervals overlap and cannot be attributed uniquely: {key[1]}")
         for group in self.names.values():
             group.sort(key=lambda event: (event.start, event.thread, event.end))
 
@@ -90,11 +90,11 @@ def read_events(path: Path, start: int, end: int) -> tuple[list[Event], dict]:
         reader = csv.DictReader(stream, delimiter="\t", quoting=csv.QUOTE_NONE)
         required = {"name", "thread", "ns_since_start", "exec_time_ns"}
         if not required.issubset(reader.fieldnames or ()):
-            raise ValueError("zones.tsv 缺少 name/thread/ns_since_start/exec_time_ns 列")
+            raise ValueError("zones.tsv is missing name/thread/ns_since_start/exec_time_ns columns")
         for row in reader:
             counts["rows"] += 1
             if None in row or any(value is None for value in row.values()):
-                raise ValueError(f"zones.tsv 第 {reader.line_num} 行包含未转义的分隔符或换行")
+                raise ValueError(f"zones.tsv row {reader.line_num} contains an unescaped delimiter or newline")
             # 官方 plot 行没有 exec_time_ns，部分导出行也没有时间戳。
             if not row["ns_since_start"].strip() or not row["exec_time_ns"].strip():
                 counts["ignored_plot_or_empty_time_rows"] += 1
@@ -105,12 +105,12 @@ def read_events(path: Path, start: int, end: int) -> tuple[list[Event], dict]:
                 timestamp = int(row["ns_since_start"])
                 duration = int(row["exec_time_ns"])
             except ValueError as error:
-                raise ValueError(f"zones.tsv 第 {reader.line_num} 行的时间不是整数") from error
+                raise ValueError(f"zones.tsv row {reader.line_num} has a noninteger timestamp") from error
             if duration < 0 or timestamp < start or timestamp + duration > end:
                 counts["excluded_relevant_zone_rows"] += 1
                 continue
             if not row["thread"]:
-                raise ValueError(f"zones.tsv 第 {reader.line_num} 行的 zone 缺少线程")
+                raise ValueError(f"zones.tsv row {reader.line_num} contains a zone without a thread")
             events.append(Event(row["name"], row["thread"], timestamp, timestamp + duration))
     counts["selected_zone_rows"] = len(events)
     return events, counts
@@ -126,7 +126,7 @@ def timing(values: list[int]) -> dict:
 def sum_disjoint(events: list[Event]) -> int:
     ordered = sorted(events, key=lambda event: (event.start, event.end))
     if any(left.end > right.start for left, right in zip(ordered, ordered[1:])):
-        raise ValueError("计入预算的 prepare_collision/set/release 区间发生重叠，拒绝重复累计")
+        raise ValueError("Budgeted prepare_collision/set/release intervals overlap; refusing to count them twice")
     return sum(event.duration for event in ordered)
 
 
@@ -195,23 +195,23 @@ def submission_events(index: ZoneIndex) -> list[Event]:
 def analyze(args) -> Path:
     requested = args.output
     if requested.exists() or requested.is_symlink():
-        raise ValueError("输出文件已存在；请指定新文件，不能覆盖已有分析结果")
+        raise ValueError("Output file exists; select a new file to preserve earlier analysis")
     output = requested.resolve()
     if not output.is_relative_to((ROOT / "build").resolve()):
-        raise ValueError("输出文件必须位于仓库 build/ 下")
+        raise ValueError("Output file must be under the repository build/ directory")
     analysis = args.analysis_dir.resolve(strict=True)
     if not analysis.is_dir():
-        raise ValueError("analysis-dir 必须是包含 summary.json 和 zones.tsv 的分析目录")
+        raise ValueError("analysis-dir must contain summary.json and zones.tsv")
     summary = json.loads((analysis / "summary.json").read_text(encoding="utf-8"))
     window = summary["window"]
     start, end = window["start_ns"], window["end_ns"]
     if type(start) is not int or type(end) is not int or start < 0 or end <= start:
-        raise ValueError("summary.json 的窗口必须满足整数 0 <= start_ns < end_ns")
+        raise ValueError("summary.json window must use integers with 0 <= start_ns < end_ns")
     events, input_counts = read_events(analysis / "zones.tsv", start, end)
     index = ZoneIndex(events)
     commits = submission_events(index)
     if not commits:
-        raise ValueError("summary.json 窗口内没有完整 Terrain.commit 或 Terrain.publish 事件")
+        raise ValueError("summary.json window has no complete Terrain.commit or Terrain.publish event")
     frames = index.names.get(FRAME, ())
     frame_ids = {frame: identifier for identifier, frame in enumerate(frames)}
     records = [commit_record(index, commit, identifier, frame_ids)
@@ -285,20 +285,20 @@ def analyze(args) -> Path:
         "async_prepare_ms": timing([event.duration
                                     for event in index.names.get(ASYNC_PREPARE, ())]),
         "notes": [
-            "只纳入 summary 窗口内完整 zone，按同线程父区间归属；plot 和空时间行不参加统计。",
-            "每提交累计 prepare_collision、set_mesh_parts/set_mesh 与 release_previous_volume 的 inclusive 耗时；同步 commit 包含 publish 时只记一次。",
-            "独立 Terrain.publish 只覆盖主线程发布；worker prepare 单列，无请求关联标记时不推测配对，不将缺失准备时间当作零。",
-            "release_previous_volume 包含旧几何最后引用释放，保守计入旧密度释放；缺埋点的旧 trace 不估算该项，budget_coverage 明示缺项。",
-            "缺项提交的 collision_ms 仅是已测部分；低于预算时 meets_budget 为 null，已测部分超标时仍为 false。",
-            "collision_compare 已包含在 prepare_collision 中；create_shape/create_mesh_compound 已包含在 set 中，均不重复相加。",
-            "geometry_group 由 set 内 create_mesh_compound/create_shape 事件判断，是碰撞形状重建代理，不能证明三角形数据变化。",
-            "rebuilt_coarse_chunks 统计 commit 内 Terrain.mesh_chunk 次数，不是细分碰撞 part 数；32 块全量重建仍纳入总体。",
-            "独立 publish 的 rebuilt_coarse_chunks 只记录发布线程内事件，不能把 0 理解为 worker 未重建；见 preparation_unattributed。",
-            "外部 fragment_mesh 的 prepare_collision 单列，未计入地形提交预算。",
-            "逐帧累计使用完整 Host.frame；无法归属完整帧的提交保留在总体并列出 id。",
-            "P95 使用与 summarize_trace 相同的线性插值；不删除全量提交或其他慢样本。",
-            "commit_ms 保留实际 scope 的墙钟耗时；Terrain.commit 含准备，独立 Terrain.publish 仅含发布，两者不可直接比较为同口径加速。",
-            "zone 为线程经过的墙钟时间，不是 CPU cycles；低于 0.5 ms 才满足单次提交最低预算。",
+            "Include only complete zones within the summary window, attributed to same-thread parents; exclude plots and rows without timestamps.",
+            "Sum inclusive prepare_collision, set_mesh_parts/set_mesh and release_previous_volume time per submission; count publish inside synchronous commit only once.",
+            "Standalone Terrain.publish covers only main-thread publication. Report worker preparation separately; do not infer pairing without request markers or treat missing preparation as zero.",
+            "release_previous_volume includes final old-geometry references and is conservatively counted as old-density release. Do not estimate it for older traces without markers; budget_coverage reports omissions.",
+            "collision_ms for incomplete submissions includes only measured work; meets_budget is null when below budget and false when the measured portion already exceeds it.",
+            "collision_compare is included in prepare_collision; create_shape/create_mesh_compound are included in set. Do not add them again.",
+            "geometry_group uses create_mesh_compound/create_shape events inside set as a proxy for collision shape rebuilding, not proof of changed triangle data.",
+            "rebuilt_coarse_chunks counts Terrain.mesh_chunk events inside commit, not subdivided collision parts; full 32-chunk rebuilds remain included.",
+            "For standalone publish, rebuilt_coarse_chunks includes only publication-thread events; zero does not imply no worker rebuild. See preparation_unattributed.",
+            "External fragment_mesh prepare_collision is listed separately and excluded from the terrain submission budget.",
+            "Per-frame totals use complete Host.frame intervals; submissions outside complete frames remain in overall totals with their IDs listed.",
+            "P95 uses the same linear interpolation as summarize_trace; full submissions and slow samples are not removed.",
+            "commit_ms records actual scope wall time. Terrain.commit includes preparation while standalone Terrain.publish covers only publication, so they are not directly comparable speedups.",
+            "Zones measure elapsed thread wall time, not CPU cycles; a submission must remain below 0.5 ms to meet the minimum budget.",
         ],
     }
     payload = json.dumps(result, ensure_ascii=False, indent=2) + "\n"
@@ -311,14 +311,14 @@ def analyze(args) -> Path:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--analysis-dir", type=Path, required=True,
-                        help="summarize_trace.py 已生成的分析目录")
+                        help="Analysis directory produced by summarize_trace.py")
     parser.add_argument("--output", type=Path, required=True,
-                        help="仓库 build/ 下尚不存在的 JSON 文件")
+                        help="New JSON file under the repository build/ directory")
     args = parser.parse_args()
     try:
         print(analyze(args))
     except (OSError, ValueError, KeyError, TypeError) as error:
-        print(f"碰撞分析失败：{error}", file=sys.stderr)
+        print(f"Collision analysis failed: {error}", file=sys.stderr)
         return 1
     return 0
 

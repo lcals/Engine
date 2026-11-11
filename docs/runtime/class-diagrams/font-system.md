@@ -26,6 +26,7 @@ classDiagram
         +measure(const FontDataT& data, string_view text, float size, float letter_spacing = 0) float$
         +layout(const FontResource& font, string_view text, const FontLayout& settings, FontGeometry& output) bool$
         +append_glyph(const FontDataT& data, const FontGlyphT& glyph, float x, float y, float size, uint32_t color, bool y_down, FontGeometry& output) bool$
+        +prepare_font(const ResourceHandle& font, const ResourceHandle& shader, const SceneWorkBudget& budget, SceneWorkProgress& output) SceneWorkState
         +draw(const ResourceHandle& font, const FontGeometry& geometry, const FontDraw& settings) bool
         +render_scene(const Scene& scene, uint16_t view_id, bool linear_output = false) bool
         +release_scene() void
@@ -56,6 +57,13 @@ classDiagram
     class TextDataT
     class ComponentDataT
     class EngineConfig
+    class SceneWorkBudget
+    class SceneWorkProgress
+    class SceneWorkState
+    FontSystem ..> ResourceHandle : 准备输入
+    FontSystem ..> SceneWorkBudget : 单步预算
+    FontSystem ..> SceneWorkProgress : 准备状态输出
+    FontSystem ..> SceneWorkState : 准备返回状态
     class ecs_world_t
     FontSystem ..> FontDataT : 只读输入生成模型
     FontSystem ..> FontGlyphT : 字形查询及绘制输入
@@ -113,6 +121,7 @@ classDiagram
 ```
 
 - 字体与 Shader 由组件或 UI 文档独立 retain。GPU 缓存保存借用身份及 GPU 副本，每次 tick 通过加载器检查身份并回收失效条目；缓存不持有 CPU 数据裸指针。字号不产生新字体资源，完整停止使用 `release_scene()`。
+- `prepare_font()` 在预算内准备同一字体和 Shader 的 GPU 缓存，不提交绘制；场景 UI 的隐藏排版与正常绘制复用这些缓存。状态和预算结构见[场景加载](scene-loading.md)。
 - `FontGeometry` 是临时绘制数据，顶点保存位置、预乘颜色、字形坐标与曲线范围；不成为新的持久资源模型。
 - `FontVertex.dilation` 保存局部向外方向与字体 XY 缩放的倒数，公开 Slug 顶点算法据此在透视与正交视图中扩张像素边界，保持曲线覆盖率抗锯齿。
 - `FontDraw` 保存当前帧的视图、模型矩阵与裁剪信息，借用调用方已加载的 Shader 获取身份；绘制不重新查询目录，目录更新不会把旧字体和新 Shader 混用。UI 和 3D 共用同一绘制能力。RmlUi 在正常渲染顺序中调用，排版阶段不提交 GPU 命令。

@@ -1,4 +1,5 @@
 #include "runtime/animation/animation_system.hpp"
+#include "runtime/scene/scope_work.hpp"
 
 #include "runtime/scene/animator_runtime.hpp"
 #include "runtime/scene/bone_attachment_runtime.hpp"
@@ -388,16 +389,16 @@ bool stage_time(AnimationSample& sample, double delta_time, const Animator::Data
     sample.blend = state->fade_seconds_ > 0 ? sample.fade_elapsed / state->fade_seconds_ : 1;
     return true;
 }
-void resolve_pending_attachments(WorldSystem& world)
+void resolve_pending_attachments(WorldSystem& world, Scene* scope = nullptr)
 {
     auto query = flecs::world(world.native_world())
                      .query_builder<const ecs_detail::ComponentStorage<BoneAttachment::Data>>()
-                     .with<ecs_detail::Published>()
                      .build();
     query.each(
         [&](flecs::entity entity, const auto& stored)
         {
-            auto attachment = world.find_node(entity.id()).get_component<BoneAttachment>();
+            auto attachment = (scope ? scope->find_node(entity.id()) : world.find_node(entity.id()))
+                                  .get_component<BoneAttachment>();
             if (!attachment || !engine::ecs_detail::component_runtime(attachment)->binding_pending)
             {
                 return;
@@ -443,16 +444,21 @@ bool candidate_world(Node node, const std::map<std::uint64_t, ozz::math::Float4x
     }
     return true;
 }
-bool publish_attachments(WorldSystem& world)
+bool publish_attachments(WorldSystem& world, Scene* scope = nullptr)
 {
     std::vector<BoneAttachment> attachments;
     auto query = flecs::world(world.native_world())
                      .query_builder<const ecs_detail::ComponentStorage<BoneAttachment::Data>>()
-                     .with<ecs_detail::Published>()
                      .build();
     query.each(
         [&](flecs::entity entity, const auto&)
-        { attachments.push_back(world.find_node(entity.id()).get_component<BoneAttachment>()); });
+        {
+            auto node = scope ? scope->find_node(entity.id()) : world.find_node(entity.id());
+            if (node)
+            {
+                attachments.push_back(node.get_component<BoneAttachment>());
+            }
+        });
     const auto depth = [](Node node)
     {
         std::size_t value = 0;
@@ -539,9 +545,161 @@ bool publish_attachments(WorldSystem& world)
     }
     return world.refresh_scene_state();
 }
+bool commit_sample(const AnimationSample& sample)
+{
+    auto animator = sample.animator;
+    auto renderer = sample.renderer;
+    if (!animator || !renderer || animator.instance_id() != sample.entry->animator_instance ||
+        renderer.mesh_revision() != sample.entry->mesh_revision ||
+        renderer.instance_id() != sample.entry->mesh_instance ||
+        (!sample.rest &&
+         !renderer.set_skinning_palette(sample.entry->palette, sample.entry->normal_palette)))
+    {
+        return false;
+    }
+    if (sample.rest)
+    {
+        renderer.clear_deformation();
+    }
+    auto* runtime = engine::ecs_detail::component_runtime(animator);
+    if (runtime->pose_sequence_ == std::numeric_limits<std::uint64_t>::max())
+    {
+        return false;
+    }
+    runtime->time_ = sample.seconds;
+    runtime->previous_time_ = sample.previous_seconds;
+    runtime->fade_elapsed_ = sample.fade_elapsed;
+    runtime->cycle_ = sample.cycle;
+    runtime->playback_ = sample.playback;
+    runtime->completed_ = sample.completed;
+    runtime->event_starting_ = sample.event_starting;
+    runtime->pose_revision_ = ++runtime->pose_sequence_;
+    runtime->pose_mesh_revision_ = renderer.mesh_revision();
+    runtime->pose_mesh_instance_ = renderer.instance_id();
+    runtime->committed_models_.resize(sample.entry->models.size());
+    for (std::size_t dfs = 0; dfs < sample.entry->models.size(); ++dfs)
+    {
+        animation_detail::store_matrix(
+            sample.entry->models[dfs],
+            runtime->committed_models_[sample.entry->current.clip->target->order[dfs]]);
+    }
+    runtime->pose_dirty_ = false;
+    sample.entry->deformation_revision = renderer.deformation_revision();
+    sample.entry->committed_locals = sample.entry->locals;
+    sample.entry->sampled = true;
+    sample.entry->blended = sample.blend < 1;
+    if (sample.blend >= 1)
+    {
+        runtime->previous_animation_.reset();
+        runtime->previous_source_skeleton_.reset();
+        runtime->previous_retarget_profile_.reset();
+        runtime->previous_retarget_binding_.reset();
+        runtime->frozen_pose_.reset();
+        runtime->fade_seconds_ = runtime->fade_elapsed_ = 0;
+        sample.entry->previous = {};
+        sample.entry->frozen.reset();
+    }
+    return true;
+}
 } // namespace
 struct AnimationSystem::State
 {
+    std::map<SceneScopeId, scene_detail::ScopeWork> preparing;
+    AnimationEntry* prepare_entry(ResourceLoader* loader, Node node, Animator animator,
+                                  MeshRenderer renderer)
+    {
+        auto* runtime = engine::ecs_detail::component_runtime(animator);
+        const auto* mesh = renderer.mesh_data();
+        const auto* clip = runtime->animation_.data<AnimationResource>();
+        auto found = entries.find(node.id());
+        if (!mesh || mesh->skeleton_guid.empty() || mesh->skin.empty() || !clip)
+        {
+            return nullptr;
+        }
+        if (found == entries.end() || runtime->prepared_revision_ != runtime->revision_ ||
+            found->second->animator_instance != animator.instance_id() ||
+            found->second->mesh_revision != renderer.mesh_revision() ||
+            found->second->mesh_instance != renderer.instance_id())
+        {
+            auto candidate = std::make_unique<AnimationEntry>();
+            std::shared_ptr<const animation_detail::CompiledAnimation> compiled;
+            if (!compile(loader, renderer.mesh_resource(), runtime->animation_, *mesh,
+                         runtime->retarget_profile_, runtime->retarget_binding_,
+                         runtime->source_skeleton_, compiled) ||
+                !candidate->prepare(*mesh, renderer, animator, compiled))
+            {
+                return nullptr;
+            }
+            if (runtime->retarget_binding_ && runtime->target_skeleton_ &&
+                animation_detail::identity(*runtime->target_skeleton_) !=
+                    animation_detail::identity(*compiled->target->resource))
+            {
+                return nullptr;
+            }
+            if (runtime->fade_seconds_ > 0 && runtime->previous_animation_)
+            {
+                const auto* previous = found != entries.end() ? found->second.get() : nullptr;
+                const bool same_mesh = previous && previous->sampled &&
+                                       previous->animator_instance == animator.instance_id() &&
+                                       previous->mesh_instance == renderer.instance_id() &&
+                                       previous->mesh_revision == renderer.mesh_revision();
+                if (runtime->frozen_pose_ &&
+                    animation_detail::identity(*runtime->frozen_pose_->target) ==
+                        animation_detail::identity(*compiled->target->resource))
+                {
+                    candidate->frozen = runtime->frozen_pose_;
+                }
+                else if (same_mesh &&
+                         (previous->blended ||
+                          animation_detail::identity(*previous->current.clip->resource) !=
+                              animation_detail::identity(*runtime->previous_animation_)))
+                {
+                    auto pose = std::make_shared<animation_detail::AnimationPose>();
+                    if (!pose->target.retain(previous->current.clip->target->resource))
+                    {
+                        return nullptr;
+                    }
+                    pose->locals = previous->committed_locals;
+                    candidate->frozen = std::move(pose);
+                }
+                else
+                {
+                    std::shared_ptr<const animation_detail::CompiledAnimation> source;
+                    if (!compile(loader, renderer.mesh_resource(), runtime->previous_animation_,
+                                 *mesh, runtime->previous_retarget_profile_,
+                                 runtime->previous_retarget_binding_,
+                                 runtime->previous_source_skeleton_, source))
+                    {
+                        return nullptr;
+                    }
+                    candidate->previous.prepare(std::move(source));
+                }
+            }
+            if (runtime->target_skeleton_ &&
+                animation_detail::identity(*runtime->target_skeleton_) !=
+                    animation_detail::identity(*compiled->target->resource))
+            {
+                runtime->ik_targets_.clear();
+            }
+            ResourceReference target, source;
+            if (!target.retain(compiled->target->resource) || !source.retain(compiled->source))
+            {
+                return nullptr;
+            }
+            runtime->target_skeleton_ = std::move(target);
+            runtime->source_skeleton_ = std::move(source);
+            runtime->frozen_pose_ = candidate->frozen;
+            runtime->prepared_revision_ = runtime->revision_;
+            runtime->pose_revision_ = 0;
+            runtime->committed_models_.clear();
+            runtime->pose_dirty_ = true;
+            entries[node.id()] = std::move(candidate);
+            found = entries.find(node.id());
+        }
+
+        return found->second.get();
+    }
+
     std::map<animation_detail::ResourceIdentity,
              std::shared_ptr<const animation_detail::CompiledSkeleton>>
         skeletons;
@@ -730,12 +888,132 @@ void AnimationSystem::clear() noexcept
     if (state_)
     {
         state_->samples.clear();
+        state_->preparing.clear();
         state_->entries.clear();
         state_->clips.clear();
         state_->sampling_clips.clear();
         state_->skeletons.clear();
     }
 }
+SceneWorkState AnimationSystem::prepare_scope(SceneScopeId scope, const SceneWorkBudget& budget)
+{
+    if (!state_ || !world_ || !world_->refresh_scene_state())
+    {
+        return SceneWorkState::failed;
+    }
+    std::erase_if(state_->preparing,
+                  [&](const auto& entry) { return !world_->scope_candidate(entry.first); });
+    auto found = state_->preparing.find(scope);
+    if (found == state_->preparing.end())
+    {
+        scene_detail::ScopeWork work;
+        if (!scene_detail::begin_work(*world_, scope, "animation", work))
+        {
+            return SceneWorkState::failed;
+        }
+        found = state_->preparing.emplace(scope, std::move(work)).first;
+    }
+    const auto status = scene_detail::step_work(
+        found->second, budget,
+        [&](Node node)
+        {
+            auto animator = node.get_component<Animator>();
+            auto renderer = node.get_component<MeshRenderer>();
+            if (!animator || !animator.active())
+            {
+                return true;
+            }
+            auto* runtime = engine::ecs_detail::component_runtime(animator);
+            if (!runtime->animation_)
+            {
+                return true;
+            }
+            if (!renderer)
+            {
+                return false;
+            }
+            auto* entry =
+                state_->prepare_entry(world_->resource_loader(), node, animator, renderer);
+            if (!entry)
+            {
+                return false;
+            }
+            AnimationSample sample;
+            sample.entry = entry;
+            sample.animator = animator;
+            sample.renderer = renderer;
+            Animator::Data settings;
+            std::size_t events = 0;
+            if (!animator.get_settings(settings) || !stage_time(sample, 0, settings, events, false))
+            {
+                return false;
+            }
+            if (settings.play_on_awake)
+            {
+                sample.rest = false;
+            }
+            std::array<float, 16> matrix;
+            if (!sample.rest &&
+                (!node.get_component<Transform>().world_matrix(matrix.data()) ||
+                 !animation_detail::collect_ik_operations(
+                     animator, *entry->current.clip->target,
+                     animation_detail::load_matrix(matrix) * entry->skeleton_to_mesh, sample.ik)))
+            {
+                return false;
+            }
+            if (!entry->sample(sample.seconds, sample.previous_seconds, sample.blend, sample.rest,
+                               false, sample.ik))
+            {
+                return false;
+            }
+            return commit_sample(sample);
+        });
+    if (status == SceneWorkState::ready && !found->second.finalized)
+    {
+        const scene_detail::ScopeWrite write(scope);
+        auto* candidate = world_->scope_candidate(scope);
+        resolve_pending_attachments(*world_, candidate);
+        if (!publish_attachments(*world_, candidate))
+        {
+            return SceneWorkState::failed;
+        }
+        found->second.finalized = true;
+    }
+    return status;
+}
+bool AnimationSystem::scope_status(SceneScopeId scope, ScenePreparationSnapshot& output) const
+{
+    output = {};
+    if (!state_)
+    {
+        return false;
+    }
+    const auto found = state_->preparing.find(scope);
+    if (found == state_->preparing.end())
+    {
+        return false;
+    }
+    output = found->second.snapshot;
+    return true;
+}
+void AnimationSystem::release_scope(SceneScopeId scope) noexcept
+{
+    if (!state_)
+    {
+        return;
+    }
+    const auto found = state_->preparing.find(scope);
+    if (found == state_->preparing.end())
+    {
+        return;
+    }
+    for (auto node : found->second.nodes)
+    {
+        state_->entries.erase(node.id());
+    }
+    state_->preparing.erase(found);
+}
+
 bool AnimationSystem::on_tick(double delta_time)
 {
     ENGINE_PROFILE_ZONE("Animation.tick");
@@ -743,7 +1021,7 @@ bool AnimationSystem::on_tick(double delta_time)
     {
         return false;
     }
-    if (!world_ || world_->scenes().empty())
+    if (!world_ || (world_->scenes().empty() && state_->preparing.empty()))
     {
         clear();
         return true;
@@ -762,6 +1040,7 @@ bool AnimationSystem::on_tick(double delta_time)
         auto query = flecs::world(world_->native_world())
                          .query_builder<const ecs_detail::ComponentStorage<Animator::Data>>()
                          .with<ecs_detail::Published>()
+                         .with<ecs_detail::Simulating>()
                          .build();
         query.each(
             [&](flecs::entity entity, const auto& stored)
@@ -791,108 +1070,14 @@ bool AnimationSystem::on_tick(double delta_time)
                 }
                 retained.insert(node.id());
                 auto* runtime = engine::ecs_detail::component_runtime(animator);
-                const auto* mesh = renderer.mesh_data();
-                const auto* clip = runtime->animation_.data<AnimationResource>();
-                auto found = state_->entries.find(node.id());
-                if (!mesh || mesh->skeleton_guid.empty() || mesh->skin.empty() || !clip)
+                auto* ready_entry =
+                    state_->prepare_entry(world_->resource_loader(), node, animator, renderer);
+                if (!ready_entry)
                 {
                     success = false;
                     return;
                 }
-                if (found == state_->entries.end() ||
-                    runtime->prepared_revision_ != runtime->revision_ ||
-                    found->second->animator_instance != animator.instance_id() ||
-                    found->second->mesh_revision != renderer.mesh_revision() ||
-                    found->second->mesh_instance != renderer.instance_id())
-                {
-                    auto candidate = std::make_unique<AnimationEntry>();
-                    std::shared_ptr<const animation_detail::CompiledAnimation> compiled;
-                    if (!state_->compile(world_->resource_loader(), renderer.mesh_resource(),
-                                         runtime->animation_, *mesh, runtime->retarget_profile_,
-                                         runtime->retarget_binding_, runtime->source_skeleton_,
-                                         compiled) ||
-                        !candidate->prepare(*mesh, renderer, animator, compiled))
-                    {
-                        success = false;
-                        return;
-                    }
-                    if (runtime->retarget_binding_ && runtime->target_skeleton_ &&
-                        animation_detail::identity(*runtime->target_skeleton_) !=
-                            animation_detail::identity(*compiled->target->resource))
-                    {
-                        success = false; // profile binding must be re-prepared by an explicit
-                                         // atomic play request.
-                        return;
-                    }
-                    if (runtime->fade_seconds_ > 0 && runtime->previous_animation_)
-                    {
-                        const auto* previous =
-                            found != state_->entries.end() ? found->second.get() : nullptr;
-                        const bool same_mesh =
-                            previous && previous->sampled &&
-                            previous->animator_instance == animator.instance_id() &&
-                            previous->mesh_instance == renderer.instance_id() &&
-                            previous->mesh_revision == renderer.mesh_revision();
-                        if (runtime->frozen_pose_ &&
-                            animation_detail::identity(*runtime->frozen_pose_->target) ==
-                                animation_detail::identity(*compiled->target->resource))
-                        {
-                            candidate->frozen = runtime->frozen_pose_;
-                        }
-                        else if (same_mesh &&
-                                 (previous->blended ||
-                                  animation_detail::identity(*previous->current.clip->resource) !=
-                                      animation_detail::identity(*runtime->previous_animation_)))
-                        {
-                            auto pose = std::make_shared<animation_detail::AnimationPose>();
-                            if (!pose->target.retain(previous->current.clip->target->resource))
-                            {
-                                success = false;
-                                return;
-                            }
-                            pose->locals = previous->committed_locals;
-                            candidate->frozen = std::move(pose);
-                        }
-                        else
-                        {
-                            std::shared_ptr<const animation_detail::CompiledAnimation> source;
-                            if (!state_->compile(world_->resource_loader(),
-                                                 renderer.mesh_resource(),
-                                                 runtime->previous_animation_, *mesh,
-                                                 runtime->previous_retarget_profile_,
-                                                 runtime->previous_retarget_binding_,
-                                                 runtime->previous_source_skeleton_, source))
-                            {
-                                success = false;
-                                return;
-                            }
-                            candidate->previous.prepare(std::move(source));
-                        }
-                    }
-                    if (runtime->target_skeleton_ &&
-                        animation_detail::identity(*runtime->target_skeleton_) !=
-                            animation_detail::identity(*compiled->target->resource))
-                    {
-                        runtime->ik_targets_.clear();
-                    }
-                    ResourceReference target, source;
-                    if (!target.retain(compiled->target->resource) ||
-                        !source.retain(compiled->source))
-                    {
-                        success = false;
-                        return;
-                    }
-                    runtime->target_skeleton_ = std::move(target);
-                    runtime->source_skeleton_ = std::move(source);
-                    runtime->frozen_pose_ = candidate->frozen;
-                    runtime->prepared_revision_ = runtime->revision_;
-                    runtime->pose_revision_ = 0;
-                    runtime->committed_models_.clear();
-                    runtime->pose_dirty_ = true;
-                    state_->entries[node.id()] = std::move(candidate);
-                    found = state_->entries.find(node.id());
-                }
-                auto& entry = *found->second;
+                auto& entry = *ready_entry;
                 if (runtime->awake_pending_ && !world_->paused())
                 {
                     runtime->awake_pending_ = false;
@@ -965,63 +1150,20 @@ bool AnimationSystem::on_tick(double delta_time)
     std::vector<AnimationEvent> events;
     for (const auto& sample : samples)
     {
-        auto animator = sample.animator;
-        auto renderer = sample.renderer;
-        if (!animator || !renderer || animator.instance_id() != sample.entry->animator_instance ||
-            renderer.mesh_revision() != sample.entry->mesh_revision ||
-            renderer.instance_id() != sample.entry->mesh_instance ||
-            (!sample.rest &&
-             !renderer.set_skinning_palette(sample.entry->palette, sample.entry->normal_palette)))
+        if (!commit_sample(sample))
         {
             return false;
-        }
-        if (sample.rest)
-        {
-            renderer.clear_deformation();
-        }
-        auto* runtime = engine::ecs_detail::component_runtime(animator);
-        if (runtime->pose_sequence_ == std::numeric_limits<std::uint64_t>::max())
-        {
-            return false;
-        }
-        runtime->time_ = sample.seconds;
-        runtime->previous_time_ = sample.previous_seconds;
-        runtime->fade_elapsed_ = sample.fade_elapsed;
-        runtime->cycle_ = sample.cycle;
-        runtime->playback_ = sample.playback;
-        runtime->completed_ = sample.completed;
-        runtime->event_starting_ = sample.event_starting;
-        runtime->pose_revision_ = ++runtime->pose_sequence_;
-        runtime->pose_mesh_revision_ = renderer.mesh_revision();
-        runtime->pose_mesh_instance_ = renderer.instance_id();
-        runtime->committed_models_.resize(sample.entry->models.size());
-        for (std::size_t dfs = 0; dfs < sample.entry->models.size(); ++dfs)
-        {
-            animation_detail::store_matrix(
-                sample.entry->models[dfs],
-                runtime->committed_models_[sample.entry->current.clip->target->order[dfs]]);
-        }
-        runtime->pose_dirty_ = false;
-        sample.entry->deformation_revision = renderer.deformation_revision();
-        sample.entry->committed_locals = sample.entry->locals;
-        sample.entry->sampled = true;
-        sample.entry->blended = sample.blend < 1;
-        if (sample.blend >= 1)
-        {
-            runtime->previous_animation_.reset();
-            runtime->previous_source_skeleton_.reset();
-            runtime->previous_retarget_profile_.reset();
-            runtime->previous_retarget_binding_.reset();
-            runtime->frozen_pose_.reset();
-            runtime->fade_seconds_ = runtime->fade_elapsed_ = 0;
-            sample.entry->previous = {};
-            sample.entry->frozen.reset();
         }
         events.insert(events.end(), sample.events.begin(), sample.events.end());
     }
     for (auto it = state_->entries.begin(); it != state_->entries.end();)
     {
-        if (retained.contains(it->first))
+        const auto entity = flecs::world(world_->native_world()).entity(it->first);
+        const auto metadata =
+            entity.is_alive() ? entity.target<ecs_detail::SceneMember>() : flecs::entity{};
+        const auto* scope_state = metadata ? metadata.try_get<ecs_detail::ScopeState>() : nullptr;
+        if (retained.contains(it->first) ||
+            (scope_state && scope_state->sealed && !scope_state->simulating))
         {
             ++it;
         }

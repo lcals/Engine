@@ -1,5 +1,7 @@
 # 在活动玩法中执行临时 TypeScript
 
+本能力的请求类型、公开声明、VM 执行入口与工具登记仅在 `ENGINE_ENABLE_TEST_SUPPORT=ON` 时编译；正式构建排除它们。装配边界见[运行时 MCP](mcp-runtime-test.md#构建用途与正式包排除)。
+
 本页定义活动 Run 中执行临时 TypeScript 的契约；生命周期见
 [ScriptRuntime](../../../runtime/class-diagrams/script-runtime.md)、
 [GameplaySession](../../../runtime/class-diagrams/gameplay-session.md)、

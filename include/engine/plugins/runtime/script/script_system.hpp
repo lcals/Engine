@@ -34,15 +34,20 @@ public:
                           MoviePlayer* movies = nullptr) noexcept;
     ~ScriptSystem() noexcept override;
 
+    [[nodiscard]] bool bind_gameplay_session(GameplaySession* session) override;
+
     // 预检只读取候选目录，不执行用户代码、不改变活动资源或旧玩法。
     [[nodiscard]] bool prepare_gameplay(const ResourceHandle& entry,
                                         std::string_view revision = {}) override;
     [[nodiscard]] bool start_prepared_gameplay() override;
     void stop_gameplay() noexcept override;
+#if defined(ENGINE_ENABLE_TEST_SUPPORT)
     [[nodiscard]] bool execute_project_script(const ResourceHandle& script,
                                               const ProjectScriptRequest& request,
                                               std::string& result_json,
                                               std::string& error) override;
+#endif
+
     [[nodiscard]] const ScriptStatus& status() const noexcept override;
 
 protected:
@@ -53,6 +58,7 @@ protected:
 private:
     struct State;
     // 可空借用，非空时必须活到脚本系统关闭。
+    GameplaySession* gameplay_ = nullptr;
     ResourceLoader* resources_ = nullptr;
     WorldSystem* world_ = nullptr;
     // 可空借用；生命周期覆盖玩法回调和绑定清理，销毁渲染器前须停止玩法。

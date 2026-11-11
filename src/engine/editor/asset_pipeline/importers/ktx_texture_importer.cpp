@@ -225,7 +225,7 @@ std::string_view KtxTextureImporter::default_meta() const noexcept
 bool KtxTextureImporter::inspect_batch(const ImportContext&, std::string& fingerprint,
                                        std::string& error)
 {
-    if (!schema_fingerprint({"texture.fbs"}, fingerprint, error))
+    if (!schema_fingerprint({"runtime/texture.fbs"}, fingerprint, error))
     {
         return false;
     }

@@ -1,30 +1,25 @@
 #include "plugins/editor/character_controller/character_camera_mcp_tools.hpp"
-
 #include "plugins/editor/mcp/editor_tool_registration.hpp"
-
+#include "runtime/schema/control_json_generated.hpp"
 namespace engine::plugins::character_controller
 {
-
 bool register_character_camera_mcp_tools(mcp::McpSystem& system, mcp::EditorMcpTools& editor)
 {
     using Json = nlohmann::json;
-    const Json number = {{"type", "number"}};
-    return mcp::tools::component_tool(
-               system, editor, "set_character_camera",
-               "Add or edit follow-camera settings on a Camera node; undoable. targetNodeId "
-               "identifies a node in this scene, or the string 0 to detach.",
-               {{"enabled", {{"type", "boolean"}}},
-                {"targetNodeId", {{"type", "string"}, {"minLength", 1}}},
-                {"mode", {{"type", "string"}, {"enum", {"first_person", "third_person"}}}},
-                {"eyeHeight", number},
-                {"cameraDistance", number},
-                {"pitchMin", number},
-                {"pitchMax", number},
-                {"collisionRadius", number},
-                {"collisionMargin", number}}) &&
-           mcp::tools::component_tool(system, editor, "get_character_camera",
-                                      "Read follow-camera settings and target node identities.",
-                                      Json::object());
+    if (!mcp::tools::component_tool(
+            system, editor, "set_character_camera",
+            "Replace the complete generated CharacterCameraData settings; validated and undoable. "
+            "Field names use the runtime schema's snake_case; enums use names; persistent node IDs "
+            "are scene-local strings.",
+            {{"settings", schema::control_json::describe(
+                              static_cast<const schema::CharacterCameraDataT*>(nullptr))},
+             {"enabled", {{"type", "boolean"}}}},
+            {"settings"}) ||
+        !mcp::tools::component_tool(system, editor, "get_character_camera",
+                                    "Read the complete generated settings.", Json::object()))
+    {
+        return false;
+    }
+    return true;
 }
-
 } // namespace engine::plugins::character_controller

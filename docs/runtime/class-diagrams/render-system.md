@@ -1,6 +1,10 @@
 # 渲染系统
 
-**2026-11-07：大场景准备接口、配置和私有索引已实现。** 其余已确认绘制能力保持；本批范围与调用方迁移见[大场景准备关系](large-scene-preparation.md)。
+`render` 以三态结果区分实际提交、暂缓与故障；实际交付与验证范围见所属说明及测试文档。
+
+[按范围准备、首帧与截图](render-readiness.md)维护场景准备和观察的公开契约；本页维护渲染系统与内部绘制能力。
+
+准备预算和调用关系见[大场景准备关系](large-scene-preparation.md)。
 
 **2026-11-08：已按确认设计实现提交管线，Windows / DirectX 12 定向验收完成。** 新的数据复用、材质绑定和阴影合批关系见[视图提交设计](render-submission.md#提交管线优化设计)，私有签名变化见[本页契约](#提交管线私有契约)，实际验证范围见[测试记录](../../testing.md#渲染性能基线)。不包含 Shader/PSO 预热。
 
@@ -18,7 +22,7 @@ VSync 请求在下一次可提交的帧应用。场景纹理准备和截图编�
 
 ## 私有实现边界
 
-分步准备的新增数据与所有权统一见[大场景分批准备](#大场景分批准备)，本节的既有 GPU 类型继续由该流程使用。
+分步准备的数据与所有权统一见[按范围准备](render-readiness.md)，本节 GPU 类型由同一流程使用。
 
 `RenderSystem` 保持系统生命周期、帧提交与调用方入口。场景准备、场景绘制和参数读写分文件实现；GPU 类型、渲染通道与平台表面独立维护，不增加新的渲染管理框架。公开头只暴露引擎类型，bgfx、SDL 和纹理转码器留在私有实现。
 
@@ -285,7 +289,6 @@ classDiagram
 - 新 `bind_material` 消费已经解析的数值和采样器绑定。动态帧纹理仍由 view 传入，且必须检查 binding 的 Shader/纹理身份属于当前有效 GPU 资源。GpuMesh 在销毁程序/纹理之前清理其绑定；不把 bgfx 句柄的数字相等当作跨设备代次身份相等。
 - `RenderViewStats` 的字段与现有 scene mesh 统计口径保持；本批阴影和后处理的总提交变化另取 bgfx 统计与私有采样，不混入旧字段制造 draw 数变化。
 - `RenderPreparation` 用 `pending_materials` 跟踪待重建槽；`target_description / target_stage` 对比分辨率、MSAA、效果、反射与捕获描述并按预算推进十个既有目标步骤。没有新增通用任务或渲染图框架。
-- `prepare_scene` 的 ready 继续要求必需目标和实例绑定可用；新增帧快照收集在 render 内发生，不变成资源加载阶段。窗口尺寸、MSAA、效果和捕获目标变化须重新推进准备，过期目标不得作为 ready 内容使用；RuntimeHost、EditorSystem、ScenePreview、捕获调用方需一起核对该顺序，保留唯一 bgfx::frame 提交入口。
 
 既有清理方法、不可复制的 GPU 所有权、设备能力处理和同步/分步资源准备契约保持。替换前已保存基线程序，现行图与调用方同步；完整基准见[测试方案](../../testing.md#渲染性能基线)。
 
@@ -410,6 +413,37 @@ classDiagram
 - `complete` 后 `take_hdr_capture` 将结果移动给调用方并回到 idle；其他状态取图返回 false 并清空输出。取消、场景释放、设备重置或关闭时安全退役 GPU 资源并报告 cancelled，失效异步结果不能覆盖后续请求；尚未完成时不得访问结果缓冲。捕获和既有漫反射捕获各自保持独立状态，不改变原接口。
 - 该接口使用 bgfx 的 `TextureRegion`、`blit` 和异步 `read`，借用现有帧号确定回读完成；RGBA16F 转换使用 bx 半浮点转换，行方向按 bgfx `originBottomLeft` 归一化。
 
+## 渲染提交结果
+
+`render` 返回以下枚举，只报告本次绘制事实；场景激活、会话停止与设备恢复决策归调用方。
+
+```mermaid
+classDiagram
+    class RenderSystem
+    class RenderSubmitStatus {
+        <<enumeration>>
+        submitted
+        deferred
+        failed
+    }
+    class RuntimeHost
+    class GameplaySession
+    class RenderFrameSnapshot
+    RenderSystem ..> RenderSubmitStatus : render 返回值
+    RuntimeHost *-- RenderSystem : 拥有并请求绘制
+    RuntimeHost ..> RenderSubmitStatus : 决定继续 暂缓或失败
+    GameplaySession --> RenderSystem : 查询范围帧
+    GameplaySession ..> RenderFrameSnapshot : 核验实际提交身份
+```
+
+| 结果 | 完成含义 | 宿主行为 |
+| --- | --- | --- |
+| submitted | 本次提交成功；具体 kind、scope、设备代次由 frame_status 查询 | 使用范围帧证据推进激活，clear/movie 不满足场景首帧 |
+| deferred | 已识别的暂时不可提交，例如窗口不可绘制或已有表面重建仍在推进 | 保留请求及资源，下帧按正常循环继续，不能记为场景就绪 |
+| failed | 实际提交失败、必要能力失效或无法恢复的设备错误 | 锁存故障并按宿主契约停止会话，不自动改为清屏成功 |
+
+`render` 返回值标注 nodiscard。deferred 不递增成功提交序号，不触发范围激活；未知错误明确归 failed。范围内错误保存在该范围已有准备快照，宿主级错误保存在 RuntimeHostStatus。该枚举不承诺新增设备自动恢复能力；设备代次变化后必须重新取得当前代次的准备和帧证据。
+
 ```mermaid
 classDiagram
     direction TB
@@ -421,10 +455,7 @@ classDiagram
         +present_movie_frame(const MovieFrame& frame) bool
         +add_extension(RenderExtension& extension) bool
         +remove_extension(RenderExtension& extension) bool
-        +prepare_scene(RenderPrepareMode mode, RenderPrepareProgress& output, double max_seconds = 0, Camera camera = #123;#125;) RenderPrepareStatus
         +release_scene() void
-        +preparation_status(RenderPrepareProgress& output) RenderPrepareStatus
-        +preparation_error() string_view
         +gpu_resource_count() uint32_t
         +gpu_ready() bool
         +frame_number() uint32_t
@@ -446,13 +477,11 @@ classDiagram
         +settings() RenderSettings
         +set_stats_visible(bool visible) void
         +stats_visible() bool
-        +request_screenshot(string_view utf8_png_path) bool
-        +screenshot_status() ScreenshotStatus
         +request_hdr_capture() bool
         +hdr_capture_status() SceneCaptureStatus
         +take_hdr_capture(SceneCaptureImage& output) bool
         +cancel_hdr_capture() void
-        +render(Camera camera) bool
+        +render(Camera camera) RenderSubmitStatus
         #on_initialize(const EngineConfig& config) bool
         #on_shutdown() void
     }
@@ -534,13 +563,6 @@ classDiagram
         exponential_squared
     }
     RenderSettings --> FogMode : 雾模式值
-    class ScreenshotStatus {
-        <<enumeration>>
-        idle
-        pending
-        complete
-        failed
-    }
     class bgfx {
         <<library>>
     }
@@ -554,9 +576,6 @@ classDiagram
     RenderSystem --> FontSystem : 可空借用 3D 文字绘制
     RenderSystem --> UiSystem : 可空借用 场景后的 UI 通道
     RenderSystem --> TaskSystem : 可空借用 纹理准备及截图任务域
-    RenderSystem ..> RenderPrepareMode : 调用方显式选择完成方式
-    RenderSystem ..> RenderPrepareStatus : 返回准备状态
-    RenderSystem ..> RenderPrepareProgress : 输出当前准备快照
     RenderSystem --> RenderExtension : 登记期间借用，独立透明通道
     RenderSystem ..> Scene : 借用节点列表和唯一场景编号
     RenderSystem ..> Camera : 调用期间借用显式视角或场景活动镜头
@@ -576,7 +595,6 @@ classDiagram
     RenderSystem ..> ShaderDataT : 读取生成的二进制与 uniform 映射
     RenderSystem ..> EngineConfig : on_initialize 参数
     RenderSystem ..> RenderSettings : 返回组件组成的只读帧快照
-    RenderSystem ..> ScreenshotStatus : 截图回执
     RenderSystem ..> bgfx : 图形资源及帧提交
     RenderSystem ..> SDL3 : 原生窗口及像素尺寸
     note for RenderSystem "拥有 bgfx 创建的资源；析构中调用 shutdown()"
@@ -584,11 +602,8 @@ classDiagram
 
 - 构造时借用窗口系统，以及可空的世界、字体和 UI 系统；借用必须覆盖渲染系统生命周期。世界系统为空时不绘制项目场景。初始化时检查窗口已就绪，不创建项目 Mesh、Shader 和材质资源。
 - 3D 文字与网格使用同一场景相机，由 FontSystem 按普通文字组件绘制；UI 由 UiSystem 在场景之后的有序视图提交。Renderer 只协调通道，不复制字体排布或 RmlUi 文档业务。关闭 GPU 前先释放 UI 和字体 GPU 数据。
-- `prepare_scene(mode, output, max_seconds, camera)` 在主线程驱动本模块准备；唯一签名及同步 / 分步语义见下文。无场景或无可绘制组件时完成无用资源回收并返回 ready，不以是否创建过 SceneGpuResources 判断完成。
-- `prepare_scene` 与 `render` 的 `camera` 默认空，使用世界场景的活动镜头；显式传入时仅在本次调用借用。镜头以 Camera 值句柄传入，可来自调用方独立场景，其世界与实体必须在调用期间有效。渲染器不保存组件地址、不改变项目场景的活动镜头，也不判断调用方用途。
 - 显式视角提供观察位置、投影及本镜头的网格隐藏列表。主绘制与 AO 深度预通道按实际观察 Camera 的 `mesh_visible(component.instance_id())` 过滤，网格、文字、灯光和渲染效果均须满足组件 `active()` 与 `visible_in_hierarchy()`，包含父节点状态；阴影仍使用全局激活且可见的投影网格；仅对镜头隐藏的网格保留 GPU 资源，其他镜头仍可绘制。全部网格被该镜头隐藏时仍可成功提交空画面。环境始终读取世界场景的唯一激活且可见的 `EnvironmentComponent`，曝光与色调映射始终读取场景活动 Camera 同节点的激活且可见 `PostProcessComponent`，独立预览相机不会覆盖场景的画面参数。
 - `release_scene()` 使当前准备代次失效并释放逻辑场景资源；未完成任务和 GPU 回读所需缓冲转入本模块收尾队列，不在普通帧等待。可重复调用，保持共享 bgfx 设备和窗口。无场景时 render 可提交清屏；有未准备场景时不能把清屏成功冒充场景绘制成功。
-- `preparation_status(output)`、`preparation_error()` 与 `gpu_resource_count()` 为 const noexcept 纯查询，不推进或等待。资源数不代表驱动已完成异步回收；旧 scene_prepared 删除，不能保留 bool 别名。普通切换按存活组件增量回收，bgfx 按自身契约完成实际 GPU 销毁。
 - `viewport_size(Vec2& output) const noexcept` 返回最近为绘制目标配置的像素宽高，标注 `[[nodiscard]]`。未初始化、GPU 不可用或任一尺寸为零时返回 false 并清零输出。查询只读取本系统当前尺寸；窗口大小变化由既有 `render()` 流程应用后反映，不在查询中轮询窗口或重置交换链。
 - `set_vsync(bool enabled)` 在渲染系统已初始化时接受 VSync 请求并返回 `true`，未初始化返回 `false`；不在脚本回调中重置交换链。它只保存待应用的呈现配置，下一次可提交的 `render()` 使用新 reset flags 执行既有 bgfx reset 路径，即使窗口尺寸未变也会处理开关变化。`vsync() const noexcept` 返回最近接受的请求，默认 `true`，不是实际显示器呈现状态或实测帧率。setter 与 getter 均标注 `[[nodiscard]]`。
 
@@ -612,7 +627,7 @@ classDiagram
 - Android 暂停期间保留系统对象，GPU 初始化可推迟；Activity 与 Surface 均就绪后按需重建场景所需的渲染资源。系统生命周期就绪与 GPU 暂时关闭是两个不同状态，公共系统接口不变。
 - 初始化、继承的更新、`render()` 和关闭均由 `SDL_main` 所在线程（见[线程约定](engine-system.md)）调用；窗口指针及原生句柄借用不跨线程传递。
 - 继承 `System` 的公共生命周期入口及默认 `on_tick()`；它管理的子系统随统一入口更新。
-- `render()` 在本帧系统及子系统更新完成后检查窗口尺寸和表面状态，完成图形资源适配及一帧提交。成功返回 `true`，无法完成返回 `false`。若宿主暂停在本帧中途到达，RuntimeHost 重新检查窗口可绘制性并返回 `paused`；项目场景渲染失败时，RuntimeHost 通过 GameplaySession 停止玩法并尝试恢复空白，无法恢复时进入宿主失败状态。
+- `render()` 在本帧系统及子系统更新完成后检查窗口尺寸和表面状态，按下述 `RenderSubmitStatus` 返回提交、暂缓或故障。宿主按[统一错误边界](runtime-host.md)处理，渲染器不停止玩法、不销毁世界、不以清屏成功代替目标场景帧。
 - RuntimeHost 在提交前检查窗口退出和暂停状态。恢复和表面重建由渲染系统与[窗口系统](window-system.md)协作处理。
 - 拥有 bgfx 创建的资源，使用对应 API 释放；不拥有窗口系统，也不拥有第三方库本身。初始化、清理和复制移动限制遵守[系统约定](engine-system.md)。
 
@@ -620,7 +635,7 @@ classDiagram
 - `set_stats_visible()` 在主线程控制 bgfx 自带的 `BGFX_DEBUG_STATS` 面板，默认关闭，`stats_visible()` 返回保存的开关。开关独立于场景与渲染效果配置，适用于待机、预览及玩法；切换场景、释放场景资源和临时重建图形设备均保留设置，设备恢复后重新应用。该面板只显示上游可提供的统计，不另外启用 `BGFX_DEBUG_PROFILER`。
 - 默认内置 Mesh 为 24 顶点、36 索引方块；项目 Mesh 来自独立缓存定义，可提供其他顶点和 uint32 索引。内置 PBR/无光照 Shader 的程序数据由固定版本 bgfx `shaderc` 编译并交给 ResourceSystem 注册。材质按 `builtin://...` 或 assets 相对路径取得资源，渲染器通过 `Material::shader_data()` 借用该材质实际持有的 ShaderData，不经过全局缓存查询或按材质路径分支选择效果。
 - 每个在用 Shader 路径拥有一套 Program 和参数 Uniform；多个组件可使用不同 Shader。按生成数据中的 uniform 名称、偏移及数值类型映射参数，上传实例值和隐藏默认值。反射双向核对全部非引擎 Uniform，缺失声明或不存在的声明均拒绝，失败清理本次场景 GPU 资源。
-- 材质变更 Shader 或 Mesh 后释放已无人使用的程序或网格缓冲。显式停止项目时，GameplaySession 协调释放场景、脚本资源引用和 GPU 句柄，CPU 资源随最后一个使用者释放。热重载由 GameplaySession 通过 ScriptRuntime 契约停止旧运行，再提交新目录并启动；RenderSystem 在下一次 prepare_scene 按世界中仍存活的节点和材质增量更新 GPU 资源，不因活动场景 ID 改变销毁常驻对象的缓存。GPU 通过 bgfx::copy 持有独立字节，不借用已替换的 CPU 定义；builtin 定义保留至资源系统关闭。编译后的 Shader 必须符合当前渲染后端、顶点和内置引擎 Uniform 契约；不提供 Shader 源码运行时编译。
+- 材质变更 Shader 或 Mesh 后释放已无人使用的程序或网格缓冲。显式停止项目时，GameplaySession 协调释放场景、脚本资源引用和 GPU 句柄，CPU 资源随最后一个使用者释放。热重载由 GameplaySession 通过 ScriptRuntime 契约停止旧运行，再提交新目录并启动；RenderSystem 在下一次 prepare_scope 按世界中仍存活的节点和材质增量更新 GPU 资源，不因活动场景 ID 改变销毁常驻对象的缓存。GPU 通过 bgfx::copy 持有独立字节，不借用已替换的 CPU 定义；builtin 定义保留至资源系统关闭。编译后的 Shader 必须符合当前渲染后端、顶点和内置引擎 Uniform 契约；不提供 Shader 源码运行时编译。
 - Android 暂停关闭 bgfx 时同时释放场景 GPU 资源；恢复后根据仍存活的场景重新建立资源。平台运行验证范围见[测试与范例](../../testing.md)。
 - Android Surface 处理代码集中在平台实现中；APK、模拟器暂停恢复和真机验证范围见[测试与范例](../../testing.md)。
 
@@ -638,14 +653,12 @@ C++ 限定符：构造为 `explicit` 且 `noexcept`，`world` 默认为 `nullptr
 - 内置 PBR 采样 baseColorTexture、normalTexture、ormTexture（R=AO、G=roughness、B=metallic）；顶点色与 baseColor 相乘。切线空间参考 bgfx 06-bump，PBR 核心直接适配 The Forge ShaderUtilities.h.fsl 的 GGX、Smith 与 Schlick 函数，保留来源和许可。
 - 由 RenderConfig 限制启用灯光数量（默认 256，最大 4096），方向、点光、聚光均由节点组件表达；超出限制明确失败，不静默丢灯。相机支持透视和正交投影。
 - `settings()` 返回当前场景组件组成的瞬时快照，不持有组件指针或保存场景覆盖值。每帧重新读取组件；没有相应组件时使用固定引擎默认值，默认环境光为 0、曝光为 1、Reinhard 色调映射、AO 与阴影关闭。切换、销毁场景或禁用组件不会继承上一场景的参数。
-- 设置写入和数值校验唯一归对应组件。RenderSystem 只收集只读帧快照，不提供跨组件设置事务；编辑器负责选择组件、创建缺失组件以及撤销和失败回滚。`set_idle_clear_color(rgba)` / `idle_clear_color()` 仅设置/查询无活动场景时的 RGBA 清屏色，均为 noexcept，查询为 const；不保存环境、后处理或阴影覆盖值，后续场景不继承待机颜色。非法场景的 settings 快照查询记录错误并返回默认值，而 `prepare_scene()` 和 `render()` 明确返回失败。
 - 只读聚合快照选择阴影域时，优先使用唯一启用的投影方向灯；没有投影灯时使用第一个启用方向灯。关闭第二个方向灯的投影后，快照可返回第一个方向灯的分辨率和偏移，这些值在阴影关闭时不参与绘制。需要精确修改或撤销指定灯时使用该 `Light` 的生成数据，不以组合快照代替各组件身份。
 - 环境光、雾和曝光变化只更新帧 Uniform，不重建场景 Mesh、材质程序或纹理；阴影分辨率变化仅重建阴影通道资源，修改偏移、级联数量、距离或混合参数复用已有 atlas，并在本帧重新计算级联投影。
 - 可选 `ambient_tricolor` 根据世界法线 Y 在天空、赤道与地面线性颜色间插值，仍乘 `ambient_intensity`；关闭时使用原有 `ambient_color`。`fog_mode` 选择关闭、线性、指数或平方指数雾。线性模式保留相机到片元的世界距离，在 `fog_start` 到 `fog_end` 间混合；指数模式用相机前向深度减近裁面，透过率分别为 `exp(-density*d)` 与 `exp(-(density*d)^2)`，density 为非负有限数。颜色均为线性 `fog_color`，要求 `0 <= start < end`。两者默认关闭，数据由调用方明确提交，不识别 Unity 或具体项目。
 - 方向光阴影从启用方向灯的 `cast_shadows`、`shadow_resolution`、`shadow_bias` 及下述 CSM 参数读取，当前支持一个投影方向灯；多个投影方向灯明确失败。灯的变换仍来自节点。每级根据本次镜头视锥拟合正交投影，深度范围纳入相交投射物，复用 bgfx `15-shadowmaps-simple` 的 packed-depth 路径与 16 点 PCF 采样；没有投影方向灯不产生阴影。RGBA8 深度编码与 D16 深度附件避免依赖硬件比较采样；纹理、帧缓冲及程序随场景释放，设备不支持附件格式时返回失败，不假报开启。阴影使用保留纹理槽 15，项目材质不得占用该槽。ACES 色调映射直接适配 bgfx `shaderlib.sh` 的曲线，保留来源。
-- `request_screenshot()` 仅接受调用方提供的绝对 UTF-8 `.png` 路径，父目录必须存在；核心不选择项目目录、不创建目录。返回 `true` 表示已排队，后续帧完成编码和文件关闭后 `screenshot_status()` 才变为 `complete`；失败为 `failed`，等待期间拒绝第二个请求。bgfx 回调仅校验并复制读回像素，单个缓冲最多 256 MiB；压图和文件写入经主线程提交至借用的 `TaskSystem`，不阻塞渲染线程。任务域满时保留同一缓冲待下帧重试，不积累截图队列。
-- 纹理按资源编码和当前 GPU 能力确定格式，准备与上传统一遵守[大场景分批准备](#大场景分批准备)契约。`texture_batch_size` 限制并发准备项，取值 1–64；`texture_staging_bytes` 限制引擎持有的暂存总量。worker 只处理稳定资源输入，不访问 bgfx、Scene 或 Node；已接收的失败任务不自动重跑。
-- Shader、Mesh、IBL 的 GPU 创建继续在允许的协调 API 线程；IBL 进入同一准备队列。同步 / 分步模式共用内部过程，分步模式不整批等待或隐式切换同步路径。字体 / UI 与独立插件的同步回调保持各自职责，不计作已经受场景纹理预算约束。
+- 纹理按资源编码和当前 GPU 能力确定格式，准备与上传统一遵守[按范围准备](render-readiness.md)契约。`texture_batch_size` 限制并发准备项，取值 1–64；`texture_staging_bytes` 限制引擎持有的暂存总量。worker 只处理稳定资源输入，不访问 bgfx、Scene 或 Node；已接收的失败任务不自动重跑。
+- Shader、Mesh、IBL 的 GPU 创建继续在允许的协调 API 线程，IBL 进入同一准备队列，不整批等待后台任务。字体 / UI 和渲染扩展显式参加所属范围准备，复用各自的正常运行缓存。
 - 任务只共享拥有独立截图数据，不借用渲染系统、回调或 GPU 对象。`tasks` 非空时须先初始化、覆盖渲染系统生命周期；为空则主线程处理截图，保留无需任务系统的独立宿主。编码处理 pitch、BGRA 与 Y 翻转；不借用桌面截图权限。关闭时等待已接收的写入任务，取消尚未提交的读回结果，不在返回后留下借用。请求、查询、提交和完成回收均由主线程调用，读回槽跨线程加锁。
 
 
@@ -731,107 +744,10 @@ classDiagram
 
 ECS 查询开始前由协调安全点刷新派生世界矩阵和有效状态。灯光、反射面、网格、动画和可见性参数来自真实 ECS 列；GPU 缓存仍由渲染领域拥有并按实体/组件实例/资源修订识别。显式绘制相机默认 Camera{}，值句柄不转移世界所有权。
 
-## 大场景分批准备
+## 场景范围与状态
 
-此节与上面的 RenderSystem 唯一公开方法表共同定义当前实现。新增的枚举、进度和内部记录只属于渲染；ResourceLoader 不包含它们。
+公开方法、值类型和完成语义唯一见[渲染就绪、帧证据与截图](render-readiness.md)。RenderPreparation 仅是共享队列的私有记录，不能作为全局场景完成门槛。
 
-```mermaid
-classDiagram
-    class RenderPrepareMode {
-        <<enumeration>>
-        synchronous
-        incremental
-    }
-    class RenderPrepareStatus {
-        <<enumeration>>
-        idle
-        preparing
-        ready
-        failed
-    }
-    class RenderPrepareProgress {
-        <<struct>>
-        +uint64_t generation = 0
-        +uint32_t resources_total = 0
-        +uint32_t resources_ready = 0
-        +uint64_t staging_bytes = 0
-        +bool discovery_complete = false
-    }
-    class RenderInstanceKey {
-        <<private struct>>
-        +uint64_t world_epoch
-        +uint64_t entity
-        +uint64_t component_instance
-    }
-    class RenderPreparation {
-        <<private struct>>
-        +uint64_t generation
-        +RenderPrepareStatus status
-        +RenderPrepareProgress progress
-        +string error
-    }
-    class TexturePrepareWork {
-        <<private struct>>
-        +ResourceReference source
-        +uint64_t generation
-        +uint64_t reserved_bytes
-    }
-    class RenderSystem
-    class SceneGpuResources
-    class PreparedTexture
-    class GpuMesh
-    class GpuTexture
-    class GpuProgram
-    class ResourceReference
-    class TaskSystem
-    RenderSystem *-- RenderPreparation : 独占当前准备状态
-    RenderSystem *-- SceneGpuResources : 活动及待收尾的GPU资源
-    SceneGpuResources *-- RenderInstanceKey : 实例索引键 不保存ECS列
-    SceneGpuResources *-- GpuMesh : 连续槽与直接索引
-    SceneGpuResources *-- GpuTexture : 唯一资源表
-    SceneGpuResources *-- GpuProgram : 唯一资源表
-    RenderPreparation o-- TexturePrepareWork : 与worker共享工作存储
-    TexturePrepareWork *-- ResourceReference : 独立获取至完成收尾
-    TexturePrepareWork *-- PreparedTexture : 本次子资源或区块的CPU缓冲
-    RenderPreparation ..> TaskSystem : 提交本模块准备任务
-    RenderPreparation ..> RenderPrepareMode
-    RenderPreparation ..> RenderPrepareStatus
-    RenderPreparation *-- RenderPrepareProgress
-```
+几何、纹理和程序按不可变资源身份共享。候选拥有独立通道目标；发布切换到已经准备好的目标，旧范围随后按预算回收。活动实例改变资源时保留原有效 GPU 绑定，替换完成后切入；未就绪的新实例不影响其他已发布内容提交。
 
-### 单一准备入口
-
-- `prepare_scene(mode, output, max_seconds = 0, camera = {})` 标注 nodiscard。首次调用开始准备，后续调用推进同一个目标；不增加 begin/step/wait 三套入口。`preparation_status(output)` 为纯查询，`preparation_error()` 返回当前系统持有的错误文本借用；状态变更或释放后不能保存该借用。
-- incremental 只消费已完成任务并提交本次预算内的新工作，未完成返回 preparing；不调用未就绪 future.get，不调用任务域 wait，也不在内部循环推进帧。max_seconds 为 0 时使用 RenderConfig 默认值，正数取与配置的较小值；负数或非有限值明确失败，输出为安全空进度。
-- synchronous 是调用方明确请求的阻塞行为，复用同一准备过程并等待本模块工作，返回 ready 或 failed；其 max_seconds 必须为 0，不能伪装成有时限的同步等待。不驱动文件、资源图、玩法或其他系统；临时设备不可提交时直接失败，不等待窗口恢复。交互式帧循环不得使用该模式。
-- idle 表示初始化后 / release_scene 后没有准备结果；空世界经 prepare_scene 检查后为 ready。失败保持 failed 和原因，不能每帧自动重试；调用方显式 release_scene 或重新 bind_world 后开始新代次。状态查询在关闭后返回 idle 与空进度。
-- `generation` 区分本渲染器的准备轮次，不是资源目录代次或获取槽代数。目标世界换代、场景集合替换、设备重建和取消使旧轮次失效；重复查询 / 无变化的 prepare_scene 不递增。后台结果发布前重新校验轮次、资源和组件身份。
-- 状态查询反映本模块已观察到的轮次，不扫描世界或发现新工作；调用方修改场景后须先推进 prepare_scene，再据返回状态绘制。render 仍校验当前身份与准备修订，不能凭修改前的 ready 使用失效资源。
-- 镜头只在调用期间借用；分步之间只保存可重新验证的值身份及必要值快照，不保存相机、ECS 列或临时视图的地址。镜头位姿变化不重建共享几何 / 纹理；需要的通道或资源集合变化才入队新工作。
-- `resources_total/ready` 仅计当前轮次已发现的唯一 GPU 资源准备项；实例个数、文件字节、GPU 执行时间不计入。发现结束前 total 可增加；discovery_complete 为 false 时不能把比值显示为整个场景完成率。ready 还要求实例绑定和本轮必需通道准备完成，不能仅比较两个计数。
-- ready 表示资源命令已在 bgfx 契约下排在后续绘制之前，不等待 GPU 全局 idle。使用、读回、复用暂存或销毁分别遵守 bgfx 的真实完成语义，不能用 CPU future 完成替代 GPU 完成证明。
-
-### 索引与增量
-
-- Mesh 实例按 RenderInstanceKey 直接定位槽，重建条件为对应组件的资源 / 几何修订变化。槽回收先删除旧键，再登记新实例；删除后重建同名节点不能命中旧实例。变换、相机移动和普通数值材质参数变化不触发不可变几何重建。
-- 唯一几何、纹理和程序按被独立获取保活的资源身份定位；可将资源指针作为私有直接索引键，但必须由该条目保活，不能保存释放后的地址作身份。实例表与共享数据表分开；程序键也必须区分资源代际，不能仅使用 Shader 路径。
-- 渲染模块监听已发布组件的创建、删除和资源修订，维护自己的待处理集合；核心组件不 include 或调用 RenderSystem。正常绘制可线性枚举可见候选，但不在线性数组中逐项查找对应 GPU 对象。首次绑定已存在世界允许一次 O(N) 建索引，必须单独计量，不能声称一定小于 2 ms。
-- 资源完整几何 / 格式校验由 Codec 接纳阶段完成；这里仍检查绑定、设备格式、尺寸、传输边界、材质与顶点布局匹配，不能移除运行错误或身份检查。按资源身份缓存一次 CPU 几何转换，复用同一 Mesh 的实例不重复生成切线和上传同一几何。
-- 资源 / 组件修改只使受影响项重新 preparing；稳定项继续复用。取消和场景替换不能通过沿用旧 GUID、路径或槽号接收过期结果。
-
-### 暂存与上传
-
-- RenderConfig 新增的数量、时间和上传字节预算均须大于零，时间还须有限；上述默认值是首版配置建议，不是实测最优值。texture_batch_size 限制并发准备项，texture_staging_bytes 限制引擎持有的准备中、已完成待提交缓冲总额，不只统计正在转码的批次。
-- 先预留字节再提交 worker；容量暂满返回 preparing，让调用方继续下一帧。没有任务域时，incremental 只接纳可在协调线程预算内完成的已加工数据；需要重 CPU 工作则报告不可用，不暗中改为整批同步。synchronous 可显式完成相同工作。
-- 上传按 mip / face / 可独立区块分段。单资源大于每帧上传额度可以跨帧推进，不因此失败；最小不可拆解码单元大于暂存上限时明确失败。不能一张巨图独占不受控临时缓冲，也不能为避开失败偷偷扩大配置。
-- 预算只约束引擎控制的工作；bgfx 内部暂存、驱动分配和单次创建调用不能算成已经被本预算严格限制。不可抢占步骤按一个工作项计量，允许一次调用超出时间软上限，但之后立即让出；报告中单列这类峰值。
-- 调度先收完成结果、回收已可复用缓冲，再提交新任务及本帧上传。GPU 创建 / 上传仍在允许的协调 API 线程，worker 只处理独立输入。同步 / 分步模式共用相同格式检查和发布路径。
-- PreparedTexture 表示当前选定的 mip / face / 区块及其预算，不再持有一整张贴图的全部转码结果。GpuTexture.create 仅建立对应 GPU 对象，upload 追加已准备范围；全部必需范围入队后才标记该纹理 ready。IBL 收集进入同一准备队列，不能经 prepare_ibl 的旧同步路径整批等待。Mesh / Shader 的不可拆创建步骤同样受项目数预算约束；本批不承诺任意大 Mesh 单次创建可抢占。
-- `upload_texture` 原生扩展函数仍是明确同步操作，并非本准备入口的旧版兼容壳；普通大场景准备不得绕回它整项等待。UI、字体和独立插件有自己的准备职责，本批不通过资源插件代管它们。
-
-### 取消、释放与调用方
-
-- release_scene 立即禁止旧结果发布，清空活动准备状态；工作存储继续由渲染器持有到 worker 完成。其 ResourceReference 的释放在协调线程执行，worker 析构不调用加载器。
-- GPU 句柄按 bgfx 契约释放；仍在回读的 CPU 目标和相关私有资源保留至真实回读完成，随后回收。普通帧不为清理循环调用 bgfx::frame 或 wait_idle。完整 shutdown 先等待本模块任务 / 回读收尾，再关闭设备和借用服务。
-- render 不再隐式调用阻塞 prepare_scene。有活动内容而未 ready 时返回失败 / not-ready 诊断且不提交半成品；宿主应先检查准备结果，preparing 时选择加载画面，不能把它当成项目故障停止。无活动内容仍可正常清屏。
-- GameplaySession::step_prepare 的 GPU 阶段使用 incremental 并传本次剩余时间；preparing 时留在本阶段，ready 才返回会话 ready。同步 start / 独立工具明确选择 synchronous。RuntimeHost、EditorSystem、ScenePreview、烘焙捕获和动态场景调用方一次迁移，删除旧 bool 调用与无条件每帧重准备。
+最终显示输出包含场景后处理与 UI，再复制到窗口。PNG 从同一输出纹理异步回读，以截图请求身份关联真实提交帧；编码和原子落盘复用 TaskSystem。

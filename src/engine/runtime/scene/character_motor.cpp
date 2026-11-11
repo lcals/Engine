@@ -3,6 +3,7 @@
 #include "runtime/scene/character_motor_runtime.hpp"
 
 #include "runtime/scene/ecs_storage.hpp"
+#include "runtime/world/world_system.hpp"
 
 #include <cmath>
 #include <utility>
@@ -22,6 +23,25 @@ bool valid_velocity(const Vec3& value) noexcept
     return std::isfinite(value.x()) && std::isfinite(value.y()) && std::isfinite(value.z()) &&
            std::abs(value.x()) <= 10000.0 && std::abs(value.y()) <= 10000.0 &&
            std::abs(value.z()) <= 10000.0;
+}
+
+bool externally_writable(CharacterMotor motor) noexcept
+{
+    if (!motor.valid())
+    {
+        return false;
+    }
+    auto ecs = flecs::world(motor.node().world()->native_world());
+    const auto* binding = ecs.try_get<CharacterMotorWorldRuntime>();
+    if (!binding || !binding->driver)
+    {
+        return true;
+    }
+    if (binding->in_callback)
+    {
+        return false;
+    }
+    return !binding->driver->control_owner(motor).valid();
 }
 
 } // namespace
@@ -102,7 +122,7 @@ bool CharacterMotor::set_velocity(const Vec3& value) noexcept
     {
         return false;
     }
-    if (!active() || value.y() != 0.0 || !valid_velocity(value))
+    if (!externally_writable(*this) || !active() || value.y() != 0.0 || !valid_velocity(value))
     {
         return false;
     }
@@ -110,14 +130,15 @@ bool CharacterMotor::set_velocity(const Vec3& value) noexcept
     return true;
 }
 
-void CharacterMotor::clear_input() noexcept
+bool CharacterMotor::clear_input() noexcept
 {
-    if (!writable())
+    if (!writable() || !externally_writable(*this))
     {
-        return;
+        return false;
     }
     runtime()->desired_velocity_ = {};
     runtime()->pending_jump_ = 0.0F;
+    return true;
 }
 
 bool CharacterMotor::add_velocity(const Vec3& delta) noexcept
@@ -127,6 +148,12 @@ bool CharacterMotor::add_velocity(const Vec3& delta) noexcept
         return false;
     }
     if (!active() || !valid_velocity(delta))
+    {
+        return false;
+    }
+    const auto* binding =
+        flecs::world(node().world()->native_world()).try_get<CharacterMotorWorldRuntime>();
+    if (binding && binding->in_callback)
     {
         return false;
     }
@@ -156,8 +183,8 @@ bool CharacterMotor::jump(float speed) noexcept
     {
         return false;
     }
-    if (!active() || !runtime()->grounded_ || runtime()->pending_jump_ != 0.0F ||
-        !bounded(speed, 0.01F, 1000.0F))
+    if (!externally_writable(*this) || !active() || !runtime()->grounded_ ||
+        runtime()->pending_jump_ != 0.0F || !bounded(speed, 0.01F, 1000.0F))
     {
         return false;
     }
@@ -172,6 +199,12 @@ bool CharacterMotor::grounded() const noexcept
         return false;
     }
     return active() && runtime()->grounded_;
+}
+
+bool CharacterMotor::get_status(CharacterMotorStatus& output) const noexcept
+{
+    output = valid() ? runtime()->status : CharacterMotorStatus{};
+    return valid();
 }
 
 } // namespace engine

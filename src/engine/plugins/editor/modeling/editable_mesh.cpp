@@ -1,5 +1,7 @@
 #include "plugins/editor/modeling/editable_mesh.hpp"
+
 #include "editor/mesh/mesh_tangents.hpp"
+#include "plugins/editor/modeling/primitive_options.hpp"
 
 #include "plugins/editor/modeling/modeling_math.hpp"
 #include "runtime/utils/mesh_utils.hpp"
@@ -133,12 +135,12 @@ bool rings_for_face(const VertexLookup& lookup, const schema::ModelingFaceT& fac
     vertices.clear();
     if (face.vertices.size() < 3 || face.vertices.size() > 65536 || face.holes.size() > 1024)
     {
-        return fail(error, "面环必须包含 3 到 65536 个顶点，孔洞数量不得超过 1024");
+        return fail(error, "Face loops require 3 to 65536 vertices and at most 1024 holes");
     }
     const auto normal = lookup_normal(lookup, face);
     if (math::length(normal) <= math::epsilon)
     {
-        return fail(error, "多边形面积为零或绕序无效");
+        return fail(error, "Polygon area is zero or winding is invalid");
     }
     const auto unit_normal = math::normalized(normal);
     const auto origin = lookup_position(lookup, face.vertices.front());
@@ -155,7 +157,7 @@ bool rings_for_face(const VertexLookup& lookup, const schema::ModelingFaceT& fac
         if (ids.size() < 3 || ids.size() > 65536 || (!uv.empty() && uv.size() != ids.size()) ||
             (!colors.empty() && colors.size() != ids.size()))
         {
-            return fail(error, "面环或每角属性数量无效");
+            return fail(error, "Invalid face loop or corner attribute count");
         }
         Ring ring;
         for (auto id : ids)
@@ -163,12 +165,14 @@ bool rings_for_face(const VertexLookup& lookup, const schema::ModelingFaceT& fac
             const auto vertex = lookup.find(id);
             if (vertex == lookup.end() || !used.insert(id).second)
             {
-                return fail(error, "面引用缺失或重复的顶点");
+                return fail(error, "Face references a missing or duplicate vertex");
             }
             const auto value = vertex->second;
             if (std::abs(math::dot(math::sub(value, origin), unit_normal)) > 1.0e-7 * scale)
             {
-                return fail(error, "多边形顶点不共面，请先三角化或拆分面");
+                return fail(
+                    error,
+                    "Polygon vertices are not coplanar; triangulate or split the face first");
             }
             ring.push_back(math::project(value, axis));
             vertices.push_back(id);
@@ -178,7 +182,7 @@ bool rings_for_face(const VertexLookup& lookup, const schema::ModelingFaceT& fac
             if (!std::isfinite(value.x()) || !std::isfinite(value.y()) ||
                 std::abs(value.x()) > 1.0e12 || std::abs(value.y()) > 1.0e12)
             {
-                return fail(error, "UV 必须为有限数值");
+                return fail(error, "UV coordinates must be finite");
             }
         }
         for (const auto& value : colors)
@@ -187,20 +191,20 @@ bool rings_for_face(const VertexLookup& lookup, const schema::ModelingFaceT& fac
             {
                 if (!std::isfinite(item) || item < 0.0F || item > 1.0F)
                 {
-                    return fail(error, "顶点颜色必须位于 0 到 1");
+                    return fail(error, "Vertex colors must be between 0 and 1");
                 }
             }
         }
         if (std::abs(signed_area(ring)) <= tolerance)
         {
-            return fail(error, "面环面积为零");
+            return fail(error, "Face loop area is zero");
         }
         for (std::size_t i = 0; i < ring.size(); ++i)
         {
             const auto next = (i + 1) % ring.size();
             if (std::hypot(ring[i][0] - ring[next][0], ring[i][1] - ring[next][1]) <= math::epsilon)
             {
-                return fail(error, "面包含零长度边");
+                return fail(error, "Face contains a zero-length edge");
             }
             for (std::size_t j = i + 1; j < ring.size(); ++j)
             {
@@ -211,7 +215,7 @@ bool rings_for_face(const VertexLookup& lookup, const schema::ModelingFaceT& fac
                 if (intersects(ring[i], ring[next], ring[j], ring[(j + 1) % ring.size()],
                                tolerance))
                 {
-                    return fail(error, "面环自交");
+                    return fail(error, "Face loop intersects itself");
                 }
             }
         }
@@ -226,14 +230,14 @@ bool rings_for_face(const VertexLookup& lookup, const schema::ModelingFaceT& fac
     {
         if (!hole || !add_ring(hole->vertices, hole->texcoords, hole->colors))
         {
-            return fail(error, "孔洞环无效: " + error);
+            return fail(error, "Invalid hole loop: " + error);
         }
     }
     for (std::size_t i = 1; i < rings.size(); ++i)
     {
         if (!inside(rings.front(), rings[i].front()))
         {
-            return fail(error, "孔洞必须位于外环内部");
+            return fail(error, "Holes must lie inside the outer loop");
         }
         for (std::size_t j = 0; j < i; ++j)
         {
@@ -244,14 +248,14 @@ bool rings_for_face(const VertexLookup& lookup, const schema::ModelingFaceT& fac
                     if (intersects(rings[i][a], rings[i][(a + 1) % rings[i].size()], rings[j][b],
                                    rings[j][(b + 1) % rings[j].size()], tolerance))
                     {
-                        return fail(error, "孔洞与其他面环相交");
+                        return fail(error, "Hole intersects another face loop");
                     }
                 }
             }
             if (j != 0 &&
                 (inside(rings[j], rings[i].front()) || inside(rings[i], rings[j].front())))
             {
-                return fail(error, "孔洞不能重叠或嵌套");
+                return fail(error, "Holes must not overlap or nest");
             }
         }
     }
@@ -272,7 +276,7 @@ bool triangulate_impl(const VertexLookup& lookup, const schema::ModelingFaceT& f
     auto triangles = mapbox::earcut<std::uint32_t>(rings);
     if (triangles.empty() || triangles.size() % 3 != 0)
     {
-        return fail(error, "多边形三角化失败");
+        return fail(error, "Polygon triangulation failed");
     }
     double expected_area = std::abs(signed_area(rings.front()));
     for (std::size_t i = 1; i < rings.size(); ++i)
@@ -287,7 +291,7 @@ bool triangulate_impl(const VertexLookup& lookup, const schema::ModelingFaceT& f
         if (triangles[i] >= vertices.size() || triangles[i + 1] >= vertices.size() ||
             triangles[i + 2] >= vertices.size())
         {
-            return fail(error, "三角化产生越界角索引");
+            return fail(error, "Triangulation produced an out-of-range corner index");
         }
         const auto a = lookup_position(lookup, vertices[triangles[i]]);
         const auto b = lookup_position(lookup, vertices[triangles[i + 1]]);
@@ -295,7 +299,7 @@ bool triangulate_impl(const VertexLookup& lookup, const schema::ModelingFaceT& f
         const auto triangle_normal = math::cross(math::sub(b, a), math::sub(c, a));
         if (math::length(triangle_normal) <= math::epsilon)
         {
-            return fail(error, "三角化产生退化三角形");
+            return fail(error, "Triangulation produced a degenerate triangle");
         }
         if (math::dot(triangle_normal, normal) < 0.0)
         {
@@ -307,7 +311,7 @@ bool triangulate_impl(const VertexLookup& lookup, const schema::ModelingFaceT& f
     }
     if (std::abs(actual_area - expected_area) > std::max(1.0, expected_area) * 1.0e-7)
     {
-        return fail(error, "三角化未完整覆盖多边形");
+        return fail(error, "Triangulation does not fully cover the polygon");
     }
     output = std::move(triangles);
     return true;
@@ -341,11 +345,15 @@ const schema::ModelingFaceT* mesh::find_face(const schema::EditableMeshDataT& da
 bool mesh::validate(const schema::EditableMeshDataT& data, std::string& error)
 {
     error.clear();
-    if (data.schema_version != 1 || data.next_id == 0 ||
+    if (data.schema_version != 2 || data.next_id == 0 ||
         data.next_id > std::numeric_limits<std::uint64_t>::max() - 10000000 ||
         data.vertices.size() > 1000000 || data.faces.size() > 1000000)
     {
-        return fail(error, "模型版本、身份计数或元素数量无效");
+        return fail(error, "Invalid model version, identity counter or element count");
+    }
+    if (data.primitive && !detail::validate_primitive(*data.primitive, error))
+    {
+        return false;
     }
     std::unordered_set<std::uint64_t> ids;
     for (const auto& vertex : data.vertices)
@@ -353,7 +361,7 @@ bool mesh::validate(const schema::EditableMeshDataT& data, std::string& error)
         if (!vertex.id() || vertex.id() >= data.next_id || !ids.insert(vertex.id()).second ||
             !math::finite(math::position(vertex)) || math::length(math::position(vertex)) > 1.0e12)
         {
-            return fail(error, "顶点身份或位置无效");
+            return fail(error, "Invalid vertex identity or position");
         }
     }
     const auto lookup = make_lookup(data);
@@ -362,13 +370,13 @@ bool mesh::validate(const schema::EditableMeshDataT& data, std::string& error)
         if (!face || !face->id || face->id >= data.next_id || !ids.insert(face->id).second ||
             face->material_slot >= 16)
         {
-            return fail(error, "面身份或材质槽无效");
+            return fail(error, "Invalid face identity or material slot");
         }
         std::vector<Ring> rings;
         std::vector<std::uint64_t> vertices;
         if (!rings_for_face(lookup, *face, rings, vertices, error))
         {
-            error = "面 " + std::to_string(face->id) + ": " + error;
+            error = "Face " + std::to_string(face->id) + ": " + error;
             return false;
         }
     }
@@ -390,7 +398,7 @@ bool mesh::compile(const schema::EditableMeshDataT& data, std::string_view path,
     {
         if (error.empty())
         {
-            error = "空模型不能编译为渲染网格";
+            error = "An empty model cannot be compiled into a render mesh";
         }
         return false;
     }
@@ -475,11 +483,11 @@ bool mesh::compile(const schema::EditableMeshDataT& data, std::string_view path,
     }
     if (!MeshUtils::validate(result))
     {
-        return fail(error, "编译网格无效");
+        return fail(error, "Invalid compiled mesh");
     }
     if (!editor::generate_mesh_tangents(result, error))
     {
-        error = "生成网格切线失败: " + error;
+        error = "Failed to generate mesh tangents: " + error;
         return false;
     }
     output = std::move(result);
@@ -493,9 +501,10 @@ bool mesh::from_mesh(const schema::MeshDataT& data, schema::EditableMeshDataT& o
     error.clear();
     if (!MeshUtils::validate(data))
     {
-        return fail(error, "输入渲染网格无效");
+        return fail(error, "Invalid input render mesh");
     }
     schema::EditableMeshDataT result;
+    result.schema_version = 2;
     std::map<std::tuple<float, float, float>, std::uint64_t> positions;
     std::vector<std::uint64_t> ids;
     for (const auto& vertex : data.vertices)
@@ -631,12 +640,12 @@ bool mesh::deserialize(std::span<const std::uint8_t> bytes, schema::EditableMesh
     error.clear();
     if (bytes.empty() || bytes.size() > 256 * 1024 * 1024)
     {
-        return fail(error, "模型数据为空或超过 256 MiB");
+        return fail(error, "Model data is empty or exceeds 256 MiB");
     }
     flatbuffers::Verifier verifier(bytes.data(), bytes.size());
     if (!schema::VerifyEditableMeshDataBuffer(verifier))
     {
-        return fail(error, "模型 FlatBuffers 数据校验失败");
+        return fail(error, "Model FlatBuffers verification failed");
     }
     auto decoded = schema::UnPackEditableMeshData(bytes.data());
     if (!decoded || !validate(*decoded, error))
@@ -664,7 +673,7 @@ bool mesh::selected_vertices(const schema::EditableMeshDataT& data, const MeshSe
     {
         if (!find_vertex(data, id))
         {
-            return fail(error, "选区包含不存在的顶点");
+            return fail(error, "Selection contains a missing vertex");
         }
         selected.insert(id);
     }
@@ -694,7 +703,7 @@ bool mesh::selected_vertices(const schema::EditableMeshDataT& data, const MeshSe
         }
         if (!found)
         {
-            return fail(error, "选区包含不存在的边");
+            return fail(error, "Selection contains a missing edge");
         }
         selected.insert(edge.first);
         selected.insert(edge.second);
@@ -704,7 +713,7 @@ bool mesh::selected_vertices(const schema::EditableMeshDataT& data, const MeshSe
         const auto* face = find_face(data, id);
         if (!face)
         {
-            return fail(error, "选区包含不存在的面");
+            return fail(error, "Selection contains a missing face");
         }
         selected.insert(face->vertices.begin(), face->vertices.end());
         for (const auto& hole : face->holes)
@@ -714,7 +723,7 @@ bool mesh::selected_vertices(const schema::EditableMeshDataT& data, const MeshSe
     }
     if (selected.empty())
     {
-        return fail(error, "选区为空");
+        return fail(error, "Selection is empty");
     }
     output.assign(selected.begin(), selected.end());
     return true;

@@ -134,7 +134,6 @@ bool registration_phase_guard()
 bool check()
 {
     test_support::ResourceServices services;
-    engine::ResourceSystem& resources = services.core;
     engine::WorldSystem world{&services.loader};
     const engine::EngineConfig config;
     if (!(services.initialize(config) && services.prepare_builtins()) || !world.initialize(config))
@@ -251,7 +250,7 @@ bool check()
     mismatch.flags = std::make_unique<engine::schema::ComponentFlagsT>();
     mismatch.payload.Set(engine::schema::CameraDataT{});
     engine::schema::SceneDataT scene_data;
-    scene_data.schema_version = 2;
+    scene_data.schema_version = 3;
     if (!expect(!component.restore_data(mismatch), "reject incompatible payload") ||
         !expect(scene->build_data(scene_data),
                 "scene snapshots registered components without type dispatch"))

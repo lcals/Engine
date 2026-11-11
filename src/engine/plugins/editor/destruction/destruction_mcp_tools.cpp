@@ -2,7 +2,7 @@
 
 #include "plugins/editor/mcp/editor_mcp_tools.hpp"
 #include "plugins/editor/mcp/editor_tool_registration.hpp"
-#include "plugins/editor/mcp/mcp_system.hpp"
+#include "plugins/runtime/mcp/mcp_system.hpp"
 
 namespace engine::plugins::destruction
 {
@@ -68,7 +68,8 @@ bool register_destruction_mcp_tools(mcp::McpSystem& system, mcp::EditorMcpTools&
                system, editor, "destruction_apply_stress",
                "Run one official Blast gravity stress solve for anchored groups. Pressure limits "
                "are Pa, shared by compression/tension/shear. Partial damage accumulates per call; "
-               "use a fixed cadence. Undoable; undo/redo restore snapshots without rerunning stress.",
+               "use a fixed cadence. Undoable; undo/redo restore snapshots without rerunning "
+               "stress.",
                {{"gravity",
                  {{"type", "array"},
                   {"items", {{"type", "number"}, {"minimum", -100000}, {"maximum", 100000}}},

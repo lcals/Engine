@@ -42,12 +42,6 @@ bool RenderSystem::draw_scene(Camera view_camera, const RenderSettings& renderin
     {
         cancel_diffuse_capture();
     }
-    if (world_ && !world_->scenes().empty() &&
-        (!preparation_ || preparation_->status != RenderPrepareStatus::ready ||
-         preparation_->world_epoch != world_->epoch()))
-    {
-        return false;
-    }
     // Disabling a sky-only scene makes it non-drawable. Retire its LUTs before that early return.
     if (scene_resources_ &&
         (!rendering.atmosphere.atmosphere_enabled || !rendering.atmosphere_sun_valid))
@@ -58,6 +52,8 @@ bool RenderSystem::draw_scene(Camera view_camera, const RenderSettings& renderin
     if (!scene || !scene_resources_ ||
         !render_detail::drawable_scene(*world_, view_camera, !extensions_.empty()))
     {
+        scene_collected_ = scene != nullptr && !render_detail::drawable_scene(*world_, view_camera,
+                                                                              !extensions_.empty());
         return true;
     }
     const Camera camera = view_camera ? view_camera : scene->active_camera();
@@ -76,13 +72,19 @@ bool RenderSystem::draw_scene(Camera view_camera, const RenderSettings& renderin
     // Mirrors and light capture need the actual orthonormal camera, not a scaled Node transform.
     bx::mtxInverse(camera_world, view);
     auto& resources = *scene_resources_;
+    resources.select_targets(render_detail::target_scope(*scene));
+    if (resources.targets().stage != 10)
+    {
+        return true;
+    }
     if (!resources.collect_frame(*world_, resources.frame_data))
     {
         return false;
     }
-    for (std::size_t index = 0; index < resources.planar.size(); ++index)
+    scene_collected_ = resources.frame_complete;
+    for (std::size_t index = 0; index < resources.targets().planar.size(); ++index)
     {
-        auto& target = resources.planar[index];
+        auto& target = resources.targets().planar[index];
         if (target.node_id == 0)
         {
             continue;
@@ -143,7 +145,7 @@ bool RenderSystem::draw_scene(Camera view_camera, const RenderSettings& renderin
     {
         return false;
     }
-    resources.surface_pass.begin(view, projection);
+    resources.targets().surface_pass.begin(view, projection);
     draw.id = render_detail::ambient_occlusion_depth_view;
     if (!resources.draw_meshes(resources.frame_data, resources.draw_lists[2], rendering, draw,
                                render_detail::SceneDrawMode::depth))
@@ -157,8 +159,8 @@ bool RenderSystem::draw_scene(Camera view_camera, const RenderSettings& renderin
         return false;
     }
     if (rendering.ao_enabled &&
-        !resources.ambient_occlusion.compute(settings, rendering, projection,
-                                             resources.surface_pass.depth()))
+        !resources.targets().ambient_occlusion.compute(settings, rendering, projection,
+                                                       resources.targets().surface_pass.depth()))
     {
         return false;
     }
@@ -166,7 +168,7 @@ bool RenderSystem::draw_scene(Camera view_camera, const RenderSettings& renderin
     draw.multisampling = config_.msaa_samples > 1;
     draw.ambient_occlusion = rendering.ao_enabled;
     bgfx::setViewTransform(draw.id, view, projection);
-    resources.hdr_post_process.begin_scene(rendering.clear_color);
+    resources.targets().hdr_post_process.begin_scene(rendering.clear_color);
     if (!resources.atmosphere.draw(scene->id(), rendering, draw, 2,
                                    render_detail::atmosphere_main_skyview))
     {
@@ -177,28 +179,30 @@ bool RenderSystem::draw_scene(Camera view_camera, const RenderSettings& renderin
     {
         return false;
     }
-    auto frozen_scene = resources.hdr_post_process.opaque_color();
+    auto frozen_scene = resources.targets().hdr_post_process.opaque_color();
     if (rendering.ssr_enabled)
     {
         // Match the main PBR pass: disabling IBL selects the analytical DFG
         // fallback even when an earlier bake has left its LUT loaded.
         const bgfx::TextureHandle reflection_lut =
-            rendering.ibl_enabled && resources.ibl_textures[2]
-                ? resources.ibl_textures[2]->handle
+            rendering.ibl_enabled && resources.targets().ibl_textures[2]
+                ? resources.targets().ibl_textures[2]->handle
                 : bgfx::TextureHandle{bgfx::kInvalidHandle};
-        if (!resources.reflections.render(
-                view, projection, frozen_scene, resources.hdr_post_process.opaque_specular(),
-                resources.surface_pass.depth(), resources.surface_pass.normal_roughness(),
-                resources.surface_pass.specular(), reflection_lut, rendering))
+        if (!resources.targets().reflections.render(
+                view, projection, frozen_scene,
+                resources.targets().hdr_post_process.opaque_specular(),
+                resources.targets().surface_pass.depth(),
+                resources.targets().surface_pass.normal_roughness(),
+                resources.targets().surface_pass.specular(), reflection_lut, rendering))
         {
             return false;
         }
-        frozen_scene = resources.reflections.texture();
+        frozen_scene = resources.targets().reflections.texture();
     }
-    resources.hdr_post_process.begin_transparency(frozen_scene, view, projection);
+    resources.targets().hdr_post_process.begin_transparency(frozen_scene, view, projection);
     draw.id = render_detail::transparent_view;
     draw.textures[0] = frozen_scene;
-    draw.textures[1] = resources.surface_pass.depth();
+    draw.textures[1] = resources.targets().surface_pass.depth();
     if (!resources.draw_meshes(resources.frame_data, resources.draw_lists[2], rendering, draw,
                                render_detail::SceneDrawMode::transparent))
     {
@@ -224,7 +228,8 @@ bool RenderSystem::draw_scene(Camera view_camera, const RenderSettings& renderin
         context.height = draw.height;
         context.hdr = true;
         bgfx::setViewName(context.view_id, "Scene extensions");
-        bgfx::setViewFrameBuffer(context.view_id, resources.hdr_post_process.scene_framebuffer());
+        bgfx::setViewFrameBuffer(context.view_id,
+                                 resources.targets().hdr_post_process.scene_framebuffer());
         bgfx::setViewRect(context.view_id, 0, 0, context.width, context.height);
         bgfx::setViewClear(context.view_id, BGFX_CLEAR_NONE);
         bgfx::setViewMode(context.view_id, bgfx::ViewMode::Sequential);
@@ -247,7 +252,7 @@ bool RenderSystem::draw_scene(Camera view_camera, const RenderSettings& renderin
             return false;
         }
     }
-    if (!resources.hdr_post_process.resolve(rendering))
+    if (!resources.targets().hdr_post_process.resolve(rendering))
     {
         return false;
     }

@@ -47,8 +47,8 @@ function(engine_editor_export_arguments output)
         "${PROJECT_SOURCE_DIR}/include/engine.d.ts"
         "${_data}/include/engine.d.ts"
         --support-directory
-        "${PROJECT_SOURCE_DIR}/include/schemas/runtime"
-        "${_data}/include/schemas/runtime"
+        "${PROJECT_SOURCE_DIR}/include/schemas"
+        "${_data}/include/schemas"
         --support-directory
         "${ENGINE_BGFX_SHADER_INCLUDE_DIR}"
         "${_data}/bgfx"

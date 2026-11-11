@@ -1,4 +1,6 @@
-#include "editor/commands/editor_command_channel.hpp"
+#if defined(ENGINE_TEST_COMMAND_CHANNEL)
+#include "plugins/runtime/mcp/mcp_command_channel.hpp"
+#endif
 #include "editor/commands/editor_commands.hpp"
 #include "editor/commands/editor_edit.hpp"
 #include "editor/commands/scene_commands.hpp"
@@ -75,7 +77,6 @@ bool same_texture(engine::ResourceLoader& loader, engine::ResourceHandle first,
 bool scene_render_settings_tests()
 {
     test_support::ResourceServices services;
-    auto& resources = services.core;
     test_support::TrackedResourceLoader loader(services.loader);
     if (!services.initialize({}) || !services.prepare_builtins())
     {
@@ -775,7 +776,6 @@ bool state_command_tests()
 {
     using namespace engine;
     test_support::ResourceServices services;
-    auto& resources = services.core;
     test_support::TrackedResourceLoader loader(services.loader);
     if (!services.initialize({}) || !services.prepare_builtins())
     {
@@ -1318,6 +1318,7 @@ bool command_tests()
                   "new scene cannot reuse old generation edits");
 }
 
+#if defined(ENGINE_TEST_COMMAND_CHANNEL)
 class CountEdit final : public engine::editor::EditorEdit
 {
 public:
@@ -1388,7 +1389,11 @@ bool channel_tests(const fs::path& root)
         return false;
     }
     const std::string identity = engine::PathUtils::to_utf8(root);
-    engine::editor::EditorCommandChannel channel(commands, root, identity, "session_a");
+    engine::plugins::mcp::McpCommandChannel channel(
+        root, "session_a",
+        [&commands](std::string_view command, const Json& arguments, Json& result,
+                    std::string& error)
+        { return commands.execute(command, arguments, result, error); });
     const auto request = [&](std::string_view id, std::string_view command = "count",
                              std::string_view session = "session_a")
     {
@@ -1455,6 +1460,7 @@ bool channel_tests(const fs::path& root)
     return expect(write(input, invalid) && !channel.poll() && count == 4,
                   "request identifiers cannot escape receipt directory");
 }
+#endif
 } // namespace
 
 int main()
@@ -1464,6 +1470,7 @@ int main()
     {
         return 1;
     }
+#if defined(ENGINE_TEST_COMMAND_CHANNEL)
     std::error_code code;
     const auto temporary = fs::temp_directory_path(code);
     if (code)
@@ -1485,4 +1492,7 @@ int main()
     const bool passed = channel_tests(root);
     fs::remove_all(root, code);
     return passed && !code ? 0 : 1;
+#else
+    return 0;
+#endif
 }

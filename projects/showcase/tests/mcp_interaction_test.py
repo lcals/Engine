@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""验证已启动 showcase 编辑器的真实 MCP、Gameplay 和 RmlUi 交互。
+"""Validate actual MCP, Gameplay and RmlUi interactions in a running showcase editor.
 
-此脚本不启动编辑器；成功结束时通过 close_editor 正常关闭调用方提供的实例。
-只在项目 cache 中写回执，临时 TS 不写入 assets；UI 验证不直接修改 Model。
+The caller starts the editor; close_editor shuts it down normally after successful checks.
+Write receipts only under the project cache, keep temporary TS out of assets and use UI input for Model updates.
 """
 
 from __future__ import annotations
@@ -11,6 +11,13 @@ import argparse
 from datetime import datetime, timezone
 import json
 from pathlib import Path
+
+UNICODE = dict(
+    line.split("\t", 1) for line in
+    (Path(__file__).resolve().parents[3] / "tests/support/fixtures/unicode.tsv")
+    .read_text(encoding="utf-8").splitlines()
+)
+
 import sys
 import time
 import uuid
@@ -99,7 +106,7 @@ def tool_payload(result):
             if isinstance(value, dict):
                 values.append(value)
     require(not result.get("isError") and len(values) == 1,
-            f"MCP 未返回唯一成功的 JSON 对象：{result}")
+            f"MCP did not return one successful JSON object: {result}")
     return values[0]
 
 
@@ -117,34 +124,28 @@ def wait_for(label, operation, predicate, timeout):
         if predicate(value):
             return value
         if time.monotonic() >= deadline:
-            raise RuntimeError(f"等待{label}超时，最后状态：{value}")
+            raise RuntimeError(f"Waiting for {label} timed out; last state: {value}")
         time.sleep(0.1)
 
 
 def lifecycle(session, command, expected):
-    # 生命周期工具可能在 10 秒后返回 pending；只查询原 requestId，禁止重发。
-    result, receipt = session.request_tool(command, {})
-    require(receipt is not None, f"{command} 缺少生命周期回执：{result}")
-    if receipt.get("activation") == "pending":
-        request_id = receipt.get("requestId")
-        require(isinstance(request_id, str) and request_id, "生命周期回执缺少 requestId")
-        status = wait_for(command, lambda: get_status(session),
-                          lambda item: item.get("lastRequestId") == request_id and
-                          item.get("projectState") not in ("starting", "stopping"),
-                          session.timeout)
-    else:
-        session.validate_identity(command, receipt)
-        require(not result.get("isError") and receipt.get("activation") == "completed",
-                f"{command} 未完成：{receipt}")
-        # Completed editor receipts carry operation state under result; status owns the
-        # current run/session fields. Read it instead of treating the receipt as status.
-        require(receipt.get("success", receipt.get("lastRequestSucceeded")) is True,
-                f"{command} 返回失败回执：{receipt}")
-        status = get_status(session)
-    require(status.get("lastRequestSucceeded") is True and
-            status.get("projectState") == expected,
-            f"{command} 没有进入 {expected}：{status}")
-    return get_status(session)
+    accepted = session.call(command)
+    preparation = None
+    if command == "start_project" and not accepted.get("alreadyRunning"):
+        prepare_id = accepted.get("prepareId")
+        require(isinstance(prepare_id, str) and prepare_id.isdecimal() and int(prepare_id) > 0,
+                f"Accepted startup has no native preparation identity: {accepted}")
+        preparation = session.wait_prepare(prepare_id, session.timeout)
+    status = wait_for(command, lambda: get_status(session),
+                      lambda item: item.get("projectState") == expected, session.timeout)
+    if preparation is not None:
+        require(status.get("runId") == preparation.get("runId"),
+                f"Startup result belongs to another Run: {preparation}, {status}")
+        session.call("release_gameplay_prepare", {"prepareId": preparation["id"]})
+        current = get_status(session)
+        require(current.get("runId") == status.get("runId") and current.get("running"),
+                f"Releasing a startup result stopped or replaced gameplay: {current}")
+    return status
 
 
 def script_arguments(session, run_id, source, arguments=None, filename="mcp-interaction.ts"):
@@ -156,7 +157,7 @@ def execute(session, run_id, source, arguments=None, filename="mcp-interaction.t
     result = session.call("execute_project_script",
                           script_arguments(session, run_id, source, arguments, filename))
     require(result.get("runId") == run_id and "value" in result,
-            f"脚本回执不属于当前 Run：{result}")
+            f"Script receipt does not belong to the current Run: {result}")
     return result["value"]
 
 
@@ -164,9 +165,9 @@ def expect_script_failure(session, run_id, source, expected):
     try:
         execute(session, run_id, source)
     except RuntimeError as error:
-        require(expected in str(error), f"脚本因非预期原因失败：{error}")
+        require(expected in str(error), f"Script failed for an unexpected reason: {error}")
         return
-    raise RuntimeError("预期失败的项目脚本被接受")
+    raise RuntimeError("Project script expected to fail was accepted")
 
 
 def ui_element(session, element_id):
@@ -185,33 +186,33 @@ def ui_element(session, element_id):
             if tree.get("nextOffset") is None:
                 break
             offset = tree["nextOffset"]
-    require(len(matches) == 1, f"控件 {element_id} 必须唯一，实际找到 {len(matches)} 个")
+    require(len(matches) == 1, f"Control {element_id} must be unique; found {len(matches)} matches")
     return matches[0], documents["window"]
 
 
 def finish_input(session, result):
     job = result.get("job")
-    require(isinstance(job, str) and job, f"输入作业缺少身份：{result}")
-    complete = wait_for("真实 UI 输入", lambda: session.call("get_ui_input", {"job": job}),
+    require(isinstance(job, str) and job, f"Input job has no identity: {result}")
+    complete = wait_for("actual UI input", lambda: session.call("get_ui_input", {"job": job}),
                         lambda item: item.get("status") != "running", session.timeout)
     require(complete.get("status") == "complete" and
             complete.get("completedEvents") == complete.get("eventCount"),
-            f"真实 UI 输入未完成：{complete}")
+            f"Actual UI input did not complete: {complete}")
     return complete
 
 
 def click(session, element_id):
     element, window = ui_element(session, element_id)
-    require(window.get("available"), "编辑器逻辑窗口尺寸不可用")
+    require(window.get("available"), "Editor logical window dimensions are unavailable")
     # 真正滚动菜单，把目标中心移入窗口；不通过修改样式伪造可点击状态。
     for _ in range(40):
         x, y, width, height = element["bounds"]
         center_x, center_y = x + width / 2, y + height / 2
         if 0 <= center_x < window["logicalWidth"] and 0 <= center_y < window["logicalHeight"]:
             require(element.get("visible") and element.get("enabled"),
-                    f"控件 {element_id} 不可见或未启用：{element}")
+                    f"Control {element_id} is hidden or disabled: {element}")
             return finish_input(session, session.call("click_ui", {"target": element["handle"]}))
-        require(0 <= center_x < window["logicalWidth"], f"控件 {element_id} 横向超出窗口")
+        require(0 <= center_x < window["logicalWidth"], f"Control {element_id} extends beyond the window horizontally")
         direction = -5 if center_y >= window["logicalHeight"] else 5
         finish_input(session, session.call("ui_input", {
             "documentId": element["handle"]["documentId"],
@@ -219,76 +220,89 @@ def click(session, element_id):
                         "y": window["logicalHeight"] / 2, "deltaX": 0, "deltaY": direction}],
         }))
         element = session.call("get_ui_element", {"target": element["handle"]})
-    raise RuntimeError(f"滚动后控件 {element_id} 仍未进入窗口")
+    raise RuntimeError(f"Scrolled control {element_id} is still outside the window")
 
 
-def check(session, results):
+def capture_for_review(session, results, output, name):
+    relative = (output / f"{name}.png").relative_to(PROJECT / "cache")
+    captures = session.capture_scene(str(relative))
+    results.setdefault("captures", []).extend(captures)
+    capture = captures[-1]
+    if capture["opaqueBlack"] is not False:
+        results.setdefault("invalidCaptures", []).append(name)
+    return capture
+
+
+def check(session, results, output):
     required = {"get_status", "start_project", "stop_project", "execute_project_script",
                 "get_ui_documents", "get_ui_tree", "get_ui_element", "click_ui", "ui_input",
-                "get_ui_input", "get_editor_receipt", "close_editor"}
-    require(required <= session.tools, f"缺少 MCP 工具：{sorted(required - session.tools)}")
+                "get_ui_input", "get_request_receipt", "get_gameplay_prepare",
+                "release_gameplay_prepare", "close_editor"}
+    require(required <= session.tools, f"Missing MCP tools: {sorted(required - session.tools)}")
     status = get_status(session)
-    require(status.get("editorAlive") is True, "需要调用方先启动 showcase 编辑器")
+    require(status.get("editorAlive") is True, "The caller must start the showcase editor first")
     if not status.get("running"):
         status = lifecycle(session, "start_project", "running")
     run_id = status.get("runId")
     require(isinstance(run_id, str) and run_id.isdecimal() and int(run_id) > 0,
-            f"活动 Run 身份无效：{status}")
+            f"Invalid active Run identity: {status}")
     results.update(session=session.session_id, firstRun=run_id)
 
     write = execute(session, run_id, IDENTITY_WRITE, {"increment": 7})
     read = execute(session, run_id, IDENTITY_READ, {"restore": True}, "mcp-interaction-read.ts")
     require(write["sameModule"] and read["sameGameplay"] and read["sameModel"] and
             read["count"] == write["original"] + 7 and read["original"] == write["original"],
-            f"跨请求 Gameplay/Model 身份或读写值不一致：{write}, {read}")
+            f"Gameplay/Model identity or values differ across requests: {write}, {read}")
     restored = execute(session, run_id, STATE_READ)
-    require(restored["count"] == write["original"], "临时 Model 写入未恢复")
+    require(restored["count"] == write["original"], "Temporary Model change was not restored")
     results["sharedInstances"] = read
-    print("PASS 同一活动 Gameplay、Model 和已加载模块；跨请求写读后恢复数据", flush=True)
+    print("PASS active Gameplay, Model and loaded modules retain identity across write/read requests; data restored", flush=True)
 
     expect_script_failure(session, run_id, ERROR_SCRIPT, "intentional-mcp-interaction-error")
     status = get_status(session)
     require(status.get("running") and status.get("runId") == run_id,
-            f"单次脚本失败停止或替换了 Run：{status}")
+            f"One script failure stopped or replaced the Run: {status}")
     require(execute(session, run_id, STATE_READ)["count"] == write["original"],
-            "错误脚本后既有 Model 不可继续读取")
-    print("PASS 错误脚本只失败该请求，活动 Run 可继续执行", flush=True)
+            "Existing Model cannot be read after a script error")
+    print("PASS script error fails only its request; the active Run continues", flush=True)
 
     stopped = lifecycle(session, "stop_project", "idle")
     require(stopped.get("running") is False and stopped.get("runId") == "0",
-            f"停止后 Run 身份未清空：{stopped}")
+            f"Run identity was not cleared after stopping: {stopped}")
     expect_script_failure(session, run_id, STATE_READ, "active Run does not match")
     restarted = lifecycle(session, "start_project", "running")
     new_run = restarted.get("runId")
     require(isinstance(new_run, str) and new_run.isdecimal() and
-            int(new_run) > 0 and new_run != run_id, f"重开没有新 Run：{restarted}")
+            int(new_run) > 0 and new_run != run_id, f"Restart did not create a new Run: {restarted}")
     expect_script_failure(session, run_id, STATE_READ, "active Run does not match")
     run_id = new_run
     results["secondRun"] = run_id
-    print("PASS 停止和重开均拒绝旧 runId，新 Run 正常运行", flush=True)
+    print("PASS stop and restart reject the old runId; the new Run works", flush=True)
 
     read_state = lambda: execute(session, run_id, STATE_READ)
     initial = read_state()
     require(initial["selected"] is None and initial["error"] is None,
-            f"新 Run 未进入菜单：{initial}")
+            f"New Run did not enter the menu: {initial}")
+    capture_for_review(session, results, output, "menu")
     click(session, "scene-cube")
-    pbr = wait_for("PBR 场景打开", read_state,
+    pbr = wait_for("PBR scene opening", read_state,
                    lambda item: item["selected"] == "pbr-material" and item["sceneValid"],
                    session.timeout)
     require(pbr["error"] is None and pbr["count"] == initial["count"] + 1,
-            f"UI 点击没有准确更新 LauncherModel：{pbr}")
+            f"UI click did not update LauncherModel correctly: {pbr}")
+    capture_for_review(session, results, output, "pbr-scene")
     click(session, "back-menu")
-    wait_for("返回菜单", read_state, lambda item: item["selected"] is None, session.timeout)
+    wait_for("return to menu", read_state, lambda item: item["selected"] is None, session.timeout)
     results["pbrClick"] = pbr
-    print("PASS 真实 RmlUi 点击打开 PBR 范例并返回菜单", flush=True)
+    print("PASS actual RmlUi click opens the PBR example and returns to the menu", flush=True)
 
     click(session, "scene-persistent-ui")
-    before = wait_for("常驻 UI 范例打开", read_state,
+    before = wait_for("persistent UI example opening", read_state,
                       lambda item: item["selected"] == "persistent-ui" and
                       item["persistent"] is not None, session.timeout)
     note, _ = ui_element(session, "lifetime-note")
     original_value = note["value"]
-    typed = " / MCP 中文输入 ✓"
+    typed = UNICODE["mcp_input_suffix"]
     handle = note["handle"]
     finish_input(session, session.call("ui_input", {
         "documentId": handle["documentId"],
@@ -297,49 +311,50 @@ def check(session, results):
                    {"type": "key_up", "key": "End", "target": handle},
                    {"type": "text", "text": typed, "target": handle}],
     }))
-    after = wait_for("真实 input 回调更新 Model", read_state,
+    after = wait_for("actual input callback updates the Model", read_state,
                      lambda item: item["persistent"] is not None and
                      item["persistent"]["events"] > before["persistent"]["events"],
                      session.timeout)
     entered = session.call("get_ui_element", {"target": handle})
     require(entered["value"] == original_value + typed,
-            f"Unicode 输入值不匹配：{entered['value']!r}")
+            f"Unicode input value does not match: {entered['value']!r}")
     click(session, "load-a")
-    loaded = wait_for("常驻 UI 跨场景提交", read_state,
+    loaded = wait_for("persistent UI across scene commit", read_state,
                       lambda item: item["persistent"] is not None and
                       item["persistent"]["completed"] == after["persistent"]["completed"] + 1,
                       session.timeout)
     preserved = session.call("get_ui_element", {"target": handle})
     require(preserved["value"] == entered["value"] and
             loaded["persistent"]["identity"] == before["persistent"]["identity"],
-            "场景提交没有保留同一常驻 UI 文字和身份")
+            "Scene commit did not preserve persistent UI text and identity")
+    capture_for_review(session, results, output, "persistent-ui")
     results["persistentInput"] = {"before": before["persistent"],
                                   "after": loaded["persistent"], "value": preserved["value"]}
     click(session, "back-menu")
-    wait_for("常驻 UI 返回菜单", read_state,
+    wait_for("persistent UI return to menu", read_state,
              lambda item: item["selected"] is None, session.timeout)
-    print("PASS 真实 Unicode 输入改变 Model.events，文字与原控件跨场景保留", flush=True)
+    print("PASS actual Unicode input updates Model.events and preserves text and control identity across scenes", flush=True)
 
     results["closeReceipt"] = session.call("close_editor", {"delayMs": 500})
-    closed = wait_for("编辑器正常关闭", lambda: get_status(session),
+    closed = wait_for("normal editor shutdown", lambda: get_status(session),
                       lambda item: not item.get("editorAlive", True) and
                       item.get("lastReportedProjectState", item.get("projectState")) == "closed",
                       session.timeout)
     require(closed.get("running") is False and closed.get("runId") == "0",
-            f"关闭后还残留活动 Run：{closed}")
+            f"Active Run remains after shutdown: {closed}")
     results["closedStatus"] = closed
-    print("PASS close_editor 完成回执先返回，编辑器随后正常关闭", flush=True)
+    print("PASS close_editor returns its completion receipt before normal editor shutdown", flush=True)
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--server", required=True, type=Path, help="已构建的 mcp_app")
+    parser.add_argument("--server", required=True, type=Path, help="Built mcp_app executable")
     parser.add_argument("--runtime-dir", required=True, type=Path,
-                        help="调用方已启动的 showcase 编辑器运行目录")
+                        help="Runtime directory of the showcase editor started by the caller")
     parser.add_argument("--timeout", type=float, default=120)
     args = parser.parse_args()
     if args.timeout <= 0:
-        parser.error("--timeout 必须为正数")
+        parser.error("--timeout must be positive")
     label = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + uuid.uuid4().hex[:8]
     output = PROJECT / "cache" / "mcp-interaction" / label
     output.mkdir(parents=True, exist_ok=False)
@@ -348,17 +363,20 @@ def main():
     virtual_paths = [PROJECT / "assets/scripts" / name for name in
                      ("mcp-interaction.ts", "mcp-interaction-read.ts")]
     try:
-        require(not any(path.exists() for path in virtual_paths), "临时 TS 路径与项目源文件冲突")
+        require(not any(path.exists() for path in virtual_paths), "Temporary TS path conflicts with a project source file")
         with EditorMcpSession(args.server, PROJECT, args.runtime_dir, output / "receipts.jsonl",
                               timeout=args.timeout) as session:
-            check(session, results)
-        require(not any(path.exists() for path in virtual_paths), "临时脚本被意外写入 assets")
+            check(session, results, output)
+        results["functionalChecksPassed"] = True
+        require(not results.get("invalidCaptures"),
+                f"Screenshots are black or could not be inspected: {results.get('invalidCaptures')}")
+        require(not any(path.exists() for path in virtual_paths), "Temporary script was unexpectedly written to assets")
         results["passed"] = True
-        print(f"PASS showcase MCP 真实交互；回执与结果：{output}")
+        print(f"PASS actual showcase MCP interactions; receipts and results: {output}")
         return 0
     except (OSError, ValueError, KeyError, RuntimeError) as error:
         results["error"] = str(error)
-        print(f"showcase MCP 交互验证失败：{error}\n保留回执：{output}", file=sys.stderr)
+        print(f"Showcase MCP interaction checks failed: {error}\nPreserved receipts: {output}", file=sys.stderr)
         return 1
     finally:
         (output / "result.json").write_text(json.dumps(results, ensure_ascii=False, indent=2) + "\n",

@@ -239,7 +239,8 @@ bool RenderSystem::draw_debug_overlay(Camera camera, const float* view, const fl
     }
     return scene_resources_->debug_draw.draw(
         *world_, camera, scene_resources_->meshes,
-        scene_resources_->hdr_post_process.scene_framebuffer(), static_cast<std::uint16_t>(width_),
-        static_cast<std::uint16_t>(height_), view, projection, debug_requests_, lines, levels);
+        scene_resources_->targets().hdr_post_process.scene_framebuffer(),
+        static_cast<std::uint16_t>(width_), static_cast<std::uint16_t>(height_), view, projection,
+        debug_requests_, lines, levels);
 }
 } // namespace engine

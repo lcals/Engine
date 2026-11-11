@@ -8,7 +8,9 @@
 | --- | --- | --- |
 | 运行时资源依赖图 | `plugins/runtime/resource_graph/` | 必要依赖加载、共享缓存及按引用反向释放，实现核心加载接口 |
 | 运行时脚本 | `plugins/runtime/script/` | QuickJS/V8 二选一、JS 模块与玩法执行、共享逐类绑定，实现核心 ScriptRuntime |
-| 运行时角色控制器 | `plugins/runtime/character_controller/` | 输入与第一/第三人称相机策略，调用核心 CharacterMotor |
+| 运行时相机 | `plugins/runtime/camera/` | 参数状态机、Rig 与 C++ 模块、混合、碰撞和边界约束 |
+| 编辑器相机 | `plugins/editor/camera/` | 完整配置编解码、可撤销编辑及运行参数 MCP |
+| 运行时角色控制器 | `plugins/runtime/character_controller/` | 固定步移动、Sprint/Jump/Crouch 能力与角色相机适配，通过 CharacterMotorDriver 接入物理 |
 | 运行时多角色导航 | `plugins/runtime/navigation_crowd/` | NavigationAgent、原生目标消费与 Transform 同步，调用核心 DetourCrowd |
 | 编辑器多角色导航 | `plugins/editor/navigation_crowd/` | 导航代理配置的 TOML 编解码 |
 | 运行时特效 | `plugins/runtime/effects/` | 独立 EffectSystem、节点 EffectComponent、官方 Effekseer 模拟与 efkbgfx 绘制 |
@@ -21,7 +23,8 @@
 | 编辑器 UI 操作 | `plugins/editor/ui/` | 文档绑定、控件查询、源码读写及正常输入模拟；可选 MCP 适配 |
 | 编辑器角色控制器 | `plugins/editor/character_controller/` | 组件 TOML、撤销编辑与 MCP 适配，依赖对应运行时插件 |
 | 编辑器建模 | `plugins/editor/modeling/` | 纯几何、拓扑、UV、网格编译、模型与节点映射、选择、撤销、源资源保存及本模块 MCP 适配 |
-| 编辑器 MCP | `plugins/editor/mcp/` | MCP 协议、工具注册、参数检查、项目/场景/渲染工具和固定目标通道 |
+| 运行时 MCP | `plugins/runtime/mcp/` | 可选协议、工具登记、通用通道；显式测试构建的运行端点 |
+| 编辑器 MCP | `plugins/editor/mcp/` | 项目、编辑、预览、构建同步、TS 编译与编辑器端点，依赖 runtime/mcp |
 | 编辑器资源构建 | `plugins/editor/asset_build/` | 项目打包清单、增量散文件/合并包及精简运行清单 |
 | 编辑器资源同步 | `plugins/editor/asset_sync/` | 向本机或 Android 调试包发布完整资源版本 |
 | 编辑器场景烘焙 | `plugins/editor/scene_bake/` | GPU IBL、Lightmap 与 SH9 探针烘焙，标准资源发布与 MCP 作业控制 |
@@ -34,7 +37,7 @@
 
 `cmake/plugins/runtime/<name>.cmake` 与 `cmake/plugins/editor/<name>.cmake` 分别登记插件。**一插件一份 CMake**，同一文件声明本插件目标、源码、依赖和创建入口；中央注册器只读取登记、解析选择和依赖，不替插件维护源码列表。
 
-- `ENGINE_RUNTIME_PLUGINS`：请求启用的运行时插件列表，运行时依赖开启时默认 `resource_graph`、`character_controller`、`navigation_crowd`、`effects`、`terrain` 与 `destruction`，脚本运行开启时再加入 `script`；显式设置优先。
+- `ENGINE_RUNTIME_PLUGINS`：请求启用的运行时插件列表，运行时依赖开启时默认 `resource_graph`、`character_controller`、`navigation_crowd`、`effects`、`terrain` 与 `destruction`，脚本运行开启时再加入 `script`，显式测试用途可加入 `mcp`；显式设置优先。
 - `ENGINE_EDITOR_PLUGINS`：请求启用的编辑器插件列表，默认根据已启用依赖能力选择 `modeling`、`asset_build`、`asset_sync`、`mcp`，资源管线开启时还加入 `asset_import`、`character_controller`、`navigation_crowd`、`effects`、`terrain` 与 `destruction`；完整桌面编辑器还加入 `scene_bake`、`ui`，可显式设置为空。
 - 登记器解析依赖闭包后创建目标；依赖先于使用者建立，未选且不在闭包内的插件不创建目标。
 - 明确移除一个插件时，同时核对有无已选插件依赖它；不能一边依赖它、一边声称它已禁用。
@@ -45,7 +48,8 @@
 | 插件 | 默认加入条件 | 声明的插件依赖 |
 | --- | --- | --- |
 | `runtime/resource_graph` | `ENGINE_ENABLE_RUNTIME_DEPS=ON` | 无 |
-| `runtime/character_controller` | `ENGINE_ENABLE_RUNTIME_DEPS=ON` | 无；调用核心世界、物理和窗口 |
+| `runtime/camera` | 由 `character_controller` 的依赖闭包加入，或显式选择 | 无；调用核心世界、场景和物理 |
+| `runtime/character_controller` | `ENGINE_ENABLE_RUNTIME_DEPS=ON` | `runtime/camera` |
 | `runtime/navigation_crowd` | `ENGINE_ENABLE_RUNTIME_DEPS=ON` | 无；调用核心世界与导航，不依赖玩家控制器或 Jolt |
 | `editor/navigation_crowd` | 非设备构建，资源管线依赖开启 | `runtime/navigation_crowd` |
 | `runtime/effects` | `ENGINE_ENABLE_RUNTIME_DEPS=ON` | 无；固定版本 Effekseer 和 efkbgfx，复用核心渲染扩展 |
@@ -57,12 +61,14 @@
 | `editor/asset_import` | 非设备构建，资源管线依赖开启 | 无；统一声明 ufbx、OpenUSD、FreeType 与格式校验依赖，vcpkg features 为 `font-import`、`usd-import` |
 | `editor/ui` | 桌面编辑器，运行时及资源管线依赖开启 | `editor/asset_import`；选中 MCP 时额外生成 UI 工具适配目标 |
 | `editor/scene_bake` | 桌面编辑器，运行时及资源管线依赖开启 | 无；通过核心 `ResourceLoader` 加载输入，不强制装配依赖图；运行包不包含此插件 |
-| `editor/character_controller` | 非设备构建，资源管线依赖开启 | `runtime/character_controller` |
+| `editor/camera` | 由编辑器 `character_controller` 的依赖闭包加入，或显式选择 | `runtime/camera` |
+| `editor/character_controller` | 非设备构建，资源管线依赖开启 | `runtime/character_controller`、`editor/camera` |
 | `runtime/script` | `ENGINE_ENABLE_SCRIPT_RUNTIME=ON` | 无；需要运行时依赖和所选 JS 后端，默认 QuickJS |
 | `editor/modeling` | 非设备构建，编辑器或资源管线依赖开启 | 无；需要运行时及建模第三方依赖 |
 | `editor/asset_build` | 非设备构建，资源管线依赖开启 | 无；需要资源管线基础 |
 | `editor/asset_sync` | 非设备构建，脚本运行开启，且编辑器或资源管线依赖开启 | 无；显式选择只要求运行时依赖 |
-| `editor/mcp` | 非设备构建，脚本运行及资源管线依赖均开启 | `editor/asset_build`、`editor/asset_sync` |
+| `runtime/mcp` | 显式测试构建选择，或由 editor/mcp 依赖闭包加入 | 无；协议与通用通道依赖核心，不链接编辑器 |
+| `editor/mcp` | 非设备构建，脚本运行及资源管线依赖均开启 | `runtime/mcp`、`editor/asset_build`、`editor/asset_sync` |
 
 Android/iOS 构建拒绝编辑器插件。未知插件、依赖环、缺少前置配置或运行时插件反向依赖编辑器均在配置时失败。`modeling` 插件提供几何目标；编辑器基础存在时再提供建模命令目标，导入管线存在时接入源网格编译。MCP 与建模同时启用时建立建模工具适配目标；几何计算不因此依赖 MCP。
 
@@ -88,16 +94,16 @@ V8 的 WebAssembly、Intl/ICU、Temporal、系统 instrumentation 在全部平�
 
 ## 运行包与调试工具
 
-建模纯算法虽然不依赖编辑器状态，仍属于编辑器建模插件：当前用途是生产模型源资源和运行 Mesh，正式运行包只读取编译结果。MCP 整体属于编辑器工具，通用协议与业务适配在插件内分目标保持依赖边界，不需要为了目录分层把协议装入游戏。
+建模纯算法虽然不依赖编辑器状态，仍属于编辑器建模插件：当前用途是生产模型源资源和运行 Mesh，正式运行包只读取编译结果。MCP 的协议与通用通道归可选 runtime/mcp，编辑适配归 editor/mcp；普通运行时提供状态、加载和截图，显式测试构建才装配运行端点与临时脚本执行。正式游戏排除这些测试入口及链接依赖。
 
-当前 Android 同步由电脑上的 MCP 经 adb 完成；设备不运行 MCP 服务。未来如需设备端调试插件，必须明确区分正式运行与调试运行的构建用途，正式包排除调试目标、接口和依赖。不预建尚无需求的设备调试插件。
+当前 Android 同步由电脑上的编辑器 MCP 经 adb 完成；设备同步本身不要求设备运行 MCP 服务。运行端点按 ENGINE_ENABLE_TEST_SUPPORT 与实际插件选择装配，独立于 Debug/Release 优化等级；设备端是否支持和已验收的平台范围见测试文档，不因协议处于运行时目录推断平台支持。
 
 ## 评审入口
 
 - [脚本运行契约](../runtime/class-diagrams/script-runtime.md)与[脚本插件](runtime/class-diagrams/script-system.md)。
 - [资源加载接口](../runtime/class-diagrams/resource-loader.md)与[资源依赖图插件](runtime/class-diagrams/resource-graph.md)。
 - [建模功能与边界](editor/modeling.md)、[建模编辑业务](editor/class-diagrams/modeling-commands.md)。
-- [MCP 协议](editor/class-diagrams/mcp-system.md)、[编辑器 MCP](editor/class-diagrams/editor-mcp-tools.md)。
+- [MCP 协议](runtime/class-diagrams/mcp-system.md)、[编辑器 MCP](editor/class-diagrams/editor-mcp-tools.md)。
 - [场景 GPU 烘焙](editor/class-diagrams/scene-bake.md)。
 - [地形运行时](runtime/class-diagrams/terrain.md)、[地形制作](editor/class-diagrams/terrain-editor.md)与[地形脚本接口](runtime/class-diagrams/terrain-script-api.md)。
 - [建筑破坏组件与系统](runtime/class-diagrams/destruction.md)、[Blast 图](runtime/class-diagrams/destruction-graph.md)、[官方预破碎](editor/class-diagrams/destruction-authoring.md)与[编辑器事务/MCP](editor/class-diagrams/destruction-editor.md)。
@@ -121,7 +127,7 @@ V8 的 WebAssembly、Intl/ICU、Temporal、系统 instrumentation 在全部平�
 
 ## 插件选择
 
-插件由 CMake 清单选择，不使用额外 JSON 清单。每个插件在 `cmake/plugins/<runtime|editor>/<name>.cmake` 声明自己的目标、源码和依赖；注册器解析依赖闭包后才创建目标，宿主按实际目标装配。运行时插件包括 `resource_graph`、`script` 与可选角色输入/相机控制器；建模（包括纯几何）、MCP（包括协议）、资源构建、同步和统一资源导入均属于编辑器插件。
+插件由 CMake 清单选择，不使用额外 JSON 清单。每个插件在 `cmake/plugins/<runtime|editor>/<name>.cmake` 声明自己的目标、源码和依赖；注册器解析依赖闭包后才创建目标，宿主按实际目标装配。运行时插件包括 `resource_graph`、`script`、角色/相机以及可选 `mcp` 协议通道；建模（包括纯几何）、MCP 编辑工具、资源构建、同步和统一资源导入属于编辑器插件。
 
 例如，使用已准备好的依赖配置纯运行时窗口且不启用资源依赖图：
 
@@ -147,3 +153,5 @@ CMake 的其余职责分别位于 `install/`、`dependencies/`、`core/`、`edit
 - [特效](runtime/effects.md)、[体积地形](runtime/terrain.md)、[建筑破坏](runtime/destruction.md)。
 - [MCP 场景编辑](editor/mcp.md)、[模型导入](editor/model-import.md)、[光照烘焙](editor/scene-bake.md)。
 - [完整资源同步](editor/resource-sync.md)、[公开范例与验证](../testing.md)。
+
+`character_controller` 明确依赖 `camera`；编辑器对应插件也通过依赖闭包装配。仅选 `camera` 可以运行普通镜头，无需角色或脚本插件。相机与角色类型登记表由可执行宿主持有并冻结，库不使用隐式进程全局类型表。

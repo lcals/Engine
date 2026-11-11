@@ -1,10 +1,9 @@
-"""将 Blender 的线性 EXR 按引擎同一显示变换编码，保留原始参考。
+"""Encode Blender linear EXR with the engine display transform while preserving the reference.
 
 Blender -b -t 1 --python encode_linear_reference.py -- input.exr output.png
 Blender -b -t 1 --python encode_linear_reference.py -- --all
-
-仅适用于曝光 1、Reinhard、精确 sRGB 且无 Bloom 的不透明受光场景。
-此转换不调整光照或材质，也不等同于线性浮点缓冲对照。
+Applies only to opaque lit scenes with exposure 1, Reinhard, exact sRGB and no Bloom.
+Does not change lighting/materials and is not a linear floating-point buffer comparison.
 """
 import sys
 from pathlib import Path

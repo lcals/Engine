@@ -31,6 +31,7 @@ inline bool start_script(engine::ScriptRuntime& script, ResourceServices& servic
     return script.start_prepared_gameplay();
 }
 
+#if defined(ENGINE_ENABLE_TEST_SUPPORT)
 inline bool execute_script(ResourceServices& services, engine::ScriptRuntime& script,
                            const engine::ProjectScriptRequest& request, std::string& result,
                            std::string& error)
@@ -62,5 +63,7 @@ inline bool execute_script(ResourceServices& services, engine::ScriptRuntime& sc
     }
     return script.execute_project_script(root.handle(), request, result, error);
 }
+
+#endif
 
 } // namespace test_support

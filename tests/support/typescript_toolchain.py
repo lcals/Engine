@@ -1,4 +1,4 @@
-"""复制官方 TypeScript 包和实际安装的同版本平台编译器，供离线夹具使用。"""
+"""Copy official TypeScript and its installed matching platform compiler for offline fixtures."""
 
 import json
 from pathlib import Path

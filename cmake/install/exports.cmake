@@ -41,7 +41,7 @@ if(ENGINE_V8_ICU_DATA)
 endif()
 
 set(_engine_export_targets)
-if(TARGET engine_project_app)
+if(TARGET engine_project_app AND TARGET asset_build_app AND NOT ENGINE_ENABLE_TEST_SUPPORT)
     add_custom_target(
         engine_project_export
         COMMAND

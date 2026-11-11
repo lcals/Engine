@@ -1,8 +1,15 @@
-"""真实桌面窗口、V8 场景和 MCP 启停集成测试；只在 GPU 测试开启时运行。"""
+"""Actual desktop window, scripted scene and MCP lifecycle integration checks, enabled only with GPU tests."""
 
 import argparse
 import json
 from pathlib import Path
+
+UNICODE = dict(
+    line.split("\t", 1) for line in
+    (Path(__file__).resolve().parents[3] / "tests/support/fixtures/unicode.tsv")
+    .read_text(encoding="utf-8").splitlines()
+)
+
 import sys
 import subprocess
 import tempfile
@@ -64,7 +71,7 @@ def tool(mcp, project, runtime, name, arguments=None, expect_error=False, timeou
             f"{name} pending project/runtime identity mismatch: {body}",
         )
         command = "batch" if name == "execute_batch" else name
-        if name != "get_editor_receipt":
+        if name != "get_request_receipt":
             original = read_json(runtime / "editor-command.json")
             require(
                 all(original.get(key) == value for key, value in identity.items())
@@ -75,7 +82,7 @@ def tool(mcp, project, runtime, name, arguments=None, expect_error=False, timeou
                 f"{name} did not submit this editor request: {body}: {original}",
             )
         while time.monotonic() < deadline:
-            query_failed, receipt = request("get_editor_receipt", identity)
+            query_failed, receipt = request("get_request_receipt", identity)
             require(not query_failed, f"{name} receipt lookup failed: {receipt}")
             require(
                 all(receipt.get(key) == value for key, value in identity.items())
@@ -86,24 +93,48 @@ def tool(mcp, project, runtime, name, arguments=None, expect_error=False, timeou
             if receipt.get("activation") == "completed":
                 require(
                     isinstance(receipt.get("success"), bool)
-                    and (name == "get_editor_receipt" or receipt.get("command") == command),
+                    and (name == "get_request_receipt" or receipt.get("command") == command),
                     f"{name} invalid original completion: {receipt}",
                 )
                 body = receipt
-                failed = False if name == "get_editor_receipt" else not receipt["success"]
+                failed = False if name == "get_request_receipt" else not receipt["success"]
                 break
             require(receipt.get("activation") == "pending", f"invalid receipt state: {receipt}")
             time.sleep(0.04)
         else:
             raise AssertionError(f"{name} original editor request timed out: {identity}")
-    require(failed is expect_error, f"{name} unexpected result: {body}")
     if name in ("start_project", "stop_project") and isinstance(body.get("result"), dict):
         body = dict(body, **body["result"])
+    if name == "start_project" and not failed and not body.get("alreadyRunning"):
+        # 回执只确认受理；启动完成以同一原生准备请求的终态为准。
+        prepare_id = body.get("prepareId")
+        require(isinstance(prepare_id, str) and prepare_id.isdecimal() and int(prepare_id) > 0,
+                f"Project startup identity missing: {body}")
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            query_failed, receipt = request("get_gameplay_prepare", {"prepareId": prepare_id})
+            preparation = receipt.get("result", {})
+            require(not query_failed and receipt.get("session") == body.get("session") and
+                    preparation.get("id") == prepare_id,
+                    f"Project startup observation changed identity: {receipt}")
+            state = preparation.get("state")
+            if state in ("active", "failed", "cancelled"):
+                failed = state != "active"
+                body = dict(body, projectState="idle" if failed else "running",
+                            running=not failed, runId=preparation.get("runId", "0"),
+                            preparation=preparation)
+                if failed:
+                    body["startupError"] = preparation.get("error", "")
+                break
+            time.sleep(0.04)
+        else:
+            raise AssertionError(f"Project startup timed out; last preparation: {preparation}")
+    require(failed is expect_error, f"{name} unexpected result: {body}")
     return body
 
 
 def prepare_project(root, temporary):
-    project = temporary / "project 中文"
+    project = temporary / UNICODE["project_name"]
     prepare_minimal_project(root, project)
     return project
 
@@ -270,7 +301,7 @@ def test(editor, mcp, root, temporary):
         tool(mcp, project, runtime, "sync_assets")
         failed = tool(mcp, project, runtime, "start_project", expect_error=True)
         require(
-            failed.get("error")
+            (failed.get("error") or failed.get("startupError"))
             and failed.get("activation") == "completed"
             and process.poll() is None,
             "failed initialization must leave a usable idle editor",

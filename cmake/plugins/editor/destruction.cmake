@@ -13,7 +13,7 @@ function(engine_configure_destruction_editor_plugin)
                                PUBLIC ${_destruction_toml_includes})
     target_link_libraries(
         engine_destruction_editor
-        PUBLIC engine::destruction engine::asset_pipeline
+        PUBLIC engine::destruction engine::asset_pipeline engine::editor_data
         PRIVATE engine::blast_authoring)
     if(TARGET engine_editor)
         target_sources(
@@ -29,7 +29,7 @@ function(engine_configure_destruction_editor_plugin)
         engine_destruction_editor
         PUBLIC TOML_HEADER_ONLY=1 TOML_EXCEPTIONS=0
         PRIVATE JSON_NOEXCEPTION=1
-                ENGINE_SCHEMA_SOURCE_DIR="${PROJECT_SOURCE_DIR}/include/schemas/runtime")
+                ENGINE_SCHEMA_SOURCE_DIR="${PROJECT_SOURCE_DIR}/include/schemas")
     engine_apply_options(engine_destruction_editor)
     if("editor/mcp" IN_LIST ENGINE_SELECTED_PLUGINS)
         add_library(engine_destruction_mcp_tools STATIC

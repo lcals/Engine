@@ -1,898 +1,332 @@
-#include "resource_services.hpp"
-#include "scene_snapshot.hpp"
-
-#include "plugins/runtime/character_controller/character_camera.hpp"
-#include "plugins/runtime/character_controller/character_camera_system.hpp"
-#include "plugins/runtime/character_controller/character_controller.hpp"
-#include "plugins/runtime/character_controller/character_controller_system.hpp"
-#include "plugins/runtime/character_controller/character_visual.hpp"
-#include "runtime/engine_config.hpp"
-#include "runtime/physics/physics_system.hpp"
-#include "runtime/resource/resource_system.hpp"
-#include "runtime/scene/camera.hpp"
-#include "runtime/scene/character_motor.hpp"
-#include "runtime/scene/collider.hpp"
-#include "runtime/scene/mesh_renderer.hpp"
-#include "runtime/scene/scene.hpp"
-#include "runtime/scene/transform.hpp"
-#include "runtime/world/world_system.hpp"
-
-#include <algorithm>
+#include "control_fixture.hpp"
 #include <cmath>
-#include <cstdio>
 #include <limits>
-
+using namespace test_support;
+using namespace engine;
 namespace
 {
-
-using engine::plugins::character_controller::CharacterCamera;
-using engine::plugins::character_controller::CharacterCameraSystem;
-using engine::plugins::character_controller::CharacterController;
-using engine::plugins::character_controller::CharacterControllerSystem;
-using engine::plugins::character_controller::CharacterInput;
-using engine::plugins::character_controller::CharacterVisual;
-
-bool expect(bool value, const char* description)
+bool movement_and_instances()
 {
-    if (!value)
+    ControlFixture f;
+    if (!check(f.initialize(), "initialize"))
     {
-        std::fprintf(stderr, "character controller test: %s\n", description);
+        return false;
     }
-    return value;
-}
-
-struct Fixture
-{
-    test_support::ResourceServices services;
-    engine::WorldSystem world{&services.loader};
-    engine::PhysicsSystem physics{&world};
-    CharacterControllerSystem controller{world};
-    CharacterCameraSystem cameras{world, physics};
-    engine::Node player = {};
-    engine::Node camera = {};
-
-    engine::Node box(const char* name, const engine::Vec3& position, const engine::Vec3& extents)
+    auto c = f.player.get_component<character::CharacterController>();
+    auto motor = f.player.get_component<CharacterMotor>();
+    character::CharacterInput move;
+    move.move = {1, 1};
+    auto invalid = move;
+    invalid.actions = {{"unknown", false, true}};
+    if (!check(c.set_input(move) && !c.set_input(invalid) && f.controllers.tick(1.0 / 60) &&
+                   f.physics.tick(1.0 / 60),
+               "invalid input preserves pending intent"))
     {
-        auto node = world.scene()->create_node(name);
-        if (!node.valid())
-        {
-            return {};
-        }
-        auto transform = node.get_component<engine::Transform>();
-        auto pose = test_support::read_settings(transform);
-        pose.position = position;
-        auto collider = node.add_component<engine::Collider>();
-        if (!collider.valid() || !transform.set_settings(pose))
-        {
-            return {};
-        }
-        auto settings = test_support::read_settings(collider);
-        settings.half_extents = extents;
-        return collider.set_settings(settings) ? node : engine::Node{};
+        return false;
     }
-
-    bool initialize()
+    auto status = f.status();
+    if (!check(status.ready && std::hypot(status.desired_planar_velocity.x(),
+                                          status.desired_planar_velocity.z()) < 1,
+               "normalized movement accelerates at fixed step") ||
+        !check(!motor.set_velocity({1, 0, 0}) && !motor.jump(5) && !motor.clear_input(),
+               "driver owns direct motor input"))
     {
-        const engine::EngineConfig config;
-        if (!services.initialize(config) || !services.prepare_builtins() ||
-            !world.initialize(config) || !physics.initialize(config) ||
-            !controller.initialize(config) || !cameras.initialize(config) ||
-            world.create_scene("Character") == nullptr ||
-            box("Floor", {0, -0.5, 0}, {30, 0.5, 30}).valid() == false)
+        return false;
+    }
+    auto second = f.world.scene()->create_node("Second");
+    auto t = second.get_component<Transform>();
+    auto pose = read_settings(t);
+    pose.position = {5, 0, 0};
+    if (!t.set_settings(pose) || !second.add_component<CharacterMotor>() ||
+        !second.add_component<character::CharacterController>())
+    {
+        return false;
+    }
+    auto npc = second.get_component<character::CharacterController>();
+    character::CharacterInput back;
+    back.move = {0, -1};
+    for (int i = 0; i < 30; ++i)
+    {
+        if (!npc.set_input(back) || !f.frame(move))
         {
             return false;
         }
-        player = world.scene()->create_node("Player");
-        camera = world.scene()->create_node("Camera");
-        if (!player.valid() || !camera.valid() ||
-            player.add_component<engine::CharacterMotor>().valid() == false ||
-            player.add_component<CharacterController>().valid() == false ||
-            camera.add_component<engine::Camera>().valid() == false ||
-            camera.add_component<CharacterCamera>().valid() == false)
-        {
-            return false;
-        }
-        auto component = player.get_component<CharacterController>();
-        auto settings = test_support::read_settings(component);
-        settings.camera_node_id = camera.local_id();
-        auto rig = camera.get_component<CharacterCamera>();
-        auto camera_settings = test_support::read_settings(rig);
-        camera_settings.target_node_id = player.local_id();
-        return rig.set_settings(camera_settings) && component.set_settings(settings) &&
-               world.scene()->set_active_camera(camera.get_component<engine::Camera>()) &&
-               physics.tick(0.0) && advance({}, 4);
     }
-
-    bool advance(const CharacterInput& input, unsigned int frames)
-    {
-        for (unsigned int index = 0; index < frames; ++index)
-        {
-            if (!controller.set_input(input) || !controller.tick(1.0 / 60.0) ||
-                !physics.tick(1.0 / 60.0) || !cameras.tick(0.0))
-            {
-                return false;
-            }
-        }
-        return true;
-    }
-};
-
-engine::Vec3 position(engine::Node node)
-{
-    return test_support::read_settings(node.get_component<engine::Transform>()).position;
-}
-
-bool movement_jump_and_settings()
-{
-    Fixture fixture;
-    if (!expect(fixture.initialize(), "initialize schema-backed player and real Jolt world"))
+    if (!check(read_settings(second.get_component<Transform>()).position.z() > 1 &&
+                   read_settings(f.player.get_component<Transform>()).position.z() < -.5,
+               "multiple explicit controllers move independently"))
     {
         return false;
     }
-    auto motor = fixture.player.get_component<engine::CharacterMotor>();
-    auto controller = fixture.player.get_component<CharacterController>();
-    engine::schema::ComponentDataT before;
-    engine::schema::ComponentDataT after;
-    if (!expect(motor.grounded() && fixture.physics.character_count() == 1,
-                "foot-origin capsule stands on floor") ||
-        !expect(motor.build_data(before) && motor.set_velocity({1, 0, 2}) &&
-                    motor.build_data(after) && before == after,
-                "input and contact state do not enter persistent motor settings") ||
-        !expect(!motor.set_velocity({0, 1, 0}),
-                "vertical velocity cannot bypass gravity and jump") ||
-        !expect(!motor.set_velocity({std::numeric_limits<double>::infinity(), 0, 0}),
-                "invalid velocity is rejected"))
+    if (!motor.add_velocity({3, 0, 0}) || !c.clear_input() || !f.frame({}))
     {
         return false;
     }
-    auto invalid = test_support::read_settings(motor);
-    invalid.radius = -1;
-    auto camera_settings =
-        test_support::read_settings(fixture.camera.get_component<CharacterCamera>());
-    camera_settings.pitch_min = 90;
-    CharacterInput bad;
-    bad.look = {std::numeric_limits<double>::quiet_NaN(), 0};
-    if (!expect(
-            !motor.set_settings(invalid) &&
-                !fixture.camera.get_component<CharacterCamera>().set_settings(camera_settings) &&
-                !fixture.controller.set_input(bad),
-            "invalid component settings and input preserve valid state"))
-    {
-        return false;
-    }
-    CharacterInput forward;
-    forward.move = {0, 1};
-    const auto start = position(fixture.player);
-    if (!expect(fixture.advance(forward, 30), "walk forward through real simulation") ||
-        !expect(std::abs(position(fixture.player).z() - start.z() + 2.0) < 0.1,
-                "forward follows camera negative Z at configured speed") ||
-        !expect(fixture.controller.tick(1.0 / 60.0) && fixture.physics.tick(1.0 / 60.0) &&
-                    std::abs(motor.velocity().z()) < 0.01,
-                "injected input is consumed once instead of sticking forever"))
-    {
-        return false;
-    }
-    CharacterInput diagonal;
-    diagonal.move = {1, 1};
-    const auto diagonal_start = position(fixture.player);
-    if (!expect(fixture.advance(diagonal, 30), "diagonal movement") ||
-        !expect(std::abs(std::hypot(position(fixture.player).x() - diagonal_start.x(),
-                                    position(fixture.player).z() - diagonal_start.z()) -
-                         2.0) < 0.1,
-                "diagonal input does not run faster"))
-    {
-        return false;
-    }
-    CharacterInput jump;
-    jump.jump = true;
-    const double ground = position(fixture.player).y();
-    if (!expect(fixture.advance(jump, 1) && !motor.grounded(), "jump leaves ground") ||
-        !expect(!motor.jump(5.0F), "airborne character cannot jump again") ||
-        !expect(fixture.advance({}, 15) && position(fixture.player).y() > ground + 0.7,
-                "jump speed produces a physical arc") ||
-        !expect(fixture.advance({}, 100) && motor.grounded() &&
-                    std::abs(position(fixture.player).y() - ground) < 0.05,
-                "gravity lands on floor and restores grounded state"))
-    {
-        return false;
-    }
-    const auto saved = test_support::read_settings(controller);
-    if (!controller.build_data(before) || !controller.restore_data(before) ||
-        !expect(test_support::read_settings(controller) == saved,
-                "controller settings restore without input state"))
+    if (!check(f.status().desired_planar_velocity == Vec3{} &&
+                   f.status().motor.external_planar_velocity.x() > 0,
+               "clear input preserves external motion"))
     {
         return false;
     }
     return true;
 }
-
-bool component_input_consumption()
+bool action_buffer_and_steps()
 {
-    Fixture fixture;
-    if (!expect(fixture.initialize(), "initialize component input fixture"))
+    ControlFixture f;
+    if (!f.initialize())
     {
         return false;
     }
-    auto component = fixture.player.get_component<CharacterController>();
-    auto motor = fixture.player.get_component<engine::CharacterMotor>();
-    CharacterInput forward;
-    forward.move = {0, 1};
-    CharacterInput invalid;
-    invalid.look = {std::numeric_limits<double>::quiet_NaN(), 0};
-    const auto step = [&]()
-    { return fixture.controller.tick(1.0 / 60.0) && fixture.physics.tick(1.0 / 60.0); };
-    const auto stopped = [&]() { return std::abs(motor.velocity().z()) < 0.01; };
-    engine::schema::ComponentDataT before;
-    engine::schema::ComponentDataT after;
-    if (!expect(component.build_data(before) && component.set_input(forward) &&
-                    !component.set_input(invalid) && component.build_data(after) &&
-                    before == after && step() && motor.velocity().z() < -3.9,
-                "component input is transient and rejected input preserves accepted intent") ||
-        !expect(step() && stopped(), "component intent is consumed once") ||
-        !expect(component.set_input(forward) && fixture.controller.set_input({}) && step() &&
-                    stopped() && step() && stopped(),
-                "explicit system input overrides and consumes pending component input"))
+    character::CharacterInput press;
+    press.actions = {{"jump", true, true}};
+    auto before = f.status();
+    if (!f.frame(press, 0) ||
+        !check(f.status().jump_sequence == before.jump_sequence, "zero-step frame does not jump") ||
+        !f.frame({}, 3.0 / 60))
     {
         return false;
     }
-    if (!component.set_input(forward))
+    if (!check(f.status().jump_sequence == before.jump_sequence + 1 &&
+                   f.status().motor.step == before.motor.step + 3 &&
+                   f.status().motor.velocity.y() > 0,
+               "one buffered press produces one impulse across substeps"))
     {
         return false;
     }
-    component.clear_input();
-    if (!expect(step() && stopped(), "explicit component clearing drops pending intent") ||
-        !component.set_input(forward))
+    if (!f.frame(press) || !f.step({}, 40))
     {
         return false;
     }
-    if (!component.set_enabled(false))
-    {
-        std::abort();
-    }
-    if (!expect(!component.set_input(forward) && step() && stopped(),
-                "disabled components reject submissions and discard pending input"))
+    if (!check(f.status().jump_sequence == before.jump_sequence + 1,
+               "expired airborne press is not replayed on landing"))
     {
         return false;
     }
-    if (!component.set_enabled(true))
+    for (int i = 0; i < 90 && !f.status().motor.grounded; ++i)
     {
-        std::abort();
-    }
-    if (!expect(step() && stopped() && fixture.controller.set_player({}) &&
-                    component.set_input(forward) && step() &&
-                    fixture.controller.set_player(fixture.player) && step() && stopped(),
-                "disabled and unselected input cannot revive after selecting a player") ||
-        !component.set_input(forward))
-    {
-        return false;
-    }
-    fixture.controller.shutdown();
-    return expect(fixture.controller.initialize({}) && step() && stopped(),
-                  "controller shutdown clears component pending input before reuse");
-}
-
-bool complete_input_cancellation()
-{
-    CharacterInput jump;
-    jump.move = {0, 1};
-    jump.jump = true;
-    {
-        Fixture fixture;
-        if (!fixture.initialize())
-        {
-            return false;
-        }
-        auto component = fixture.player.get_component<CharacterController>();
-        auto motor = fixture.player.get_component<engine::CharacterMotor>();
-        if (!expect(component.set_input(jump) && fixture.controller.tick(0) &&
-                        fixture.physics.tick(0) && fixture.controller.tick(0) &&
-                        fixture.physics.tick(0) && fixture.physics.tick(1.0 / 60.0) &&
-                        motor.velocity().y() > 4,
-                    "ordinary input consumption preserves queued jump until a physics substep"))
+        if (!f.frame({}))
         {
             return false;
         }
     }
-    {
-        Fixture fixture;
-        if (!fixture.initialize())
-        {
-            return false;
-        }
-        auto component = fixture.player.get_component<CharacterController>();
-        auto motor = fixture.player.get_component<engine::CharacterMotor>();
-        auto settings = test_support::read_settings(motor);
-        settings.external_damping = 0;
-        if (!motor.set_settings(settings) || !component.set_input(jump) ||
-            !fixture.controller.tick(0) || !fixture.physics.tick(0) ||
-            !motor.add_velocity({2, 0, 0}) || !component.set_input(jump))
-        {
-            return false;
-        }
-        component.clear_input();
-        component.clear_input();
-        if (!expect(
-                fixture.physics.tick(1.0 / 60.0) && motor.velocity().x() > 1.9 &&
-                    std::abs(motor.velocity().z()) < 0.01 && motor.velocity().y() < 0.1 &&
-                    fixture.controller.tick(0) && fixture.physics.tick(1.0 / 60.0) &&
-                    motor.velocity().x() > 1.9 && std::abs(motor.velocity().z()) < 0.01 &&
-                    motor.velocity().y() < 0.1,
-                "complete cancellation drops component and motor intents but preserves knockback"))
-        {
-            return false;
-        }
-    }
-    Fixture fixture;
-    if (!fixture.initialize() ||
-        !fixture.player.remove_component(engine::CharacterMotor::component_type))
+    if (!f.frame(press, 0) || !f.world.set_paused(true) || !f.controllers.tick(1) ||
+        !f.physics.tick(1) || !f.world.set_paused(false) || !f.frame({}))
     {
         return false;
     }
-    auto replacement = fixture.player.add_component<engine::CharacterMotor>();
-    auto npc = fixture.world.scene()->create_node("Independent controller");
-    auto npc_motor =
-        npc.valid() ? npc.add_component<engine::CharacterMotor>() : engine::CharacterMotor{};
-    auto npc_controller =
-        npc.valid() ? npc.add_component<CharacterController>() : CharacterController{};
-    if (!replacement || !npc_motor || !npc_controller)
-    {
-        return false;
-    }
-    auto transform = npc.get_component<engine::Transform>();
-    auto pose = test_support::read_settings(transform);
-    pose.position = {5, 0, 0};
-    if (!transform.set_settings(pose) || !replacement.set_velocity({0, 0, 2}) ||
-        !npc_motor.set_velocity({2, 0, 0}))
-    {
-        return false;
-    }
-    fixture.player.get_component<CharacterController>().clear_input();
-    npc_controller.clear_input();
-    return expect(fixture.physics.tick(1.0 / 60.0) && replacement.velocity().z() > 1.9 &&
-                      npc_motor.velocity().x() > 1.9,
-                  "cancellation leaves replacement and never-driven motors' own requests intact");
+    return check(f.status().jump_sequence == before.jump_sequence + 1,
+                 "pause discards buffered actions");
 }
-
-bool collisions_steps_and_lifecycle()
+bool crouch_clearance_and_configuration()
 {
-    Fixture fixture;
-    if (!fixture.initialize() ||
-        fixture.box("Step", {0, 0.125, -2}, {2, 0.125, 0.75}).valid() == false ||
-        fixture.box("Wall", {0, 2, -4}, {4, 2, 0.25}).valid() == false)
+    ControlFixture f;
+    if (!f.initialize())
     {
         return false;
     }
-    CharacterInput forward;
-    forward.move = {0, 1};
-    double maximum_height = 0.0;
-    for (unsigned int frame = 0; frame < 100; ++frame)
-    {
-        if (!fixture.advance(forward, 1))
-        {
-            return false;
-        }
-        maximum_height = std::max(maximum_height, position(fixture.player).y());
-    }
-    if (!expect(maximum_height > 0.20, "Jolt ExtendedUpdate climbs a configured low step") ||
-        !expect(position(fixture.player).z() > -3.48 && position(fixture.player).z() < -3.1,
-                "capsule stops before solid wall instead of passing through"))
+    character::CharacterInput crouch;
+    crouch.move = {0, 1};
+    crouch.actions = {{"crouch", true, false}, {"sprint", true, false}};
+    if (!f.frame(crouch))
     {
         return false;
     }
-    const double old_x = position(fixture.player).x();
-    forward.move = {1, 1};
-    if (!expect(fixture.advance(forward, 20) && position(fixture.player).x() > old_x + 0.7 &&
-                    position(fixture.player).z() > -3.48,
-                "blocked forward movement slides along wall"))
+    if (!check(f.status().stance == character::CharacterStance::crouched,
+               "crouch changes actual shape") ||
+        !check(f.status().abilities.size() == 3, "all enabled abilities report decisions"))
     {
         return false;
     }
-    auto motor = fixture.player.get_component<engine::CharacterMotor>();
-    if (!motor.set_enabled(false))
-    {
-        std::abort();
-    }
-    if (!fixture.player.get_component<CharacterController>().set_enabled(false))
-    {
-        std::abort();
-    }
-    if (!expect(fixture.physics.tick(0.0) && fixture.physics.character_count() == 0 &&
-                    !motor.grounded(),
-                "disabled component releases virtual character and ground state"))
+    auto roof = f.box("Roof", {0, 1.55, 0}, {2, .1, 2});
+    if (!roof || !f.frame({}))
     {
         return false;
     }
-    if (!motor.set_enabled(true))
-    {
-        std::abort();
-    }
-    if (!expect(fixture.physics.tick(0.0) && fixture.physics.character_count() == 1,
-                "reenabling component recreates virtual character") ||
-        !expect(fixture.player.remove_component(engine::CharacterMotor::component_type) &&
-                    fixture.player.add_component<engine::CharacterMotor>().valid() &&
-                    fixture.physics.tick(0.0) && fixture.physics.character_count() == 1,
-                "replacement component cannot reuse stale per-instance physics state"))
+    if (!check(f.status().stance_blocked &&
+                   f.status().stance == character::CharacterStance::crouched,
+               "blocked expansion retains crouched capsule"))
     {
         return false;
     }
-    const auto id = fixture.player.id();
-    if (!expect(fixture.world.scene()->destroy_node(id) && fixture.physics.tick(0.0) &&
-                    fixture.physics.character_count() == 0 && !fixture.player &&
-                    !fixture.controller.set_player(fixture.player) &&
-                    fixture.controller.set_player({}),
-                "deleting a player releases physics and its stale handle cannot clear selection"))
+    auto c = f.player.get_component<character::CharacterController>();
+    auto settings = read_settings(c);
+    auto old = settings;
+    settings.movement->max_speed = -1;
+    std::string error;
+    if (!check(!c.set_settings(settings, error) && read_settings(c) == old,
+               "invalid settings preserve config"))
     {
         return false;
     }
-    fixture.world.destroy_scene();
-    return expect(fixture.physics.tick(0.0) && fixture.controller.tick(0.0) &&
-                      fixture.physics.body_count() == 0,
-                  "scene shutdown releases collision world and controller state");
+    settings = old;
+    settings.abilities.erase(settings.abilities.begin());
+    settings.ability_data->crouch.clear();
+    if (!c.set_settings(settings, error) || !f.frame({}))
+    {
+        return false;
+    }
+    if (!check(f.status().stance_blocked && f.status().desired_planar_velocity == Vec3{},
+               "removed stance waits for clearance without active movement"))
+    {
+        return false;
+    }
+    if (!roof.set_enabled(false) || !f.frame({}))
+    {
+        return false;
+    }
+    return check(f.status().stance == character::CharacterStance::standing &&
+                     !f.status().stance_blocked,
+                 "restore base capsule after clearance");
 }
-
-bool camera_modes_and_occlusion()
+bool ownership_and_teleport()
 {
-    Fixture fixture;
-    if (!fixture.initialize())
+    ControlFixture f;
+    if (!f.initialize())
     {
         return false;
     }
-    auto component = fixture.camera.get_component<CharacterCamera>();
-    const auto foot = position(fixture.player);
-    auto camera = position(fixture.camera);
-    if (!expect(std::abs(camera.z() - foot.z() - 4) < 0.01 &&
-                    std::abs(camera.y() - foot.y() - 1.6) < 0.01,
-                "third person camera follows eye pivot at configured distance"))
-    {
-        return false;
-    }
-    auto wall = fixture.box("CameraWall", {0, 2, 2}, {4, 2, 0.2});
-    if (!wall || !fixture.physics.tick(0.0) || !fixture.cameras.tick(0.0))
-    {
-        return false;
-    }
-    camera = position(fixture.camera);
-    if (!expect(camera.z() > 1.5 && camera.z() < 1.7,
-                "sphere sweep pulls third person camera ahead of blocking wall"))
-    {
-        return false;
-    }
-    auto collider = wall.get_component<engine::Collider>();
-    auto collision = test_support::read_settings(collider);
-    collision.is_trigger = true;
-    if (!collider.set_settings(collision) || !fixture.physics.tick(0.0) ||
-        !fixture.cameras.tick(0.0) ||
-        !expect(std::abs(position(fixture.camera).z() - 4) < 0.01,
-                "trigger volumes do not block camera"))
-    {
-        return false;
-    }
-    CharacterInput toggle;
-    toggle.toggle_view = true;
-    if (!expect(fixture.advance(toggle, 1) &&
-                    test_support::read_settings(component).mode ==
-                        engine::schema::CharacterView::first_person &&
-                    std::abs(position(fixture.camera).z() - position(fixture.player).z()) < 0.01,
-                "same component switches to first person eye position"))
-    {
-        return false;
-    }
-    CharacterInput look;
-    look.look = {750, -2000};
-    if (!fixture.advance(look, 1))
-    {
-        return false;
-    }
-    const auto camera_rotation =
-        test_support::read_settings(fixture.camera.get_component<engine::Transform>()).rotation;
-    if (!expect(std::abs(camera_rotation.y() + 90) < 0.01 &&
-                    std::abs(camera_rotation.x() -
-                             test_support::read_settings(component).pitch_max) < 0.01,
-                "mouse look rotates yaw and clamps pitch"))
-    {
-        return false;
-    }
-    CharacterInput forward;
-    forward.move = {0, 1};
-    const auto start = position(fixture.player);
-    if (!expect(fixture.advance(forward, 15) && position(fixture.player).x() > start.x() + 0.9 &&
-                    std::abs(position(fixture.player).z() - start.z()) < 0.05,
-                "movement direction follows view yaw while ignoring camera pitch"))
-    {
-        return false;
-    }
-    auto settings = test_support::read_settings(component);
-    settings.target_node_id = 999999;
-    return expect(component.set_settings(settings) && fixture.cameras.tick(0.0),
-                  "missing target suspends following instead of selecting another scene target");
-}
-
-bool first_person_visibility_lifecycle()
-{
-    Fixture fixture;
-    if (!fixture.initialize())
-    {
-        return false;
-    }
-    auto* scene = fixture.world.scene();
-    auto avatar = scene->create_node("Avatar");
-    auto head = scene->create_node("Head");
-    auto hands = scene->create_node("First person hands");
-    auto spectator = scene->create_node("Spectator");
-    if (!avatar || !head || !hands || !spectator || !avatar.set_parent(fixture.player) ||
-        !head.set_parent(avatar) || !hands.set_parent(avatar))
-    {
-        return false;
-    }
-    auto body_mesh = avatar.add_component<engine::MeshRenderer>();
-    auto head_mesh = head.add_component<engine::MeshRenderer>();
-    auto hand_mesh = hands.add_component<engine::MeshRenderer>();
-    auto head_visual = head.add_component<CharacterVisual>();
-    auto hand_visual = hands.add_component<CharacterVisual>();
-    auto observer = spectator.add_component<engine::Camera>();
-    if (!body_mesh || !head_mesh || !hand_mesh || !head_visual || !hand_visual || !observer)
-    {
-        return false;
-    }
-    auto visual = test_support::read_settings(head_visual);
-    visual.kind = engine::schema::CharacterVisualKind::head;
-    if (!head_visual.set_settings(visual))
-    {
-        return false;
-    }
-    visual.kind = engine::schema::CharacterVisualKind::first_person;
-    auto rig = fixture.camera.get_component<CharacterCamera>();
-    auto view = fixture.camera.get_component<engine::Camera>();
-    auto settings = test_support::read_settings(rig);
-    settings.mode = engine::schema::CharacterView::first_person;
-    engine::schema::ComponentDataT before;
-    engine::schema::ComponentDataT after;
-    if (!hand_visual.set_settings(visual) || !body_mesh.build_data(before) ||
-        !rig.set_settings(settings) || !fixture.cameras.tick(0.0) ||
-        !expect(!view.mesh_visible(body_mesh.instance_id()) &&
-                    !view.mesh_visible(head_mesh.instance_id()) &&
-                    view.mesh_visible(hand_mesh.instance_id()) &&
-                    observer.mesh_visible(body_mesh.instance_id()) &&
-                    observer.mesh_visible(head_mesh.instance_id()) &&
-                    !observer.mesh_visible(hand_mesh.instance_id()) && body_mesh.visible() &&
-                    head_mesh.visible() && hand_mesh.visible() && body_mesh.build_data(after) &&
-                    before == after,
-                "first-person body/head/weapon filtering is per view and never mutates meshes"))
-    {
-        return false;
-    }
-    if (!avatar.remove_component(engine::MeshRenderer::component_type) ||
-        !(body_mesh = avatar.add_component<engine::MeshRenderer>()) || !fixture.cameras.tick(0.0) ||
-        !expect(!view.mesh_visible(body_mesh.instance_id()),
-                "replacement mesh receives its own per-view filter"))
-    {
-        return false;
-    }
-    settings.mode = engine::schema::CharacterView::third_person;
-    if (!rig.set_settings(settings) || !fixture.cameras.tick(0.0) ||
-        !expect(view.mesh_visible(body_mesh.instance_id()) &&
-                    !view.mesh_visible(hand_mesh.instance_id()),
-                "third-person camera shows body and hides first-person-only attachments"))
-    {
-        return false;
-    }
-    settings.mode = engine::schema::CharacterView::first_person;
-    if (!rig.set_settings(settings) || !fixture.cameras.tick(0.0))
-    {
-        return false;
-    }
-    if (!rig.set_enabled(false))
-    {
-        std::abort();
-    }
-    if (!fixture.cameras.tick(0.0) ||
-        !expect(view.mesh_visible(body_mesh.instance_id()), "disabled rig clears its body filter"))
-    {
-        return false;
-    }
-    if (!rig.set_enabled(true))
-    {
-        std::abort();
-    }
-    if (!fixture.cameras.tick(0.0) ||
-        !fixture.camera.remove_component(CharacterCamera::component_type) ||
-        !fixture.cameras.tick(0.0) ||
-        !expect(view.mesh_visible(body_mesh.instance_id()),
-                "removed rig clears its body filter without a retained pointer"))
-    {
-        return false;
-    }
-    fixture.cameras.shutdown();
-    return expect(observer.mesh_visible(hand_mesh.instance_id()) && body_mesh.visible(),
-                  "camera system shutdown releases its transient filters");
-}
-
-bool player_selection_and_removal()
-{
-    Fixture fixture;
-    if (!fixture.initialize())
-    {
-        return false;
-    }
-    CharacterInput move;
-    move.move = {0, 1};
-    auto motor = fixture.player.get_component<engine::CharacterMotor>();
-    if (!fixture.advance(move, 2) ||
-        !fixture.player.remove_component(CharacterController::component_type))
-    {
-        return false;
-    }
-    const auto stopped = position(fixture.player);
-    if (!expect(fixture.advance(move, 2) &&
-                    std::abs(position(fixture.player).z() - stopped.z()) < 0.001,
-                "removing controller clears old motor input on the next production tick"))
-    {
-        return false;
-    }
-    auto component = fixture.player.add_component<CharacterController>();
-    if (!component || !fixture.advance(move, 1))
-    {
-        return false;
-    }
-    if (!component.set_enabled(false))
-    {
-        std::abort();
-    }
-    const auto disabled = position(fixture.player);
-    if (!expect(fixture.advance(move, 1) &&
-                    std::abs(position(fixture.player).z() - disabled.z()) < 0.001,
-                "disabled controller stops old active intent"))
-    {
-        return false;
-    }
-    if (!component.set_enabled(true))
-    {
-        std::abort();
-    }
-    auto npc = fixture.world.scene()->create_node("NPC");
-    auto npc_motor =
-        npc.valid() ? npc.add_component<engine::CharacterMotor>() : engine::CharacterMotor{};
-    if (!npc_motor)
-    {
-        return false;
-    }
-    auto pose = test_support::read_settings(npc.get_component<engine::Transform>());
-    pose.position = {5, 0, 0};
-    if (!npc.get_component<engine::Transform>().set_settings(pose) ||
-        !npc_motor.set_velocity({1, 0, 0}) || !fixture.advance(move, 3) ||
-        !expect(position(npc).x() > 5.03, "NPC motor operates without player input or camera"))
-    {
-        return false;
-    }
-    auto second = npc.add_component<CharacterController>();
-    if (!second || !fixture.controller.set_input(move) ||
-        !expect(!fixture.controller.tick(1.0 / 60.0),
-                "multiple automatic players fail rather than broadcasting input") ||
-        !fixture.physics.tick(1.0 / 60.0) ||
-        !expect(std::abs(motor.velocity().z()) < 0.001,
-                "ambiguous selection also clears previously driven motor") ||
-        !fixture.controller.set_player(fixture.player))
-    {
-        return false;
-    }
-    const auto npc_before = position(npc);
-    if (!fixture.advance(move, 3) ||
-        !expect(position(npc).x() > npc_before.x() &&
-                    std::abs(position(npc).z() - npc_before.z()) < 0.001,
-                "explicit player leaves another controller's motor requests untouched") ||
-        !fixture.controller.set_player({}))
-    {
-        return false;
-    }
-    const auto deselected = position(fixture.player);
-    if (!fixture.advance(move, 3) ||
-        !expect(std::abs(position(fixture.player).z() - deselected.z()) < 0.001,
-                "explicit null selection stays deselected"))
-    {
-        return false;
-    }
-    auto tuning = test_support::read_settings(motor);
-    tuning.external_damping = 0;
-    return expect(motor.set_settings(tuning) && motor.add_velocity({2, 0, 0}) &&
-                      fixture.advance({}, 2) &&
-                      position(fixture.player).x() > deselected.x() + 0.05,
-                  "clearing player input does not cancel independent knockback");
-}
-
-bool independent_follow_camera()
-{
-    Fixture fixture;
-    if (!fixture.initialize() ||
-        !fixture.player.remove_component(CharacterController::component_type) ||
-        !fixture.player.remove_component(engine::CharacterMotor::component_type))
-    {
-        return false;
-    }
-    auto parent = fixture.world.scene()->create_node("Moving parent");
-    if (!parent || !fixture.player.set_parent(parent))
-    {
-        return false;
-    }
-    auto pose = test_support::read_settings(parent.get_component<engine::Transform>());
-    pose.position = {10, 5, 0};
-    return expect(parent.get_component<engine::Transform>().set_settings(pose) &&
-                      fixture.physics.tick(0.0) && fixture.cameras.tick(0.0) &&
-                      std::abs(position(fixture.camera).x() - 10) < 0.01 &&
-                      std::abs(position(fixture.camera).y() - 6.6) < 0.05,
-                  "independent camera follows target world pose without controller or motor");
-}
-
-bool hierarchy_conflicts_and_cast_validation()
-{
-    Fixture fixture;
-    if (!fixture.initialize())
-    {
-        return false;
-    }
-    float fraction = 2.0F;
-    if (!expect(!fixture.physics.cast_sphere({}, {}, -1, fraction) && fraction == 0,
-                "invalid sphere query resets output") ||
-        !expect(fixture.physics.cast_sphere({0, 4, 0}, {}, 0.1F, fraction) && fraction == 1,
-                "zero displacement query succeeds in free space"))
-    {
-        return false;
-    }
-    auto transform = fixture.player.get_component<engine::Transform>();
-    auto pose = test_support::read_settings(transform);
-    pose.scale = {2, 1, 1};
-    if (!transform.set_settings(pose) ||
-        !expect(!fixture.physics.tick(0.0) && fixture.physics.character_count() == 0,
-                "unsupported character scaling fails with released physics state"))
-    {
-        return false;
-    }
-    pose.scale = {1, 1, 1};
-    if (!transform.set_settings(pose) || !fixture.physics.tick(0.0) ||
-        fixture.player.add_component<engine::Collider>().valid() == false)
-    {
-        return false;
-    }
-    return expect(!fixture.physics.tick(0.0),
-                  "character and separate rigid collider cannot overlap ownership");
-}
-
-bool world_pause_discards_transient_input()
-{
-    Fixture fixture;
-    if (!fixture.initialize())
-    {
-        return false;
-    }
-    auto component = fixture.player.get_component<CharacterController>();
-    auto rig = fixture.camera.get_component<CharacterCamera>();
-    const auto before = position(fixture.player);
-    const auto camera = position(fixture.camera);
-    const auto yaw = rig.yaw();
-    const auto mode = test_support::read_settings(rig).mode;
-    CharacterInput pending;
-    pending.move = {0, 1};
-    pending.look = {80, 20};
-    pending.jump = true;
-    pending.toggle_view = true;
-    if (!expect(fixture.world.set_paused(true) && component.set_input(pending) &&
-                    fixture.controller.set_input(pending) && fixture.controller.tick(60) &&
-                    fixture.physics.tick(60) && fixture.cameras.tick(60) &&
-                    position(fixture.player) == before && position(fixture.camera) == camera &&
-                    rig.yaw() == yaw && test_support::read_settings(rig).mode == mode,
-                "paused world does not consume movement, jump, look or camera toggles"))
-    {
-        return false;
-    }
-    return expect(fixture.world.set_paused(false) && fixture.controller.tick(1.0 / 60.0) &&
-                      fixture.physics.tick(1.0 / 60.0) && fixture.cameras.tick(0) &&
-                      std::abs(position(fixture.player).z() - before.z()) < 0.01 &&
-                      rig.yaw() == yaw && test_support::read_settings(rig).mode == mode &&
-                      fixture.player.get_component<engine::CharacterMotor>().grounded(),
-                  "resume does not replay one-shot input submitted during pause");
-}
-
-bool persistent_player_loses_external_camera()
-{
-    Fixture fixture;
-    if (!fixture.initialize() || !fixture.player.set_persistent(true) ||
-        !fixture.controller.set_player(fixture.player))
-    {
-        return false;
-    }
-    CharacterInput input;
+    auto c = f.player.get_component<character::CharacterController>();
+    auto m = f.player.get_component<CharacterMotor>();
+    character::CharacterInput input;
     input.move = {0, 1};
-    if (!fixture.advance(input, 2))
+    input.actions = {{"jump", true, true}};
+    if (!f.frame(input, 0) || !m.add_velocity({2, 0, 0}) || !c.set_enabled(false) ||
+        !f.controllers.tick(1.0 / 60) || !f.physics.tick(1.0 / 60))
     {
         return false;
     }
-    const auto before = position(fixture.player);
-    const auto camera_local = fixture.camera.local_id();
-    fixture.world.unload_scene();
-    auto* next = fixture.world.create_scene("Replacement camera scene");
-    if (!next || !fixture.box("Floor", {0, -0.5, 0}, {30, 0.5, 30}) ||
-        !next->create_node("Same player local ID"))
+    CharacterMotorStatus status;
+    if (!m.get_status(status))
     {
         return false;
     }
-    auto camera = next->create_node("Same camera local ID");
-    if (!camera || camera.local_id() != camera_local || !camera.add_component<engine::Camera>() ||
-        !camera.add_component<CharacterCamera>())
+    if (!check(status.external_planar_velocity.x() > 0 && status.velocity.y() < 1,
+               "control loss clears jump and preserves external impulse"))
     {
         return false;
     }
-    return expect(
-        fixture.advance(input, 2) && std::abs(position(fixture.player).x() - before.x()) < 0.01 &&
-            std::abs(position(fixture.player).z() - before.z()) < 0.01,
-        "unloaded external camera stops persistent player input without binding a new local ID");
+    if (!c.set_enabled(true) || !f.frame({}))
+    {
+        return false;
+    }
+    auto t = f.player.get_component<Transform>();
+    auto pose = read_settings(t);
+    pose.position = {8, 2, 0};
+    if (!f.frame(input, 0) || !t.set_settings(pose) || !f.frame({}) || !f.frame({}))
+    {
+        return false;
+    }
+    return check(f.status().jump_sequence == 0 && f.status().motor.feet_position.x() > 7,
+                 "teleport discards previous input and support history");
 }
-
-bool persistent_player_and_camera()
+bool camera_adapter()
 {
-    Fixture fixture;
-    if (!fixture.initialize() || !fixture.player.set_persistent(true) ||
-        !fixture.camera.set_persistent(true) || !fixture.controller.set_player(fixture.player))
+    ControlFixture f;
+    if (!f.initialize())
     {
         return false;
     }
-    CharacterInput input;
-    input.move = {0, 1};
-    input.look = {2, 0};
-    if (!fixture.advance(input, 1))
+    auto solver = f.view.get_component<camera::CameraController>();
+    auto definition = read_settings(solver);
+    schema::CameraParameterDataT height;
+    height.name = "height";
+    height.default_value = std::make_unique<schema::CameraParameterValueT>();
+    height.default_value->name = "height";
+    height.default_value->float_value = 2;
+    definition.parameters.push_back(std::move(height));
+    schema::CameraParameterDataT mode;
+    mode.name = "first_person";
+    mode.type = schema::CameraParameterType::bool_value;
+    mode.default_value = std::make_unique<schema::CameraParameterValueT>();
+    mode.default_value->name = mode.name;
+    mode.default_value->type = mode.type;
+    definition.parameters.push_back(std::move(mode));
+    auto adapter = f.view.add_component<character::CharacterCamera>();
+    auto config = read_settings(adapter);
+    config.subject_slot = "subject";
+    config.yaw_parameter = "yaw";
+    config.pitch_parameter = "pitch";
+    config.first_person_parameter = "first_person";
+    config.pointer_scale_degrees = {.1, .1};
+    config.rate_degrees_per_second = {100, 100};
+    schema::CharacterCameraBindingDataT binding;
+    binding.source = schema::CharacterCameraSource::active_height;
+    binding.parameter = "height";
+    binding.offset = -.2F;
+    config.status_bindings.push_back(binding);
+    auto controller = f.player.get_component<character::CharacterController>();
+    auto settings = read_settings(controller);
+    settings.camera_node_id = f.view.local_id();
+    std::string error;
+    if (!solver.set_settings(definition, error) || !adapter.set_settings(config) ||
+        !controller.set_settings(settings, error) || !adapter.set_angles(540, 100))
     {
         return false;
     }
-    const auto old_scene = fixture.player.scene()->id();
-    const auto player_id = fixture.player.id();
-    const auto camera_id = fixture.camera.id();
-    const auto controller_id = fixture.player.get_component<CharacterController>().instance_id();
-    const auto before = position(fixture.player);
-    const auto yaw = fixture.camera.get_component<CharacterCamera>().yaw();
-    fixture.world.unload_scene();
-    auto* next = fixture.world.create_scene("New level");
-    if (!next || !fixture.box("New floor", {0, -0.5, 0}, {30, 0.5, 30}))
+    double yaw = 0, pitch = 0;
+    if (!adapter.get_angles(yaw, pitch) ||
+        !check(yaw == -180 && pitch == 80, "adapter wraps yaw and clamps declared pitch range"))
     {
         return false;
     }
-    input.look = {};
-    if (!expect(fixture.advance(input, 1) && fixture.world.find_node(player_id) == fixture.player &&
-                    fixture.world.find_node(camera_id) == fixture.camera &&
-                    fixture.player.scene()->id() == old_scene &&
-                    fixture.player.get_component<CharacterController>().instance_id() ==
-                        controller_id &&
-                    fixture.camera.get_component<CharacterCamera>().yaw() == yaw &&
-                    position(fixture.player).z() < before.z(),
-                "selected persistent player and camera retain input, motor and view state"))
+    if (!adapter.set_angles(0, 0) || !adapter.apply_look({10, 0}, {1, 0}, .1) ||
+        !adapter.get_angles(yaw, pitch) ||
+        !check(std::abs(yaw - 11) < .001, "mouse delta and rate integrate exactly once"))
     {
         return false;
     }
-    auto fake_target = next->create_node("Same local target");
-    if (!fake_target || fake_target.local_id() != fixture.player.local_id() ||
-        !fake_target.set_persistent(true) || !fixture.player.set_persistent(false))
+    if (!adapter.toggle_view())
     {
         return false;
     }
-    const auto view = position(fixture.camera);
-    fixture.world.unload_scene();
-    if (!expect(fixture.controller.tick(0) && fixture.physics.tick(0) && fixture.cameras.tick(0) &&
-                    fixture.world.find_node(player_id).valid() == false &&
-                    position(fixture.camera) == view,
-                "unloaded target suspends the retained camera without stopping the host"))
+    schema::CameraParameterValueT value;
+    if (!solver.get_parameter("first_person", value) ||
+        !check(value.bool_value, "adapter writes declared mode parameter"))
     {
         return false;
     }
-    return true;
+    character::CharacterInput crouch;
+    crouch.actions = {{"crouch", true, true}};
+    if (!f.frame(crouch) || !solver.get_parameter("height", value))
+    {
+        return false;
+    }
+    const auto motor = read_settings(f.player.get_component<CharacterMotor>());
+    if (!check(std::abs(value.float_value -
+                        (2 * (f.status().motor.active_half_height + motor.radius) - .2)) < .001,
+               "camera height follows actual crouched capsule"))
+    {
+        return false;
+    }
+    if (!adapter.set_enabled(false) || !f.parameters.tick(0) ||
+        !solver.get_parameter("height", value))
+    {
+        return false;
+    }
+    if (!check(value.float_value == 2, "lost adapter ownership restores parameter default") ||
+        !adapter.set_enabled(true) || !f.frame(crouch) || !solver.get_parameter("height", value))
+    {
+        return false;
+    }
+    const auto previous = value.float_value;
+    SceneScopeId replacement;
+    if (!f.world.begin_scope(SceneLoadKind::replace_scene, 0, replacement) ||
+        !f.world.seal_scope(replacement) ||
+        f.world.step_scope(replacement, {64, 0.01}) != SceneWorkState::ready ||
+        !f.world.publish_scope(replacement))
+    {
+        return false;
+    }
+    return check(solver.valid() && !f.world.find_node(f.view.id()) && f.parameters.tick(0) &&
+                     solver.get_parameter("height", value) && value.float_value == previous,
+                 "retiring cameras drop adapter ownership without writing unpublished data");
 }
-
 } // namespace
-
 int main()
 {
-    return persistent_player_loses_external_camera() && persistent_player_and_camera() &&
-                   world_pause_discards_transient_input() && movement_jump_and_settings() &&
-                   component_input_consumption() && complete_input_cancellation() &&
-                   collisions_steps_and_lifecycle() && camera_modes_and_occlusion() &&
-                   first_person_visibility_lifecycle() && player_selection_and_removal() &&
-                   independent_follow_camera() && hierarchy_conflicts_and_cast_validation()
+    return movement_and_instances() && action_buffer_and_steps() &&
+                   crouch_clearance_and_configuration() && ownership_and_teleport() &&
+                   camera_adapter()
                ? 0
                : 1;
 }

@@ -1,12 +1,11 @@
-import { Resources, ResourceHandle, ResourceRequest, Debug, Gameplay, Node, Scene, UiComponent, UiElement } from "engine";
+import { Resources, ResourceHandle, SceneLoadRequest, Debug, Gameplay, Node, Scene, UiComponent, UiElement } from "engine";
 import { PersistentUiController } from "../controllers/persistent_ui_controller.js";
 import { LifetimeAction, PersistentUiModel } from "../models/persistent_ui_model.js";
 
 /** Technical example: the caller owns UI lifetime; scene loading uses the normal engine API. */
 export default class PersistentUi extends Gameplay {
     private readonly resources: ResourceHandle[] = [];
-    private request: ResourceRequest | null = null;
-    private requested_path = "";
+    private request: SceneLoadRequest | null = null;
     scene: Scene | null = null;
     private root: Node | null = null;
     private note: UiElement | null = null;
@@ -38,38 +37,25 @@ export default class PersistentUi extends Gameplay {
         if (action) this.command(action);
         if (!this.controller) return;
         if (this.request) {
-            const status = this.request.Status();
-            if (status === "ready") {
-                const resource = this.request.Take();
-                this.model.loading = resource !== null && Scene.BeginLoad(this.requested_path);
-                if (resource && !Resources.Release(resource)) Debug.LogError("Cannot release scene acquisition");
-                this.request = null;
-                if (!this.model.loading) this.model.status = "Cannot restore the prepared scene.";
-            } else if (status === "failed" || status === "cancelled") {
-                this.model.status = this.request.Error();
+            const status = this.request.GetStatus();
+            if (!status || status.state === "failed" || status.state === "cancelled") {
+                this.model.status = status?.error || "Scene load failed; the original UI remains usable.";
                 this.request.Cancel();
+                this.request.Release();
                 this.request = null;
                 this.model.loading = false;
-            } else {
-                const progress = this.request.Progress();
-                this.model.status = `Loading resources ${progress.completed} / ${progress.total}`;
-            }
-        }
-        if (this.model.loading && !this.request) {
-            const progress = Scene.StepLoad(2);
-            if (!progress || progress.status === "failed") {
-                this.model.status = progress?.error || "Loading failed; the original UI remains usable.";
-                Scene.CancelLoad();
+            } else if (status.state === "staged") {
+                if (!this.request.Prepare()) Debug.LogError("Cannot seal scene candidate");
+            } else if (status.state === "ready") {
+                if (!this.request.Activate()) Debug.LogError("Cannot activate prepared scene");
+            } else if (status.state === "active") {
+                this.scene = this.request.GetScene();
+                this.request.Release();
+                this.request = null;
                 this.model.loading = false;
-            } else if (progress.status === "ready") {
-                const next = Scene.CommitLoad();
-                this.model.loading = false;
-                if (next) {
-                    this.scene = next;
-                    ++this.model.completed;
-                    this.model.status = "Scene committed. Edit the same note or load the other scene.";
-                } else this.model.status = "Commit rejected; the original UI remains usable.";
-            } else this.model.status = `Loading ${progress.completed} / ${progress.total}; UI remains interactive.`;
+                ++this.model.completed;
+                this.model.status = "Scene active. Edit the same note or load the other scene.";
+            } else this.model.status = `Scene ${status.state}; UI remains interactive.`;
         }
         if (!this.root?.IsValid() || !this.note?.isValid || !this.controller.bound ||
             !this.controller.Refresh()) {
@@ -85,8 +71,8 @@ export default class PersistentUi extends Gameplay {
             return;
         }
         this.request?.Cancel();
+        this.request?.Release();
         this.request = null;
-        Scene.CancelLoad();
         this.model.loading = false;
         if (action === "unload") {
             const unloaded = !this.scene?.IsValid() || this.scene.Destroy();
@@ -94,19 +80,20 @@ export default class PersistentUi extends Gameplay {
             this.model.status = unloaded ? "No gameplay scene. This original UI still accepts input." :
                 "Could not unload the current scene.";
         } else if (action === "fail") {
-            const started = Resources.BeginLoad("scenes/missing-persistent-ui.scene");
+            const started = Scene.BeginLoad("scenes/missing-persistent-ui.scene");
             started?.Cancel();
+            started?.Release();
             this.model.status = started ? "Unexpected test resource exists." :
                 "Missing resource rejected. UI, note and subscriptions are unchanged.";
         } else if (action === "cancel") {
-            const started = Resources.BeginLoad("scenes/main.scene");
+            const started = Scene.BeginLoad("scenes/main.scene");
             started?.Cancel();
+            started?.Release();
             this.model.status = started ? "Pending load canceled. The original UI remains usable." :
                 "Could not begin the cancellation check.";
         } else {
             const path = action === "load-a" ? "scenes/main.scene" : "scenes/font-gallery.scene";
-            this.requested_path = path;
-            this.request = Resources.BeginLoad(path);
+            this.request = Scene.BeginLoad(path);
             this.model.loading = this.request !== null;
             this.model.status = this.model.loading ? "Preparing scene resources..." : "Could not start loading.";
         }
@@ -114,12 +101,12 @@ export default class PersistentUi extends Gameplay {
 
     override OnShutdown(): void {
         this.request?.Cancel();
+        this.request?.Release();
         this.request = null;
         for (const resource of this.resources.splice(0)) {
             if (!Resources.Release(resource)) Debug.LogError("Cannot release showcase resource");
         }
 
-        Scene.CancelLoad();
         this.model.loading = false;
         this.model.pending = null;
         this.controller?.Unbind();

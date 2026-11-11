@@ -58,4 +58,4 @@ classDiagram
 
 Status、Progress、Error 只查询；资源核心与插件由宿主 tick 推进。Take 仅成功一次，Cancel 不等待任务；Run 关闭取消操作并释放所有尚未交还的获取。新目录不使旧的已就绪获取失效，未完成请求按加载器契约终结。
 
-场景先完成资源加载，再调用 Scene.Load 或 Scene.BeginLoad/StepLoad/CommitLoad；影片把已加载句柄传给 Movie.Play；JSON 使用 Json.ParseResource。使用方会为自身的持续使用独立保活，业务可以在绑定成功后释放原始获取。
+场景先完成资源加载，再调用 Scene.Load 或 Scene.BeginLoad 返回的 SceneLoadRequest；影片把已加载句柄传给 Movie.Play；JSON 使用 Json.ParseResource。使用方会为自身的持续使用独立保活，业务可以在绑定成功后释放原始获取。

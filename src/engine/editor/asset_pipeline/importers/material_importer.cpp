@@ -80,7 +80,7 @@ bool MaterialImporter::matches(const std::filesystem::path& source) const
 bool MaterialImporter::inspect_batch(const ImportContext&, std::string& fingerprint,
                                      std::string& error)
 {
-    return schema_fingerprint({"material.fbs"}, fingerprint, error);
+    return schema_fingerprint({"runtime/material.fbs"}, fingerprint, error);
 }
 bool MaterialImporter::convert(const ImportAsset& asset, const ImportContext& context,
                                std::string& error) const

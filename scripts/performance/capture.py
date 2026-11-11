@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""用官方 Tracy capture 采集；可选记录同机进程 RSS，不操作引擎或重放业务。"""
+"""Capture with official Tracy tools and optionally record local process RSS without controlling the engine or replaying gameplay."""
 
 import argparse
 from datetime import datetime, timezone
@@ -29,7 +29,7 @@ def process_sample(pid):
     )
     parts = result.stdout.strip().split(None, 6)
     if len(parts) != 7:
-        raise RuntimeError("无法读取目标进程身份和 RSS，请核对 --pid")
+        raise RuntimeError("Cannot read target process identity or RSS; verify --pid")
     identity = {"pid": pid, "started": " ".join(parts[:5]), "command": parts[6]}
     return identity, int(parts[5]) * 1024
 
@@ -43,23 +43,23 @@ def write_report(path, report):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--capture", type=Path, required=True, help="匹配客户端版本的官方 capture")
-    parser.add_argument("--output", type=Path, required=True, help="新目录，建议 build/performance/<run>")
-    parser.add_argument("--metadata", type=Path, required=True, help="设备、项目、场景、版本与操作配置 JSON")
-    parser.add_argument("--seconds", type=int, default=35, help="连接后的采样秒数")
+    parser.add_argument("--capture", type=Path, required=True, help="Official capture tool matching the client version")
+    parser.add_argument("--output", type=Path, required=True, help="New directory, preferably build/performance/<run>")
+    parser.add_argument("--metadata", type=Path, required=True, help="JSON metadata for device, project, scene, revision and operation settings")
+    parser.add_argument("--seconds", type=int, default=35, help="Sampling duration in seconds after connection")
     parser.add_argument("--address", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8086)
-    parser.add_argument("--pid", type=int, help="可选：同机引擎进程的 PID，只读 RSS")
+    parser.add_argument("--pid", type=int, help="Optional local engine process PID for read-only RSS sampling")
     parser.add_argument("--rss-interval", type=float, default=0.5)
     parser.add_argument("--connect-timeout", type=float, default=20)
     args = parser.parse_args()
     if sys.platform not in ("darwin", "linux"):
-        parser.error("此采集包装器使用 macOS/Linux PTY；其他宿主直接使用官方 capture，再运行分析脚本")
+        parser.error("This wrapper uses macOS/Linux PTYs; on other hosts use official capture directly, then run the analysis script")
     if (args.seconds < 1 or not math.isfinite(args.connect_timeout) or
             args.connect_timeout <= 0 or not math.isfinite(args.rss_interval) or
             args.rss_interval < 0.1 or
             not 1 <= args.port <= 65535 or (args.pid is not None and args.pid <= 0)):
-        parser.error("时长、采样间隔、端口或 PID 无效")
+        parser.error("Invalid duration, sampling interval, port or PID")
     import pty
 
     child = None
@@ -70,7 +70,7 @@ def main():
         capture = args.capture.resolve(strict=True)
         metadata = json.loads(args.metadata.read_text(encoding="utf-8"))
         if not isinstance(metadata, dict):
-            raise ValueError("metadata 必须是 JSON 对象")
+            raise ValueError("metadata must be a JSON object")
         identity = process_sample(args.pid)[0] if args.pid else None
         output = args.output.resolve()
         output.mkdir(parents=True, exist_ok=False)
@@ -126,21 +126,21 @@ def main():
                 if connected is not None and args.pid and now >= next_sample:
                     current, rss = process_sample(args.pid)
                     if current != identity:
-                        raise RuntimeError("目标进程身份已变化，停止采样；不会操作该进程")
+                        raise RuntimeError("Target process identity changed; stopping sampling without operating on the process")
                     report["rss"].append({"elapsed_seconds": now - connected, "bytes": rss})
                     next_sample = now + args.rss_interval
                 # 子进程退出后 PTY 仍可能有尾部输出，读到 EOF 才判定完成。
                 if child.poll() is not None and eof:
                     break
                 if connected is None and now - begin > args.connect_timeout:
-                    raise RuntimeError("Tracy 连接超时，请核对客户端构建开关、地址及端口")
+                    raise RuntimeError("Tracy connection timed out; check client build options, address and port")
                 if connected is not None and now - connected > args.seconds + 30:
-                    raise RuntimeError("官方采集器未按时结束，保留日志与已收到的记录")
+                    raise RuntimeError("Official capture tool did not finish on time; logs and received records are preserved")
             report["capture_exit_code"] = child.returncode
             if connected is None or child.returncode != 0 or not trace.is_file():
-                raise RuntimeError("官方采集器未成功生成记录，请检查 capture.log 后使用新的输出目录重试")
+                raise RuntimeError("Official capture tool did not produce a valid record; inspect capture.log and retry in a new output directory")
             if trace.stat().st_size == 0:
-                raise RuntimeError("采集文件为空，请检查 capture.log")
+                raise RuntimeError("Capture file is empty; inspect capture.log")
             digest = hashlib.sha256()
             with trace.open("rb") as stream:
                 for chunk in iter(lambda: stream.read(1024 * 1024), b""):
@@ -148,8 +148,8 @@ def main():
             report.update(success=True, trace_bytes=trace.stat().st_size,
                           trace_sha256=digest.hexdigest())
     except (OSError, ValueError, RuntimeError, subprocess.SubprocessError, KeyboardInterrupt) as error:
-        report["error"] = str(error) or "采样已中断"
-        print(f"采样未完成：{report['error']}。已存在的记录不会覆盖。", file=sys.stderr)
+        report["error"] = str(error) or "Sampling interrupted"
+        print(f"Sampling did not complete: {report['error']}. Existing records will not be overwritten.", file=sys.stderr)
     finally:
         # 只结束本工具创建的 capture 子进程，不向目标引擎发送信号。
         if child is not None and child.poll() is None:
@@ -173,7 +173,7 @@ def main():
                 write_report(report_path, report)
             except OSError as error:
                 report["success"] = False
-                print(f"无法保存采样报告：{error}。请保留输出目录检查日志和文件权限。",
+                print(f"Cannot save the sampling report: {error}. Preserve the output directory and inspect logs and file permissions.",
                       file=sys.stderr)
     if report["success"]:
         print(json.dumps({"event": "complete", "report": str(report_path)},

@@ -11,7 +11,7 @@
 #include "runtime/world/world_system.hpp"
 
 #if defined(ENGINE_TEST_CHARACTER_CONTROLLER)
-#include "plugins/runtime/character_controller/character_camera.hpp"
+#include "plugins/runtime/character_controller/character_ability_registry.hpp"
 #include "plugins/runtime/character_controller/character_controller.hpp"
 #endif
 
@@ -121,7 +121,7 @@ std::unique_ptr<schema::NodeDataT> node_data(std::uint64_t id, std::uint64_t par
 schema::PrefabDataT template_data()
 {
     schema::PrefabDataT data;
-    data.schema_version = 2;
+    data.schema_version = 3;
     data.root_id = 9;
     // 故意让子节点先于根，并使用稀疏源身份。
     auto camera = node_data(20, 9, "Camera");
@@ -365,18 +365,25 @@ bool explicit_removal_and_reserved_identities()
 
 bool rollback_and_plugin_references()
 {
+#if defined(ENGINE_TEST_CHARACTER_CONTROLLER)
+    plugins::character_controller::CharacterAbilityRegistry abilities;
+#endif
     Fixture fixture;
     auto character = template_data();
     schema::CharacterControllerDataT controller;
+    controller.movement = std::make_unique<schema::CharacterMovementDataT>();
+    controller.facing = std::make_unique<schema::CharacterFacingDataT>();
+    controller.ability_data = std::make_unique<schema::CharacterAbilitySetDataT>();
     controller.camera_node_id = 20;
     add_component(*character.nodes[1], controller);
-    schema::CharacterCameraDataT camera;
-    camera.target_node_id = 9;
+    auto camera = controller;
+    camera.camera_node_id = 9;
     add_component(*character.nodes[0], camera);
     auto missing_plugin = template_data();
     add_component(*missing_plugin.nodes.back(), controller);
     auto external = character;
-    external.nodes[0]->components.back()->payload.AsCharacterCameraData()->target_node_id = 9999;
+    external.nodes[0]->components.back()->payload.AsCharacterControllerData()->camera_node_id =
+        9999;
     if (!fixture.initialize() || !add_prefab(fixture.files, "character.prefab", character) ||
         !add_prefab(fixture.files, "missing-plugin.prefab", missing_plugin) ||
         !add_prefab(fixture.files, "external.prefab", external) ||
@@ -403,10 +410,10 @@ bool rollback_and_plugin_references()
         return false;
     }
 #if defined(ENGINE_TEST_CHARACTER_CONTROLLER)
-    using plugins::character_controller::CharacterCamera;
     using plugins::character_controller::CharacterController;
-    if (!fixture.world.component_registry().add<CharacterController>() ||
-        !fixture.world.component_registry().add<CharacterCamera>())
+    if (!plugins::character_controller::register_builtin_character_abilities(abilities) ||
+        !abilities.freeze() ||
+        !plugins::character_controller::register_character_components(fixture.world, abilities))
     {
         return false;
     }
@@ -424,8 +431,8 @@ bool rollback_and_plugin_references()
         if (!expect(player && view &&
                         test_support::read_settings(player.get_component<CharacterController>())
                                 .camera_node_id == view.local_id() &&
-                        test_support::read_settings(view.get_component<CharacterCamera>())
-                                .target_node_id == player.local_id(),
+                        test_support::read_settings(view.get_component<CharacterController>())
+                                .camera_node_id == player.local_id(),
                     "each instance remaps both directions of the plugin-owned camera binding"))
         {
             return false;
@@ -436,10 +443,10 @@ bool rollback_and_plugin_references()
         retired[0].retired = true;
         auto reference = *character.nodes[0]->components.back();
         const auto before = reference;
-        if (!expect(
-                !view.get_component<CharacterCamera>().remap_node_references(reference, retired) &&
-                    reference == before,
-                "retired template identities cannot revive a camera target reference"))
+        if (!expect(!view.get_component<CharacterController>().remap_node_references(reference,
+                                                                                     retired) &&
+                        reference == before,
+                    "retired template identities cannot revive a camera target reference"))
         {
             return false;
         }

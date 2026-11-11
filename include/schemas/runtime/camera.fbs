@@ -1,0 +1,248 @@
+include "common.fbs";
+namespace engine.schema;
+
+enum Projection:ubyte { perspective, orthographic }
+
+table CameraData {
+    fov_degrees:float = 60;
+    near_clip:float = 0.1;
+    far_clip:float = 1000;
+    projection:Projection = perspective;
+    orthographic_size:float = 5;
+    frustum_culling_enabled:bool = false;
+}
+
+enum CameraParameterType:ubyte { float_value, int_value, bool_value, trigger }
+
+enum CameraParameterLifetime:ubyte { retained, frame }
+
+enum CameraComparison:ubyte { equal, not_equal, less, less_equal, greater, greater_equal }
+
+enum CameraBlendSource:ubyte { live, snapshot }
+
+enum CameraBlendCurve:ubyte { linear, smoothstep, ease_in, ease_out }
+
+table CameraParameterValue {
+    name:string;
+    type:CameraParameterType;
+    float_value:float;
+    int_value:int;
+    bool_value:bool;
+}
+
+table CameraParameterData {
+    name:string;
+    type:CameraParameterType;
+    default_value:CameraParameterValue;
+    lifetime:CameraParameterLifetime;
+    has_range:bool;
+    minimum:double;
+    maximum:double;
+}
+
+table CameraTargetData {
+    name:string;
+    node_local_id:ulong;
+}
+
+table CameraFloatInputData {
+    constant:float;
+    parameter:string;
+    scale:float = 1;
+    offset:float;
+    clamp_enabled:bool;
+    minimum:float;
+    maximum:float;
+}
+
+table CameraModuleRef {
+    id:ulong;
+    type:string;
+    enabled:bool = true;
+}
+
+table CameraConditionRef {
+    id:ulong;
+    type:string;
+}
+
+table CameraParameterTestData {
+    id:ulong;
+    parameter:string;
+    comparison:CameraComparison;
+    value:CameraParameterValue;
+    tolerance:float;
+}
+
+table CameraTriggerTestData {
+    id:ulong;
+    parameter:string;
+}
+
+table CameraTargetTestData {
+    id:ulong;
+    slot:string;
+    expected_valid:bool = true;
+}
+
+table CameraTimeTestData {
+    id:ulong;
+    comparison:CameraComparison;
+    seconds:double;
+}
+
+table CameraConditionSetData {
+    parameter_tests:[CameraParameterTestData] (native_inline);
+    trigger_tests:[CameraTriggerTestData] (native_inline);
+    target_tests:[CameraTargetTestData] (native_inline);
+    time_tests:[CameraTimeTestData] (native_inline);
+}
+
+table CameraConditionGroupData {
+    all_of:[CameraConditionRef] (native_inline);
+}
+
+table CameraBlendData {
+    seconds:float;
+    curve:CameraBlendCurve;
+}
+
+table CameraTransitionData {
+    id:string;
+    from:string;
+    to:string;
+    priority:int;
+    min_state_seconds:float;
+    interrupt:bool;
+    reenter:bool;
+    source_mode:CameraBlendSource;
+    blend:CameraBlendData;
+    any_of:[CameraConditionGroupData] (native_inline);
+}
+
+table CameraStateData {
+    id:string;
+    rig:string;
+}
+
+table CameraStateMachineData {
+    initial_state:string;
+    states:[CameraStateData] (native_inline);
+    transitions:[CameraTransitionData] (native_inline);
+    condition_data:CameraConditionSetData;
+}
+
+table CameraRigData {
+    id:string;
+    modules:[CameraModuleRef] (native_inline);
+}
+
+table CameraFixedData {
+    id:ulong;
+    anchor_slot:string;
+    position:Vec3 (native_inline);
+    rotation_degrees:Vec3 (native_inline);
+}
+
+table CameraFollowData {
+    id:ulong;
+    follow_slot:string;
+    offset:Vec3 (native_inline);
+    local_offset:bool = true;
+    position_damping:Vec3 (native_inline);
+    teleport_distance:float = 100;
+}
+
+table CameraOrbitData {
+    id:ulong;
+    follow_slot:string;
+    pivot_offset:Vec3 (native_inline);
+    height_offset:CameraFloatInputData;
+    distance:CameraFloatInputData;
+    yaw:CameraFloatInputData;
+    pitch:CameraFloatInputData;
+    pitch_min:float = -80;
+    pitch_max:float = 80;
+    position_damping:Vec3 (native_inline);
+    rotation_damping:float;
+    shoulder_offset:CameraFloatInputData;
+}
+
+table CameraAimData {
+    id:ulong;
+    target_slot:string;
+    target_offset:Vec3 (native_inline);
+    world_up:Vec3 (native_inline, native_default: "Vec3(0, 1, 0)");
+    screen_position:Vec2 (native_inline, native_default: "Vec2(0.5, 0.5)");
+    dead_zone:Vec2 (native_inline);
+    soft_zone:Vec2 (native_inline);
+    rotation_damping:float;
+    aspect_ratio:float = 1.7777778;
+}
+
+table CameraLensData {
+    id:ulong;
+    projection:Projection;
+    fov:CameraFloatInputData;
+    orthographic_size:CameraFloatInputData;
+    near_clip:CameraFloatInputData;
+    far_clip:CameraFloatInputData;
+}
+
+table CameraNoiseData {
+    id:ulong;
+    position_amplitude:Vec3 (native_inline);
+    rotation_amplitude:Vec3 (native_inline);
+    frequency:float = 1;
+    seed:uint = 1;
+    strength:CameraFloatInputData;
+    impulse:CameraFloatInputData;
+    decay:float = 1;
+}
+
+table CameraCollisionData {
+    id:ulong;
+    subject_slot:string;
+    subject_offset:Vec3 (native_inline);
+    height_offset:CameraFloatInputData;
+    radius:float = 0.15;
+    margin:float = 0.02;
+    minimum_distance:float;
+    motion_enabled:bool = false;
+    sight_enabled:bool = false;
+    include_static:bool = true;
+    include_kinematic:bool = true;
+    include_dynamic:bool = true;
+    include_characters:bool = true;
+    contraction_damping:float;
+    recovery_damping:float;
+    recovery_delay:float;
+}
+
+table CameraBoundsData {
+    id:ulong;
+    anchor_slot:string;
+    minimum:Vec3 (native_inline, native_default: "Vec3(-1, -1, -1)");
+    maximum:Vec3 (native_inline, native_default: "Vec3(1, 1, 1)");
+    margin:float;
+}
+
+table CameraModuleSetData {
+    fixed:[CameraFixedData] (native_inline);
+    follow:[CameraFollowData] (native_inline);
+    orbit:[CameraOrbitData] (native_inline);
+    aim:[CameraAimData] (native_inline);
+    lens:[CameraLensData] (native_inline);
+    noise:[CameraNoiseData] (native_inline);
+    collision:[CameraCollisionData] (native_inline);
+    bounds:[CameraBoundsData] (native_inline);
+}
+
+table CameraControllerData {
+    parameters:[CameraParameterData] (native_inline);
+    targets:[CameraTargetData] (native_inline);
+    machine:CameraStateMachineData;
+    rigs:[CameraRigData] (native_inline);
+    module_data:CameraModuleSetData;
+    output_modules:[CameraModuleRef] (native_inline);
+}

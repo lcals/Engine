@@ -41,13 +41,13 @@ bool face_selection(const schema::EditableMeshDataT& data, std::span<const Id> f
     }
     if (faces.empty())
     {
-        return fail(error, "面选区为空");
+        return fail(error, "Face selection is empty");
     }
     for (auto id : faces)
     {
         if (!mesh::find_face(data, id) || !result.insert(id).second)
         {
-            return fail(error, "面选区包含不存在或重复的身份");
+            return fail(error, "Face selection contains a missing or duplicate identity");
         }
     }
     return true;
@@ -113,14 +113,14 @@ bool boundary_loop(const schema::EditableMeshDataT& data, std::span<const Id> lo
 {
     if (loop.size() < 3)
     {
-        return fail(error, "边界环至少需要 3 个顶点");
+        return fail(error, "Boundary loops require at least 3 vertices");
     }
     std::set<Id> unique;
     for (auto id : loop)
     {
         if (!mesh::find_vertex(data, id) || !unique.insert(id).second)
         {
-            return fail(error, "边界环包含缺失或重复的顶点");
+            return fail(error, "Boundary loop contains a missing or duplicate vertex");
         }
     }
     std::map<EdgeKey, std::size_t> edges;
@@ -143,7 +143,7 @@ bool boundary_loop(const schema::EditableMeshDataT& data, std::span<const Id> lo
     {
         if (edges[edge_key(loop[i], loop[(i + 1) % loop.size()])] != 1)
         {
-            return fail(error, "操作需要完整的开放边界环");
+            return fail(error, "This operation requires a complete open boundary loop");
         }
     }
     return true;
@@ -259,13 +259,13 @@ bool mesh::transform(schema::EditableMeshDataT& data, const MeshSelection& selec
     {
         if (!std::isfinite(value))
         {
-            return fail(error, "变换矩阵必须为有限数值");
+            return fail(error, "Transform matrix values must be finite");
         }
     }
     if (std::abs(matrix[3]) > math::epsilon || std::abs(matrix[7]) > math::epsilon ||
         std::abs(matrix[11]) > math::epsilon || std::abs(matrix[15] - 1.0) > math::epsilon)
     {
-        return fail(error, "建模变换只接受仿射矩阵");
+        return fail(error, "Modeling transforms must be affine matrices");
     }
     std::vector<Id> selected;
     if (!mesh::selected_vertices(data, selection, selected, error))
@@ -353,7 +353,7 @@ bool mesh::extrude(schema::EditableMeshDataT& data, std::span<const Id> faces, d
     }
     if (!std::isfinite(distance) || std::abs(distance) <= math::epsilon)
     {
-        return fail(error, "挤出距离必须为有限非零值");
+        return fail(error, "Extrusion distance must be finite and nonzero");
     }
     schema::EditableMeshDataT result(data);
     std::vector<std::vector<Id>> groups;
@@ -389,7 +389,9 @@ bool mesh::extrude(schema::EditableMeshDataT& data, std::span<const Id> faces, d
                 auto& edge = boundaries[edge_key(a, b)];
                 if (edge.count && (edge.count > 1 || edge.first == a))
                 {
-                    return fail(error, "挤出选区包含非流形边或不一致绕序");
+                    return fail(
+                        error,
+                        "Extrusion selection contains non-manifold edges or inconsistent winding");
                 }
                 if (!edge.count)
                 {
@@ -431,7 +433,7 @@ bool mesh::extrude(schema::EditableMeshDataT& data, std::span<const Id> faces, d
             const auto direction = math::normalized(normal);
             if (math::length(direction) <= math::epsilon)
             {
-                return fail(error, "挤出方向无法确定");
+                return fail(error, "Cannot determine the extrusion direction");
             }
             replacement[id] = math::add_vertex(
                 result, math::add(math::position(data, id), math::mul(direction, distance)));
@@ -474,7 +476,9 @@ bool mesh::extrude_edges(schema::EditableMeshDataT& data, std::span<const MeshEd
     const Vector movement{delta.x(), delta.y(), delta.z()};
     if (edges.empty() || !math::finite(movement) || math::length(movement) <= math::epsilon)
     {
-        return fail(error, "边挤出需要非空边选区和有限非零位移");
+        return fail(
+            error,
+            "Edge extrusion requires a nonempty edge selection and finite nonzero displacement");
     }
     struct EdgeSource
     {
@@ -508,7 +512,7 @@ bool mesh::extrude_edges(schema::EditableMeshDataT& data, std::span<const MeshEd
         const auto found = incident.find(key);
         if (found == incident.end() || found->second.count != 1 || !selected.insert(key).second)
         {
-            return fail(error, "边挤出只接受不重复的开放边界边");
+            return fail(error, "Edge extrusion requires unique open boundary edges");
         }
         for (auto id : {edge.first, edge.second})
         {
@@ -566,7 +570,7 @@ bool inset_region(schema::EditableMeshDataT& data, const std::set<Id>& selected,
         const auto* face = mesh::find_face(data, id);
         if (math::dot(math::normalized(math::face_normal(data, *face)), normal) < 1.0 - 1.0e-7)
         {
-            return fail(error, "整体内插选区必须同向共面");
+            return fail(error, "Region inset selection must be coplanar with matching orientation");
         }
         for (auto vertex : face_vertices(*face))
         {
@@ -596,7 +600,7 @@ bool inset_region(schema::EditableMeshDataT& data, const std::set<Id>& selected,
                 const auto point = math::position(data, ring[i]);
                 if (std::abs(math::dot(math::sub(point, origin), normal)) > 1.0e-7 * scale)
                 {
-                    return fail(error, "整体内插选区不共面");
+                    return fail(error, "Region inset selection is not coplanar");
                 }
                 const auto projected = math::project(point, axis);
                 sample.ids.push_back(ring[i]);
@@ -607,7 +611,8 @@ bool inset_region(schema::EditableMeshDataT& data, const std::set<Id>& selected,
                 auto& boundary = edges[edge_key(a, b)];
                 if (boundary.count && (boundary.count > 1 || boundary.first == a))
                 {
-                    return fail(error, "整体内插选区包含非流形或绕序冲突边");
+                    return fail(error, "Region inset selection contains non-manifold edges or "
+                                       "conflicting winding");
                 }
                 if (!boundary.count)
                 {
@@ -647,12 +652,12 @@ bool inset_region(schema::EditableMeshDataT& data, const std::set<Id>& selected,
         if (!next.emplace(boundary.first, boundary.second).second ||
             !previous.emplace(boundary.second, boundary.first).second)
         {
-            return fail(error, "整体内插选区的边界在顶点处分叉");
+            return fail(error, "Region inset boundary branches at a vertex");
         }
     }
     if (next.empty() || next.size() != previous.size())
     {
-        return fail(error, "整体内插需要闭合的开放选区边界");
+        return fail(error, "Region inset requires a closed loop around an open selection boundary");
     }
     const auto interpolate = [&](const FaceSamples& sample, const Vector& point,
                                  bool require_inside, schema::Vec2& uv, schema::Color& color)
@@ -728,7 +733,7 @@ bool inset_region(schema::EditableMeshDataT& data, const std::set<Id>& selected,
         const auto incoming = previous.find(id);
         if (incoming == previous.end())
         {
-            return fail(error, "整体内插边界不闭合");
+            return fail(error, "Region inset boundary is not closed");
         }
         const auto point = math::position(data, id);
         const auto inward0 = math::normalized(
@@ -739,7 +744,7 @@ bool inset_region(schema::EditableMeshDataT& data, const std::set<Id>& selected,
         const auto denominator = math::dot(bisector, inward0);
         if (std::abs(denominator) <= math::epsilon)
         {
-            return fail(error, "整体内插边界包含退化折返");
+            return fail(error, "Region inset boundary contains a degenerate reversal");
         }
         const auto moved = math::add(point, math::mul(bisector, distance / denominator));
         bool inside = false;
@@ -756,7 +761,7 @@ bool inset_region(schema::EditableMeshDataT& data, const std::set<Id>& selected,
         }
         if (!inside)
         {
-            return fail(error, "整体内插距离超过选区可用范围");
+            return fail(error, "Region inset distance exceeds the available selection area");
         }
         replacements[id] = math::add_vertex(result, moved);
     }
@@ -778,7 +783,7 @@ bool inset_region(schema::EditableMeshDataT& data, const std::set<Id>& selected,
                 if (!interpolate(sample, math::position(result, found->second), false, value_uv,
                                  value_color))
                 {
-                    return fail(error, "整体内插无法恢复面角属性");
+                    return fail(error, "Cannot restore region inset corner attributes");
                 }
                 ring[i] = found->second;
                 if (!uv.empty())
@@ -805,7 +810,7 @@ bool inset_region(schema::EditableMeshDataT& data, const std::set<Id>& selected,
         }
         if (math::dot(math::face_normal(result, *face), normal) <= math::epsilon)
         {
-            return fail(error, "整体内插导致内部面反转");
+            return fail(error, "Region inset inverts an interior face");
         }
     }
     for (const auto& [key, boundary] : edges)
@@ -826,14 +831,14 @@ bool inset_region(schema::EditableMeshDataT& data, const std::set<Id>& selected,
             schema::Color color;
             if (!interpolate(sample, math::position(result, id), false, uv, color))
             {
-                return fail(error, "整体内插无法恢复边框属性");
+                return fail(error, "Cannot restore region inset border attributes");
             }
             border.texcoords.push_back(uv);
             border.colors.push_back(color);
         }
         if (math::dot(math::face_normal(result, border), normal) <= math::epsilon)
         {
-            return fail(error, "整体内插距离导致边框反转");
+            return fail(error, "Region inset distance inverts the border");
         }
     }
     return publish(data, result, error);
@@ -851,7 +856,7 @@ bool mesh::inset(schema::EditableMeshDataT& data, std::span<const Id> faces, dou
     }
     if (!std::isfinite(distance) || distance <= math::epsilon)
     {
-        return fail(error, "内插距离必须为有限正值");
+        return fail(error, "Inset distance must be finite and positive");
     }
     if (group)
     {
@@ -863,7 +868,7 @@ bool mesh::inset(schema::EditableMeshDataT& data, std::span<const Id> faces, dou
         const auto* original = mesh::find_face(data, id);
         if (!original->holes.empty())
         {
-            return fail(error, "带洞面的内插需要先拆分为无洞面");
+            return fail(error, "Split faces with holes into faces without holes before insetting");
         }
         const auto normal = math::normalized(math::face_normal(data, *original));
         std::vector<std::uint32_t> triangles;
@@ -888,7 +893,7 @@ bool mesh::inset(schema::EditableMeshDataT& data, std::span<const Id> faces, dou
             const auto denominator = math::dot(bisector, inward0);
             if (std::abs(denominator) <= math::epsilon)
             {
-                return fail(error, "内插遇到折返或退化边");
+                return fail(error, "Inset encountered a reversal or degenerate edge");
             }
             const auto point = math::add(p, math::mul(bisector, distance / denominator));
             bool contained = false;
@@ -952,7 +957,7 @@ bool mesh::inset(schema::EditableMeshDataT& data, std::span<const Id> faces, dou
             }
             if (!contained)
             {
-                return fail(error, "内插结果离开了原始多边形内部");
+                return fail(error, "Inset result lies outside the original polygon");
             }
             inner.push_back(math::add_vertex(result, point));
         }
@@ -962,7 +967,7 @@ bool mesh::inset(schema::EditableMeshDataT& data, std::span<const Id> faces, dou
         inner_face->colors = inner_colors;
         if (math::dot(math::face_normal(result, *inner_face), normal) <= math::epsilon)
         {
-            return fail(error, "内插距离超过面的可用宽度");
+            return fail(error, "Inset distance exceeds the available face width");
         }
         for (std::size_t i = 0; i < inner.size(); ++i)
         {
@@ -972,7 +977,7 @@ bool mesh::inset(schema::EditableMeshDataT& data, std::span<const Id> faces, dou
                           math::sub(math::position(data, original->vertices[next]),
                                     math::position(data, original->vertices[i]))) <= math::epsilon)
             {
-                return fail(error, "内插距离导致边反转");
+                return fail(error, "Inset distance inverts an edge");
             }
             auto& ring = math::add_face(
                 result, {original->vertices[i], original->vertices[next], inner[next], inner[i]},
@@ -1087,7 +1092,7 @@ bool mesh::subdivide(schema::EditableMeshDataT& data, std::span<const Id> faces,
     }
     if (iterations < 1 || iterations > 5)
     {
-        return fail(error, "细分次数必须为 1 到 5");
+        return fail(error, "Subdivision count must be between 1 and 5");
     }
     schema::EditableMeshDataT result(data);
     for (std::uint32_t iteration = 0; iteration < iterations; ++iteration)
@@ -1101,7 +1106,7 @@ bool mesh::subdivide(schema::EditableMeshDataT& data, std::span<const Id> faces,
             const auto* face = mesh::find_face(before, id);
             if (!face->holes.empty())
             {
-                return fail(error, "带洞面请先三角化再细分");
+                return fail(error, "Triangulate faces with holes before subdivision");
             }
             Vector center{};
             schema::Vec2 uv_center;
@@ -1225,7 +1230,7 @@ bool mesh::subdivide(schema::EditableMeshDataT& data, std::span<const Id> faces,
         selected = std::move(next_selected);
         if (result.faces.size() > 1000000 || result.vertices.size() > 1000000)
         {
-            return fail(error, "细分结果超过模型数量限制");
+            return fail(error, "Subdivision result exceeds model element limits");
         }
     }
     return publish(data, result, error);
@@ -1240,18 +1245,18 @@ bool mesh::weld(schema::EditableMeshDataT& data, std::span<const Id> vertices, d
     }
     if (!std::isfinite(tolerance) || tolerance < 0.0 || vertices.size() < 2)
     {
-        return fail(error, "焊接需要至少两个顶点和非负距离");
+        return fail(error, "Welding requires at least two vertices and a nonnegative distance");
     }
     std::set<Id> selected(vertices.begin(), vertices.end());
     if (selected.size() != vertices.size())
     {
-        return fail(error, "顶点选区包含重复身份");
+        return fail(error, "Vertex selection contains duplicate identities");
     }
     for (auto id : selected)
     {
         if (!mesh::find_vertex(data, id))
         {
-            return fail(error, "顶点选区包含缺失身份");
+            return fail(error, "Vertex selection contains a missing identity");
         }
     }
     std::map<Id, Id> mapping;
@@ -1289,14 +1294,14 @@ bool mesh::merge_vertices(schema::EditableMeshDataT& data, std::span<const Id> v
     std::set<Id> selected(vertices.begin(), vertices.end());
     if (selected.size() < 2 || selected.size() != vertices.size() || !math::finite(value))
     {
-        return fail(error, "合并需要至少两个不同顶点和有限位置");
+        return fail(error, "Merging requires at least two distinct vertices and a finite position");
     }
     std::map<Id, Id> mapping;
     for (auto id : selected)
     {
         if (!mesh::find_vertex(data, id))
         {
-            return fail(error, "顶点选区包含缺失身份");
+            return fail(error, "Vertex selection contains a missing identity");
         }
         mapping[id] = *selected.begin();
     }
@@ -1316,13 +1321,13 @@ bool mesh::split_vertices(schema::EditableMeshDataT& data, std::span<const Id> v
     const std::set<Id> selected(vertices.begin(), vertices.end());
     if (selected.empty() || selected.size() != vertices.size())
     {
-        return fail(error, "拆点需要不重复的非空顶点选区");
+        return fail(error, "Splitting vertices requires a nonempty selection of unique vertices");
     }
     for (auto id : selected)
     {
         if (!mesh::find_vertex(data, id))
         {
-            return fail(error, "拆点选区包含不存在的顶点");
+            return fail(error, "Split selection contains a missing vertex");
         }
     }
     schema::EditableMeshDataT result(data);
@@ -1413,21 +1418,21 @@ bool mesh::bridge(schema::EditableMeshDataT& data, std::span<const Id> first_loo
     }
     if (first_loop.size() != second_loop.size())
     {
-        return fail(error, "桥接边界环需要相同数量的顶点");
+        return fail(error, "Bridged boundary loops must have the same number of vertices");
     }
     const std::set<Id> first(first_loop.begin(), first_loop.end());
     for (auto id : second_loop)
     {
         if (first.contains(id))
         {
-            return fail(error, "桥接边界环不能共享顶点");
+            return fail(error, "Bridged boundary loops must not share vertices");
         }
     }
     const auto first_direction = boundary_direction(data, first_loop[0], first_loop[1]);
     const auto second_direction = boundary_direction(data, second_loop[0], second_loop[1]);
     if (first_direction == second_direction)
     {
-        return fail(error, "桥接两个环的对应绕序不兼容，请反转其中一个输入环");
+        return fail(error, "Boundary loop winding is incompatible; reverse one input loop");
     }
     schema::EditableMeshDataT result(data);
     for (std::size_t i = 0; i < first_loop.size(); ++i)
@@ -1494,7 +1499,8 @@ bool mesh::dissolve_edge(schema::EditableMeshDataT& data, MeshEdge edge, std::st
         adjacent[0]->material_slot != adjacent[1]->material_slot ||
         adjacent[0]->smoothing_group != adjacent[1]->smoothing_group)
     {
-        return fail(error, "溶解需要相同材质和平滑组的两个无洞相邻面");
+        return fail(error, "Dissolving requires two adjacent faces without holes and with matching "
+                           "material and smoothing group");
     }
     const auto effective_uv = [&](const schema::ModelingFaceT& face, std::size_t index)
     {
@@ -1525,7 +1531,8 @@ bool mesh::dissolve_edge(schema::EditableMeshDataT& data, MeshEdge edge, std::st
             std::abs(color0.b() - color1.b()) > math::epsilon ||
             std::abs(color0.a() - color1.a()) > math::epsilon)
         {
-            return fail(error, "溶解将丢失 UV 或颜色接缝，请先统一共享角属性");
+            return fail(error, "Dissolving would remove a UV or color seam; align the shared "
+                               "corner attributes first");
         }
     }
     auto merged = std::make_unique<schema::ModelingFaceT>();
@@ -1553,7 +1560,8 @@ bool mesh::dissolve_edge(schema::EditableMeshDataT& data, MeshEdge edge, std::st
                      .emplace(a, Corner{b, effective_uv(*face, i), math::corner_color(*face, i)})
                      .second)
             {
-                return fail(error, "相邻面绕序不一致或共享多条边");
+                return fail(error,
+                            "Adjacent faces have inconsistent winding or share multiple edges");
             }
         }
     }
@@ -1564,7 +1572,7 @@ bool mesh::dissolve_edge(schema::EditableMeshDataT& data, MeshEdge edge, std::st
         const auto found = boundary.find(current);
         if (found == boundary.end() || merged->vertices.size() >= boundary.size())
         {
-            return fail(error, "无法重建溶解后的边界");
+            return fail(error, "Cannot reconstruct the dissolved boundary");
         }
         merged->vertices.push_back(current);
         merged->texcoords.push_back(found->second.uv);
@@ -1573,7 +1581,7 @@ bool mesh::dissolve_edge(schema::EditableMeshDataT& data, MeshEdge edge, std::st
     } while (current != start);
     if (merged->vertices.size() != boundary.size())
     {
-        return fail(error, "溶解产生多个边界环");
+        return fail(error, "Dissolving produces multiple boundary loops");
     }
     schema::EditableMeshDataT result(data);
     std::erase_if(result.faces, [&](const auto& face)
@@ -1593,7 +1601,9 @@ bool mesh::split_edge(schema::EditableMeshDataT& data, MeshEdge edge, double fra
         edge.first == edge.second || !mesh::find_vertex(data, edge.first) ||
         !mesh::find_vertex(data, edge.second))
     {
-        return fail(error, "分边比例必须在 0 和 1 之间，端点必须存在且不同");
+        return fail(
+            error,
+            "Edge split ratio must be between 0 and 1, and endpoints must exist and be distinct");
     }
     schema::EditableMeshDataT result(data);
     const auto id = math::add_vertex(
@@ -1634,7 +1644,7 @@ bool mesh::split_edge(schema::EditableMeshDataT& data, MeshEdge edge, double fra
     }
     if (!found)
     {
-        return fail(error, "目标边不存在");
+        return fail(error, "Target edge does not exist");
     }
     return publish(data, result, error);
 }
@@ -1649,19 +1659,19 @@ bool mesh::connect_vertices(schema::EditableMeshDataT& data, Id face_id, Id firs
     const auto* face = mesh::find_face(data, face_id);
     if (!face || !face->holes.empty() || first == second)
     {
-        return fail(error, "连接操作需要无洞面上的两个不同顶点");
+        return fail(error, "Connecting requires two distinct vertices on a face without holes");
     }
     const auto first_it = std::find(face->vertices.begin(), face->vertices.end(), first);
     const auto second_it = std::find(face->vertices.begin(), face->vertices.end(), second);
     if (first_it == face->vertices.end() || second_it == face->vertices.end())
     {
-        return fail(error, "连接顶点不属于目标面");
+        return fail(error, "Connection vertices do not belong to the target face");
     }
     const auto a = static_cast<std::size_t>(first_it - face->vertices.begin());
     const auto b = static_cast<std::size_t>(second_it - face->vertices.begin());
     if ((a + 1) % face->vertices.size() == b || (b + 1) % face->vertices.size() == a)
     {
-        return fail(error, "连接顶点已经相邻");
+        return fail(error, "Connection vertices are already adjacent");
     }
     schema::EditableMeshDataT result(data);
     const auto make_part = [&](std::size_t start, std::size_t end, Id id)
@@ -1696,7 +1706,7 @@ bool mesh::connect_vertices(schema::EditableMeshDataT& data, Id face_id, Id firs
     if (math::dot(math::face_normal(result, *part0), original_normal) <= math::epsilon ||
         math::dot(math::face_normal(result, *part1), original_normal) <= math::epsilon)
     {
-        return fail(error, "连接线离开了多边形内部");
+        return fail(error, "Connection leaves the polygon interior");
     }
     std::erase_if(result.faces, [face_id](const auto& item) { return item->id == face_id; });
     result.faces.push_back(std::move(part0));
@@ -1712,6 +1722,7 @@ bool mesh::append(schema::EditableMeshDataT& data, const schema::EditableMeshDat
         return false;
     }
     schema::EditableMeshDataT result(data);
+    result.primitive.reset();
     std::map<Id, Id> mapping;
     for (const auto& vertex : other.vertices)
     {
@@ -1723,7 +1734,7 @@ bool mesh::append(schema::EditableMeshDataT& data, const schema::EditableMeshDat
         copy->id = result.next_id++;
         if (material_slot_offset > 15 || copy->material_slot > 15 - material_slot_offset)
         {
-            return fail(error, "合并后的材质槽超过 16 槽限制");
+            return fail(error, "Merged material slots exceed the limit of 16");
         }
         copy->material_slot += material_slot_offset;
         map_face(*copy, mapping);
@@ -1742,7 +1753,7 @@ bool mesh::set_material(schema::EditableMeshDataT& data, std::span<const Id> fac
     }
     if (slot >= 16)
     {
-        return fail(error, "材质槽必须在 0 到 15 之间");
+        return fail(error, "Material slot must be between 0 and 15");
     }
     schema::EditableMeshDataT result(data);
     for (auto id : selected)
@@ -1764,7 +1775,7 @@ bool mesh::set_color(schema::EditableMeshDataT& data, std::span<const Id> faces,
     {
         if (!std::isfinite(value) || value < 0 || value > 1)
         {
-            return fail(error, "颜色分量必须在 0 到 1 之间");
+            return fail(error, "Color components must be between 0 and 1");
         }
     }
     schema::EditableMeshDataT result(data);
@@ -1854,7 +1865,7 @@ bool mesh::select_faces(const schema::EditableMeshDataT& data, std::span<const I
     }
     else
     {
-        return fail(error, "面选择扩展模式未知");
+        return fail(error, "Unknown face selection expansion mode");
     }
     output.assign(result.begin(), result.end());
     return true;
@@ -1880,7 +1891,7 @@ bool mesh::edge_ring(const schema::EditableMeshDataT& data, MeshEdge edge,
     const auto start = edge_key(edge.first, edge.second);
     if (!adjacent.contains(start))
     {
-        return fail(error, "起始边不存在");
+        return fail(error, "Starting edge does not exist");
     }
     std::set<EdgeKey> visited{start};
     std::vector<EdgeKey> pending{start};
@@ -1889,7 +1900,7 @@ bool mesh::edge_ring(const schema::EditableMeshDataT& data, MeshEdge edge,
         const auto current = pending[index];
         if (adjacent[current].size() > 2)
         {
-            return fail(error, "边环遇到非流形边");
+            return fail(error, "Edge ring encountered a non-manifold edge");
         }
         for (const auto* face : adjacent[current])
         {
@@ -1950,7 +1961,7 @@ bool mesh::edge_loop(const schema::EditableMeshDataT& data, MeshEdge edge,
     const auto start = edge_key(edge.first, edge.second);
     if (!edge_faces.contains(start))
     {
-        return fail(error, "边循环的起始边不存在");
+        return fail(error, "Edge loop starting edge does not exist");
     }
     std::vector<EdgeKey> pending{start};
     std::set<EdgeKey> visited{start};
@@ -1959,7 +1970,7 @@ bool mesh::edge_loop(const schema::EditableMeshDataT& data, MeshEdge edge,
         const auto current = pending[i];
         if (edge_faces[current].size() > 2)
         {
-            return fail(error, "边循环遇到非流形边");
+            return fail(error, "Edge loop encountered a non-manifold edge");
         }
         for (auto vertex : {current.first, current.second})
         {
@@ -1980,7 +1991,9 @@ bool mesh::edge_loop(const schema::EditableMeshDataT& data, MeshEdge edge,
             }
             if (candidates.size() > 1)
             {
-                return fail(error, "边循环在非常规顶点处分叉，无法唯一继续");
+                return fail(
+                    error,
+                    "Edge loop branches at an irregular vertex and has no unique continuation");
             }
             if (!candidates.empty() && visited.insert(candidates.front()).second)
             {
@@ -2005,7 +2018,7 @@ bool mesh::loop_cut(schema::EditableMeshDataT& data, MeshEdge edge, std::uint32_
     if (cuts == 0 || cuts > 64 || !std::isfinite(pinch) || !std::isfinite(offset) ||
         pinch <= -1.0 || pinch >= 1.0)
     {
-        return fail(error, "环切需要 1 到 64 条切线，pinch 必须在 -1 和 1 之间");
+        return fail(error, "Loop cuts require 1 to 64 cuts and pinch between -1 and 1");
     }
     std::vector<double> fractions;
     for (std::uint32_t i = 0; i < cuts; ++i)
@@ -2014,7 +2027,7 @@ bool mesh::loop_cut(schema::EditableMeshDataT& data, MeshEdge edge, std::uint32_
             0.5 + (static_cast<double>(i + 1) / (cuts + 1) - 0.5) * (1.0 - pinch) + offset;
         if (value <= math::epsilon || value >= 1.0 - math::epsilon)
         {
-            return fail(error, "环切间距或偏移将切线推到边界之外");
+            return fail(error, "Loop cut spacing or offset moves a cut outside the boundary");
         }
         fractions.push_back(value);
     }
@@ -2037,7 +2050,7 @@ bool mesh::loop_cut(schema::EditableMeshDataT& data, MeshEdge edge, std::uint32_
     const auto start = edge_key(edge.first, edge.second);
     if (!adjacent.contains(start))
     {
-        return fail(error, "环切起始边不存在");
+        return fail(error, "Loop cut starting edge does not exist");
     }
     std::map<EdgeKey, MeshEdge> directions{{start, edge}};
     std::vector<EdgeKey> pending{start};
@@ -2047,7 +2060,7 @@ bool mesh::loop_cut(schema::EditableMeshDataT& data, MeshEdge edge, std::uint32_
         const auto current = pending[index];
         if (adjacent[current].size() > 2)
         {
-            return fail(error, "环切遇到非流形边");
+            return fail(error, "Loop cut encountered a non-manifold edge");
         }
         const auto direction = directions[current];
         for (const auto* face : adjacent[current])
@@ -2070,7 +2083,9 @@ bool mesh::loop_cut(schema::EditableMeshDataT& data, MeshEdge edge, std::uint32_
                 const auto [found, inserted] = directions.emplace(key, opposite);
                 if (!inserted && found->second.first != opposite.first)
                 {
-                    return fail(error, "环切遇到方向不一致的扭转四边形带");
+                    return fail(
+                        error,
+                        "Loop cut encountered a twisted quad strip with inconsistent orientation");
                 }
                 if (inserted)
                 {
@@ -2083,7 +2098,7 @@ bool mesh::loop_cut(schema::EditableMeshDataT& data, MeshEdge edge, std::uint32_
     }
     if (affected.empty())
     {
-        return fail(error, "环切需要至少一个无洞四边形");
+        return fail(error, "Loop cut requires at least one quad without holes");
     }
     schema::EditableMeshDataT result(data);
     std::map<EdgeKey, std::vector<Id>> inserted;

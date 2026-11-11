@@ -1,0 +1,57 @@
+include "common.fbs";
+namespace engine.schema;
+
+enum ModelingPrimitive:ubyte {
+    cube, plane, cylinder, cone, sphere, torus, prism, stairs,
+    arch, pipe, door, curved_stairs, sprite, icosphere
+}
+
+table ModelingPrimitiveData {
+    type:ModelingPrimitive = cube;
+    size:Vec3 (required, native_inline, native_default: "Vec3(1.0, 1.0, 1.0)");
+    radius:double = 0.5;
+    inner_radius:double = 0.25;
+    angle_degrees:double = 180;
+    thickness:double = 0.1;
+    subdivisions:uint = 2;
+    segments:uint = 24;
+    rings:uint = 12;
+    steps:uint = 8;
+    width_segments:uint = 1;
+    depth_segments:uint = 1;
+    uv_tiles_per_unit:double = 1;
+}
+
+struct ModelingVertex {
+    id:ulong;
+    x:double;
+    y:double;
+    z:double;
+}
+
+table ModelingLoop {
+    vertices:[ulong] (required);
+    texcoords:[Vec2];
+    colors:[Color];
+}
+
+table ModelingFace {
+    id:ulong;
+    vertices:[ulong] (required);
+    holes:[ModelingLoop];
+    texcoords:[Vec2];
+    colors:[Color];
+    material_slot:uint;
+    smoothing_group:uint;
+}
+
+table EditableMeshData {
+    schema_version:uint = 0;
+    vertices:[ModelingVertex] (required);
+    faces:[ModelingFace] (required);
+    next_id:ulong = 1;
+    primitive:ModelingPrimitiveData;
+}
+
+root_type EditableMeshData;
+file_identifier "EMDL";

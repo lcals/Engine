@@ -1,4 +1,5 @@
 #include "runtime/font/font_system.hpp"
+#include "runtime/render/frame_counters.hpp"
 #include "runtime/scene/ecs_scene.hpp"
 #include "runtime/scene/ecs_storage.hpp"
 
@@ -509,6 +510,57 @@ bool FontSystem::layout(const FontResource& font, std::string_view text, const F
     return true;
 }
 
+SceneWorkState FontSystem::prepare_font(const ResourceHandle& handle,
+                                        const ResourceHandle& shader_handle,
+                                        const SceneWorkBudget& budget, SceneWorkProgress& output)
+{
+    output = {};
+    output.domain = "font";
+    output.stage = "gpu_resources";
+    output.total_known = true;
+    output.total = 2;
+    const FontResource* font = nullptr;
+    if (!is_initialized() || !resources_ || budget.items == 0 || budget.seconds <= 0 ||
+        resources_->get(handle, font) != ResourceError::none || !bgfx::getCaps())
+    {
+        output.state = SceneWorkState::failed;
+        return output.state;
+    }
+    if (!gpu_)
+    {
+        auto state = std::make_unique<GpuState>(*resources_);
+        if (!state->initialize())
+        {
+            last_error_ = "Cannot create font GPU uniforms";
+            return SceneWorkState::failed;
+        }
+        gpu_ = std::move(state);
+    }
+    const ShaderResource* shader = nullptr;
+    if (resources_->get(shader_handle, shader) != ResourceError::none)
+    {
+        last_error_ = "Font drawing requires a loaded Shader resource";
+        return SceneWorkState::failed;
+    }
+    auto* texture = gpu_->get_texture(handle, font);
+    if (texture == nullptr)
+    {
+        last_error_ = "Cannot create RGBA32F font curve texture within device limits";
+        return SceneWorkState::failed;
+    }
+    auto* program = gpu_->get_program(shader_handle, shader);
+    if (program == nullptr)
+    {
+        last_error_ = "Cannot create compatible font shader (s_font_curves and u_font_texture): " +
+                      shader->info().path;
+        return SceneWorkState::failed;
+    }
+
+    output.state = SceneWorkState::ready;
+    output.completed = 2;
+    return output.state;
+}
+
 bool FontSystem::draw(const ResourceHandle& handle, const FontGeometry& geometry,
                       const FontDraw& settings)
 {
@@ -543,35 +595,18 @@ bool FontSystem::draw(const ResourceHandle& handle, const FontGeometry& geometry
         last_error_ = "Invalid font draw geometry or transform";
         return false;
     }
-    if (!gpu_)
+    SceneWorkProgress prepared;
+    if (prepare_font(handle, settings.shader, {}, prepared) != SceneWorkState::ready)
     {
-        auto state = std::make_unique<GpuState>(*resources_);
-        if (!state->initialize())
-        {
-            last_error_ = "Cannot create font GPU uniforms";
-            return false;
-        }
-        gpu_ = std::move(state);
+        return false;
     }
     const ShaderResource* shader = nullptr;
     if (resources_->get(settings.shader, shader) != ResourceError::none)
     {
-        last_error_ = "Font drawing requires a loaded Shader resource";
         return false;
     }
     auto* texture = gpu_->get_texture(handle, font);
-    if (texture == nullptr)
-    {
-        last_error_ = "Cannot create RGBA32F font curve texture within device limits";
-        return false;
-    }
     auto* program = gpu_->get_program(settings.shader, shader);
-    if (program == nullptr)
-    {
-        last_error_ = "Cannot create compatible font shader (s_font_curves and u_font_texture): " +
-                      shader->info().path;
-        return false;
-    }
     bgfx::TransientVertexBuffer vertices{};
     bgfx::TransientIndexBuffer indices{};
     if (!bgfx::allocTransientBuffers(&vertices, gpu_->layout,
@@ -613,6 +648,10 @@ bool FontSystem::draw(const ResourceHandle& handle, const FontGeometry& geometry
     }
     bgfx::setState(state);
     bgfx::submit(settings.view_id, program->handle);
+    if (render_detail::collecting_ui)
+    {
+        ++render_detail::ui_draws;
+    }
     last_error_.clear();
     return true;
 }

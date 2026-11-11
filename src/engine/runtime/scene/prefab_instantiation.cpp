@@ -61,7 +61,7 @@ Node Scene::instantiate_prefab(std::string_view path, std::string_view name,
     }
     ecs_detail::ResourceBindingScope binding(world_, resource.handle());
     const auto& prefab = *resource.data<PrefabResource>();
-    if (prefab.schema_version != 2 || prefab.root_id == 0 || prefab.nodes.empty() ||
+    if (prefab.schema_version != 3 || prefab.root_id == 0 || prefab.nodes.empty() ||
         prefab.nodes.size() > std::numeric_limits<std::uint64_t>::max() - node_sequence_)
     {
         return {};

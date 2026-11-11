@@ -67,6 +67,7 @@ private:
     std::uint64_t order_sequence_ = 0;
     std::uint64_t prefab_sequence_ = 0;
     bool published_ = false;
+    Scene* allocation_target_ = nullptr;
     ResourceHandle resource_;
     std::unordered_map<std::uint64_t, std::uint64_t> local_node_index_;
 };

@@ -1,5 +1,7 @@
 # 角色物理组件
 
+固定步驱动、运行胶囊尺寸和支撑状态的契约见[角色物理固定步驱动](character-motor-control.md)；各方法只在所属图维护，验证范围见[测试文档](../../testing.md)。
+
 `engine::CharacterMotor` 只表达胶囊移动和物理状态，不解释按键或相机模式。
 
 ```mermaid
@@ -16,7 +18,7 @@ classDiagram
         +set_settings(const CharacterMotorDataT& settings) bool
         +restore_data(const ComponentDataT& data) bool
         +set_velocity(const Vec3& velocity) bool
-        +clear_input() void
+        +clear_input() bool
         +add_velocity(const Vec3& delta) bool
         +velocity() Vec3
         +jump(float speed) bool
@@ -42,10 +44,11 @@ classDiagram
     ecs_world_t *-- CharacterMotorRuntime : 实例运行数据
     CharacterMotor ..> CharacterMotorRuntime : 校验身份后短期借用
     CharacterMotor ..> ComponentRegistry : 静态登记类型操作
-
 ```
 
 节点原点是脚底，胶囊沿 Y 轴，要求根节点、单位正缩放与仅 Y 轴旋转；同节点不能同时启用 Collider 或 RigidBody。半高不包括两个半球，完整高度是 `2 * (half_height + radius)`。核心使用 Jolt CharacterVirtual 的 ExtendedUpdate，支持地面判定、重力、坡度、台阶和贴地；没有复制一套碰撞求解器。
+
+固定步驱动、完整物理快照与控制权约束见[角色物理固定步驱动](character-motor-control.md)。驱动持有控制权时，直接 set_velocity、jump 和 clear_input 返回 false；add_velocity 仍供调用方添加外力。
 
 `set_velocity` 提交世界空间水平速度（Y 必须为零），`clear_input` 清除主动速度和未消费跳跃，不清除击退；`velocity` 返回物理求解后的速度。`add_velocity` 提交世界空间速度增量，单位 m/s，等价于单位质量冲量；与主动输入分离，下一固定步累计消费一次，无固定步的帧保留请求。水平外部速度按 `exp(-external_damping * dt)` 衰减，`external_damping` 默认为 6/s，取值 0..1000/s；垂直增量交给既有 Jolt 跳跃、重力和碰撞流程。`jump` 仅在地面时接受一次请求。输入、外部速度及请求均不进入持久数据。
 

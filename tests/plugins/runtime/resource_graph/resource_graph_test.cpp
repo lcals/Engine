@@ -384,7 +384,7 @@ bool ownership_and_budgets()
     {
         return false;
     }
-    ResourceHandle handle, second;
+    ResourceHandle handle;
     if (!f.graph.load(guid(1), handle))
     {
         return false;

@@ -14,6 +14,7 @@
 #include "runtime/task/thread_system.hpp"
 #include "runtime/utils/path_utils.hpp"
 #include "runtime/world/world_system.hpp"
+#include "utf8_fixture.hpp"
 
 #include <basisu/encoder/basisu_enc.h>
 #include <basisu/transcoder/basisu_transcoder.h>
@@ -361,7 +362,8 @@ bool shader_dependencies(engine::editor::AssetPipelineSystem& pipeline, const Fi
     }
     return expect(write(path, descriptor +
                                   "[[samplers]]\nname=\"invalid\"\nuniform=\"s_extra\"\nstage=3\n"
-                                  "default_texture=\"颜色.png\"\n") &&
+                                  "default_texture=\"" +
+                                  test_support::utf8_fixture("color_texture") + "\"\n") &&
                       !pipeline.build_assets(fixture.root) &&
                       read(fixture.root / "cache/catalog.bin") == stable,
                   "shader defaults cannot depend on project textures");
@@ -381,7 +383,8 @@ bool tests()
     {
         return false;
     }
-    const auto image_path = fixture.root / "assets" / PathUtils::from_utf8("颜色.png");
+    const auto image_path =
+        fixture.root / "assets" / PathUtils::from_utf8(test_support::utf8_fixture("color_texture"));
     auto meta_path = image_path;
     meta_path += ".meta";
     if (!expect(write_image(image_path, red_png) && build(pipeline, fixture),
@@ -389,7 +392,7 @@ bool tests()
     {
         return false;
     }
-    const auto* image_entry = entry(pipeline, "颜色.png");
+    const auto* image_entry = entry(pipeline, test_support::utf8_fixture("color_texture"));
     if (!expect(image_entry && image_entry->kind == schema::AssetKind::texture,
                 "catalog identifies a texture resource"))
     {

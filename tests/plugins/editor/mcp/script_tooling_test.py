@@ -4,6 +4,13 @@ import argparse
 import json
 import re
 from pathlib import Path
+
+UNICODE = dict(
+    line.split("\t", 1) for line in
+    (Path(__file__).resolve().parents[4] / "tests/support/fixtures/unicode.tsv")
+    .read_text(encoding="utf-8").splitlines()
+)
+
 import shutil
 import subprocess
 import sys
@@ -201,18 +208,19 @@ def test(
     without_terrain=False,
     without_destruction=False,
     without_ui=False,
+    without_camera=False,
 ):
     # 空格及 shell 元字符必须作为普通 argv 路径传递，不能经 shell 执行。
-    project = temporary / "project with spaces $literal 中文"
+    project = temporary / UNICODE["tooling_project"]
     runtime = temporary / "runtime"
     prepare_minimal_project(root, project)
     check_compiler_inputs(root, project, temporary)
-    unicode_asset = project / "assets/资料/文本.txt"
+    unicode_asset = project / UNICODE["text_asset"]
     unicode_asset.parent.mkdir()
     unicode_asset.write_text("UTF-8 asset content", encoding="utf-8")
-    image_asset = project / "assets/资料/raw.png"
+    image_asset = project / UNICODE["image_asset"]
     shutil.copy2(root / "tests/fixtures/asset_tools/blocks.png", image_asset)
-    binary_asset = project / "assets/资料/raw.bin"
+    binary_asset = project / UNICODE["binary_asset"]
     binary_asset.write_bytes(bytes(range(256)) + b"\0raw binary")
 
     replies = invoke(
@@ -282,7 +290,7 @@ def test(
         "execute_batch",
         "undo",
         "redo",
-        "get_editor_receipt",
+        "get_request_receipt",
         "execute_project_script",
         "close_editor",
         "create_node",
@@ -294,6 +302,9 @@ def test(
         "set_render_settings",
         "capture_frame",
         "get_frame_capture",
+        "get_scene_load",
+        "get_gameplay_prepare",
+        "release_gameplay_prepare",
         "set_render_stats",
         "get_mesh_render_settings",
         "set_mesh_render_settings",
@@ -316,6 +327,7 @@ def test(
         "set_preview_camera",
         "modeling_help",
         "modeling_create",
+        "modeling_rebuild",
         "modeling_get",
         "modeling_select",
         "modeling_edit",
@@ -331,6 +343,9 @@ def test(
     controller_tools = {
         "set_character_controller",
         "get_character_controller",
+        "get_character_status",
+        "set_character_input",
+        "clear_character_input",
         "set_character_camera",
         "get_character_camera",
         "set_character_visual",
@@ -347,7 +362,6 @@ def test(
         "play_effect",
         "pause_effect",
         "stop_effect",
-        "get_effect_state",
     }
     terrain_tools = {
         "create_terrain_asset",
@@ -370,6 +384,10 @@ def test(
         "destruction_reset",
     }
     optional_tools = (
+        (without_camera, "camera", {
+            "set_camera_controller", "get_camera_controller", "set_camera_parameters",
+            "trigger_camera_parameter", "set_camera_target", "get_camera_status",
+        }),
         (without_effects, "effects", effects_tools),
         (without_terrain, "terrain", terrain_tools),
         (without_destruction, "destruction", destruction_tools),
@@ -708,6 +726,11 @@ if __name__ == "__main__":
         help="Validate that the optional character controller MCP adapter is absent",
     )
     parser.add_argument(
+        "--without-camera",
+        action="store_true",
+        help="Validate that the optional camera MCP adapter is absent",
+    )
+    parser.add_argument(
         "--without-scene-bake",
         action="store_true",
         help="Validate that the optional scene bake MCP adapter is absent",
@@ -742,5 +765,6 @@ if __name__ == "__main__":
             without_terrain=arguments.without_terrain,
             without_destruction=arguments.without_destruction,
             without_ui=arguments.without_ui,
+            without_camera=arguments.without_camera,
         )
     print("TypeScript compile, atomic sync, MCP protocol and control tests passed")

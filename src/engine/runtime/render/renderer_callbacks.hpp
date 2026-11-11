@@ -15,6 +15,14 @@
 namespace engine
 {
 
+enum class ScreenshotStatus
+{
+    idle,
+    pending,
+    complete,
+    failed
+};
+
 struct RenderSystem::RendererCallbacks final : bgfx::CallbackI
 {
     std::atomic<ScreenshotStatus> status{ScreenshotStatus::idle};

@@ -297,7 +297,7 @@ struct Fixture
         return !destruction->synchronize() && world.add_subsystem(child) &&
                (resources.add<engine::plugins::destruction::DestructionResourceCodec>() &&
                 services.initialize({})) &&
-               physics.initialize({}) && world.initialize({}) &&
+               world.initialize({}) && physics.initialize({}) &&
                add_asset(files, alternate_frames) &&
                services.publish_and_load(files.catalog, {{"content", files.root}});
     }

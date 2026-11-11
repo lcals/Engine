@@ -7,6 +7,7 @@
 #include "plugins/editor/modeling/mesh_primitives.hpp"
 #include "plugins/editor/modeling/mesh_topology.hpp"
 #include "plugins/editor/modeling/modeling_source_io.hpp"
+#include "plugins/editor/modeling/primitive_contract.hpp"
 #include "runtime/scene/mesh_renderer.hpp"
 #include "runtime/scene/scene.hpp"
 #include "runtime/scene/transform.hpp"
@@ -359,36 +360,9 @@ bool create_mesh(std::string_view shape, const Json& params, schema::EditableMes
         }
         return mesh::lathe(options, data, error);
     }
-    const std::map<std::string_view, MeshPrimitive> types = {
-        {"cube", MeshPrimitive::cube},         {"plane", MeshPrimitive::plane},
-        {"cylinder", MeshPrimitive::cylinder}, {"cone", MeshPrimitive::cone},
-        {"sphere", MeshPrimitive::sphere},     {"torus", MeshPrimitive::torus},
-        {"prism", MeshPrimitive::prism},       {"stairs", MeshPrimitive::stairs},
-        {"arch", MeshPrimitive::arch},         {"pipe", MeshPrimitive::pipe},
-        {"door", MeshPrimitive::door},         {"curved_stairs", MeshPrimitive::curved_stairs},
-        {"sprite", MeshPrimitive::sprite},     {"icosphere", MeshPrimitive::icosphere}};
-    const auto type = types.find(shape);
-    MeshPrimitiveOptions options;
-    if (type == types.end() ||
-        !fields(params, {"size", "radius", "innerRadius", "angleDegrees", "segments", "rings",
-                         "steps", "widthSegments", "depthSegments", "thickness", "subdivisions"}) ||
-        !vec3_field(params, "size", options.size) ||
-        !number_field(params, "radius", options.radius) ||
-        !number_field(params, "thickness", options.thickness) ||
-        !uint_field(params, "subdivisions", options.subdivisions) ||
-        !number_field(params, "innerRadius", options.inner_radius) ||
-        !number_field(params, "angleDegrees", options.angle_degrees) ||
-        !uint_field(params, "segments", options.segments) ||
-        !uint_field(params, "rings", options.rings) ||
-        !uint_field(params, "steps", options.steps) ||
-        !uint_field(params, "widthSegments", options.width_segments) ||
-        !uint_field(params, "depthSegments", options.depth_segments))
-    {
-        error = "Unknown primitive or invalid primitive parameters";
-        return false;
-    }
-    options.type = type->second;
-    return mesh::create(options, data, error);
+    schema::ModelingPrimitiveDataT options;
+    return detail::patch_primitive(shape, params, options, error) &&
+           mesh::create(options, data, error);
 }
 
 bool operate(std::string_view operation, const Json& params, const MeshSelection& selection,
@@ -925,10 +899,13 @@ bool relative_matrix(const Node& destination, const Node& source, std::array<dou
 
 bool modeling_help(const Json& arguments, Json& result, std::string& error)
 {
-    if (!fields(arguments, {"operation"}) ||
-        (arguments.contains("operation") && !arguments["operation"].is_string()))
+    if (!fields(arguments, {"operation", "shape"}) ||
+        (arguments.contains("operation") && !arguments["operation"].is_string()) ||
+        (arguments.contains("shape") &&
+         (!arguments["shape"].is_string() || !arguments.contains("operation") ||
+          (arguments["operation"] != "create" && arguments["operation"] != "rebuild"))))
     {
-        error = "modeling_help accepts an optional operation name";
+        error = "shape is only supported with operation create or rebuild";
         return false;
     }
     const Json identity_matrix = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
@@ -1042,35 +1019,15 @@ bool modeling_help(const Json& arguments, Json& result, std::string& error)
         "Exactly two selected vertices within the given face.";
     operations["material"]["notes"] =
         "Face material slots 0..15; set_material_parameter edits slot colors.";
-    operations["create"] = {
-        {"tool", "modeling_create"},
-        {"primitiveParameters",
-         {{"size", {1, 1, 1}},
-          {"radius", 0.5},
-          {"innerRadius", 0.25},
-          {"angleDegrees", 180},
-          {"segments", 24},
-          {"rings", 12},
-          {"steps", 8},
-          {"widthSegments", 1},
-          {"depthSegments", 1},
-          {"thickness", 0.1},
-          {"subdivisions", 2}}},
-        {"shapes",
-         {"cube", "plane", "cylinder", "cone", "sphere", "torus", "prism", "stairs", "arch", "pipe",
-          "door", "curved_stairs", "sprite", "icosphere", "polygon", "sweep", "lathe"}},
-        {"polygon", {{"points", {{0, 0, 0}, {1, 0, 0}, {0, 1, 0}}}, {"holes", Json::array()}}},
-        {"sweep",
-         {{"profile", {{-0.5, -0.5}, {0.5, -0.5}, {0.5, 0.5}, {-0.5, 0.5}}},
-          {"path", {{0, 0, 0}, {0, 0, 2}}},
-          {"closedProfile", true},
-          {"cap", true},
-          {"twistDegrees", 0}}},
-        {"lathe",
-         {{"profile", {{0.5, -0.5}, {0.5, 0.5}}},
-          {"segments", 24},
-          {"angleDegrees", 360},
-          {"cap", true}}}};
+    operations["create"] = {{"tool", "modeling_create"},
+                            {"shapes", detail::shape_contracts(false)}};
+    operations["rebuild"] = {{"tool", "modeling_rebuild"},
+                             {"shapes", detail::shape_contracts(true)},
+                             {"notes",
+                              "Patch saved parameters; {} resets to the saved recipe. "
+                              "Geometry/UV/face edits and selection are reset. "
+                              "Node, transform, components and material bindings remain. "
+                              "Finish or cancel live mirror first; operation is undoable."}};
     operations["select"] = {
         {"tool", "modeling_select"},
         {"modes", {"replace", "grow", "shrink", "connected", "edge_ring", "edge_loop"}},
@@ -1090,7 +1047,22 @@ bool modeling_help(const Json& arguments, Json& result, std::string& error)
             error = "Unknown modeling operation";
             return false;
         }
-        result = {{"operation", operation}, {"contract", operations[operation]}};
+        if (arguments.contains("shape"))
+        {
+            const auto shape = arguments["shape"].get<std::string>();
+            if (!operations[operation]["shapes"].contains(shape))
+            {
+                error = "Unsupported shape for this operation";
+                return false;
+            }
+            result = {{"operation", operation},
+                      {"shape", shape},
+                      {"contract", operations[operation]["shapes"][shape]}};
+        }
+        else
+        {
+            result = {{"operation", operation}, {"contract", operations[operation]}};
+        }
     }
     else
     {
@@ -1529,16 +1501,68 @@ struct ModelingCommands::State
         }
     };
 
-    Json summary(const ModelRecord& record) const
+    bool summary(ModelRecord& record, Json& output, std::string& error)
     {
-        return {{"modelId", std::to_string(record.model_id)},
-                {"nodeId", std::to_string(record.node_id)},
-                {"name", record.name},
-                {"vertexCount", record.source.vertices.size()},
-                {"faceCount", record.source.faces.size()},
-                {"triangleCount", record.compiled.indices.size() / 3},
-                {"selection", selection_json(record.selection)},
-                {"mirror", mirror_json(record)}};
+        output = nullptr;
+        auto value = node(record, error);
+        std::array<float, 16> matrix{};
+        if (!value || !value.get_component<Transform>().world_matrix(matrix.data()) ||
+            !std::all_of(matrix.begin(), matrix.end(),
+                         [](float item) { return std::isfinite(item); }))
+        {
+            error = "Cannot calculate model world bounds";
+            return false;
+        }
+        Json bounds = {{"local", nullptr}, {"world", nullptr}};
+        if (!record.compiled.vertices.empty())
+        {
+            std::array<double, 3> local_min, local_max, world_min, world_max;
+            local_min.fill(std::numeric_limits<double>::infinity());
+            world_min = local_min;
+            local_max.fill(-std::numeric_limits<double>::infinity());
+            world_max = local_max;
+            for (const auto& vertex : record.compiled.vertices)
+            {
+                const std::array<double, 3> local{vertex.x(), vertex.y(), vertex.z()};
+                for (std::size_t axis = 0; axis < 3; ++axis)
+                {
+                    const double coordinate = matrix[axis] * local[0] +
+                                              matrix[4 + axis] * local[1] +
+                                              matrix[8 + axis] * local[2] + matrix[12 + axis];
+                    if (!std::isfinite(local[axis]) || !std::isfinite(coordinate))
+                    {
+                        error = "Model bounds contain nonfinite coordinates";
+                        return false;
+                    }
+                    local_min[axis] = std::min(local_min[axis], local[axis]);
+                    local_max[axis] = std::max(local_max[axis], local[axis]);
+                    world_min[axis] = std::min(world_min[axis], coordinate);
+                    world_max[axis] = std::max(world_max[axis], coordinate);
+                }
+            }
+            const auto box = [](const auto& minimum, const auto& maximum)
+            {
+                return Json{
+                    {"min", minimum},
+                    {"max", maximum},
+                    {"size",
+                     {maximum[0] - minimum[0], maximum[1] - minimum[1], maximum[2] - minimum[2]}}};
+            };
+            bounds = {{"local", box(local_min, local_max)}, {"world", box(world_min, world_max)}};
+        }
+        output = {{"modelId", std::to_string(record.model_id)},
+                  {"nodeId", std::to_string(record.node_id)},
+                  {"name", record.name},
+                  {"vertexCount", record.source.vertices.size()},
+                  {"faceCount", record.source.faces.size()},
+                  {"triangleCount", record.compiled.indices.size() / 3},
+                  {"selection", selection_json(record.selection)},
+                  {"mirror", mirror_json(record)},
+                  {"primitive", record.source.primitive
+                                    ? detail::primitive_json(*record.source.primitive)
+                                    : Json(nullptr)},
+                  {"bounds", std::move(bounds)}};
+        return true;
     }
 
     bool query(const Json& arguments, Json& result, std::string& error)
@@ -1561,11 +1585,12 @@ struct ModelingCommands::State
             for (auto& [model_id, record] : records)
             {
                 static_cast<void>(model_id);
-                if (!node(record, error))
+                Json item;
+                if (!summary(record, item, error))
                 {
                     return false;
                 }
-                models.push_back(summary(record));
+                models.push_back(std::move(item));
             }
             result["models"] = std::move(models);
             result["capabilities"] = {{"stableModelIds", true},
@@ -1589,7 +1614,10 @@ struct ModelingCommands::State
             }
             return false;
         }
-        result["model"] = summary(*record);
+        if (!summary(*record, result["model"], error))
+        {
+            return false;
+        }
         Json vertices = Json::array();
         Json faces = Json::array();
         const auto end = static_cast<std::size_t>(offset) + limit;
@@ -1694,6 +1722,82 @@ struct ModelingCommands::State
                   {"modelId", std::to_string(record->model_id)}};
         edit->changes.push_back({record->model_id, nullptr, std::move(record)});
         ++next_model_id;
+        output = std::move(edit);
+        return true;
+    }
+
+    bool rebuild(const Json& arguments, Json& result,
+                 std::unique_ptr<engine::editor::EditorEdit>& output, std::string& error)
+    {
+        if (!fields(arguments, {"sceneId", "modelId", "nodeId", "parameters"}) ||
+            !arguments.contains("parameters") || !arguments["parameters"].is_object())
+        {
+            error = "Rebuild requires a parameters object";
+            return false;
+        }
+        auto* record = target(arguments, error);
+        if (!record)
+        {
+            return false;
+        }
+        if (!record->source.primitive || record->mirror_enabled)
+        {
+            error = "Rebuild requires a saved primitive recipe and no active mirror mode";
+            return false;
+        }
+        auto before = snapshot(*record, error);
+        if (!before)
+        {
+            return false;
+        }
+        auto options = *before->source.primitive;
+        auto after = std::make_unique<ModelRecord>(*before);
+        if (!detail::patch_primitive(schema::EnumNameModelingPrimitive(options.type),
+                                     arguments["parameters"], options, error) ||
+            !mesh::create(options, after->source, error))
+        {
+            return false;
+        }
+        const auto offset = before->source.next_id - 1;
+        if (after->source.next_id > std::numeric_limits<std::uint64_t>::max() - offset)
+        {
+            error = "Model element identity space exhausted";
+            return false;
+        }
+        for (auto& vertex : after->source.vertices)
+        {
+            vertex = {vertex.id() + offset, vertex.x(), vertex.y(), vertex.z()};
+        }
+        for (auto& face : after->source.faces)
+        {
+            face->id += offset;
+            for (auto& id : face->vertices)
+            {
+                id += offset;
+            }
+            for (auto& hole : face->holes)
+            {
+                for (auto& id : hole->vertices)
+                {
+                    id += offset;
+                }
+            }
+        }
+        after->source.next_id += offset;
+        after->selection = {};
+        if (!prepare_record(*after, error))
+        {
+            return false;
+        }
+        result = {{"sceneId", std::to_string(scene_id)},
+                  {"modelId", std::to_string(record->model_id)},
+                  {"geometryReset", true}};
+        if (!summary(*after, result["model"], error))
+        {
+            return false;
+        }
+        auto edit = std::make_unique<Edit>(*this);
+        edit->changes.push_back({record->model_id, std::move(before), std::move(after)});
         output = std::move(edit);
         return true;
     }
@@ -1998,6 +2102,8 @@ struct ModelingCommands::State
                 return false;
             }
             after->selection = {};
+            after->source.primitive.reset();
+            copy->source.primitive.reset();
             if (!prepare_record(*after, error))
             {
                 return false;
@@ -2028,6 +2134,7 @@ struct ModelingCommands::State
                 return false;
             }
             copy->mirror_enabled = false;
+            copy->source.primitive.reset();
             copy->visual["position"] = {0, 0, 0};
             copy->visual["rotation"] = {0, 0, 0};
             copy->visual["scale"] = {1, 1, 1};
@@ -2057,6 +2164,7 @@ struct ModelingCommands::State
         }
         auto combined = std::make_unique<ModelRecord>();
         combined->model_id = next_model_id;
+        combined->source.schema_version = 2;
         combined->name = "Combined model";
         if (!name_field(arguments, combined->name))
         {
@@ -2140,7 +2248,7 @@ struct ModelingCommands::State
         }
         auto saved_source = record->source;
         if ((record->mirror_enabled && !mesh::mirror(saved_source, record->mirror, error)) ||
-            !detail::save_source(path, saved_source, record->compiled, error))
+            !detail::save_source(path, saved_source, error))
         {
             return false;
         }
@@ -2166,6 +2274,10 @@ struct ModelingCommands::State
         if (command == "modeling_create" || command == "modeling_load")
         {
             return create(arguments, result, edit, error, command == "modeling_load");
+        }
+        if (command == "modeling_rebuild")
+        {
+            return rebuild(arguments, result, edit, error);
         }
         if (command == "modeling_get")
         {
@@ -2247,15 +2359,15 @@ bool ModelingCommands::export_mesh(const Node& node, const fs::path& path, std::
     {
         return false;
     }
-    return detail::save_source(path, source, *renderer.mesh_data(), error);
+    return detail::save_source(path, source, error);
 }
 
 bool ModelingCommands::register_commands(engine::editor::EditorCommands& commands)
 {
     for (const char* name :
-         {"modeling_create", "modeling_get", "modeling_select", "modeling_edit", "modeling_delete",
-          "modeling_duplicate", "modeling_combine", "modeling_separate", "modeling_save",
-          "modeling_load", "modeling_help"})
+         {"modeling_create", "modeling_rebuild", "modeling_get", "modeling_select", "modeling_edit",
+          "modeling_delete", "modeling_duplicate", "modeling_combine", "modeling_separate",
+          "modeling_save", "modeling_load", "modeling_help"})
     {
         const std::string command = name;
         const bool undoable =

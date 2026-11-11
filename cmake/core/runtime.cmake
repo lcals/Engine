@@ -40,6 +40,8 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
         PRIVATE engine::window SDL3::SDL3)
 
     engine_add_system(runtime render)
+    target_sources(engine_render PRIVATE src/engine/runtime/render/render_observation.cpp
+        src/engine/runtime/render/passes/frame_output.cpp)
     target_sources(engine_render PRIVATE src/engine/runtime/render/render_features.cpp src/engine/runtime/render/mesh_lod_selection.cpp src/engine/runtime/render/passes/atmosphere_pass.cpp src/engine/runtime/render/passes/debug_draw_pass.cpp)
     target_link_libraries(engine_render PRIVATE engine_bgfx_debugdraw)
     engine_enable_profiling(engine_render)
@@ -137,6 +139,7 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
     target_compile_definitions(engine_resource PRIVATE JSON_NOEXCEPTION=1)
 
     engine_add_system(runtime world)
+    target_sources(engine_world PRIVATE src/engine/runtime/world/world_scene_scope.cpp)
     engine_enable_profiling(engine_world)
     include(${PROJECT_SOURCE_DIR}/cmake/core/scene_schema.cmake)
     engine_add_scene_schema()
@@ -257,7 +260,8 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
         engine::ui
         engine::render)
 
-    add_library(engine_gameplay STATIC src/engine/runtime/gameplay/gameplay_session.cpp
+    add_library(engine_gameplay STATIC src/engine/runtime/gameplay/gameplay_scene_loading.cpp
+                src/engine/runtime/gameplay/gameplay_session.cpp
                                        src/engine/runtime/gameplay/deployment_selection.cpp)
     add_library(engine::gameplay ALIAS engine_gameplay)
     target_include_directories(engine_gameplay PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")

@@ -16,11 +16,10 @@ import {
     InputVirtualKind,
     Scene,
     Storage,
-    Time,
 } from "engine";
 
 // SDL scancodes describe key positions. Only this sample chooses these defaults.
-const default_keys = { left: 4, right: 7, forward: 26, back: 22, jump: 44, view: 43 };
+const default_keys = { left: 4, right: 7, forward: 26, back: 22, jump: 44, view: 43, sprint: 225, crouch: 224 };
 type Keys = typeof default_keys;
 const storage_key = "showcase.input.keys.v1";
 
@@ -107,7 +106,9 @@ export class CharacterControls {
             look: InputBindingData[] = [];
         const rate: InputBindingData[] = [],
             jump: InputBindingData[] = [],
-            view: InputBindingData[] = [];
+            view: InputBindingData[] = [],
+            sprint: InputBindingData[] = [],
+            crouch: InputBindingData[] = [];
         const virtual_controls: InputVirtualControlData[] = [];
         const source = (id: bigint, kind: InputControlKind, code: number): InputControlRef => ({
             connection_id: id,
@@ -136,6 +137,8 @@ export class CharacterControls {
                 });
                 jump.push({ parts: [part(key(this.keys.jump), 1)] });
                 view.push({ parts: [part(key(this.keys.view), 1)] });
+                sprint.push({ parts: [part(key(this.keys.sprint), 1)] });
+                crouch.push({ parts: [part(key(this.keys.crouch), 1)] });
             } else if (
                 device.kind === InputDeviceKind.mouse &&
                 device.layout_key === "sdl:mouse:aggregate"
@@ -155,6 +158,8 @@ export class CharacterControls {
                 rate.push({ deadzone: 0.18, parts: [part(axis(2), 1), part(axis(3), 0, 1)] });
                 jump.push({ parts: [part(source(id, InputControlKind.gamepad_button, 0), 1)] });
                 view.push({ parts: [part(source(id, InputControlKind.gamepad_button, 3), 1)] });
+                sprint.push({ parts: [part(source(id, InputControlKind.gamepad_button, 7), 1)] });
+                crouch.push({ parts: [part(source(id, InputControlKind.gamepad_button, 1), 1)] });
             } else if (device.kind === InputDeviceKind.touch) {
                 const move_id = `move-${id}`,
                     look_id = `look-${id}`,
@@ -228,6 +233,8 @@ export class CharacterControls {
             { name: "look_rate", kind: InputActionKind.axis2d, bindings: rate },
             { name: "jump", bindings: jump },
             { name: "view", bindings: view },
+            { name: "sprint", bindings: sprint },
+            { name: "crouch", bindings: crouch },
         ];
         // Device changes outside this character's bindings must not cancel its held touches.
         const key = JSON.stringify({ actions, virtual_controls }, (_, value) =>
@@ -267,17 +274,20 @@ export class CharacterControls {
         const rate = Input.ReadAction(this.channel, "look_rate");
         const jump = Input.ReadAction(this.channel, "jump");
         const view = Input.ReadAction(this.channel, "view");
-        // Controller sensitivity consumes mouse units; convert the stick's rate here once.
-        const stick_scale = 800 * Time.deltaTime;
+        const sprint = Input.ReadAction(this.channel, "sprint");
+        const crouch = Input.ReadAction(this.channel, "crouch");
         if (
-            !this.controller.SetInput(
-                move?.value_x ?? 0,
-                move?.value_y ?? 0,
-                (look?.value_x ?? 0) + (rate?.value_x ?? 0) * stick_scale,
-                (look?.value_y ?? 0) + (rate?.value_y ?? 0) * stick_scale,
-                jump?.pressed ?? false,
-                view?.pressed ?? false,
-            )
+            !this.controller.SetInput({
+                move: [move?.value_x ?? 0, move?.value_y ?? 0],
+                lookDelta: [look?.value_x ?? 0, look?.value_y ?? 0],
+                lookRate: [rate?.value_x ?? 0, rate?.value_y ?? 0],
+                toggleView: view?.pressed ?? false,
+                actions: {
+                    jump: { held: jump?.held ?? false, pressed: jump?.pressed ?? false },
+                    sprint: { held: sprint?.held ?? false, pressed: sprint?.pressed ?? false },
+                    crouch: { held: crouch?.held ?? false, pressed: crouch?.pressed ?? false },
+                },
+            })
         )
             throw new Error("Cannot submit character input");
     }

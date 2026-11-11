@@ -10,6 +10,9 @@ const root = path.resolve(
     process.argv[2] ?? path.join(path.dirname(fileURLToPath(import.meta.url)), "../../.."),
 );
 const project = path.join(root, "projects/showcase");
+const unicode = Object.fromEntries((await readFile(
+    path.join(root, "tests/support/fixtures/unicode.tsv"), "utf8",
+)).trimEnd().split("\n").map(line => line.split("\t")));
 const output = await mkdtemp(path.join(tmpdir(), "engine-showcase-persistent-ui-"));
 
 try {
@@ -60,13 +63,17 @@ try {
         game.Update();
         preserved();
     };
+    const settle = () => {
+        for (let tick = 0; tick < 8 && game.model.loading && fixture.loadStatus !== "loading"; ++tick) game.Update();
+    };
     const command = (id) => {
         fixture.click(id);
         ++events;
         game.Update();
+        settle();
     };
 
-    edit("同一个输入框 / original text");
+    edit(unicode.persistent_input);
     command("load-a");
     ++commits;
     assert.equal(fixture.scene.path, "scenes/main.scene");
@@ -80,11 +87,12 @@ try {
 
     fixture.loadStatus = "loading";
     command("load-a");
-    assert.equal(fixture.pendingResource, "scenes/main.scene");
-    assert.match(status.text, /Loading resources 1 \/ 2/);
+    assert.equal(fixture.pendingLoad, "scenes/main.scene");
+    assert.match(status.text, /Scene loading/);
     edit("editing while resources are loading");
     fixture.loadStatus = "ready";
     game.Update();
+    settle();
     ++commits;
     preserved();
     assert.equal(fixture.pendingLoad, null);
@@ -110,7 +118,7 @@ try {
     fixture.failCommit = true;
     command("load-b");
     assert.equal(fixture.pendingLoad, null);
-    assert.match(status.text, /Commit rejected/);
+    assert.match(status.text, /fixture load failure/);
     preserved();
     fixture.failCommit = false;
     command("unload");

@@ -1,5 +1,7 @@
 include "animation_pose.fbs";
 include "common.fbs";
+include "camera.fbs";
+include "character_controller.fbs";
 namespace engine.schema;
 
 table TransformData {
@@ -8,17 +10,7 @@ table TransformData {
     scale:Vec3 (required, native_inline, native_default: "Vec3(1.0, 1.0, 1.0)");
 }
 
-enum Projection:ubyte { perspective, orthographic }
 enum LightKind:ubyte { directional, point, spot }
-
-table CameraData {
-    fov_degrees:float = 60;
-    near_clip:float = 0.1;
-    far_clip:float = 1000;
-    projection:Projection = perspective;
-    orthographic_size:float = 5;
-    frustum_culling_enabled:bool = false;
-}
 
 table LightData {
     color:Color (required, native_inline, native_default: "Color(1.0f, 1.0f, 1.0f, 1.0f)");
@@ -118,30 +110,6 @@ table CharacterMotorData {
     ground_snap_distance:float = 0.2;
     gravity_factor:float = 1;
     external_damping:float = 6;
-}
-
-enum CharacterView:ubyte { first_person, third_person }
-table CharacterControllerData {
-    move_speed:float = 4;
-    jump_speed:float = 5;
-    look_sensitivity:float = 0.12;
-    camera_node_id:ulong;
-}
-
-table CharacterCameraData {
-    target_node_id:ulong;
-    mode:CharacterView = third_person;
-    eye_height:float = 1.6;
-    camera_distance:float = 4;
-    pitch_min:float = -80;
-    pitch_max:float = 80;
-    collision_radius:float = 0.15;
-    collision_margin:float = 0.02;
-}
-
-enum CharacterVisualKind:ubyte { body, head, first_person }
-table CharacterVisualData {
-    kind:CharacterVisualKind = body;
 }
 
 table UiData {
@@ -263,7 +231,7 @@ table NavigationAgentData {
 union ComponentPayload {
     TransformData, CameraData, LightData, MeshRendererData,
     ColliderData, RigidBodyData, AudioSourceData, AudioListenerData, AnimatorData, CharacterMotorData,
-    CharacterControllerData, UiData, TextData, EnvironmentData, PostProcessData,
+    CameraControllerData, CharacterControllerData, UiData, TextData, EnvironmentData, PostProcessData,
     CharacterCameraData, CharacterVisualData, EffectData, TerrainData, DestructionData,
     NavigationAgentData, PlanarReflectionData, LightProbeVolumeData, BoneAttachmentData
 }

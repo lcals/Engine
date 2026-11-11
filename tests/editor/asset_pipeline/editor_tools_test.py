@@ -1,4 +1,4 @@
-"""验证离开源码树的脚本工具：声明入口、固定编译器和项目声明不能丢失。"""
+"""Validate deployed script tooling, including entry modules, pinned compilers and project declarations."""
 
 import argparse
 import json

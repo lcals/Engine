@@ -54,7 +54,7 @@ bool Component::valid() const noexcept
 }
 bool Component::writable() const noexcept
 {
-    return valid() && node_.world()->can_modify();
+    return valid() && ecs_detail::scope_writable(node_);
 }
 Node Component::node() const noexcept
 {
@@ -131,7 +131,7 @@ void Component::modified() noexcept
     ++current->revision;
     flecs::world(node_.world()->native_world())
         .event<Component>()
-        .id<ecs_detail::Published>()
+        .id<ecs_detail::NodeRuntime>()
         .entity(node_.id())
         .ctx(*this)
         .emit();

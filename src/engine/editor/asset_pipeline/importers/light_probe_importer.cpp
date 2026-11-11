@@ -26,7 +26,8 @@ bool LightProbeImporter::matches(const std::filesystem::path& source) const
 bool LightProbeImporter::inspect_batch(const ImportContext&, std::string& fingerprint,
                                        std::string& error)
 {
-    return schema_fingerprint({"light_probe.fbs", "common.fbs"}, fingerprint, error);
+    return schema_fingerprint({"runtime/light_probe.fbs", "runtime/common.fbs"}, fingerprint,
+                              error);
 }
 bool LightProbeImporter::convert(const ImportAsset& asset, const ImportContext& context,
                                  std::string& error) const

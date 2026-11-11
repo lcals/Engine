@@ -1,8 +1,15 @@
-"""真实 TypeScript 单段编译，检查类型诊断及与既有 ESM namespace 的互操作。"""
+"""Compile TypeScript snippets with the actual compiler and check diagnostics and existing ESM namespace interoperation."""
 
 import argparse
 import json
 from pathlib import Path
+
+UNICODE = dict(
+    line.split("\t", 1) for line in
+    (Path(__file__).resolve().parents[4] / "tests/support/fixtures/unicode.tsv")
+    .read_text(encoding="utf-8").splitlines()
+)
+
 import sys
 import subprocess
 import tempfile
@@ -12,7 +19,7 @@ from support.sample_project import prepare_minimal_project
 
 
 def test(root, temporary):
-    project = prepare_minimal_project(root, temporary / "project 中文 $literal")
+    project = prepare_minimal_project(root, temporary / UNICODE["shell_project"])
     state = "export default class Counter { value = 3; }\nexport const counter = new Counter();\n"
     (project / "assets/scripts/state.ts").write_text(state, encoding="utf-8")
     namespace = temporary / "state.mjs"

@@ -81,7 +81,7 @@ bool MeshResourceCodec::validate_data(const Resource& resource, std::string& err
 }
 
 bool MeshResourceCodec::validate_dependencies(const Resource& resource, ResourceView dependencies,
-                                              std::string& error) const
+                                              std::string&) const
 {
     const auto* data = resource_detail::data<MeshResource>(&resource);
     if (!data)

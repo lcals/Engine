@@ -22,6 +22,7 @@
 #include "runtime/ui/ui_system.hpp"
 #include "runtime/utils/path_utils.hpp"
 #include "runtime/world/world_system.hpp"
+#include "utf8_fixture.hpp"
 
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
@@ -274,7 +275,9 @@ bool test(Fixture& f)
         return false;
     }
     Json events = Json::array({{{"type", "focus"}, {"target", target(field)}},
-                               {{"type", "text"}, {"target", target(field)}, {"text", "你好 UI"}},
+                               {{"type", "text"},
+                                {"target", target(field)},
+                                {"text", test_support::utf8_fixture("ui_input")}},
                                {{"type", "key_down"}, {"key", "Shift"}},
                                {{"type", "key_down"}, {"key", "Left"}},
                                {{"type", "key_up"}, {"key", "Left"}},
@@ -284,7 +287,8 @@ bool test(Fixture& f)
     if (!expect(f.job("ui_input",
                       {{"documentId", std::to_string(field.document_id)}, {"events", events}},
                       reply) &&
-                    reply["status"] == "complete" && f.ui.value(field, value) && value == "你好 U!",
+                    reply["status"] == "complete" && f.ui.value(field, value) &&
+                    value == test_support::utf8_fixture("ui_edited"),
                 "Unicode input and Shift selection use native modifier state"))
     {
         return false;

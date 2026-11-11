@@ -13,6 +13,7 @@
 #include "runtime/utils/path_utils.hpp"
 #include "runtime/world/world_system.hpp"
 #include "scene_snapshot.hpp"
+#include "utf8_fixture.hpp"
 
 #include <flatbuffers/flatbuffers.h>
 
@@ -61,7 +62,6 @@ bool round_trip(std::vector<std::uint8_t>& bytes)
 {
     const engine::EngineConfig config;
     test_support::ResourceServices services;
-    auto& resources = services.core;
     engine::WorldSystem world(&services.loader);
     if (!expect((services.initialize(config) && services.prepare_builtins()),
                 "initialize shared resource definitions") ||
@@ -515,7 +515,7 @@ bool check_typescript_result(const char* changed_path, const char* original_path
         engine::schema::GetSceneData(original_bytes.data())->UnPack());
     if (!expect(changed != nullptr && original != nullptr && changed->info != nullptr &&
                     original->info != nullptr && changed->nodes.size() == 4 &&
-                    changed->info->name == "TypeScript 场景" &&
+                    changed->info->name == test_support::utf8_fixture("scene_name") &&
                     changed->info->active_camera_node == original->info->active_camera_node,
                 "TypeScript updates UTF8 metadata while retaining 64-bit active camera"))
     {

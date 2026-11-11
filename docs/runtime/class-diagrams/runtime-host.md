@@ -1,6 +1,8 @@
 # 运行宿主
 
-**2026-11-07 已实现接入：** [大场景准备](large-scene-preparation.md#调用方与完成边界)不增加 Host 的资源缓存或另一套加载接口。运行包无论是否配置开场影片，都走已有分阶段玩法准备；影片只影响呈现与进入时机。正常帧在场景明确修改后调用渲染 incremental 准备，preparing 时维持调用方选择的已就绪加载画面 / 启动清屏并继续派发任务，不能因尚未准备误走项目失败分支。ready 后才调用场景 render；真正 failed 仍按会话错误处理。该接入已实现，公开方法与系统所有权保持。
+本页维护插件装配完成边界、渲染提交结果处理，以及启动身份和故障快照。
+
+[场景加载](scene-loading.md)由 GameplaySession 组织各领域准备，RuntimeHost 不增加资源缓存或第二套加载接口。准备期间每帧继续提交当前已发布场景，候选资源按预算推进；候选发布后等待包含该内容的实际场景帧，再启动模拟。影片只影响呈现和进入时机，不阻止查询原生状态。
 
 **资源接入：可执行入口选择资源插件，给 RuntimeHost/各模块注入可空的 ResourceLoader，并分离文件、解析、资源图、影片及渲染任务域。** 公开参数按[已确认的业务接入](resource-consumers.md)同步；没有加载器时基础宿主仍可启动，资源操作返回失败。
 
@@ -31,6 +33,7 @@ classDiagram
         +renderer() RenderSystem#42;
         +ui() UiSystem#42;
         +set_event_observer(WindowEventHandler observer, void* context) void
+        +status(RuntimeHostStatus& output) bool
         +request_exit() void
         +shutdown() void
     }
@@ -81,6 +84,7 @@ classDiagram
         <<enumeration>>
         before_physics
         after_physics
+        initialized
     }
     class AnimationSystem
     class EngineConfig
@@ -94,6 +98,24 @@ classDiagram
         ready
         failed
     }
+    class RuntimeHostStatus {
+        <<struct>>
+        +uint64_t tick_id
+        +uint64_t sampled_at_ns
+        +bool initialized
+        +bool window_drawable
+        +bool exit_requested
+        +FrameStatus frame_status
+        +uint64_t prepare_id
+        +string error_code
+        +string error
+    }
+    class RenderSubmitStatus
+    class GameplayStopCause
+    RuntimeHost ..> RuntimeHostStatus : 原生只读快照
+    RuntimeHostStatus ..> FrameStatus
+    RuntimeHost ..> RenderSubmitStatus : 处理渲染返回事实
+    RuntimeHost ..> GameplayStopCause : 区分主动停止与故障
     RuntimeHost *-- MoviePlayer : 独占播放器
     RuntimeHost o-- ResourceCatalog : 锁存同一目录快照
     RuntimeHost o-- MountList : 锁存同一挂载快照
@@ -142,11 +164,14 @@ classDiagram
 先停止玩法及清理鼠标请求，再关闭输入和窗口。核心不链接具体 WindowBinding。
 - RuntimeHost 和 GameplaySession 只依赖 [ScriptRuntime](script-runtime.md) 契约，不包含或链接具体脚本插件，不依据虚拟机或插件编译宏改变核心实现。无工厂时仍能初始化窗口、场景和渲染；启动脚本玩法明确返回不可用。
 - 每帧先处理窗口事件，退出返回 exit_requested；窗口不可绘制时暂停音频输出，返回 paused 并继续接收恢复事件；恢复后继续音频与物理步进。随后由 Engine 更新根系统，由 GameplaySession 处理显式部署控制和资源切换，最后提交渲染帧。
-- 项目场景渲染失败时停止 GameplaySession 并尝试空白渲染；恢复成功继续运行，错误保留在会话中。系统更新或空白渲染失败保持 failed，直到关闭后重新初始化。渲染过程中收到平台暂停时返回 paused。
+- 渲染调用返回[RenderSubmitStatus](render-system.md#渲染提交结果)。`submitted` 后由 GameplaySession 根据真实范围帧推进激活；`deferred` 返回 `FrameStatus::paused`，保留加载请求和新旧场景拥有关系，不调用 stop、不递增成功帧、不启动新范围模拟。窗口恢复或渲染器已经支持的表面重建完成后，在后续正常帧重试。
+- `failed` 是实际故障，不以重复尝试空白渲染改报成功。宿主先锁存 `RuntimeHostStatus.error_code/error`，再调用 GameplaySession.stop 并显式传 GameplayStopCause::failure；会话先保存各在途请求的失败终态，再释放实际资源。系统更新失败走同一终止边界。宿主保持 `failed`，由调用方读取、归档并显式关闭后重新初始化；本设计不新增设备自动恢复服务，也不把未知错误归入 `deferred`。
+- 输入回调只保存首次错误，下一宿主安全点完成故障停止；不在事件派发栈中销毁玩法。即使事件在普通输入帧外到达，也必须锁存明确错误并结束在途请求，不能由入口的失败检查直接漏过收尾。
 - `gameplay()` 返回可空借用，仅在本宿主初始化成功至关闭前有效。宿主调用者必须先关闭借用会话的 EditorSystem，再销毁 RuntimeHost。
 - `world()` 返回同生命周期的可空世界借用，供宿主连接独立编辑器业务；运行时不认识命令服务或 MCP。
 - `window()` 返回同生命周期的可空窗口借用，供调用方独立组织事件处理和渲染帧；核心不判断调用方模式。
 - `renderer()` 返回同生命周期的可空渲染器借用，宿主据此装配编辑器渲染命令；截图和渲染设置接口由 RenderSystem 提供。
+- `status()` 在主线程复制当前宿主状态，不推进帧、任务或加载。`initialized` 仅表示呈现服务已初始化，允许片头及早期 MCP 观察；完整 initialize 返回成功仍须等待全部系统和 initialized 装配回调成功，分阶段世界装配由 step_gameplay 结果报告，不能凭该 bool 推断玩法就绪。`tick_id` 与单调时钟采样时间供业务和测试区分窗口不可绘制、帧暂停与加载仍在推进。`prepare_id` 为本宿主发起并已交给 GameplaySession 的启动身份，世界树尚未装配或未发起时为 0；具体启动结果查询会话的 `prepare_status`。世界树装配等早期失败由宿主故障字段报告，不能伪造会话启动身份。故障字段保持到关闭/重新初始化，普通状态查询和后续命令不覆盖它们。
 - 关闭顺序统一见下方[并行配置](#并行配置)。借用的外部 ResourceSystem 仍由调用宿主管理，RuntimeHost 仅解除借用，不驱动或关闭外部资源服务。部分初始化和重复关闭均安全。
 - RuntimeHost 不解析项目目录、不读取编辑器配置，也不实现脚本热重载；这些职责分别属于编辑器、平台路径和脚本模块。
 
@@ -161,7 +186,7 @@ classDiagram
 [世界暂停](../world-pause.md)不改变 Engine/System 的调度接口。宿主只在
 `!window.can_render()` 时暂停整个设备；世界暂停由 AudioSystem 解绑场景声部，不暂停独立影片。
 世界暂停时仍运行正常帧循环、UI 和渲染；
-仅窗口不可绘制时沿既有 FrameStatus::paused 返回。
+窗口不可绘制或渲染返回 `deferred` 时返回 `FrameStatus::paused`；世界暂停本身不阻止提交画面。
 
 可执行宿主负责按构建清单装配 ResourceGraphSystem，向 RuntimeHost 及领域模块注入 ResourceLoader；RuntimeHost 库不 include 或链接具体资源插件。外部资源有效期覆盖本宿主及全部领域使用者，关闭消费者后先解除加载器借用，再关闭插件与资源底层。
 
@@ -170,8 +195,36 @@ classDiagram
 渲染器在装配回调前已经初始化；宿主可登记 [RenderExtension](render-extension.md)，将具体插件所有权移交世界。核心不识别插件类型，扩展 GPU 准备在后续绘制阶段执行。
 对象先构造，世界尚未初始化时分别以 `before_physics` 和 `after_physics` 调用一次；窗口已就绪，
 物理实例已存在，但初始化前不得使用其运行能力。回调只追加对应位置的可选子系统，不在每帧调用。
-可选组件由附属系统的 `on_initialize()` 登记，避免被世界初始化时的基础组件表替换。
+世界及其子系统全部初始化后，再调用 `initialized`，由宿主关联冻结类型表和登记组件。依赖这一步关联的插件在自身 on_initialize 只建立安全状态，不提前消费该关联。此时尚未绑定场景、调度 tick 或启动 Gameplay；登记入口负责验证完整关联，回调失败回滚整个宿主，成功后 initialize 才返回成功。既有自行登记的子系统继续在 on_initialize 完成其登记。
 返回 false 则按现有生命周期清理；核心不解析插件名，也不执行插件策略。
+
+## 插件装配完成边界
+
+下图只引用已有对象；登记函数归对应插件，调用与冻结表的所有权归可执行宿主。
+
+```mermaid
+sequenceDiagram
+    participant App as 可执行宿主
+    participant Host as RuntimeHost
+    participant World as WorldSystem
+    participant Camera as CameraSystem
+    App->>App: 创建类型表、登记类型并冻结
+    App->>Host: initialize / step_gameplay
+    Host->>App: setup(before_physics / after_physics)
+    App->>World: 附属所选插件子系统
+    Host->>World: initialize
+    World->>Camera: on_initialize：建立安全空状态
+    Host->>App: setup(initialized)
+    App->>World: register_camera_components / 登记所选组件
+    alt 登记与关联成功
+        App-->>Host: true
+        Host-->>App: 装配完成，允许后续场景准备
+    else 登记失败
+        App-->>Host: false
+        Host->>World: 反序关闭已初始化系统
+        Host-->>App: 初始化失败
+    end
+```
 
 世界子系统的登记、初始化和更新顺序统一如下，关闭时反序执行：
 
@@ -183,13 +236,13 @@ flowchart TD
     S --> B[before_physics：地形、破坏、玩家意图、多人导航]
     B --> P[PhysicsSystem：同帧消费移动意图]
     P --> A[AnimationSystem：消费物理后的状态]
-    A --> C[after_physics：宿主追加相机跟随系统]
+    A --> C[after_physics：角色参数、通用镜头、角色视图过滤]
 ```
 
 世界更新结束后，RuntimeHost 单独更新 AudioSystem，使场景声部读取最终空间位置。
 字体与 UI 先初始化，脚本和插件均借用已构造的对象；整个世界初始化成功后才允许玩法与逐帧调用。
 具体玩家控制器和相机插件只由可执行宿主装配，RuntimeHost 不包含插件头文件。
-阶段枚举仅决定一次性的子系统登记位置，不增加 System 的逐帧阶段、事件总线或额外调度器。
+阶段枚举仅决定一次性的子系统装配与登记时机，不增加 System 的逐帧阶段、事件总线或额外调度器。
 
 脚本工厂借用已构造的物理系统，用于读取上一物理帧撞击快照；工厂不调用尚未初始化的物理能力，玩法结束后才释放该借用。
 

@@ -1,36 +1,36 @@
-# 角色输入脚本接口
+# 角色输入脚本绑定
 
-[角色原生类图](character-controller.md) · [统一输入](input-script-api.md) · [绑定注册](script-bindings.md)
+[角色与相机的完整 TS 契约](character-integration-design.md#ts-外观与数据来源) · [统一输入](input-script-api.md) · [绑定注册](script-bindings.md)
 
 ```mermaid
 classDiagram
-    class CharacterController {
-        <<script facade>>
-        +SetInput(number moveX, number moveY, number lookX, number lookY, bool jump, bool toggleView) bool
-        +ClearInput() bool
-    }
-    class Component
+    class ScriptBinding
+    class ScriptVm
+    class BindingContext
     class CharacterControllerBinding {
         +name() string_view
         +source() string_view
         +register_functions(ScriptVm& vm) bool
     }
-    class ScriptBinding
-    class ScriptVm
-    class BindingContext
-    class NativeCharacterController
-    class CharacterInput
-    Component <|-- CharacterController
+    class CharacterCameraBinding {
+        +name() string_view
+        +source() string_view
+        +register_functions(ScriptVm& vm) bool
+    }
+    class CharacterController
+    class CharacterCamera
     ScriptBinding <|-- CharacterControllerBinding
-    CharacterControllerBinding ..> ScriptVm : 注册参数
-    CharacterControllerBinding ..> BindingContext : 校验活动Run与节点身份
-    CharacterControllerBinding ..> CharacterController : 定义脚本外观
-    CharacterControllerBinding ..> NativeCharacterController : 查询并提交普通意图
-    CharacterControllerBinding ..> CharacterInput : 参数数据
+    ScriptBinding <|-- CharacterCameraBinding
+    CharacterControllerBinding ..> ScriptVm
+    CharacterCameraBinding ..> ScriptVm
+    CharacterControllerBinding ..> BindingContext : 活动Run与完整组件身份
+    CharacterCameraBinding ..> BindingContext : 活动Run与完整组件身份
+    CharacterControllerBinding ..> CharacterController : 直接使用组件契约
+    CharacterCameraBinding ..> CharacterCamera : 直接使用适配契约
 ```
 
-图中 NativeCharacterController 引用 `engine::plugins::character_controller::CharacterController`，不重复定义其方法。绑定只在角色插件已选时登记，沿用普通 Component / Node 句柄，不使用全局系统查找。节点所属场景结束后旧引用失效。
+绑定随 character_controller 插件选择登记；运行时不按类型扫描系统。CharacterController.SetInput 只接受一个输入对象：move、lookDelta、lookRate、toggleView 和按名称索引的 actions。动作包含 held 与 pressed，未知名称、无穷值或缺失字段整批拒绝。ClearInput 返回 boolean，清除主动计划与缓冲动作，保留物理外力。
 
-`SetInput` 将有限数值与布尔值转换为 CharacterInput，成功表示接受下次原生控制器更新的意图，不立即移动角色；输入每次更新消费一次，没有新提交就回零。`ClearInput` 同时清理组件待提交意图及它最近实际驱动的同实例 Motor 的主动移动和未消费跳跃，保留外部速度与待消费速度增量；不清未驱动角色或替换后的 Motor。脚本只决定何时取消，不必另外查询并清理 Motor。日常消费组件输入不会取消已排队跳跃。固定步、运动、相机和碰撞仍由原生负责。
+GetSettings 返回可编辑的独立生成配置；修改后须显式 SetSettings。GetStatus 返回只读运行快照；组件删除、替换或场景结束后，原句柄的查询返回 null，修改返回 false。64 位身份在 TS 使用 bigint，在 MCP 使用十进制字符串。
 
-示例 [CharacterControls](../../../../projects/showcase/assets/scripts/character_controls.ts) 在 TS 加载默认键位及 KV 覆盖、选择初始手柄、决定再次配对，提交通道后只查询少量动作并调用 SetInput。保存覆盖是显式操作，没有停止时自动保存。
+范例 [CharacterControls](../../../../projects/showcase/assets/scripts/character_controls.ts) 读取明确输入通道并向指定组件提交。鼠标使用 lookDelta，摇杆使用 lookRate；换算与帧时间积分归 CharacterCamera。Sprint、Jump、Crouch 由场景显式声明并启用，调用方不推进固定步或自行求碰撞。

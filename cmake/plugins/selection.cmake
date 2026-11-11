@@ -2,8 +2,10 @@ include("${CMAKE_CURRENT_LIST_DIR}/registry.cmake")
 
 # 清单文件同时拥有该插件的源码、依赖和目标定义，不另维护第二份描述。
 include("${CMAKE_CURRENT_LIST_DIR}/runtime/resource_graph.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/runtime/mcp.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/runtime/script.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/runtime/animation_retarget.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/runtime/camera.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/runtime/character_controller.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/runtime/navigation_crowd.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/runtime/effects.cmake")
@@ -13,6 +15,7 @@ include("${CMAKE_CURRENT_LIST_DIR}/editor/modeling.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/editor/asset_import.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/editor/animation_tools.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/editor/ui.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/editor/camera.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/editor/character_controller.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/editor/navigation_crowd.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/editor/effects.cmake")
@@ -33,6 +36,9 @@ if(ANDROID
 endif()
 set(_runtime_plugins "")
 set(_editor_plugins "")
+if(ENGINE_ENABLE_TEST_SUPPORT)
+    list(APPEND _runtime_plugins mcp)
+endif()
 if(ENGINE_ENABLE_RUNTIME_DEPS)
     list(
         APPEND

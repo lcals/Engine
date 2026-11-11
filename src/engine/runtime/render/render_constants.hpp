@@ -10,6 +10,10 @@
 namespace engine::render_detail
 {
 
+inline constexpr std::uint16_t output_clear_view = 108;
+inline constexpr std::uint16_t output_present_view = 201;
+inline constexpr std::uint16_t output_capture_view = 202;
+
 inline constexpr std::uint16_t skinning_view = 0;
 inline constexpr std::uint16_t atmosphere_transmittance_view = 1;
 inline constexpr std::uint16_t atmosphere_multiscatter_view = 2;

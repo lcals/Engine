@@ -1,3 +1,13 @@
+#if ENGINE_HAS_MCP_ENDPOINT
+#include "plugins/editor/mcp/editor_mcp_endpoint.hpp"
+#endif
+#if ENGINE_HAS_CAMERA_EDITOR
+#include "plugins/editor/camera/camera_commands.hpp"
+#include "plugins/editor/camera/camera_controller_codec.hpp"
+#endif
+#if ENGINE_HAS_CAMERA_MCP
+#include "plugins/editor/camera/camera_mcp_tools.hpp"
+#endif
 #if ENGINE_HAS_ANIMATION_TOOLS
 #include "plugins/editor/animation_tools/retarget_importer.hpp"
 #endif
@@ -157,6 +167,42 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
     std::unique_ptr<engine::TaskSystem> file_tasks, read_tasks, graph_tasks;
     std::unique_ptr<engine::plugins::resource_graph::ResourceGraphSystem> resource_graph;
 #endif
+#if ENGINE_HAS_CAMERA
+    static engine::plugins::camera::CameraTypeRegistry camera_types;
+    if (!camera_types.frozen() &&
+        (!engine::plugins::camera::register_builtin_camera_types(camera_types) ||
+         !camera_types.freeze()))
+    {
+        return 1;
+    }
+#endif
+#if ENGINE_HAS_CHARACTER_CONTROLLER
+    static engine::plugins::character_controller::CharacterAbilityRegistry character_abilities;
+    if (!character_abilities.frozen() &&
+        (!engine::plugins::character_controller::register_builtin_character_abilities(
+             character_abilities) ||
+         !character_abilities.freeze()))
+    {
+        return 1;
+    }
+#endif
+    const engine::RuntimeSetup configure_runtime_plugins =
+        [](engine::RuntimeStage stage, engine::WorldSystem& world, engine::WindowSystem& window,
+           engine::PhysicsSystem& physics, engine::NavigationSystem& navigation,
+           engine::RenderSystem& renderer, engine::TaskSystem& tasks)
+    {
+        return assemble_runtime_plugins(stage, world, window, physics, navigation, renderer, tasks,
+#if ENGINE_HAS_CAMERA
+                                        &camera_types,
+#else
+                                        nullptr,
+#endif
+#if ENGINE_HAS_CHARACTER_CONTROLLER
+                                        &character_abilities);
+#else
+                                        nullptr);
+#endif
+    };
     engine::RuntimeHost runtime;
     engine::AnimationRetargeterFactory retargeter_factory = nullptr;
 #if ENGINE_HAS_ANIMATION_RETARGET_PLUGIN
@@ -191,6 +237,9 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
     std::unique_ptr<engine::editor::ScenePersistence> persistence;
 #endif
     std::unique_ptr<engine::editor::EditorSystem> editor;
+#if ENGINE_HAS_MCP_ENDPOINT
+    engine::plugins::mcp::EditorMcpEndpoint mcp_endpoint;
+#endif
     std::uint64_t frames = 0;
     const int result = [&]()
     {
@@ -212,8 +261,12 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
             LogSystem::write(LogLevel::error, "Asset pipeline initialization failed");
             return 1;
         }
+#if ENGINE_HAS_CAMERA_EDITOR
+        if (!engine::plugins::camera_editor::register_camera_codec(camera_types))
+            return 1;
+#endif
 #if ENGINE_HAS_CHARACTER_CONTROLLER_EDITOR
-        if (!engine::plugins::character_controller::register_controller_codec())
+        if (!engine::plugins::character_controller::register_controller_codec(character_abilities))
         {
             std::fputs("Cannot register character controller scene codec\n", stderr);
             return 1;
@@ -395,6 +448,15 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
             LogSystem::write(LogLevel::error, "Editor initialization failed");
             return 1;
         }
+#if ENGINE_HAS_MCP_ENDPOINT
+        if (!mcp_endpoint.initialize(
+                *editor, runtime,
+                {project_root / "cache", engine::App::persistent_data_path(), {}}))
+        {
+            LogSystem::write(LogLevel::error, mcp_endpoint.last_error());
+            return 1;
+        }
+#endif
         if (!editor->commands() || !preview->register_commands(*editor->commands()))
         {
             LogSystem::write(LogLevel::error, "Cannot register scene preview commands");
@@ -412,6 +474,12 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
             [](void* context, const SDL_Event& event)
             { static_cast<engine::plugins::ui::UiEditorCommands*>(context)->observe_event(event); },
             ui_editor.get());
+#endif
+#if ENGINE_HAS_CAMERA_EDITOR
+        if (!editor->scene_commands() || !editor->commands() ||
+            !engine::plugins::camera_editor::register_camera_commands(
+                *runtime.world(), *editor->scene_commands(), *editor->commands()))
+            return 1;
 #endif
 #if ENGINE_HAS_CHARACTER_CONTROLLER_EDITOR
         if (!editor->scene_commands() || !editor->commands() ||
@@ -603,6 +671,19 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
                 return 1;
             }
 #endif
+            const auto render_preview = [&](engine::Camera camera = {})
+            {
+                switch (runtime.renderer()->render(camera))
+                {
+                case engine::RenderSubmitStatus::submitted:
+                    return engine::FrameStatus::running;
+                case engine::RenderSubmitStatus::deferred:
+                    return engine::FrameStatus::paused;
+                case engine::RenderSubmitStatus::failed:
+                    return engine::FrameStatus::failed;
+                }
+                return engine::FrameStatus::failed;
+            };
             auto status = engine::FrameStatus::running;
             if (preview->active())
             {
@@ -647,10 +728,7 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
                         }
                     }
                     preview->close();
-                    if (!runtime.renderer()->render())
-                    {
-                        status = engine::FrameStatus::failed;
-                    }
+                    status = render_preview();
                 }
 #endif
 #if ENGINE_HAS_DESTRUCTION_PLUGIN
@@ -677,34 +755,36 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
                         }
                     }
                     preview->close();
-                    if (!runtime.renderer()->render())
-                    {
-                        status = engine::FrameStatus::failed;
-                    }
+                    status = render_preview();
                 }
 #endif
                 else if (
                     [&]
                     {
-                        engine::RenderPrepareProgress progress;
-                        const auto prepared = runtime.renderer()->preparation_status(progress);
-                        const bool rendered = runtime.renderer()->render(preview->camera());
-                        return prepared == engine::RenderPrepareStatus::failed ||
-                               (prepared == engine::RenderPrepareStatus::ready && !rendered);
+                        engine::ScenePreparationSnapshot progress;
+                        const auto prepared = runtime.renderer()->scope_status({}, progress)
+                                                  ? progress.state
+                                                  : engine::SceneWorkState::not_required;
+                        status = render_preview(preview->camera());
+                        return prepared == engine::SceneWorkState::failed ||
+                               status == engine::FrameStatus::failed;
                     }())
                 {
                     LogSystem::write(LogLevel::error, "Scene preview rendering failed");
                     preview->close();
-                    if (!runtime.renderer()->render())
-                    {
-                        status = engine::FrameStatus::failed;
-                    }
+                    status = render_preview();
                 }
             }
             else
             {
                 status = runtime.tick(elapsed_time);
             }
+#if ENGINE_HAS_MCP_ENDPOINT
+            if (!mcp_endpoint.poll())
+            {
+                LogSystem::write(LogLevel::error, mcp_endpoint.last_error());
+            }
+#endif
 #if ENGINE_HAS_MODELING_PLUGIN
             if (modeling != nullptr)
             {
@@ -767,6 +847,9 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
     }
     if (editor != nullptr)
     {
+#if ENGINE_HAS_MCP_ENDPOINT
+        mcp_endpoint.shutdown();
+#endif
         editor->shutdown();
         editor.reset();
     }

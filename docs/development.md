@@ -23,7 +23,7 @@
 ├── docs/               # 总说明及 runtime/editor/plugins/{runtime,editor} 文档与类图
 ├── include/engine.d.ts  # 运行时虚拟 engine 模块的类型声明
 ├── include/engine/     # runtime/editor/plugins/{runtime,editor} 公开头文件
-├── include/schemas/    # FlatBuffers 跨语言资源数据模型
+├── include/schemas/    # runtime/ 与 editor/ 的 FlatBuffers 跨语言数据模型
 ├── platforms/          # 桌面路径实现及 Android 入口、Gradle 与原生打包配置
 ├── projects/showcase/  # 共用设置、缓存，内含方块、公寓与动画庭院场景
 ├── references/         # 本地参考文件，内容不纳入 Git

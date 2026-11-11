@@ -1,4 +1,4 @@
-"""导出回归：来源保护、复制校验、发布回滚与备份保留。"""
+"""Export regression checks for source protection, copy validation, rollback and backup retention."""
 
 from pathlib import Path
 import json
@@ -279,7 +279,7 @@ class DesktopExportTest(unittest.TestCase):
                 deployed = stage / relative
                 deployed.parent.mkdir(parents=True, exist_ok=True)
                 deployed.write_bytes(b"existing deployed data")
-                with self.assertRaisesRegex(ValueError, "冲突"):
+                with self.assertRaisesRegex(ValueError, "conflict"):
                     desktop.copy_resources(self.source, stage, "macos")
                 self.assertEqual(deployed.read_bytes(), b"existing deployed data")
 
@@ -308,7 +308,7 @@ class DesktopExportTest(unittest.TestCase):
 
         with mock.patch.object(output.os, "replace", side_effect=failed):
             with (
-                self.assertRaisesRegex(ValueError, "旧版保留"),
+                self.assertRaisesRegex(ValueError, "previous version preserved"),
                 output.staged_output(self.destination),
             ):
                 pass

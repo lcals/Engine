@@ -24,7 +24,7 @@ function(engine_configure_terrain_editor_plugin)
         engine_terrain_editor
         PUBLIC TOML_HEADER_ONLY=1 TOML_EXCEPTIONS=0
         PRIVATE JSON_NOEXCEPTION=1
-                ENGINE_SCHEMA_SOURCE_DIR="${PROJECT_SOURCE_DIR}/include/schemas/runtime")
+                ENGINE_SCHEMA_SOURCE_DIR="${PROJECT_SOURCE_DIR}/include/schemas")
     engine_apply_options(engine_terrain_editor)
     if("editor/mcp" IN_LIST ENGINE_SELECTED_PLUGINS)
         add_library(engine_terrain_mcp_tools STATIC

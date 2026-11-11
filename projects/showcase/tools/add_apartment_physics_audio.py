@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""为已生成的公寓源场景配置碰撞、落球与原创循环音频；重复运行结果不变。"""
+"""Idempotently configure apartment collision, a falling ball and original looped audio."""
 
 import argparse
 import io
@@ -66,7 +66,7 @@ def component_text(component):
 
 
 def set_component(block, component):
-    """仅替换指定组件；保留节点、其他组件和既有资源引用。"""
+    """Replace only the selected component; preserve nodes, other components and resource references."""
     parts = re.split(r"(?m)^    \[\[nodes\.components\]\]\s*\n", block)
     retained = [parts[0].rstrip()]
     replaced = False
@@ -74,7 +74,7 @@ def set_component(block, component):
         current = tomllib.loads(part)
         if current["type"] == component["type"]:
             if replaced:
-                raise ValueError(f"重复组件: {component['type']}")
+                raise ValueError(f"Duplicate component: {component['type']}")
             retained.append(component_text(component).rstrip())
             replaced = True
         else:
@@ -92,7 +92,7 @@ def node_text(node_id, name, components):
 def component(node, kind):
     matches = [item for item in node["components"] if item["type"] == kind]
     if len(matches) != 1:
-        raise ValueError(f"{node['name']} 必须有且只有一个 {kind}")
+        raise ValueError(f"{node['name']} must contain exactly one {kind}")
     return matches[0]
 
 
@@ -102,7 +102,7 @@ def source_map(assets):
         guid = str(uuid.UUID(tomllib.loads(path.read_text(encoding="utf-8"))["guid"]))
         source = Path(str(path)[:-5])
         if guid in result:
-            raise ValueError(f"GUID 冲突: {guid}: {result[guid]} / {source}")
+            raise ValueError(f"GUID conflict: {guid}: {result[guid]} / {source}")
         result[guid] = source
     return result
 
@@ -138,7 +138,7 @@ def static_collider(node, sources):
 
 
 def ambience_wav():
-    """原创正弦和弦：8 秒整周期，首尾连续；无外部素材或随机输入。"""
+    """Original sine chord: an eight-second continuous loop without external assets or random inputs."""
     rate, seconds = 24000, 8
     pcm = bytearray()
     for frame in range(rate * seconds):
@@ -166,19 +166,19 @@ def prepare(project):
     scene = tomllib.loads(source)
     nodes = {node["name"]: node for node in scene["nodes"]}
     if len(nodes) != len(scene["nodes"]):
-        raise ValueError("公寓节点名称必须唯一")
+        raise ValueError("Apartment node names must be unique")
     ids = {int(node["id"]) for node in scene["nodes"]}
     if len(ids) != len(scene["nodes"]):
-        raise ValueError("场景节点 ID 必须唯一")
+        raise ValueError("Scene node IDs must be unique")
     sources = source_map(assets)
     audio_path = assets / AUDIO_PATH
     if AUDIO_GUID in sources and sources[AUDIO_GUID] != audio_path:
-        raise ValueError("示例音频 GUID 已被其他资源使用")
+        raise ValueError("Example audio GUID is already used by another resource")
     if audio_path.with_suffix(".wav.meta").exists() and sources.get(AUDIO_GUID) != audio_path:
-        raise ValueError("示例音频已有不同 GUID；不会覆盖其身份")
+        raise ValueError("Example audio has a different GUID; its identity will not be overwritten")
     camera = next((node for node in nodes.values() if node["id"] == scene["active_camera"]), None)
     if camera is None:
-        raise ValueError("场景没有有效的活动相机")
+        raise ValueError("Scene has no valid active camera")
     blocks = re.split(r"(?m)(?=^\[\[nodes\]\]\s*$)", source)
     result = [blocks[0]]
     collider_count = 0
@@ -285,7 +285,7 @@ def prepare(project):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--project", type=Path, default=Path("projects/showcase"))
-    parser.add_argument("--check", action="store_true", help="只检查是否已生成相同配置")
+    parser.add_argument("--check", action="store_true", help="Only check whether the same configuration exists")
     args = parser.parse_args()
     outputs, collider_count = prepare(args.project)
     changed = [
@@ -293,15 +293,15 @@ def main():
     ]
     if args.check and changed:
         for path in changed:
-            print(f"需要更新: {path}", file=sys.stderr)
+            print(f"Update required: {path}", file=sys.stderr)
         return 1
     if not args.check:
         for path in changed:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(outputs[path])
     print(
-        f"公寓配置: {collider_count} 个静态碰撞体、1 个动态球、1 个监听器、1 个循环音源；"
-        f"{'检查通过' if args.check else f'更新 {len(changed)} 个文件'}"
+        f"Apartment configuration: {collider_count} static colliders, 1 dynamic ball, 1 listener and 1 looped source; "
+        f"{'check passed' if args.check else f'updated {len(changed)} files'}"
     )
     return 0
 
@@ -310,5 +310,5 @@ if __name__ == "__main__":
     try:
         sys.exit(main())
     except (OSError, ValueError, KeyError, StopIteration) as error:
-        print(f"公寓物理音频配置失败: {error}", file=sys.stderr)
+        print(f"Apartment physics/audio setup failed: {error}", file=sys.stderr)
         sys.exit(1)

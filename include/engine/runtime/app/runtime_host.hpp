@@ -44,6 +44,19 @@ enum class RuntimeStartupStatus
     failed
 };
 
+struct RuntimeHostStatus
+{
+    std::uint64_t tick_id = 0;
+    std::uint64_t sampled_at_ns = 0;
+    bool initialized = false;
+    bool window_drawable = false;
+    bool exit_requested = false;
+    FrameStatus frame_status = FrameStatus::running;
+    std::uint64_t prepare_id = 0;
+    std::string error_code;
+    std::string error;
+};
+
 // 工厂由宿主提供，创建尚未初始化的实例；返回空表示创建失败。
 // 所有系统借用只用于玩法回调，宿主关闭它们前先结束玩法。
 using ScriptRuntimeFactory = std::unique_ptr<ScriptRuntime> (*)(WorldSystem&, RenderSystem&,
@@ -56,10 +69,12 @@ using ScriptRuntimeFactory = std::unique_ptr<ScriptRuntime> (*)(WorldSystem&, Re
 enum class RuntimeStage
 {
     before_physics,
-    after_physics
+    after_physics,
+    initialized
 };
 
-// 世界初始化前按两个位置各调用一次；物理和导航已构造，失败按已有生命周期回滚。
+// 装配阶段在世界初始化前调用；initialized 在所有系统初始化后、场景加载前调用。
+// initialized 用于宿主显式登记生成组件及借用的冻结类型表；失败仍完整回滚。
 using RuntimeSetup = bool (*)(RuntimeStage, WorldSystem&, WindowSystem&, PhysicsSystem&,
                               NavigationSystem&, RenderSystem&, TaskSystem&);
 
@@ -111,10 +126,18 @@ public:
     [[nodiscard]] TaskSystem* tasks() noexcept;
     // 播放器由宿主独占；借用有效期至宿主关闭。
     [[nodiscard]] MoviePlayer* movie_player() noexcept;
+    [[nodiscard]] bool status(RuntimeHostStatus& output) const noexcept;
     void request_exit() noexcept;
     void shutdown() noexcept;
 
 private:
+    [[nodiscard]] FrameStatus tick_runtime(double delta_time);
+    [[nodiscard]] FrameStatus fail_runtime(std::string_view code, std::string_view message);
+    std::uint64_t startup_prepare_id_ = 0;
+    std::string error_code_;
+    std::string error_;
+    std::uint64_t tick_sequence_ = 0;
+    FrameStatus last_tick_status_ = FrameStatus::running;
     [[nodiscard]] bool initialize_gameplay(const EngineConfig& config,
                                            ScriptRuntimeFactory script_factory, RuntimeSetup setup,
                                            AnimationRetargeterFactory retargeter_factory);

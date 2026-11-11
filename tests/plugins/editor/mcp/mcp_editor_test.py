@@ -1,4 +1,4 @@
-"""通过真实编辑器主线程验证 MCP 场景修改、事务与撤销历史。"""
+"""Validate scene edits, transactions and undo history through MCP on the actual editor main thread."""
 
 import argparse
 import json
@@ -143,7 +143,7 @@ def test(editor, mcp, root, temporary):
             mcp,
             project,
             runtime,
-            "get_editor_receipt",
+            "get_request_receipt",
             {"session": session, "requestId": edited["requestId"]},
         )
         require(stored == edited, "receipt lookup returned a newer command instead of requested id")
@@ -227,7 +227,7 @@ def test(editor, mcp, root, temporary):
             mcp,
             project,
             runtime,
-            "get_editor_receipt",
+            "get_request_receipt",
             {"session": session, "requestId": failed_batch["requestId"]},
         )
         require(

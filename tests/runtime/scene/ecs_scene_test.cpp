@@ -112,8 +112,13 @@ bool scene_lifetime_phases()
     }
     for (bool multi_threaded : {true, false})
     {
-        const auto request = world.begin_restore_scene(resource.handle());
-        if (!request || world.step_restore_scene(request, 64) != SceneRestoreStatus::ready)
+        SceneScopeId request;
+        if (!world.begin_scope(SceneLoadKind::replace_scene, 0, request) ||
+            !world.restore_scope(request, resource.handle()))
+        {
+            return false;
+        }
+        if (world.step_scope(request, {64, 1.0}) != SceneWorkState::ready)
         {
             return false;
         }
@@ -153,9 +158,9 @@ bool scene_lifetime_phases()
                             !ecs_has_id(native, marker, EcsDisabled);
         const bool rejected = !world.destroy_scene(active->id()) &&
                               !world.load_scene("phases.scene") &&
-                              world.step_restore_scene(request, 64) == SceneRestoreStatus::failed &&
-                              !world.commit_restore_scene(request);
-        world.cancel_restore_scene(request);
+                              world.step_scope(request, {}) == SceneWorkState::failed &&
+                              !world.publish_scope(request);
+        (void)world.cancel_scope(request);
         world.unload_scene();
         world.destroy_scene();
         const bool owners_retained = world.scene() == active && node.valid();
@@ -163,13 +168,13 @@ bool scene_lifetime_phases()
         const bool merged = ecs_has_id(native, marker, EcsDisabled);
         ecs_delete(native, marker);
         if (!expect(staged && merged && rejected && owners_retained && world.scene() == active &&
-                        node && world.step_restore_scene(request, 0) == SceneRestoreStatus::ready,
+                        node && world.step_scope(request, {0, 1.0}) == SceneWorkState::ready,
                     "both readonly modes isolate stage commands and retain scene/candidate owners"))
         {
             return false;
         }
-        world.cancel_restore_scene(request);
-        if (world.step_restore_scene(request, 0) != SceneRestoreStatus::failed)
+        (void)world.cancel_scope(request);
+        if (world.step_scope(request, {0, 1.0}) != SceneWorkState::cancelled)
         {
             return false;
         }

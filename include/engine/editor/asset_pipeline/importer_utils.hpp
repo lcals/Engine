@@ -21,6 +21,7 @@ namespace engine::editor::asset_pipeline
                              std::vector<Guid>& dependencies, std::string& error);
 [[nodiscard]] bool file_hash(const std::filesystem::path& path, std::string& hash,
                              std::string& error);
+// names 使用相对 include/schemas/ 的 runtime/ 或 editor/ 路径。
 [[nodiscard]] bool schema_fingerprint(std::initializer_list<std::string_view> names,
                                       std::string& fingerprint, std::string& error);
 [[nodiscard]] std::string source_extension(const std::filesystem::path& path);

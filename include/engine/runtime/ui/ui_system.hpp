@@ -1,5 +1,6 @@
 #pragma once
 
+#include "runtime/scene/scene_loading.hpp"
 #include "runtime/system/system.hpp"
 #include "runtime/ui/ui_element_info.hpp"
 #include "runtime/ui/ui_event.hpp"
@@ -21,6 +22,9 @@ public:
     // 借用对象须存活到关闭；绘制必须在渲染设备就绪到关闭之间调用。
     UiSystem(WindowSystem& window, WorldSystem& world, FontSystem& fonts);
     ~UiSystem() noexcept override;
+    [[nodiscard]] SceneWorkState prepare_scope(SceneScopeId scope, const SceneWorkBudget& budget);
+    [[nodiscard]] bool scope_status(SceneScopeId scope, ScenePreparationSnapshot& output) const;
+    void release_scope(SceneScopeId scope) noexcept;
     [[nodiscard]] bool render(std::uint32_t width, std::uint32_t height);
     // Prepare documents without drawing. View operations synchronize before resolving handles.
     [[nodiscard]] bool synchronize();

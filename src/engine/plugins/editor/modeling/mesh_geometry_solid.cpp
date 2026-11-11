@@ -140,7 +140,12 @@ bool from_solid(const manifold::Manifold& solid, const Provenance& provenance,
     }
     const auto mesh = solid.GetMeshGL64();
     schema::EditableMeshDataT candidate;
+    candidate.schema_version = 2;
     candidate.next_id = next_id;
+    if (output.primitive)
+    {
+        candidate.primitive = std::make_unique<schema::ModelingPrimitiveDataT>(*output.primitive);
+    }
     if (mesh.NumTri() == 0)
     {
         return math::commit(output, std::move(candidate), error);
@@ -241,6 +246,11 @@ bool from_solid(const manifold::Manifold& solid, const Provenance& provenance,
 bool clip_open(schema::EditableMeshDataT& data, Point normal, double offset, std::string& error)
 {
     schema::EditableMeshDataT candidate;
+    candidate.schema_version = 2;
+    if (data.primitive)
+    {
+        candidate.primitive = std::make_unique<schema::ModelingPrimitiveDataT>(*data.primitive);
+    }
     candidate.vertices = data.vertices;
     candidate.next_id = data.next_id;
     std::map<std::pair<std::uint64_t, std::uint64_t>, std::uint64_t> intersections;

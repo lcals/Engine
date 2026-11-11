@@ -21,7 +21,7 @@ std::string normalized(std::string value)
     return value;
 }
 } // namespace
-RmlFont::RmlFont(FontSystem& fonts) noexcept : fonts_(fonts)
+RmlFont::RmlFont(FontSystem&) noexcept
 {
 }
 bool RmlFont::activate(const std::string& key, const ResourceReference& document)

@@ -1,4 +1,4 @@
-"""检查自有 C++ 包含方向，以及 CMake 导出的真实 engine_* 目标依赖。"""
+"""Check owned C++ include direction and actual engine_* target dependencies exported by CMake."""
 
 import argparse
 import json
@@ -15,7 +15,7 @@ INCLUDE = re.compile(r'^\s*#\s*include\s*[<"]([^>"\n]+)[>"]', re.MULTILINE)
 
 
 def file_scope(path, root):
-    """仅以真实文件目录确定作用域；宿主、测试和外部库不冒充核心模块。"""
+    """Determine scope from actual directories; hosts, tests and external libraries are not core modules."""
     path = Path(path)
     if not path.is_absolute():
         path = root / path
@@ -38,6 +38,8 @@ def file_scope(path, root):
         # 独立 V8 验证入口是宿主；平台 app.cpp 实现核心 App，仍受运行时边界约束。
         if relative == "platforms/android/native/android_v8_smoke.cpp":
             return "host"
+    if relative.startswith("include/schemas/editor/"):
+        return "editor"
     if relative.startswith(("platforms/", "include/schemas/runtime/")):
         return "runtime"
     if relative.startswith(("src/", "tests/")):

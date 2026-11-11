@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""用高对比 HDR 小亮斑检查 GPU 烘焙和 GGX 预过滤。"""
+"""Check GPU baking and GGX prefiltering with a high-contrast HDR spot."""
 from __future__ import annotations
 
 import argparse
@@ -87,7 +87,7 @@ def make_cube(path, full_mips):
 
 
 def cap_ggx_weight(normal, roughness, steps=32768):
-    """独立积分：V=N 的 GGX 预过滤，以 L 的极角积分和球冠方位弧长求值。"""
+    """Independently integrate GGX prefiltering for V=N using polar-angle integration and spherical-cap azimuth arcs."""
     delta = math.acos(max(-1.0, min(1.0, normal[2])))
     if roughness == 0:
         return float(delta <= CAP_RADIUS)

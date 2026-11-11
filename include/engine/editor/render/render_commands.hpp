@@ -25,6 +25,5 @@ private:
     RenderSystem& renderer_;
     WorldSystem& world_;
     std::filesystem::path capture_root_;
-    std::filesystem::path capture_path_;
 };
 } // namespace engine::editor

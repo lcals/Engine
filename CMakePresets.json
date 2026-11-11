@@ -411,6 +411,22 @@
       "cacheVariables": {
         "ENGINE_SCRIPT_BACKEND": "v8"
       }
+    },
+    {
+      "name": "ninja-engine-test-debug",
+      "inherits": "ninja-engine-debug",
+      "binaryDir": "${sourceDir}/build/ninja-engine-test-debug",
+      "cacheVariables": {
+        "ENGINE_ENABLE_TEST_SUPPORT": true
+      }
+    },
+    {
+      "name": "ninja-engine-test-release",
+      "inherits": "ninja-engine-release",
+      "binaryDir": "${sourceDir}/build/ninja-engine-test-release",
+      "cacheVariables": {
+        "ENGINE_ENABLE_TEST_SUPPORT": true
+      }
     }
   ],
   "buildPresets": [
@@ -709,6 +725,16 @@
       "targets": [
         "engine_script_prepare"
       ]
+    },
+    {
+      "name": "ninja-engine-test-debug",
+      "configurePreset": "ninja-engine-test-debug",
+      "jobs": 6
+    },
+    {
+      "name": "ninja-engine-test-release",
+      "configurePreset": "ninja-engine-test-release",
+      "jobs": 6
     }
   ],
   "testPresets": [
@@ -784,6 +810,11 @@
       "name": "windows-static-v8-release",
       "inherits": "release",
       "configurePreset": "windows-static-v8-release"
+    },
+    {
+      "name": "ninja-engine-test-release",
+      "inherits": "release",
+      "configurePreset": "ninja-engine-test-release"
     }
   ],
   "workflowPresets": [

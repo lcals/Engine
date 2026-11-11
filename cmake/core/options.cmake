@@ -22,6 +22,7 @@ option(ENGINE_ENABLE_RUNTIME_DEPS "Build runtime systems and dependencies" OFF)
 option(ENGINE_ENABLE_EDITOR_DEPS "Build editor system and dependencies" OFF)
 option(ENGINE_ENABLE_ASSET_PIPELINE_DEPS "Build asset pipeline system and dependencies" OFF)
 option(ENGINE_ENABLE_SCRIPT_RUNTIME "Build the gameplay scripting runtime" OFF)
+option(ENGINE_ENABLE_TEST_SUPPORT "Compile optional test endpoints and temporary script execution" OFF)
 
 if("runtime/script" IN_LIST ENGINE_SELECTED_PLUGINS AND NOT ENGINE_ENABLE_RUNTIME_DEPS)
     message(FATAL_ERROR "Script runtime requires runtime dependencies")

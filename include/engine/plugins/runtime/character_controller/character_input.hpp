@@ -1,17 +1,21 @@
 #pragma once
-
 #include "runtime/scene/scene_types.hpp"
-
+#include <string>
+#include <vector>
 namespace engine::plugins::character_controller
 {
-
+struct CharacterActionInput
+{
+    std::string name;
+    bool held = false;
+    bool pressed = false;
+};
 struct CharacterInput
 {
-    // x 向右，y 向前；look 是观察增量，单位由组件灵敏度换算为度。
     Vec2 move{};
-    Vec2 look{};
-    bool jump = false;
+    Vec2 look_delta{};
+    Vec2 look_rate{};
     bool toggle_view = false;
+    std::vector<CharacterActionInput> actions;
 };
-
 } // namespace engine::plugins::character_controller

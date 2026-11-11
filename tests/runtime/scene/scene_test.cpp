@@ -520,7 +520,7 @@ bool indexed_scene_restore(test_support::ResourceServices& services)
     }
     auto camera = test_support::scene_nodes(*original)[0].add_component<Camera>();
     schema::SceneDataT source;
-    source.schema_version = 2;
+    source.schema_version = 3;
     if (!camera || !original->set_active_camera(camera) || !original->build_data(source))
     {
         return false;
@@ -751,7 +751,7 @@ bool incremental_scene_restore(test_support::ResourceServices& services)
     auto child = active ? active->create_node("Child") : engine::Node{};
     auto parent = active ? active->create_node("Parent") : engine::Node{};
     schema::SceneDataT data;
-    data.schema_version = 2;
+    data.schema_version = 3;
     if (!child || !parent || !child.set_parent(parent) ||
         !active->set_active_camera(child.add_component<Camera>()) || !active->build_data(data) ||
         !add_scene_resource(fixture, "staged.scene", data) ||
@@ -764,60 +764,55 @@ bool incremental_scene_restore(test_support::ResourceServices& services)
     {
         return false;
     }
-    const auto cancelled = world.begin_restore_scene(resource.handle());
-    if (!expect(cancelled != 0 && world.begin_restore_scene(resource.handle()) == 0 &&
-                    world.step_restore_scene(cancelled, 0) == SceneRestoreStatus::loading &&
-                    world.step_restore_scene(cancelled, 100, -1.0) == SceneRestoreStatus::failed &&
-                    world.step_restore_scene(cancelled, 100,
-                                             std::numeric_limits<double>::quiet_NaN()) ==
-                        SceneRestoreStatus::failed &&
-                    world.step_restore_scene(cancelled, 0, 0.001) == SceneRestoreStatus::loading &&
-                    !world.commit_restore_scene(cancelled) && world.scene() == active,
-                "zero budget and premature commit preserve active scene"))
+    SceneScopeId cancelled;
+    if (!world.begin_scope(SceneLoadKind::replace_scene, 0, cancelled) ||
+        !world.restore_scope(cancelled, resource.handle()) ||
+        !expect(world.step_scope(cancelled, {0, 0.001}) == SceneWorkState::working &&
+                    world.step_scope(cancelled, {64, -1.0}) == SceneWorkState::failed &&
+                    !world.publish_scope(cancelled) && world.scene() == active,
+                "invalid budget and premature publication preserve the active scene") ||
+        !world.cancel_scope(cancelled))
     {
         return false;
     }
-    world.cancel_restore_scene(cancelled);
-    const auto request = world.begin_restore_scene(resource.handle());
-    world.cancel_restore_scene(cancelled);
-    if (!expect(request > cancelled &&
-                    world.step_restore_scene(cancelled, 100) == SceneRestoreStatus::failed &&
-                    world.step_restore_scene(request, 100) == SceneRestoreStatus::loading &&
-                    world.scene() == active && world.paused(),
-                "configured node budget and cancelled request cannot publish candidate") ||
-        !expect(world.step_restore_scene(request, 100) == SceneRestoreStatus::loading &&
-                    world.step_restore_scene(request, 100) == SceneRestoreStatus::ready,
-                "node creation, hierarchy and camera finish over separate steps"))
+    world.release_scope(cancelled);
+    SceneScopeId request;
+    if (!world.begin_scope(SceneLoadKind::replace_scene, 0, request) ||
+        !world.restore_scope(request, resource.handle()) ||
+        !expect(world.step_scope(cancelled, {}) == SceneWorkState::failed &&
+                    world.step_scope(request, {100, 1.0}) == SceneWorkState::working &&
+                    world.paused(),
+                "cancelled identity cannot advance a later candidate"))
     {
         return false;
     }
-    auto* restored = world.commit_restore_scene(request);
-    if (!expect(restored && restored != active &&
-                    test_support::scene_nodes(*restored).size() == 2 &&
-                    test_support::scene_nodes(*restored)[0].parent() ==
-                        test_support::scene_nodes(*restored)[1] &&
-                    restored->active_camera() && !world.paused(),
-                "commit publishes complete hierarchy and clears old pause"))
+    SceneWorkState state = SceneWorkState::working;
+    for (int tick = 0; tick < 32 && state == SceneWorkState::working; ++tick)
+    {
+        state = world.step_scope(request, {100, 1.0});
+    }
+    auto* candidate = world.scope_candidate(request);
+    if (!expect(state == SceneWorkState::ready && candidate && candidate->active_camera() &&
+                    test_support::scene_nodes(*candidate).size() == 2 &&
+                    !world.find_node(candidate->active_camera().node().id()),
+                "restoration stages complete hierarchy without exposing candidate nodes") ||
+        !world.seal_scope(request))
     {
         return false;
     }
-    const auto stale = world.begin_restore_scene(resource.handle());
-    if (!add_scene_resource(fixture, "another.scene", data) ||
-        !(fixture.publish(*resources) && services.prepare_builtins()) ||
-        !expect(world.step_restore_scene(stale, 100) == SceneRestoreStatus::loading &&
-                    !world.commit_restore_scene(stale) && world.scene() == restored,
-                "directory replacement preserves an already loaded candidate and active scene"))
+    state = SceneWorkState::working;
+    for (int tick = 0; tick < 32 && state == SceneWorkState::working; ++tick)
     {
-        return false;
+        state = world.step_scope(request, {100, 1.0});
     }
-    world.cancel_restore_scene(stale);
-    if (!services.load("staged.scene", resource) ||
-        world.begin_restore_scene(resource.handle()) == 0)
+    if (!expect(state == SceneWorkState::ready && world.publish_scope(request) &&
+                    world.scene() == candidate && !world.paused() && world.activate_scope(request),
+                "prepared scope publishes and activates explicitly"))
     {
         return false;
     }
     world.shutdown();
-    return expect(world.scene() == nullptr, "shutdown destroys candidate before ECS world");
+    return expect(!world.scope_candidate(request), "shutdown invalidates all scope identities");
 }
 
 bool persistent_nodes(test_support::ResourceServices& services)
@@ -942,7 +937,7 @@ bool persistent_scene_loading(test_support::ResourceServices& services)
     auto* source = resources && world.initialize({}) ? world.create_scene("Source") : nullptr;
     auto node = source ? source->create_node("Resource owner") : engine::Node{};
     schema::SceneDataT data;
-    data.schema_version = 2;
+    data.schema_version = 3;
     if (!node || !source->build_data(data) ||
         !add_scene_resource(fixture, "persistent.scene", data))
     {
@@ -964,63 +959,67 @@ bool persistent_scene_loading(test_support::ResourceServices& services)
         engine::ResourceReference current;
         return current.acquire(&services.loader, "persistent.scene");
     };
-    const auto first = world.begin_restore_scene(resource.handle());
-    if (!first || world.step_restore_scene(first, 64) != SceneRestoreStatus::ready)
+    const auto replace = [&](ResourceReference& value) -> Scene*
     {
-        return false;
-    }
-    auto* loaded = world.commit_restore_scene(first);
-    auto persistent = loaded ? test_support::scene_nodes(*loaded).front() : engine::Node{};
+        SceneScopeId id;
+        if (!world.begin_scope(SceneLoadKind::replace_scene, 0, id) ||
+            !world.restore_scope(id, value.handle()))
+        {
+            return nullptr;
+        }
+        for (int i = 0; i < 32 && world.step_scope(id, {64, 1.0}) == SceneWorkState::working; ++i)
+        {
+        }
+        if (!world.seal_scope(id))
+        {
+            return nullptr;
+        }
+        for (int i = 0; i < 32 && world.step_scope(id, {64, 1.0}) == SceneWorkState::working; ++i)
+        {
+        }
+        if (!world.publish_scope(id) || !world.activate_scope(id) || !world.tick(0))
+        {
+            return nullptr;
+        }
+        return world.scene();
+    };
+    auto* loaded = replace(resource);
+    auto persistent = loaded ? test_support::scene_nodes(*loaded).front() : Node{};
     if (!persistent || !persistent.set_persistent(true))
     {
         return false;
     }
     resource.reset();
-    const auto persistent_id = persistent.id();
-    if (!expect(originally_loaded(), "active scene owns its loaded root resource") ||
+    if (!expect(originally_loaded(), "published scene owns its loaded root resource") ||
         !services.load("replacement.scene", resource))
     {
         return false;
     }
-    const auto cancelled = world.begin_restore_scene(resource.handle());
-    if (!cancelled || world.step_restore_scene(cancelled, 64) != SceneRestoreStatus::ready ||
-        !expect(world.scenes().size() == 1 && world.scene() == loaded,
-                "restored candidates remain outside the published world"))
+    SceneScopeId cancelled;
+    if (!world.begin_scope(SceneLoadKind::replace_scene, 0, cancelled) ||
+        !world.restore_scope(cancelled, resource.handle()) || !world.cancel_scope(cancelled) ||
+        !expect(!world.publish_scope(cancelled) && world.scene() == loaded && persistent,
+                "cancelled scope retains the active scene and persistent handles"))
     {
         return false;
     }
-    world.cancel_restore_scene(cancelled);
-    if (!expect(!world.commit_restore_scene(cancelled) &&
-                    !load_and_restore(services, world, "missing.scene") &&
-                    world.find_node(persistent_id) == persistent && originally_loaded(),
-                "cancellation and failed load keep the active scene and persistent objects"))
+    world.release_scope(cancelled);
+    auto* next = replace(resource);
+    if (!expect(next && next != loaded && persistent &&
+                    world.find_node(persistent.id()) == persistent && !originally_loaded() &&
+                    persistent.set_enabled(true),
+                "replacement preserves writable persistent nodes and releases the old scene root"))
     {
         return false;
     }
-    const auto next_request = world.begin_restore_scene(resource.handle());
-    if (!next_request || world.step_restore_scene(next_request, 64) != SceneRestoreStatus::ready)
+    SceneScopeId pending;
+    if (!world.begin_scope(SceneLoadKind::replace_scene, 0, pending))
     {
         return false;
     }
-    auto* next = world.commit_restore_scene(next_request);
-    if (!expect(next && next != loaded && world.scenes().size() == 2 &&
-                    world.find_node(persistent_id) == persistent && !originally_loaded(),
-                "commit preserves original nodes but releases the entire old scene resource root"))
-    {
-        return false;
-    }
-    auto* synchronous = load_and_restore(services, world, "replacement.scene");
-    if (!expect(synchronous && world.scenes().size() == 2 &&
-                    world.find_node(persistent_id) == persistent,
-                "synchronous replacement has the same persistence contract"))
-    {
-        return false;
-    }
-    const auto pending = world.begin_restore_scene(resource.handle());
     world.unload_scene();
-    return expect(pending && world.step_restore_scene(pending, 64) == SceneRestoreStatus::failed &&
-                      !world.scene() && world.find_node(persistent_id) == persistent,
-                  "explicit unload cancels pending restore and keeps the persistent subtree");
+    return expect(!world.scope_candidate(pending) && !world.scene() && persistent,
+                  "explicit unload cancels pending scopes and retains persistent subtrees");
 }
 
 bool component_contracts(test_support::ResourceServices& services)
@@ -1757,6 +1756,73 @@ bool baked_lighting_bindings(test_support::ResourceServices& services)
                   "clearing baked resource bindings releases held resources");
 }
 
+bool scene_scope_publication(test_support::ResourceServices& services)
+{
+    using namespace engine;
+    WorldSystem world(&services.loader, {2, 1.0});
+    if (!world.initialize({}))
+    {
+        return false;
+    }
+    auto* old = world.create_scene("Original");
+    auto old_node = old ? old->create_node("Old") : Node{};
+    SceneScopeId scope;
+    if (!expect(old_node && world.begin_scope(SceneLoadKind::replace_scene, 0, scope),
+                "create isolated replacement scope"))
+    {
+        return false;
+    }
+    auto* candidate = world.scope_candidate(scope);
+    auto node = candidate ? candidate->create_node("Replacement") : Node{};
+    const auto pose = node.get_component<Transform>();
+    if (!expect(node && pose && !world.find_node(node.id()) && world.find_node(old_node.id()),
+                "candidate remains hidden while old scene is available") ||
+        !expect(world.seal_scope(scope) && !node.set_enabled(false) &&
+                    !candidate->create_node("Late"),
+                "sealed candidates reject writes"))
+    {
+        return false;
+    }
+    if (!expect(world.step_scope(scope, {2, 1.0, 1024}) == SceneWorkState::ready &&
+                    world.publish_scope(scope) && world.find_node(node.id()) &&
+                    !world.find_node(old_node.id()) && !node.set_enabled(false),
+                "publication switches render visibility before simulation"))
+    {
+        return false;
+    }
+    if (!expect(world.activate_scope(scope) && node.set_enabled(true),
+                "simulation activation restores normal writes"))
+    {
+        return false;
+    }
+    const auto* destination = world.scene();
+    SceneScopeId batch;
+    if (!expect(world.begin_scope(SceneLoadKind::append_batch, destination->id(), batch),
+                "create append batch"))
+    {
+        return false;
+    }
+    auto* staged = world.scope_candidate(batch);
+    const auto extra = staged ? staged->create_node("Extra") : Node{};
+    if (!expect(extra && extra.local_id() != node.local_id() && world.seal_scope(batch) &&
+                    world.step_scope(batch, {2, 1.0, 1024}) == SceneWorkState::ready &&
+                    !destination->find_node(extra.id()) && world.find_node(node.id()),
+                "append mapping does not expose partial content"))
+    {
+        return false;
+    }
+    if (!expect(world.publish_scope(batch) && world.activate_scope(batch) &&
+                    world.scene() == destination && destination->find_node(extra.id()) &&
+                    extra.scene() == destination && world.find_node(node.id()),
+                "append publishes the whole batch without replacing the scene"))
+    {
+        return false;
+    }
+    world.destroy_scene();
+    return expect(!world.scope_candidate(scope) && !world.scope_candidate(batch) && !extra,
+                  "world cleanup invalidates scopes and transferred entity handles");
+}
+
 } // namespace
 
 int main()
@@ -1771,7 +1837,7 @@ int main()
         !persistent_nodes(services) || !persistent_scene_loading(services) ||
         !component_contracts(services) || !camera_rays(services) || !transient_nodes(services) ||
         !material_contracts(services) || !baked_lighting_bindings(services) ||
-        !resource_namespaces(services))
+        !resource_namespaces(services) || !scene_scope_publication(services))
     {
         return 1;
     }

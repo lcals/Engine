@@ -13,7 +13,7 @@ declare module "engine" {
     /** An opaque acquisition owned by this Run. Copying a value does not retain it. */
     export interface ResourceHandle { readonly [resourceHandleIdentity]: never; }
     export type ResourceLoadStatus = "loading" | "ready" | "delivered" | "failed" | "cancelled";
-    export interface ResourceProgress { readonly completed: number; readonly total: number; }
+    export interface ResourceProgress { readonly completed: number; readonly total: number; readonly discoveryComplete: boolean; readonly inFlight: number; readonly progressRevision: string; readonly lastProgressNs: string; }
     export class ResourceRequest {
         private constructor();
         /** Pure queries; the host advances loading. */
@@ -399,11 +399,42 @@ declare module "engine" {
         GetTexture(name: string): string | null;
     }
 
-    export interface SceneLoadProgress {
-        readonly completed: number;
-        readonly total: number;
-        readonly status: "loading" | "ready" | "failed";
+    export interface SceneLoadId { readonly owner: string; readonly request: string; }
+    export interface SceneScopeId { readonly worldEpoch: string; readonly value: string; }
+    export interface SceneWorkProgress {
+        readonly domain: string;
+        readonly stage: string;
+        readonly state: "queued" | "working" | "ready" | "not_required" | "failed" | "cancelled";
+        readonly completed: string;
+        readonly total: string;
+        readonly totalKnown: boolean;
+        readonly inFlight: string;
+        readonly progressRevision: string;
+        readonly lastProgressNs: string;
+        readonly errorCode: string;
         readonly error: string;
+    }
+    export interface SceneLoadSnapshot {
+        readonly id: SceneLoadId;
+        readonly scope: SceneScopeId;
+        readonly state: "loading" | "staged" | "preparing" | "ready" | "activating" | "active" | "failed" | "cancelled";
+        readonly sceneId: string;
+        readonly targetAlive: boolean;
+        readonly progressRevision: string;
+        readonly lastProgressNs: string;
+        readonly firstSceneSubmissionId: string;
+        readonly stages: readonly SceneWorkProgress[];
+        readonly errorCode: string;
+        readonly error: string;
+    }
+    export class SceneLoadRequest {
+        private constructor();
+        GetStatus(): SceneLoadSnapshot | null;
+        GetScene(): Scene | null;
+        Prepare(): boolean;
+        Activate(): boolean;
+        Cancel(): boolean;
+        Release(): boolean;
     }
     /** One active scene, owned by the current Gameplay run. */
     export class Scene {
@@ -411,14 +442,10 @@ declare module "engine" {
         static Create(name: string): Scene | null;
         /** Restore an already loaded scene; callers first use Resources.Load/BeginLoad. */
         static Load(path: string): Scene | null;
-        /** Retain an already loaded root for staged restoration. Keeps the current scene/UI intact. */
-        static BeginLoad(path: string): boolean;
-        /** Advance ECS restoration by a node budget; zero only queries. Progress counts one candidate. */
-        static StepLoad(nodeBudget: number): SceneLoadProgress | null;
-        /** Publish the restored candidate. Failure preserves the active scene. */
-        static CommitLoad(): Scene | null;
-        /** Release this Run's pending load. Cannot interrupt a running step/commit. */
-        static CancelLoad(): void;
+        /** Load resources and restore an isolated candidate without replacing the current scene. */
+        static BeginLoad(path: string, preloadRoots?: readonly string[]): SceneLoadRequest | null;
+        /** Build one atomic batch in the same runtime world. */
+        static BeginBatch(destination: Scene, preloadRoots?: readonly string[]): SceneLoadRequest | null;
         /** First node with the requested name in scene order. */
         FindNode(name: string): Node | null;
         IsValid(): boolean;
@@ -1099,6 +1126,8 @@ declare module "engine" {
         /** World-space linear velocity. */
         SetVelocity(x: number, y: number, z: number): boolean;
         GetVelocity(): { readonly x: number; readonly y: number; readonly z: number } | null;
+        /** Last completed fixed-step snapshot; null for an expired component. */
+        GetStatus(): CharacterMotorStatus | null;
         /** A world-space impulse consumed by the next physics synchronization. */
         AddImpulse(x: number, y: number, z: number): boolean;
     }
@@ -1124,20 +1153,87 @@ declare module "engine" {
         Jump(speed: number): boolean;
         readonly grounded: boolean;
     }
-    /** Available when the optional character_controller runtime plugin is enabled. */
+    export interface CharacterInput {
+        move: readonly [number, number];
+        lookDelta: readonly [number, number];
+        lookRate: readonly [number, number];
+        toggleView: boolean;
+        actions: Readonly<Record<string, { held: boolean; pressed: boolean }>>;
+    }
+    export interface CharacterMotorStatus {
+        readonly step: bigint;
+        readonly simulationTime: number;
+        readonly hasSimulated: boolean;
+        readonly feetPosition: Vector3;
+        readonly yawDegrees: number;
+        readonly velocity: Vector3;
+        readonly groundState: "supported" | "steep" | "unsupported" | "airborne";
+        readonly grounded: boolean;
+        readonly support: { readonly sceneId: bigint; readonly nodeId: bigint; readonly kind: number; readonly instanceId: bigint };
+        readonly supportNormal: Vector3;
+        readonly supportVelocity: Vector3;
+        readonly carriedPlanarVelocity: Vector3;
+        readonly externalPlanarVelocity: Vector3;
+        readonly activeHalfHeight: number;
+        readonly shapeResult: "unchanged" | "applied" | "blocked";
+        readonly controlError: boolean;
+    }
+    export interface CharacterStatus {
+        readonly ready: boolean;
+        readonly diagnostic: string;
+        readonly motor: CharacterMotorStatus;
+        readonly motion: "unknown" | "grounded" | "rising" | "falling";
+        readonly stance: "unknown" | "standing" | "crouched";
+        readonly stanceBlocked: boolean;
+        readonly desiredPlanarVelocity: Vector3;
+        readonly relativePlanarSpeed: number;
+        readonly inputSequence: bigint;
+        readonly jumpSequence: bigint;
+        readonly landSequence: bigint;
+        readonly actions: readonly { readonly name: string; readonly held: boolean; readonly hasPress: boolean; readonly pressSequence: bigint; readonly pressAge: number }[];
+        readonly abilities: readonly { readonly id: string; readonly active: boolean; readonly phase: string; readonly remainingSeconds: number; readonly selection: "inactive" | "selected" | "denied" | "failed" }[];
+    }
+    export interface CameraStatus {
+        readonly runState: "inactive" | "waiting" | "ready" | "blending" | "blocked" | "error";
+        readonly hasOutput: boolean;
+        readonly state: string;
+        readonly sourceState: string;
+        readonly rig: string;
+        readonly stateTime: number;
+        readonly blendProgress: number;
+        readonly diagnostic: string;
+        readonly output: { readonly position: Vector3; readonly rotation: readonly [number, number, number, number]; readonly lens: ControlData.CameraDataT };
+    }
     export class CharacterController extends Component {
         private constructor();
-        /** Caller supplies movement, look delta and one-shot jump/view intents explicitly. */
-        SetInput(
-            moveX: number,
-            moveY: number,
-            lookX: number,
-            lookY: number,
-            jump: boolean,
-            toggleView: boolean,
-        ): boolean;
-        /** Cancel this controller's input and its driven motor's movement/jump; preserve external velocity. */
+        SetInput(input: CharacterInput): boolean;
         ClearInput(): boolean;
+        GetSettings(): ControlData.CharacterControllerDataT | null;
+        SetSettings(settings: ControlData.CharacterControllerDataT): boolean;
+        GetStatus(): CharacterStatus | null;
+    }
+    export class CharacterCamera extends Component {
+        private constructor();
+        GetSettings(): ControlData.CharacterCameraDataT | null;
+        SetSettings(settings: ControlData.CharacterCameraDataT): boolean;
+        GetAngles(): readonly [number, number] | null;
+        SetAngles(yaw: number, pitch: number): boolean;
+        ApplyLook(delta: readonly [number, number], rate: readonly [number, number], seconds: number): boolean;
+        ToggleView(): boolean;
+    }
+    export class CameraController extends Component {
+        private constructor();
+        GetSettings(): ControlData.CameraControllerDataT | null;
+        SetSettings(settings: ControlData.CameraControllerDataT): boolean;
+        GetParameter(name: string): number | boolean | null;
+        SetParameters(parameters: Readonly<Record<string, number | boolean>>): boolean;
+        Trigger(name: string): boolean;
+        ResetTrigger(name: string): boolean;
+        GetTarget(slot: string): Node | null;
+        SetTarget(slot: string, target: Node | null): boolean;
+        ClearTargetOverride(slot: string): boolean;
+        GetStatus(): CameraStatus | null;
+        Reset(): boolean;
     }
     export class AudioSource extends Component {
         private constructor();
@@ -1221,4 +1317,315 @@ declare module "engine" {
         protected OnRefresh(): boolean;
         protected OnUnbind(): void;
     }
+    // BEGIN GENERATED CONTROL SCHEMA
+    /** Generated object shapes; fields and enum values come only from the runtime schemas. */
+    export namespace ControlData {
+        export interface Vec2T { x: number; y: number; }
+        export interface Vec3T { x: number; y: number; z: number; }
+        /** 0=perspective, 1=orthographic */
+        export type Projection = 0 | 1;
+        /** 0=float_value, 1=int_value, 2=bool_value, 3=trigger */
+        export type CameraParameterType = 0 | 1 | 2 | 3;
+        /** 0=retained, 1=frame */
+        export type CameraParameterLifetime = 0 | 1;
+        /** 0=equal, 1=not_equal, 2=less, 3=less_equal, 4=greater, 5=greater_equal */
+        export type CameraComparison = 0 | 1 | 2 | 3 | 4 | 5;
+        /** 0=live, 1=snapshot */
+        export type CameraBlendSource = 0 | 1;
+        /** 0=linear, 1=smoothstep, 2=ease_in, 3=ease_out */
+        export type CameraBlendCurve = 0 | 1 | 2 | 3;
+        /** 0=world, 1=character, 2=view */
+        export type CharacterMoveSpace = 0 | 1 | 2;
+        /** 0=keep, 1=movement, 2=view */
+        export type CharacterFacingMode = 0 | 1 | 2;
+        /** 0=relative_speed, 1=vertical_speed, 2=active_height, 3=grounded, 4=action_held, 5=ability_active */
+        export type CharacterCameraSource = 0 | 1 | 2 | 3 | 4 | 5;
+        /** 0=body, 1=head, 2=first_person */
+        export type CharacterVisualKind = 0 | 1 | 2;
+        export interface CameraDataT {
+            fovDegrees: number;
+            nearClip: number;
+            farClip: number;
+            projection: Projection;
+            orthographicSize: number;
+            frustumCullingEnabled: boolean;
+        }
+        export interface CameraParameterValueT {
+            name: string;
+            type: CameraParameterType;
+            floatValue: number;
+            intValue: number;
+            boolValue: boolean;
+        }
+        export interface CameraParameterDataT {
+            name: string;
+            type: CameraParameterType;
+            defaultValue: CameraParameterValueT | null;
+            lifetime: CameraParameterLifetime;
+            hasRange: boolean;
+            minimum: number;
+            maximum: number;
+        }
+        export interface CameraTargetDataT {
+            name: string;
+            nodeLocalId: bigint;
+        }
+        export interface CameraFloatInputDataT {
+            constant: number;
+            parameter: string;
+            scale: number;
+            offset: number;
+            clampEnabled: boolean;
+            minimum: number;
+            maximum: number;
+        }
+        export interface CameraModuleRefT {
+            id: bigint;
+            type: string;
+            enabled: boolean;
+        }
+        export interface CameraConditionRefT {
+            id: bigint;
+            type: string;
+        }
+        export interface CameraParameterTestDataT {
+            id: bigint;
+            parameter: string;
+            comparison: CameraComparison;
+            value: CameraParameterValueT | null;
+            tolerance: number;
+        }
+        export interface CameraTriggerTestDataT {
+            id: bigint;
+            parameter: string;
+        }
+        export interface CameraTargetTestDataT {
+            id: bigint;
+            slot: string;
+            expectedValid: boolean;
+        }
+        export interface CameraTimeTestDataT {
+            id: bigint;
+            comparison: CameraComparison;
+            seconds: number;
+        }
+        export interface CameraConditionSetDataT {
+            parameterTests: CameraParameterTestDataT[];
+            triggerTests: CameraTriggerTestDataT[];
+            targetTests: CameraTargetTestDataT[];
+            timeTests: CameraTimeTestDataT[];
+        }
+        export interface CameraConditionGroupDataT {
+            allOf: CameraConditionRefT[];
+        }
+        export interface CameraBlendDataT {
+            seconds: number;
+            curve: CameraBlendCurve;
+        }
+        export interface CameraTransitionDataT {
+            id: string;
+            from: string;
+            to: string;
+            priority: number;
+            minStateSeconds: number;
+            interrupt: boolean;
+            reenter: boolean;
+            sourceMode: CameraBlendSource;
+            blend: CameraBlendDataT | null;
+            anyOf: CameraConditionGroupDataT[];
+        }
+        export interface CameraStateDataT {
+            id: string;
+            rig: string;
+        }
+        export interface CameraStateMachineDataT {
+            initialState: string;
+            states: CameraStateDataT[];
+            transitions: CameraTransitionDataT[];
+            conditionData: CameraConditionSetDataT | null;
+        }
+        export interface CameraRigDataT {
+            id: string;
+            modules: CameraModuleRefT[];
+        }
+        export interface CameraFixedDataT {
+            id: bigint;
+            anchorSlot: string;
+            position: Vec3T;
+            rotationDegrees: Vec3T;
+        }
+        export interface CameraFollowDataT {
+            id: bigint;
+            followSlot: string;
+            offset: Vec3T;
+            localOffset: boolean;
+            positionDamping: Vec3T;
+            teleportDistance: number;
+        }
+        export interface CameraOrbitDataT {
+            id: bigint;
+            followSlot: string;
+            pivotOffset: Vec3T;
+            heightOffset: CameraFloatInputDataT | null;
+            distance: CameraFloatInputDataT | null;
+            yaw: CameraFloatInputDataT | null;
+            pitch: CameraFloatInputDataT | null;
+            pitchMin: number;
+            pitchMax: number;
+            positionDamping: Vec3T;
+            rotationDamping: number;
+            shoulderOffset: CameraFloatInputDataT | null;
+        }
+        export interface CameraAimDataT {
+            id: bigint;
+            targetSlot: string;
+            targetOffset: Vec3T;
+            worldUp: Vec3T;
+            screenPosition: Vec2T;
+            deadZone: Vec2T;
+            softZone: Vec2T;
+            rotationDamping: number;
+            aspectRatio: number;
+        }
+        export interface CameraLensDataT {
+            id: bigint;
+            projection: Projection;
+            fov: CameraFloatInputDataT | null;
+            orthographicSize: CameraFloatInputDataT | null;
+            nearClip: CameraFloatInputDataT | null;
+            farClip: CameraFloatInputDataT | null;
+        }
+        export interface CameraNoiseDataT {
+            id: bigint;
+            positionAmplitude: Vec3T;
+            rotationAmplitude: Vec3T;
+            frequency: number;
+            seed: number;
+            strength: CameraFloatInputDataT | null;
+            impulse: CameraFloatInputDataT | null;
+            decay: number;
+        }
+        export interface CameraCollisionDataT {
+            id: bigint;
+            subjectSlot: string;
+            subjectOffset: Vec3T;
+            heightOffset: CameraFloatInputDataT | null;
+            radius: number;
+            margin: number;
+            minimumDistance: number;
+            motionEnabled: boolean;
+            sightEnabled: boolean;
+            includeStatic: boolean;
+            includeKinematic: boolean;
+            includeDynamic: boolean;
+            includeCharacters: boolean;
+            contractionDamping: number;
+            recoveryDamping: number;
+            recoveryDelay: number;
+        }
+        export interface CameraBoundsDataT {
+            id: bigint;
+            anchorSlot: string;
+            minimum: Vec3T;
+            maximum: Vec3T;
+            margin: number;
+        }
+        export interface CameraModuleSetDataT {
+            fixed: CameraFixedDataT[];
+            follow: CameraFollowDataT[];
+            orbit: CameraOrbitDataT[];
+            aim: CameraAimDataT[];
+            lens: CameraLensDataT[];
+            noise: CameraNoiseDataT[];
+            collision: CameraCollisionDataT[];
+            bounds: CameraBoundsDataT[];
+        }
+        export interface CameraControllerDataT {
+            parameters: CameraParameterDataT[];
+            targets: CameraTargetDataT[];
+            machine: CameraStateMachineDataT | null;
+            rigs: CameraRigDataT[];
+            moduleData: CameraModuleSetDataT | null;
+            outputModules: CameraModuleRefT[];
+        }
+        export interface CharacterMovementDataT {
+            space: CharacterMoveSpace;
+            maxSpeed: number;
+            groundAcceleration: number;
+            groundBraking: number;
+            airAcceleration: number;
+            airBraking: number;
+            airSpeedLimit: number;
+            inheritSupportPlanarVelocity: boolean;
+        }
+        export interface CharacterFacingDataT {
+            mode: CharacterFacingMode;
+            turnSpeed: number;
+        }
+        export interface CharacterActionDataT {
+            name: string;
+            bufferSeconds: number;
+        }
+        export interface CharacterAbilityRefT {
+            id: string;
+            type: string;
+            enabled: boolean;
+            priority: number;
+        }
+        export interface CharacterSprintDataT {
+            id: string;
+            action: string;
+            speed: number;
+        }
+        export interface CharacterJumpDataT {
+            id: string;
+            action: string;
+            launchDeltaSpeed: number;
+            coyoteSeconds: number;
+            holdSeconds: number;
+            heldGravityScale: number;
+            releasedGravityScale: number;
+            allowCrouched: boolean;
+        }
+        export interface CharacterCrouchDataT {
+            id: string;
+            action: string;
+            halfHeight: number;
+            speed: number;
+        }
+        export interface CharacterAbilitySetDataT {
+            sprint: CharacterSprintDataT[];
+            jump: CharacterJumpDataT[];
+            crouch: CharacterCrouchDataT[];
+        }
+        export interface CharacterControllerDataT {
+            movement: CharacterMovementDataT | null;
+            facing: CharacterFacingDataT | null;
+            cameraNodeId: bigint;
+            actions: CharacterActionDataT[];
+            abilities: CharacterAbilityRefT[];
+            abilityData: CharacterAbilitySetDataT | null;
+        }
+        export interface CharacterCameraBindingDataT {
+            source: CharacterCameraSource;
+            sourceName: string;
+            parameter: string;
+            scale: number;
+            offset: number;
+        }
+        export interface CharacterCameraDataT {
+            subjectSlot: string;
+            yawParameter: string;
+            pitchParameter: string;
+            firstPersonParameter: string;
+            firstPersonStates: string[];
+            pointerScaleDegrees: Vec2T;
+            rateDegreesPerSecond: Vec2T;
+            statusBindings: CharacterCameraBindingDataT[];
+        }
+        export interface CharacterVisualDataT {
+            kind: CharacterVisualKind;
+        }
+    }
+    // END GENERATED CONTROL SCHEMA
 }

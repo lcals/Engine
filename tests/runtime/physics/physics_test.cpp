@@ -98,7 +98,8 @@ double height(engine::Node node)
 bool collision_and_lifecycle()
 {
     Fixture fixture;
-    if (!expect(fixture.initialize(), "initialize real collision world"))
+    if (!expect(!fixture.physics.initialize({}), "reject an uninitialized borrowed world") ||
+        !expect(fixture.initialize(), "initialize real collision world after rejected startup"))
     {
         return false;
     }
@@ -2301,6 +2302,67 @@ bool world_pause_and_resume()
                   "shutdown clears world pause");
 }
 
+bool scoped_preparation_isolation()
+{
+    Fixture fixture;
+    if (!expect(fixture.initialize(), "initialize live scene for scoped preparation"))
+    {
+        return false;
+    }
+    auto old_body = create(*fixture.world.scene(), "Existing falling body", {-10, 10, 0},
+                           engine::schema::ColliderShape::box, true);
+    engine::SceneScopeId scope;
+    if (!old_body || !fixture.physics.tick(0) ||
+        !fixture.world.begin_scope(engine::SceneLoadKind::append_batch, fixture.world.scene()->id(),
+                                   scope))
+    {
+        return false;
+    }
+    auto* candidate = fixture.world.scope_candidate(scope);
+    auto body = candidate ? create(*candidate, "Prepared falling body", {0, 20, 0},
+                                   engine::schema::ColliderShape::box, true)
+                          : engine::Node{};
+    auto actor = candidate ? candidate->create_node("Prepared character") : engine::Node{};
+    auto motor = actor ? actor.add_component<engine::CharacterMotor>() : engine::CharacterMotor{};
+    auto transform = actor.get_component<engine::Transform>();
+    auto pose = test_support::read_settings(transform);
+    pose.position = {3, 10, 0};
+    if (!body || !motor || !transform.set_settings(pose) || !fixture.world.seal_scope(scope) ||
+        fixture.world.step_scope(scope, {64, 0.01}) != engine::SceneWorkState::ready)
+    {
+        return false;
+    }
+    auto state = engine::SceneWorkState::working;
+    for (unsigned int step = 0; step < 16 && state == engine::SceneWorkState::working; ++step)
+    {
+        state = fixture.physics.prepare_scope(scope, {1, 0.01});
+        if (!expect(state != engine::SceneWorkState::failed && fixture.physics.tick(0) &&
+                        advance(fixture.physics, 1),
+                    "live physics continues while candidate bodies and motors are prepared"))
+        {
+            return false;
+        }
+    }
+    if (!expect(state == engine::SceneWorkState::ready && height(old_body) < 10 &&
+                    height(body) == 20 && height(actor) == 10 &&
+                    !fixture.world.find_node(actor.id()),
+                "prepared content stays hidden and its authored pose remains unchanged") ||
+        !fixture.world.publish_scope(scope) ||
+        !expect(fixture.physics.tick(0) && advance(fixture.physics, 2) && height(body) == 20 &&
+                    height(actor) == 10,
+                "publication alone cannot simulate or write back candidate physics") ||
+        !fixture.world.activate_scope(scope) ||
+        !expect(advance(fixture.physics, 4) && height(body) < 20 && height(actor) < 10,
+                "explicit activation enables both prepared rigid bodies and characters"))
+    {
+        return false;
+    }
+    fixture.physics.release_scope(scope);
+    fixture.world.release_scope(scope);
+    return expect(advance(fixture.physics, 1),
+                  "releasing preparation records preserves active simulation");
+}
+
 bool run_suite()
 {
     return world_pause_and_resume() && collision_and_lifecycle() && fixed_step_and_validation() &&
@@ -2310,7 +2372,7 @@ bool run_suite()
            segmented_mesh_character_seams() && accumulated_shape_scale() && numeric_boundaries() &&
            compound_box_geometry() && dynamic_pose_feedback() && compound_collision() &&
            snapshot_reuse_lifecycle() && targeted_ray() && closest_queries() && query_filters() &&
-           query_lifecycle() && impact_snapshots();
+           query_lifecycle() && impact_snapshots() && scoped_preparation_isolation();
 }
 
 bool occupied_workers(engine::ThreadSystem& threads, bool reject_submissions)

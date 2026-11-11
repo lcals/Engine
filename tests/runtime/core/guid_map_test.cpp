@@ -1,4 +1,5 @@
 #include "runtime/core/guid_map.hpp"
+#include "utf8_fixture.hpp"
 
 #include <cstdio>
 #include <string>
@@ -34,9 +35,10 @@ int main()
     {
         return 1;
     }
+    const auto unicode_path = test_support::utf8_fixture("resource_path");
     for (const auto* path :
          {"x", "scenes/main.scene", "project/scenes/main.scene", "builtin/textures/custom.png",
-          "builtin://textures/white-srgb", "editor://icons/play", "中文/资源.mesh"})
+          "builtin://textures/white-srgb", "editor://icons/play", unicode_path.c_str()})
     {
         if (!expect(engine::GuidMap::valid_path(path),
                     "ordinary folders and explicit builtin/editor namespaces are valid"))

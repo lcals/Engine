@@ -52,6 +52,10 @@ bool published_hot_reload(const std::filesystem::path& root, bool enabled)
 class TestScript final : public ScriptRuntime
 {
 public:
+    bool bind_gameplay_session(GameplaySession*) override
+    {
+        return true;
+    }
     bool prepare_gameplay(const ResourceHandle&, std::string_view) override
     {
         return false;
@@ -64,6 +68,7 @@ public:
     {
         status_.running = false;
     }
+#if defined(ENGINE_ENABLE_TEST_SUPPORT)
     bool execute_project_script(const ResourceHandle&, const ProjectScriptRequest&,
                                 std::string& result, std::string& error) override
     {
@@ -71,6 +76,7 @@ public:
         error = "Test runtime has no project script VM";
         return false;
     }
+#endif
     const ScriptStatus& status() const noexcept override
     {
         owner_only = owner_only && std::this_thread::get_id() == owner_;
@@ -203,7 +209,7 @@ bool test_background_protocol(const std::filesystem::path& root)
     {
         return false;
     }
-    session.stop("test stopped");
+    session.stop(GameplayStopCause::requested, "test stopped");
     return true;
 }
 

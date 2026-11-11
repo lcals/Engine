@@ -1,0 +1,22 @@
+function(engine_configure_camera_editor_plugin)
+    add_library(engine_camera_editor STATIC src/engine/plugins/editor/camera/camera_controller_codec.cpp)
+    add_library(engine::camera_editor ALIAS engine_camera_editor)
+    target_link_libraries(engine_camera_editor PUBLIC engine::camera engine::asset_pipeline
+                          PRIVATE nlohmann_json::nlohmann_json)
+    target_include_directories(engine_camera_editor PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+    target_compile_definitions(engine_camera_editor PUBLIC TOML_HEADER_ONLY=1 TOML_EXCEPTIONS=0
+                               PRIVATE JSON_NOEXCEPTION=1)
+    if(TARGET engine_editor)
+        target_sources(engine_camera_editor PRIVATE src/engine/plugins/editor/camera/camera_commands.cpp)
+        target_link_libraries(engine_camera_editor PRIVATE engine::editor)
+    endif()
+    engine_apply_options(engine_camera_editor)
+    if("editor/mcp" IN_LIST ENGINE_SELECTED_PLUGINS)
+        add_library(engine_camera_mcp_tools STATIC src/engine/plugins/editor/camera/camera_mcp_tools.cpp)
+        add_library(engine::camera_mcp_tools ALIAS engine_camera_mcp_tools)
+        target_link_libraries(engine_camera_mcp_tools PUBLIC engine::project_mcp_tools PRIVATE engine::camera)
+        engine_apply_options(engine_camera_mcp_tools)
+    endif()
+endfunction()
+engine_register_plugin(NAME editor/camera CONFIGURE engine_configure_camera_editor_plugin
+                       DEPENDS runtime/camera OPTIONS ENGINE_ENABLE_ASSET_PIPELINE_DEPS)

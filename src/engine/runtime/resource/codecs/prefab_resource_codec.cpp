@@ -11,7 +11,7 @@ namespace engine
 {
 bool PrefabResourceCodec::validate(const schema::PrefabDataT& data)
 {
-    if (data.schema_version != 2 || data.root_id == 0 || data.nodes.empty())
+    if (data.schema_version != 3 || data.root_id == 0 || data.nodes.empty())
     {
         return false;
     }
@@ -90,7 +90,7 @@ bool PrefabResourceCodec::validate_data(const Resource& resource, std::string& e
 }
 
 bool PrefabResourceCodec::validate_dependencies(const Resource& resource, ResourceView dependencies,
-                                                std::string& error) const
+                                                std::string&) const
 {
     const auto* prefab = resource_detail::data<PrefabResource>(&resource);
     return prefab && SceneResourceCodec::validate_node_dependencies(prefab->nodes, dependencies);

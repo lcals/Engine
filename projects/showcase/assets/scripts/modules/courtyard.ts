@@ -61,7 +61,7 @@ export default class Game extends Gameplay {
             this.peers.push(peerAnimator);
         }
         Debug.Log(
-            "Animation playground ready: WASD move, Space jump, right mouse look, Tab camera.",
+            "Animation playground ready: WASD move, Shift sprint, Ctrl crouch, Space jump, right mouse look, Tab camera.",
         );
         return this.input.Bind(scene);
     }

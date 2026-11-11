@@ -1,4 +1,5 @@
 #include "runtime/ui/rml_render.hpp"
+#include "runtime/render/frame_counters.hpp"
 #include "runtime/resource/types/shader_resource.hpp"
 #include "runtime/resource/types/texture_resource.hpp"
 #include "runtime/resource/types/ui_resource.hpp"
@@ -299,7 +300,21 @@ void RmlRender::RenderGeometry(Rml::CompiledGeometryHandle handle, Rml::Vector2f
         draw.use_scissor = scissor_enabled_;
         draw.scissor = scissor_;
         draw.shader = image->shader.handle();
-        healthy_ = fonts_.draw(image->resource.handle(), geometry, draw) && healthy_;
+        if (preparing_)
+        {
+            SceneWorkProgress progress;
+            healthy_ = fonts_.prepare_font(image->resource.handle(), draw.shader, {}, progress) ==
+                           SceneWorkState::ready &&
+                       healthy_;
+        }
+        else
+        {
+            healthy_ = fonts_.draw(image->resource.handle(), geometry, draw) && healthy_;
+        }
+        return;
+    }
+    if (preparing_)
+    {
         return;
     }
     const auto vertex_count = static_cast<std::uint32_t>(mesh.vertices.size());
@@ -332,6 +347,10 @@ void RmlRender::RenderGeometry(Rml::CompiledGeometryHandle handle, Rml::Vector2f
     bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_MSAA |
                    BGFX_STATE_BLEND_FUNC(BGFX_STATE_BLEND_ONE, BGFX_STATE_BLEND_INV_SRC_ALPHA));
     bgfx::submit(ui_view, program_);
+    if (render_detail::collecting_ui)
+    {
+        ++render_detail::ui_draws;
+    }
 }
 void RmlRender::ReleaseGeometry(Rml::CompiledGeometryHandle geometry)
 {

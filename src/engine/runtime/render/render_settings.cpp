@@ -5,6 +5,7 @@
 #include "runtime/render/render_constants.hpp"
 #include "runtime/render/render_system.hpp"
 #include "runtime/render/scene_gpu_resources.hpp"
+#include "runtime/render/scene_render_query.hpp"
 #include "runtime/render/scene_render_settings.hpp"
 #include "runtime/scene/camera.hpp"
 #include "runtime/scene/environment_component.hpp"
@@ -47,12 +48,11 @@ bool scene_render_components(Scene& scene, SceneRenderComponents& output)
         flecs::world(world.native_world())
             .query_builder<const ecs_detail::ComponentStorage<EnvironmentComponent::Data>,
                            const ecs_detail::NodeRuntime>()
-            .with<ecs_detail::Published>()
             .build();
     environments.each(
         [&](flecs::entity entity, const auto& stored, const ecs_detail::NodeRuntime& state)
         {
-            if (state.scene != &scene || !state.active || !state.visible_in_hierarchy ||
+            if (!scope_node(scene, entity.id()) || !state.active || !state.visible_in_hierarchy ||
                 !stored.state.flags.enabled || !stored.state.flags.visible)
             {
                 return;
@@ -62,7 +62,8 @@ bool scene_render_components(Scene& scene, SceneRenderComponents& output)
                 valid = false;
                 return;
             }
-            output.environment = world.find_node(entity.id()).get_component<EnvironmentComponent>();
+            output.environment =
+                scope_node(scene, entity.id()).get_component<EnvironmentComponent>();
         });
     EnvironmentSettings environment;
     if (output.environment && !output.environment.get_settings(environment))
@@ -76,18 +77,17 @@ bool scene_render_components(Scene& scene, SceneRenderComponents& output)
     auto lights = flecs::world(world.native_world())
                       .query_builder<const ecs_detail::ComponentStorage<Light::Data>,
                                      const ecs_detail::NodeRuntime>()
-                      .with<ecs_detail::Published>()
                       .build();
     lights.each(
         [&](flecs::entity entity, const auto& stored, const ecs_detail::NodeRuntime& state)
         {
-            if (state.scene != &scene || !state.active || !state.visible_in_hierarchy ||
+            if (!scope_node(scene, entity.id()) || !state.active || !state.visible_in_hierarchy ||
                 !stored.state.flags.enabled || !stored.state.flags.visible ||
                 stored.data.kind != schema::LightKind::directional)
             {
                 return;
             }
-            const auto light = world.find_node(entity.id()).get_component<Light>();
+            const auto light = scope_node(scene, entity.id()).get_component<Light>();
             if (atmosphere_sun_id != 0)
             {
                 const auto* properties = entity.try_get<schema::NodePropertiesT>();
@@ -231,7 +231,9 @@ std::uint32_t RenderSystem::idle_clear_color() const noexcept
 bool RenderSystem::resolve_settings(RenderSettings& settings) const noexcept
 {
     settings = {};
-    Scene* scene = world_ != nullptr ? world_->scene() : nullptr;
+    Scene* scene = scope_preparing_scene_ ? scope_preparing_scene_
+                   : world_ != nullptr    ? world_->scene()
+                                          : nullptr;
     if (scene == nullptr)
     {
         settings.clear_color = idle_clear_color_;

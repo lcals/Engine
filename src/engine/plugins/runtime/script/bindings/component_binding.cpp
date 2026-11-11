@@ -8,6 +8,13 @@ namespace engine::plugins::script::bindings
 namespace
 {
 constexpr std::string_view javascript = R"js(
+function copyComponentData(value) {
+    if (Array.isArray(value)) return value.map(copyComponentData);
+    if (value === null || typeof value !== 'object') return value;
+    const result = {};
+    for (const [key, item] of Object.entries(value)) result[key] = copyComponentData(item);
+    return result;
+}
 export class Component {
     constructor(token, scene, node, kind) { attach(this, token, scene, node, kind); }
     get node() { const h = handles.get(this); return new Node(key, h.scene, h.node); }

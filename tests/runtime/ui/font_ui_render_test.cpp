@@ -449,8 +449,10 @@ struct Systems
         std::error_code error;
         fs::create_directories(directory, error);
         const auto path = directory / name;
+        engine::ScreenshotId id;
+        engine::ScreenshotSnapshot capture;
         if (!expect(!error, "create screenshot destination") ||
-            !expect(renderer.request_screenshot(engine::PathUtils::to_utf8(path)),
+            !expect(renderer.request_screenshot({.path = engine::PathUtils::to_utf8(path)}, id),
                     "request GPU screenshot"))
         {
             return false;
@@ -461,7 +463,9 @@ struct Systems
             {
                 return false;
             }
-            if (renderer.screenshot_status() != engine::ScreenshotStatus::pending)
+            if (!renderer.screenshot_status(id, capture) ||
+                capture.state == engine::ScreenshotState::complete ||
+                capture.state == engine::ScreenshotState::failed)
             {
                 break;
             }
@@ -470,7 +474,9 @@ struct Systems
         constexpr std::array<std::byte, 8> png = {std::byte{137}, std::byte{'P'}, std::byte{'N'},
                                                   std::byte{'G'}, std::byte{13},  std::byte{10},
                                                   std::byte{26},  std::byte{10}};
-        return expect(renderer.screenshot_status() == engine::ScreenshotStatus::complete,
+        return expect(renderer.screenshot_status(id, capture) &&
+                          capture.state == engine::ScreenshotState::complete &&
+                          renderer.release_screenshot(id),
                       "GPU screenshot completed") &&
                expect(engine::VirtualFileSystem::read_file(path, bytes) && bytes.size() > 128 &&
                           std::equal(png.begin(), png.end(), bytes.begin()),
@@ -1116,6 +1122,24 @@ bool run(Systems& systems, const fs::path& project, const fs::path& screenshots)
         {
             return false;
         }
+        if (cycle == 0)
+        {
+            const engine::SceneScopeId scope{systems.world.epoch(), scene->id()};
+            auto state = systems.ui.prepare_scope(scope, {});
+            for (int attempt = 0;
+                 attempt < maximum_attempts && state == engine::SceneWorkState::working; ++attempt)
+            {
+                state = systems.ui.prepare_scope(scope, {});
+            }
+            engine::RenderFrameSnapshot frame;
+            if (!expect(state == engine::SceneWorkState::ready, "prepare the published UI") ||
+                !systems.frames() ||
+                !expect(systems.renderer.frame_status(scope, frame) && frame.ui_draws > 0,
+                        "preparing a published document preserves its visible GPU draws"))
+            {
+                return false;
+            }
+        }
         if (cycle == 0 && !systems.screenshot(screenshots, "launcher.png"))
         {
             return false;
@@ -1217,8 +1241,10 @@ int main(int argc, char** argv)
         return 1;
     }
     std::error_code error;
-    const auto screenshots = argc == 3 ? fs::absolute(engine::PathUtils::from_utf8(argv[2]), error)
-                                       : project.root / "screenshots";
+    const auto stamp = std::chrono::system_clock::now().time_since_epoch().count();
+    const auto screenshots =
+        argc == 3 ? fs::absolute(engine::PathUtils::from_utf8(argv[2]), error)
+                  : fs::current_path(error) / "test-artifacts/font-ui" / std::to_string(stamp);
     if (!expect(!error, "resolve screenshot destination"))
     {
         return 1;

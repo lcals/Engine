@@ -54,9 +54,9 @@ CSM、AO、HDR、Bloom 和 IBL 在各平台使用同一套通道与 Shader 源�
 
 灯的颜色及 `intensity` 在线性空间参与计算，目前强度是引擎相对量，尚未标定为 lux 或 candela。方向光没有距离衰减；点光和聚光以 `max(d², 0.01)` 作距离平方分母，并乘范围淡出 `clamp(1 - d/range, 0, 1)²`；聚光另外在内外锥夹角余弦之间执行平滑过渡。该范围淡出是有界光源的实时近似；设置数值不能直接当作其他 DCC 中同名物理单位的等价数值。
 
-调用方可向 `prepare_scene(mode, progress, max_seconds, camera)` 和 `render(camera)` 显式提交借用镜头，替代本次绘制使用的活动相机。该镜头可以属于调用方独立场景，渲染器不持有它、不改写项目场景数据；未传入时继续使用项目活动镜头。编辑器预览使用独立的隐藏镜头，后处理仍读取项目场景活动相机的 `PostProcessComponent`，不将预览视角保存到场景。
+调用方可向 `prepare_scope(scope, budget, camera)` 和 `render(camera)` 显式提交借用镜头，替代本次绘制使用的活动相机。该镜头可以属于调用方独立场景，渲染器不持有它、不改写项目场景数据；未传入时继续使用项目活动镜头。编辑器预览使用独立的隐藏镜头，后处理仍读取项目场景活动相机的 `PostProcessComponent`，不将预览视角保存到场景。
 
-交互式宿主调用 `prepare_scene(RenderPrepareMode::incremental, progress)`，在 `preparing` 时继续加载画面，`ready` 后再 `render`；失败读取 `preparation_error()` 并显式清理。独立工具选择 `synchronous`，此时 `max_seconds` 必须为 0。`preparation_status(progress)` 只查询，`render` 不代替准备。分步预算和完成边界见[类图](class-diagrams/render-system.md#大场景分批准备)。
+交互式宿主按预算推进明确 scope，同时继续 render 已发布内容；scope_status 只读。加载协调的 ready 和激活后的真实首帧见[范围与帧契约](class-diagrams/render-readiness.md)。
 
 节点世界矩阵为列主序，局部 -Z 表示相机朝向和方向光传播方向。相机提供透视视场角或正交竖直半高及近远裁剪面，窗口像素尺寸决定宽高比；视图基忽略缩放大小，避免非均匀缩放扭曲镜头。模型法线使用世界矩阵逆转置；负缩放按行列式切换剔除方向。窗口缩放更新交换链和投影。
 
@@ -112,21 +112,21 @@ Shader `.shader` 的 `[[samplers]]` 声明 `name/uniform/stage/default_texture/e
 | --- | --- |
 | `get_render_settings` | 无参数；读取当前场景组件组成的渲染快照 |
 | `set_render_settings` | 环境光、雾、IBL、AO、`hdrEnabled`、`bloomEnabled`、`bloomThreshold`、`bloomIntensity`、`bloomRadius`、`exposure`、`filmicTonemap`、方向光阴影与级联、`clearColor` 等至少一项；活动场景中修改相应组件并支持撤销、保存 |
-| `capture_frame` | `path`，相对于项目 `cache/` 的 `.png` 路径；请求真实引擎帧截图 |
-| `get_frame_capture` | 无参数；查询截图 `state` 与文件 `path`，`complete` 才表示文件写入完成 |
+| `capture_frame` | `path` 为相对项目 `cache/` 的新 `.png` 路径；通过 `selection`、`scope` 和帧下界选择实际提交帧，返回 `captureId` |
+| `get_frame_capture` | 必填 `captureId`；查询该截图的状态、实际帧归属、路径与错误，`complete` 才表示文件写入完成 |
 | `set_render_stats` | 必填 `enabled` 布尔值；开关 bgfx 自带统计面板，默认关闭 |
 
 `set_render_stats {"enabled":true}` 开启面板，`{"enabled":false}` 关闭。开关在空白待机、场景预览和玩法运行中均生效，切换场景或模式保留当前状态；不进入撤销、不标记场景修改，也不随场景保存。面板直接使用 `BGFX_DEBUG_STATS`，不额外启用逐 View Profiler。
 
 Tracy、CPU/GPU 统计及采集工具统一见[性能采样](performance.md)；渲染统计面板与 Tracy 开关相互独立。
 
-截图由 bgfx 帧回调输出 PNG，场景必须继续提交帧。编辑器校验相对路径并创建父目录，渲染器仅接受宿主提供的明确路径；MCP 不自行绘制图片。命令回执完成只表示请求已接受，截图自身的 `pending` 还须通过 `get_frame_capture` 查询；命令通道的 `activation: pending` 则按原请求身份查询 `get_editor_receipt`，不重复提交。
+截图读回正常呈现的最终输出，包含色调映射和 UI，并通过已有编码器输出 PNG。宿主必须继续提交帧。MCP 校验相对路径并创建父目录，渲染器接受明确的绝对路径；命令回执完成只表示请求已受理。后续按 `captureId` 查询截图；命令通道的 `activation: pending` 按原 `requestId` 查询 `get_request_receipt`，不重复提交。
 
 原生调用方可用 `RenderSystem::request_hdr_capture()` 排队捕获下一帧正式场景，并继续调用 `render()`，通过 `hdr_capture_status()` 查询；状态为 `complete` 后使用 `take_hdr_capture()` 接收 `SceneCaptureImage`。RGB 是线性浮点数，允许大于 1；返回尺寸是实际场景目标的物理像素，行从上至下、RGBA 紧密排列。源数据为 RGBA16F，扩展为 float 返回，Alpha 原样保留。结果包含材质、光照、反射、透明和场景扩展，位于 Bloom、曝光、色调映射及 UI 之前；它不是显示器 HDR 输出或 PNG 截图。
 
 同一时刻只接受一个未取走请求，未初始化、没有活动场景或上次读回仍在退役时请求失败。提交帧时才检查可绘制内容及实际相机，因此可以在请求后通过 `render(camera)` 指定独立场景中的相机；若提交帧没有有效相机或可绘制内容，请求会取消。`cancel_hdr_capture()`、场景释放、设备重建及目标尺寸改变会取消当前结果；即使已取消，bgfx 仍须完成在途读回后才能回收缓冲。平台不支持 blit、读回或所需格式时状态为 `failed`，不会退回 SDR。MSAA 读取透明合成目标 resolve 后的结果。原始浮点值的实际用途和图像文件编码由调用方决定。
 
-`request_screenshot()` 接收调用方提供的绝对 UTF-8 PNG 路径，仅负责排队。宿主继续提交帧，bgfx 回调通过已选 bimg 编码器和 SDL3 IO 写出原始渲染结果，`screenshot_status()` 报告 pending、complete 或 failed。回调正确处理 BGRA、行步长及原点翻转；写入失败不会报告完成。路径选择、目录创建和编辑器相对路径权限检查由调用方负责，核心无需桌面截图权限。
+`request_screenshot(request, id)` 返回独立请求身份；`screenshot_status(id, output)` 只查询，不推进帧或等待任务。GPU fence 完成后才编码，通过临时文件原子发布 PNG；完成后由调用方释放记录。状态、取消、设备换代与帧选择的完整契约见[首帧与截图](class-diagrams/render-readiness.md#截图请求与所有权)。路径选择、目录创建和相对路径权限检查由调用方负责，核心无需桌面截图权限。
 
 ## 场景环境参数
 
@@ -190,6 +190,8 @@ MeshRenderer 的 `cast_shadows` 默认 true；设为 false 后，该组件仍在
 主 pass 按观察镜头的正向深度选级，16 点 PCF 的每次采样限制在本级 tile 内。每级末尾的混合区与下一层平滑过渡，最后一级在同样区间淡出；混合比例为 0 时使用硬切换。下一级投影向前扩展以覆盖混合区。坐标变换处理各后端的屏幕原点和深度范围；超出有效投影或阴影距离返回全可见。没有投影方向光时仍可为点光与聚光提交 atlas；没有任何阴影面时释放专属 GPU 对象。聚合设置只查询和修改方向光，逐灯编辑应直接使用 `Light`。
 
 CSM 参考引入时固定的 [bgfx `16-shadowmaps`](https://github.com/bkaradzic/bgfx/tree/7a70927d2af7ffcc5cef9c9e8f4c821e31fcb099/examples/16-shadowmaps)（commit `7a70927d2af7ffcc5cef9c9e8f4c821e31fcb099`）：`shadowmaps.cpp` 提供混合划分和纹素稳定思路，`fs_shadowmaps_color_lighting_main.sh` 提供分级采样结构。引擎适配为单 atlas、相机深度选级、包围球稳定范围、交界重叠混合和末级淡出，PCF 保留 `15-shadowmaps-simple/fs_sms_shadow.sh` 的 4×4 布局，并增加 tile 边界限制。运行库升级不改写原始算法来源；Dario Manesku 的示例版权与 BSD-2-Clause 条款保留在 [bgfx 许可](../../third_party/notices/bgfx.txt)。
+
+CSM 在各纹素中心解包并比较深度，按子纹素位置连续插值比较结果；不能直接线性插值打包的 RGBA 深度。现有 4×4 双线性 PCF 的共享取样合并为 5×5 加权点取样，保留滤波范围、atlas 边界限制和逐样本接收平面深度修正，避免整纹素跳变在相邻平面交界形成规则条纹。比较后滤波的原理见 [NVIDIA GPU Gems：Shadow Map Antialiasing](https://developer.nvidia.com/gpugems/gpugems/part-ii-lighting-and-shadows/chapter-11-shadow-map-antialiasing)，现有 bgfx 来源与许可保留。
 
 `shadow_bias` 是共用的归一化深度偏移。级联距离、投射物深度范围和场景尺度改变后，应重新对比斜面自阴影与接触阴影；偏移过小可能出现条纹，过大可能使投影脱离物体。纹素对齐和交界混合不代替偏移调整，也不保证任意运动下完全无闪烁。
 

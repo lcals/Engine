@@ -1,5 +1,6 @@
 #pragma once
 
+#include "runtime/scene/camera.hpp"
 #include "runtime/system/system.hpp"
 
 #include <cstdint>
@@ -8,7 +9,6 @@
 namespace engine
 {
 class WorldSystem;
-class PhysicsSystem;
 } // namespace engine
 
 namespace engine::plugins::character_controller
@@ -18,7 +18,7 @@ class CharacterCameraSystem final : public System
 {
 public:
     // 借用对象须覆盖本系统生命周期；在物理和动画之后更新。
-    CharacterCameraSystem(WorldSystem& world, PhysicsSystem& physics) noexcept;
+    CharacterCameraSystem(WorldSystem& world) noexcept;
     ~CharacterCameraSystem() noexcept override;
 
 protected:
@@ -30,8 +30,7 @@ private:
     [[nodiscard]] bool update_visibility();
     void clear_visibility() noexcept;
     WorldSystem& world_;
-    PhysicsSystem& physics_;
-    std::vector<std::uint64_t> filtered_cameras_;
+    std::vector<Camera> filtered_cameras_;
 };
 
 } // namespace engine::plugins::character_controller

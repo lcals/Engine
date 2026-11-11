@@ -2,7 +2,8 @@
 #include "plugins/editor/mcp/editor_tool_registration.hpp"
 
 #include "plugins/editor/mcp/editor_mcp_tools.hpp"
-#include "plugins/editor/mcp/mcp_system.hpp"
+#include "plugins/editor/modeling/primitive_contract.hpp"
+#include "plugins/runtime/mcp/mcp_system.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -52,15 +53,27 @@ bool register_modeling_tools(engine::plugins::mcp::McpSystem& system,
     };
     const Json target = {{"sceneId", id()}, {"modelId", id()}, {"nodeId", id()}};
     const Json required = {"sceneId", "modelId"};
-    auto create = Json{
-        {"sceneId", id()},
-        {"name", {{"type", "string"}, {"minLength", 1}, {"maxLength", 128}}},
-        {"shape",
-         {{"type", "string"},
-          {"enum",
-           {"cube", "plane", "cylinder", "cone", "sphere", "torus", "prism", "stairs", "arch",
-            "pipe", "door", "curved_stairs", "sprite", "icosphere", "polygon", "sweep", "lathe"}}}},
-        {"parameters", {{"type", "object"}}}};
+    const auto contracts = detail::shape_contracts(false);
+    Json shapes = Json::array();
+    Json alternatives = Json::array();
+    for (const auto& [shape, contract] : contracts.items())
+    {
+        shapes.push_back(shape);
+        alternatives.push_back({{"type", "object"},
+                                {"properties",
+                                 {{"shape", {{"type", "string"}, {"enum", {shape}}}},
+                                  {"parameters", contract["parameters"]}}},
+                                {"required", {"shape"}}});
+    }
+    auto create =
+        mcp::object_schema({{"sceneId", id()},
+                            {"name", {{"type", "string"}, {"minLength", 1}, {"maxLength", 128}}},
+                            {"shape", {{"type", "string"}, {"enum", shapes}}},
+                            {"parameters", {{"type", "object"}}}},
+                           {"sceneId", "shape"});
+    create["oneOf"] = std::move(alternatives);
+    auto rebuild = target;
+    rebuild["parameters"] = {{"type", "object"}};
     auto get = target;
     get["offset"] = {{"type", "integer"}, {"minimum", 0}};
     get["limit"] = {{"type", "integer"}, {"minimum", 1}, {"maximum", 1024}};
@@ -118,27 +131,49 @@ bool register_modeling_tools(engine::plugins::mcp::McpSystem& system,
     auto save = target;
     save["path"] = {{"type", "string"}, {"minLength", 1}, {"maxLength", 4096}};
     const auto load = Json{{"sceneId", id()}, {"path", save["path"]}, {"name", duplicate["name"]}};
-    return add("modeling_help", "发现全部建模操作的参数契约、示例和限制；无需启动项目。",
-               mcp::object_schema({{"operation", {{"type", "string"}}}}, Json::array())) &&
-           add("modeling_create", "创建可编辑模型；返回稳定 modelId，再查询当前 nodeId。",
-               mcp::object_schema(create, {"sceneId", "shape"})) &&
-           add("modeling_get", "查询模型与分页拓扑；省略 modelId 列出全部模型。",
+    return add("modeling_help",
+               "Discover parameter contracts, examples and limits for all modeling operations; no "
+               "running project is required.",
+               mcp::object_schema({{"operation", {{"type", "string"}}},
+                                   {"shape", {{"type", "string"}, {"enum", shapes}}}},
+                                  Json::array())) &&
+           add("modeling_create",
+               "Create an editable model; returns a stable modelId. Query its current nodeId "
+               "separately.",
+               std::move(create)) &&
+           add("modeling_rebuild",
+               "Rebuild from saved parameters, resetting geometry, UVs and face edits while "
+               "preserving the node and material bindings. Supports undo.",
+               mcp::object_schema(rebuild, {"sceneId", "modelId", "parameters"})) &&
+           add("modeling_get", "Query models and paged topology; omit modelId to list all models.",
                mcp::object_schema(get, {"sceneId"})) &&
-           add("modeling_select", "设置顶点、边或面选择；选择支持撤销和批量事务。",
+           add("modeling_select",
+               "Select vertices, edges or faces; supports undo and batch transactions.",
                mcp::object_schema(select, {"sceneId", "modelId"})) &&
-           add("modeling_edit", "对可编辑模型执行 C++ 几何操作；失败保持源数据与场景不变。",
+           add("modeling_edit",
+               "Apply a C++ geometry operation to an editable model; failure preserves source data "
+               "and the scene.",
                mcp::object_schema(edit, {"sceneId", "modelId", "operation"})) &&
-           add("modeling_delete", "删除模型；撤销保留 modelId，恢复节点的 nodeId 会改变。",
+           add("modeling_delete",
+               "Delete a model; undo preserves modelId, but the restored node receives a new "
+               "nodeId.",
                mcp::object_schema(target, required)) &&
-           add("modeling_duplicate", "复制可编辑模型与当前变换、材质。",
+           add("modeling_duplicate",
+               "Duplicate an editable model with its current transform and materials.",
                mcp::object_schema(duplicate, required)) &&
-           add("modeling_combine", "按场景变换合并模型为新对象，原对象保持不变。",
+           add("modeling_combine",
+               "Merge models using their scene transforms into a new object, preserving the "
+               "originals.",
                mcp::object_schema(combine, {"sceneId", "modelIds"})) &&
-           add("modeling_separate", "把选择的面分离到新模型；整次修改可撤销。",
+           add("modeling_separate",
+               "Detach selected faces into a new model; the entire change supports undo.",
                mcp::object_schema(separate, required)) &&
-           add("modeling_save", "将模型保存为 assets 内 .mesh 源资源，meta 由导入管线维护。",
+           add("modeling_save",
+               "Save the model as a .mesh source under assets; the import pipeline manages its "
+               "meta.",
                mcp::object_schema(save, {"sceneId", "modelId", "path"})) &&
-           add("modeling_load", "读取 assets 内含建模源数据的 .mesh 并创建可编辑模型。",
+           add("modeling_load",
+               "Load modeling source data from a .mesh under assets and create an editable model.",
                mcp::object_schema(load, {"sceneId", "path"}));
 }
 

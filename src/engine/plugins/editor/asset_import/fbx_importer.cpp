@@ -314,8 +314,9 @@ bool FbxImporter::inspect_batch(const ImportContext& context, std::string& finge
             return false;
         }
     }
-    if (!schema_fingerprint({"common.fbs", "model.fbs", "mesh.fbs", "skeleton.fbs", "animation.fbs",
-                             "sampling.fbs", "animation_pose.fbs"},
+    if (!schema_fingerprint({"runtime/common.fbs", "runtime/model.fbs", "runtime/mesh.fbs",
+                             "runtime/skeleton.fbs", "runtime/animation.fbs",
+                             "runtime/sampling.fbs", "runtime/animation_pose.fbs"},
                             fingerprint, error))
     {
         return false;

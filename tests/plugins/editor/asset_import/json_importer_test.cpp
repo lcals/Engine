@@ -6,6 +6,7 @@
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/task/task_system.hpp"
 #include "runtime/task/thread_system.hpp"
+#include "utf8_fixture.hpp"
 
 #include <algorithm>
 #include <array>
@@ -129,10 +130,11 @@ bool conversion_tests(const Fixture& fixture)
     {
         return false;
     }
+    const auto unicode_json = "{\n  \"map\": \"levels/missing.scene\", \"label\": \"" +
+                              test_support::utf8_fixture("scene_label") + "\"\n}\n";
     for (const auto text : std::array<std::string_view, 8>{
-             "{\n  \"map\": \"levels/missing.scene\", \"label\": \"场景\"\n}\n",
-             "[1, true, null, {\"weapon\": \"weapons/missing.mesh\"}]", "\"hello\"", "42",
-             "-12.5e+2", "true", "false", "null"})
+             unicode_json, "[1, true, null, {\"weapon\": \"weapons/missing.mesh\"}]", "\"hello\"",
+             "42", "-12.5e+2", "true", "false", "null"})
     {
         if (!expect(write(asset.source, text) && importer.convert(asset, context, error) &&
                         error.empty() && read(output) == text,

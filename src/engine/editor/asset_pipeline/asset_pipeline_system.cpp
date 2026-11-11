@@ -150,8 +150,8 @@ bool project_idle(const std::filesystem::path& root, std::string& error)
             std::string status_text;
             const auto runtime = PathUtils::from_utf8(host["runtimeDir"].get<std::string>());
             nlohmann::json status;
-            if (runtime.is_absolute() && engine::editor::file_detail::read_text(
-                                             runtime / "project-status.json", status_text))
+            if (runtime.is_absolute() &&
+                engine::editor::file_detail::read_text(runtime / "editor-status.json", status_text))
             {
                 status = nlohmann::json::parse(status_text, nullptr, false);
             }
@@ -444,8 +444,9 @@ bool scan_assets(const std::filesystem::path& assets, const std::filesystem::pat
 bool common_fingerprint(const std::string& platform, std::string& output, std::string& error)
 {
     std::string schemas;
-    if (!schema_fingerprint({"common.fbs", "asset_catalog.fbs", "resource_header.fbs"}, schemas,
-                            error))
+    if (!schema_fingerprint(
+            {"runtime/common.fbs", "runtime/asset_catalog.fbs", "runtime/resource_header.fbs"},
+            schemas, error))
     {
         return false;
     }

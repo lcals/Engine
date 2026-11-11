@@ -22,6 +22,11 @@ public:
     explicit EffectSystem(WorldSystem& world, RenderSystem& renderer) noexcept;
     ~EffectSystem() noexcept override;
 
+    [[nodiscard]] SceneWorkState prepare_scope(SceneScopeId scope,
+                                               const SceneWorkBudget& budget) override;
+    [[nodiscard]] bool scope_status(SceneScopeId scope,
+                                    ScenePreparationSnapshot& output) const override;
+    void release_scope(SceneScopeId scope) noexcept override;
     [[nodiscard]] bool draw(const RenderContext& context) override;
     void release_scene() noexcept override;
     void release_gpu() noexcept override;

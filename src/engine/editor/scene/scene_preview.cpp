@@ -266,7 +266,7 @@ struct ScenePreview::State
         }
         if (active())
         {
-            gameplay.stop();
+            gameplay.stop(GameplayStopCause::requested);
             if (commands)
             {
                 commands->clear_history();
@@ -366,7 +366,7 @@ struct ScenePreview::State
             return false;
         }
         close();
-        gameplay.stop();
+        gameplay.stop(GameplayStopCause::requested);
         if (commands)
         {
             commands->clear_history();
@@ -390,13 +390,13 @@ struct ScenePreview::State
         {
             if (!source.get_settings(projection) || !copy_camera(source, pose))
             {
-                gameplay.stop();
+                gameplay.stop(GameplayStopCause::requested);
                 return fail("Cannot read the scene camera world transform");
             }
         }
         if (!camera_arguments(arguments, pose, requested_speed))
         {
-            gameplay.stop();
+            gameplay.stop(GameplayStopCause::requested);
             return fail("Invalid preview camera settings");
         }
         auto* view_scene = camera_world.create_scene("Editor Preview Camera");
@@ -405,7 +405,7 @@ struct ScenePreview::State
         if (!view || !node.get_component<Transform>().set_settings(pose) ||
             !view.set_settings(projection))
         {
-            gameplay.stop();
+            gameplay.stop(GameplayStopCause::requested);
             camera_world.destroy_scene();
             return fail("Cannot initialize the editor preview camera");
         }
@@ -882,11 +882,12 @@ bool ScenePreview::tick(double delta_time)
     {
         return true;
     }
-    RenderPrepareProgress progress;
-    if (state_->renderer.prepare_scene(RenderPrepareMode::incremental, progress, 0,
-                                       state_->camera) == RenderPrepareStatus::failed)
+    if (state_->renderer.prepare_scope({}, {}, state_->camera) == SceneWorkState::failed)
     {
-        const std::string error(state_->renderer.preparation_error());
+        ScenePreparationSnapshot snapshot;
+        (void)state_->renderer.scope_status({}, snapshot);
+        const auto error = snapshot.stages.empty() ? "Scene preview preparation failed"
+                                                   : snapshot.stages.front().error;
         state_->close();
         return state_->fail(error);
     }

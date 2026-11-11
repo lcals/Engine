@@ -71,7 +71,7 @@ struct RenderSystem::RendererCallbacks::Capture
                 png ? bimg::imageWritePng(&writer, width, height, pitch, pixels.data(),
                                           bimg::TextureFormat::BGRA8, yflip, &error)
                     : bimg::imageWriteTga(&writer, width, height, pitch, pixels.data(), false,
-                                         yflip, &error);
+                                          yflip, &error);
             const bool closed = SDL_CloseIO(stream);
             success = written > 0 && error.isOk() && closed;
         }
@@ -232,37 +232,6 @@ void RenderSystem::RendererCallbacks::screenShot(const char* path, std::uint32_t
     next->pixels.assign(begin, begin + static_cast<std::size_t>(bytes));
     capture = std::move(next);
     status.store(ScreenshotStatus::pending);
-}
-
-bool RenderSystem::request_screenshot(std::string_view utf8_png_path)
-{
-    if (!renderer_initialized_ || callbacks_ == nullptr || !SDL_IsMainThread() ||
-        utf8_png_path.empty() || !utf8_png_path.ends_with(".png") ||
-        utf8_png_path.find('\0') != std::string_view::npos)
-    {
-        return false;
-    }
-    const auto path = PathUtils::from_utf8(utf8_png_path);
-    std::error_code error;
-    if (!path.is_absolute() || !std::filesystem::is_directory(path.parent_path(), error) || error)
-    {
-        return false;
-    }
-    std::lock_guard lock(callbacks_->mutex);
-    if (callbacks_->status.load() == ScreenshotStatus::pending)
-    {
-        return false;
-    }
-    callbacks_->pending_path = utf8_png_path;
-    callbacks_->readback_received = false;
-    callbacks_->status.store(ScreenshotStatus::pending);
-    bgfx::requestScreenShot(BGFX_INVALID_HANDLE, callbacks_->pending_path.c_str());
-    return true;
-}
-
-ScreenshotStatus RenderSystem::screenshot_status() const noexcept
-{
-    return callbacks_ != nullptr ? callbacks_->status.load() : ScreenshotStatus::idle;
 }
 
 } // namespace engine

@@ -160,11 +160,13 @@ bool run(test_support::ResourceFixture& files)
     std::unique_ptr<engine::System> navigation_base = std::move(navigation);
     if (!expect((threads.initialize({}) && services.initialize({})) && tasks.initialize({}) &&
                     world.add_subsystem(navigation_base) &&
-                    configure_runtime_plugins(engine::RuntimeStage::before_physics, world, window,
-                                              physics, *navigation_ptr, renderer, tasks) &&
+                    assemble_runtime_plugins(engine::RuntimeStage::before_physics, world, window,
+                                             physics, *navigation_ptr, renderer, tasks, nullptr,
+                                             nullptr) &&
                     world.subsystem_count() == 2 &&
-                    configure_runtime_plugins(engine::RuntimeStage::after_physics, world, window,
-                                              physics, *navigation_ptr, renderer, tasks) &&
+                    assemble_runtime_plugins(engine::RuntimeStage::after_physics, world, window,
+                                             physics, *navigation_ptr, renderer, tasks, nullptr,
+                                             nullptr) &&
                     world.subsystem_count() == 2 && world.initialize({}) &&
                     world.component_registry().contains(NavigationAgent::component_type) &&
                     script.initialize({}) && add_script(files) && files.publish(resources) &&

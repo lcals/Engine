@@ -112,6 +112,7 @@ if(TARGET engine_ui_editor AND TARGET engine_asset_import AND TARGET engine_reso
 endif()
 
 if(TARGET engine_script)
+    if(ENGINE_ENABLE_TEST_SUPPORT)
     add_executable(engine_project_script_test plugins/runtime/script/project_script_test.cpp)
     target_link_libraries(engine_project_script_test PRIVATE engine::script)
     target_include_directories(engine_project_script_test PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
@@ -120,7 +121,9 @@ if(TARGET engine_script)
     add_test(NAME engine.project_script COMMAND engine_project_script_test)
     set_tests_properties(engine.project_script PROPERTIES TIMEOUT 60)
 
-    if(TARGET engine_resource_graph)
+    endif()
+
+    if(ENGINE_ENABLE_TEST_SUPPORT AND TARGET engine_resource_graph)
         add_executable(engine_script_runtime_test plugins/runtime/script/script_runtime_test.cpp)
         target_link_libraries(engine_script_runtime_test PRIVATE engine::resource_graph)
         target_include_directories(engine_script_runtime_test PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
@@ -173,6 +176,9 @@ if(TARGET mcp_app)
     endif()
     if(NOT TARGET engine_character_controller_mcp_tools)
         list(APPEND _script_tooling_options --without-character-controller)
+    endif()
+    if(NOT TARGET engine_camera_mcp_tools)
+        list(APPEND _script_tooling_options --without-camera)
     endif()
     if(NOT TARGET engine_scene_bake_mcp_tools)
         list(APPEND _script_tooling_options --without-scene-bake)
@@ -347,6 +353,10 @@ if(TARGET engine_editor)
                                    PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
         target_link_libraries(engine_editor_commands_test PRIVATE engine::editor engine::world
                                                                   engine::resource)
+        if(TARGET engine_mcp)
+            target_link_libraries(engine_editor_commands_test PRIVATE engine::mcp)
+            target_compile_definitions(engine_editor_commands_test PRIVATE ENGINE_TEST_COMMAND_CHANNEL=1)
+        endif()
         engine_apply_options(engine_editor_commands_test)
         add_test(NAME editor.commands COMMAND engine_editor_commands_test)
         set_tests_properties(editor.commands PROPERTIES TIMEOUT 30)
@@ -512,10 +522,12 @@ if(ENGINE_ENABLE_RUNTIME_DEPS AND TARGET engine_resource_graph)
                 SDL3::SDL3
                 bgfx::bgfx
                 bgfx::bimg
+                bgfx::bimg_decode
                 basisu::basisu_encoder)
     engine_apply_options(engine_window_render_test)
     target_compile_definitions(engine_window_render_test PRIVATE
-                               ENGINE_TEST_RUNTIME_SETTINGS="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/runtime-settings.json")
+                               ENGINE_TEST_RUNTIME_SETTINGS="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/runtime-settings.json"
+                               ENGINE_RENDER_TEST_ARTIFACTS_DIR="${CMAKE_BINARY_DIR}/test-artifacts/window-render")
     if(TARGET engine_resource_graph)
 
         target_compile_definitions(engine_window_render_test PRIVATE ENGINE_TEST_RESOURCE_GRAPH=1)
@@ -1033,6 +1045,13 @@ if(TARGET engine_editor AND TARGET engine_animation)
     endif()
 endif()
 
+if(TARGET engine_character_controller AND TARGET engine_camera)
+    add_executable(engine_camera_test plugins/runtime/camera/camera_test.cpp)
+    target_link_libraries(engine_camera_test PRIVATE engine::character_controller engine::camera)
+    engine_apply_options(engine_camera_test)
+    add_test(NAME engine.camera COMMAND engine_camera_test)
+endif()
+
 if(TARGET engine_character_controller)
     if(TARGET engine_resource_graph)
         add_executable(engine_character_controller_test
@@ -1050,7 +1069,7 @@ if(TARGET engine_character_controller)
                                                    engine::resource engine::render SDL3::SDL3)
             target_include_directories(engine_character_host_test PRIVATE "${PROJECT_SOURCE_DIR}/src")
             target_compile_definitions(engine_character_host_test
-                                       PRIVATE ENGINE_HAS_CHARACTER_CONTROLLER=1
+                                       PRIVATE ENGINE_HAS_CHARACTER_CONTROLLER=1 ENGINE_HAS_CAMERA=1
                                        ENGINE_TEST_RUNTIME_SETTINGS="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/runtime-settings.json")
             engine_apply_options(engine_character_host_test)
             if(ENGINE_ENABLE_GPU_TESTS)
@@ -1132,7 +1151,7 @@ if(TARGET engine_character_controller_editor AND TARGET engine_editor)
     add_executable(engine_character_controller_editor_test
                    plugins/editor/character_controller/character_controller_editor_test.cpp)
     target_link_libraries(engine_character_controller_editor_test
-                          PRIVATE engine::character_controller_editor engine::editor)
+                          PRIVATE engine::character_controller_editor engine::camera_editor engine::editor)
     engine_apply_options(engine_character_controller_editor_test)
     add_test(NAME editor.character_controller COMMAND engine_character_controller_editor_test)
 endif()
@@ -1297,6 +1316,16 @@ if(TARGET engine_navigation_crowd)
     engine_apply_options(engine_navigation_crowd_test)
     add_test(NAME engine_navigation_crowd COMMAND engine_navigation_crowd_test)
     set_tests_properties(engine_navigation_crowd PROPERTIES TIMEOUT 60)
+endif()
+
+if(TARGET engine_character_controller AND TARGET engine_script AND TARGET engine_resource_graph)
+    add_executable(engine_control_script_test plugins/runtime/script/control_script_test.cpp)
+    target_link_libraries(engine_control_script_test PRIVATE engine::script
+        engine::character_controller engine::resource_graph engine::app engine::log)
+    target_include_directories(engine_control_script_test PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+    engine_apply_options(engine_control_script_test)
+    add_test(NAME engine.control_script COMMAND engine_control_script_test)
+    set_tests_properties(engine.control_script PROPERTIES TIMEOUT 60)
 endif()
 
 if(TARGET engine_navigation_crowd AND TARGET engine_script)
@@ -1524,7 +1553,7 @@ if(TARGET engine_animation_tools)
     add_test(NAME editor.retarget_importer COMMAND engine_retarget_importer_test)
 endif()
 
-if(TARGET engine_script AND TARGET engine_animation AND TARGET engine_resource_graph)
+if(ENGINE_ENABLE_TEST_SUPPORT AND TARGET engine_script AND TARGET engine_animation AND TARGET engine_resource_graph)
     add_executable(engine_animation_state_machine_script_test
         plugins/runtime/script/animation_state_machine_script_test.cpp)
     target_link_libraries(engine_animation_state_machine_script_test PRIVATE engine::resource_graph)
@@ -1545,7 +1574,7 @@ if(TARGET engine_resource)
     add_test(NAME resource.skeleton_rig_definitions COMMAND engine_skeleton_rig_definitions_test)
 endif()
 
-if(TARGET engine_script AND TARGET engine_animation)
+if(ENGINE_ENABLE_TEST_SUPPORT AND TARGET engine_script AND TARGET engine_animation)
     if(TARGET engine_resource_graph)
         add_executable(engine_animation_events_script_test
             plugins/runtime/script/animation_events_script_test.cpp)
@@ -1598,7 +1627,7 @@ if(TARGET engine_animation)
     target_include_directories(engine_test_sampling PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
     target_link_libraries(engine_test_sampling PUBLIC engine::scene_data PRIVATE engine::resource ozz_animation_offline ozz_animation)
     engine_apply_options(engine_test_sampling)
-    foreach(_test engine_animation_test engine_animation_rigging_events_test
+    foreach(_test engine_animation_test engine_model_resource_test engine_animation_rigging_events_test
         engine_animation_state_machine_script_test engine_animation_events_script_test
         engine_model_animation_script_test
         engine_skeleton_rig_definitions_test
@@ -1621,5 +1650,15 @@ foreach(_target IN LISTS _test_targets)
     endif()
     if(NOT _target IN_LIST _basic_tests)
         set_property(TARGET "${_target}" PROPERTY EXCLUDE_FROM_ALL TRUE)
+    endif()
+endforeach()
+
+# Shared external UTF-8 data keeps Unicode coverage out of source literals.
+foreach(_target engine_guid_map_test engine_app_log_test engine_key_value_store_test
+        engine_resource_read_test engine_ui_editor_test engine_script_runtime_test
+        engine_mcp_registry_test engine_texture_pipeline_test engine_scene_data_test
+        engine_json_importer_test)
+    if(TARGET ${_target})
+        target_include_directories(${_target} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/support")
     endif()
 endforeach()

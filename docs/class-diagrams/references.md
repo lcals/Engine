@@ -52,9 +52,11 @@ GameplaySession 组织项目启停；核心只声明 ScriptRuntime，宿主注�
 
 ## MCP 宿主与跨进程文件关系
 
-MCP 属于编辑器插件，通过明确运行目录与会话交换命令和回执。EditorCommands 在所属线程执行操作，资源同步只发布完整版本，不替代宿主热重载流程。
+MCP 协议与通道属于可选 runtime/mcp，编辑工具属于 editor/mcp；可执行宿主拥有端点，端点独占通道并借用普通运行时/编辑器接口。EditorCommands 在所属线程执行编辑操作，EditorSystem 不监听文件或持有协议回执。正式游戏排除运行端点和临时脚本执行；原生加载、状态与截图接口仍可使用。
 
-契约：[协议与注册](../plugins/editor/class-diagrams/mcp-system.md) · [项目工具](../plugins/editor/class-diagrams/project-mcp-tools.md) · [编辑器工具](../plugins/editor/class-diagrams/editor-mcp-tools.md) · [资源同步系统](../plugins/editor/class-diagrams/asset-sync-system.md)。
+[场景加载协调](../runtime/class-diagrams/scene-loading.md)、[首帧与截图](../runtime/class-diagrams/render-readiness.md)、[启动结果](../runtime/class-diagrams/gameplay-session.md)与[运行时 MCP](../plugins/runtime/class-diagrams/mcp-runtime-test.md)共用失败收尾和操作身份。命令回执是执行/受理事实，异步结果由对应原生请求保存。资源同步只发布完整版本，不替代宿主热重载流程。
+
+契约：[协议与注册](../plugins/runtime/class-diagrams/mcp-system.md) · [项目工具](../plugins/editor/class-diagrams/project-mcp-tools.md) · [编辑器工具](../plugins/editor/class-diagrams/editor-mcp-tools.md) · [资源同步系统](../plugins/editor/class-diagrams/asset-sync-system.md)。
 
 ## 项目启停与编辑器命令
 

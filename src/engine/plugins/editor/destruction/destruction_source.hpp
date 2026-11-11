@@ -1,6 +1,6 @@
 #pragma once
 
-#include "runtime/schema/destruction_generated.h"
+#include "editor/schema/destruction_authoring_generated.h"
 
 #include <string>
 #include <string_view>

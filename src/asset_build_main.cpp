@@ -1,3 +1,10 @@
+#if ENGINE_HAS_CAMERA_EDITOR
+#include "plugins/editor/camera/camera_commands.hpp"
+#include "plugins/editor/camera/camera_controller_codec.hpp"
+#endif
+#if ENGINE_HAS_CAMERA_MCP
+#include "plugins/editor/camera/camera_mcp_tools.hpp"
+#endif
 #if ENGINE_HAS_ANIMATION_TOOLS
 #include "plugins/editor/animation_tools/retarget_importer.hpp"
 #endif
@@ -64,6 +71,32 @@ void usage()
 
 int main(int argc, char** argv)
 {
+#if ENGINE_HAS_CAMERA_EDITOR
+    static engine::plugins::camera::CameraTypeRegistry camera_types;
+    if (!camera_types.frozen() &&
+        (!engine::plugins::camera::register_builtin_camera_types(camera_types) ||
+         !camera_types.freeze()))
+    {
+        return 1;
+    }
+#endif
+#if ENGINE_HAS_CHARACTER_CONTROLLER_EDITOR
+    static engine::plugins::character_controller::CharacterAbilityRegistry character_abilities;
+    if (!character_abilities.frozen() &&
+        (!engine::plugins::character_controller::register_builtin_character_abilities(
+             character_abilities) ||
+         !character_abilities.freeze()))
+    {
+        return 1;
+    }
+#endif
+#if ENGINE_HAS_CAMERA_EDITOR
+    if (!engine::plugins::camera_editor::register_camera_codec(camera_types))
+    {
+        return 1;
+    }
+#endif
+
     std::filesystem::path project;
     std::string_view target;
     std::filesystem::path manifest;
@@ -125,7 +158,7 @@ int main(int argc, char** argv)
         return 1;
     }
 #if ENGINE_HAS_CHARACTER_CONTROLLER_EDITOR
-    if (!engine::plugins::character_controller::register_controller_codec())
+    if (!engine::plugins::character_controller::register_controller_codec(character_abilities))
     {
         std::fputs("Cannot register character controller scene codec\n", stderr);
         return 1;

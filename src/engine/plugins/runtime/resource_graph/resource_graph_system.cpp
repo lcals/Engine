@@ -163,6 +163,24 @@ struct ResourceGraphSystem::State : std::enable_shared_from_this<State>
         std::uint64_t generation = 0;
         ResourceLoadStatus status = ResourceLoadStatus::loading;
         ResourceLoadProgress progress;
+        ResourceLoadProgress observed;
+        ResourceLoadStatus observed_status = ResourceLoadStatus::loading;
+        void observe()
+        {
+            if (progress.completed == observed.completed && progress.total == observed.total &&
+                progress.discovery_complete == observed.discovery_complete &&
+                progress.in_flight == observed.in_flight && status == observed_status)
+            {
+                return;
+            }
+            ++progress.progress_revision;
+            progress.last_progress_ns =
+                static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                               std::chrono::steady_clock::now().time_since_epoch())
+                                               .count());
+            observed = progress;
+            observed_status = status;
+        }
         ResourceError error = ResourceError::none;
         std::string message;
         ResourceHandle result;
@@ -347,6 +365,7 @@ struct ResourceGraphSystem::State : std::enable_shared_from_this<State>
     void finish(LoadState& operation, ResourceError value, std::string text)
     {
         operation.status = ResourceLoadStatus::failed;
+        operation.observe();
         operation.error = value;
         operation.message = std::move(text);
         detach_plan(operation);
@@ -368,6 +387,8 @@ struct ResourceGraphSystem::State : std::enable_shared_from_this<State>
             (void)release(operation.result);
         }
         operation.status = ResourceLoadStatus::cancelled;
+        operation.progress.in_flight = 0;
+        operation.observe();
         operation.error = ResourceError::cancelled;
         return true;
     }
@@ -815,6 +836,7 @@ public:
         }
         output = std::exchange(state_->result, {});
         state_->status = ResourceLoadStatus::delivered;
+        state_->observe();
         return true;
     }
     bool cancel() noexcept override
@@ -887,6 +909,8 @@ bool ResourceGraphSystem::State::begin(std::string_view input,
         operation->progress.completed = operation->progress.total =
             static_cast<std::uint32_t>(index.guids.size() + 1);
         operation->status = ResourceLoadStatus::ready;
+        operation->progress.discovery_complete = true;
+        operation->observe();
     }
     else
     {
@@ -1016,6 +1040,7 @@ void ResourceGraphSystem::State::advance()
             continue;
         }
         operation->progress.total = static_cast<std::uint32_t>(work.order.size());
+        operation->progress.discovery_complete = true;
         while (operation->admission_cursor < work.order.size() &&
                std::chrono::steady_clock::now() < deadline)
         {
@@ -1156,10 +1181,24 @@ void ResourceGraphSystem::State::advance()
             else
             {
                 operation->status = ResourceLoadStatus::ready;
+                operation->progress.discovery_complete = true;
+                operation->observe();
                 detach_plan(*operation);
             }
             --completions;
         }
+    }
+    for (const auto& operation : operations)
+    {
+        operation->progress.in_flight = 0;
+        if (operation->status == ResourceLoadStatus::loading)
+        {
+            for (const auto* pin : operation->pins)
+            {
+                operation->progress.in_flight += pin->phase == Phase::reading;
+            }
+        }
+        operation->observe();
     }
     cleanup(deadline);
 }

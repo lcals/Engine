@@ -14,13 +14,15 @@ classDiagram
     class McpSystem
     class McpTool
     class EditorMcpTools
-    class EditorCommandChannel
+    class EditorMcpEndpoint
+    class McpCommandChannel
     class EditorCommands
     ComponentMcpRegistration ..> McpSystem : 登记名称及参数schema
     McpSystem *-- McpTool : 拥有描述及回调
     McpTool --> EditorMcpTools : 回调借用固定目标通道
-    EditorMcpTools ..> EditorCommandChannel : 文件请求与持久回执
-    EditorCommandChannel --> EditorCommands : 编辑器主线程执行
+    EditorMcpTools ..> McpCommandChannel : 文件请求与持久回执
+    EditorMcpEndpoint *-- McpCommandChannel : 独占通道
+    EditorMcpEndpoint --> EditorCommands : 编辑器主线程执行
 ```
 
 图中的注册函数分组只是命名空间展示，不是 C++ 类。回调只调用 `EditorMcpTools::call_command()`，不包含场景组件、Jolt、SDL 音频或资源导入算法。编辑器工具模块须覆盖已注册回调的生命期。它们由 `EditorMcpTools::register_tools()` 登记；Android 目标不启用桌面场景编辑工具。

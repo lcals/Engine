@@ -1,4 +1,5 @@
 #include "plugins/runtime/script/bindings/binding_context.hpp"
+#include "runtime/gameplay/gameplay_session.hpp"
 
 #include "runtime/app/app.hpp"
 #include "runtime/input/input_system.hpp"
@@ -93,7 +94,16 @@ void BindingContext::forget_movie(MoviePlaybackHandle handle) noexcept
 void BindingContext::shutdown() noexcept
 {
     cancel_movies();
-    cancel_scene_load();
+    if (gameplay_)
+    {
+        for (const auto& [token, request] : scene_requests_)
+        {
+            (void)token;
+            (void)gameplay_->cancel_scene_load(request);
+            (void)gameplay_->release_scene_load(request);
+        }
+    }
+    scene_requests_.clear();
     resource_requests_.clear();
     resource_handles_.clear();
     async_results_.clear();
@@ -190,136 +200,78 @@ bool BindingContext::set_mouse_mode(MouseMode mode)
     return window_->set_mouse_mode(mode);
 }
 
-bool BindingContext::begin_scene_load(std::string_view path)
+void BindingContext::set_gameplay_session(GameplaySession* session) noexcept
 {
-    if (!active_ || !callable_ || !world_ || !world_->is_initialized() ||
-        !scene_load_path_.empty() || world_->resource_loader() != resources_)
+    gameplay_ = session;
+}
+GameplaySession* BindingContext::gameplay() const noexcept
+{
+    return active_ && callable_ ? gameplay_ : nullptr;
+}
+std::uint64_t BindingContext::begin_scene_load(const SceneLoadSpec& spec)
+{
+    if (!gameplay() || resource_sequence_ == UINT64_MAX)
+    {
+        return 0;
+    }
+    const auto* current = world_ ? world_->scene() : nullptr;
+    if (current && current->id() != scene_id_)
+    {
+        return 0;
+    }
+    SceneLoadId id;
+    if (!gameplay_->begin_scene_load(spec, id))
+    {
+        return 0;
+    }
+    const auto token = ++resource_sequence_;
+    scene_requests_.emplace(token, id);
+    return token;
+}
+SceneLoadId BindingContext::scene_request(std::uint64_t token) const noexcept
+{
+    const auto found = scene_requests_.find(token);
+    return gameplay() && found != scene_requests_.end() ? found->second : SceneLoadId{};
+}
+bool BindingContext::release_scene_request(std::uint64_t token)
+{
+    const auto id = scene_request(token);
+    if (!gameplay() || id.request == 0 || !gameplay_->release_scene_load(id))
     {
         return false;
     }
-    const auto* current = world_->scene();
-    if ((current ? current->id() : 0) != scene_id_)
-    {
-        return false;
-    }
-    scene_load_error_.clear();
-    ResourceReference root;
-    if (!root.acquire(resources_, path) || !root.data<SceneResource>())
-    {
-        scene_load_error_ = "Scene must be loaded with Resources before use";
-        return false;
-    }
-    scene_load_ = std::move(root);
-    scene_load_progress_ = {0, 1};
-    scene_load_status_ = ResourceLoadStatus::loading;
-    scene_load_path_ = path;
+    scene_requests_.erase(token);
     return true;
 }
-
-ResourceLoadStatus BindingContext::step_scene_load(std::uint32_t node_budget,
-                                                   ResourceLoadProgress& output)
+Scene* BindingContext::owned_scene(std::uint64_t id) const noexcept
 {
-    output = {};
-    if (!active_ || !callable_ || scene_load_path_.empty())
+    if (!world_ || !active_ || !callable_)
     {
-        return ResourceLoadStatus::failed;
+        return nullptr;
     }
-    if (scene_load_status_ == ResourceLoadStatus::loading)
+    if (gameplay_)
     {
-        if (!scene_load_context_valid())
+        for (const auto& [token, request] : scene_requests_)
         {
-            fail_scene_load("The scene owning world changed");
-        }
-        else if (node_budget)
-        {
-            if (!scene_restore_request_)
+            (void)token;
+            auto* candidate = gameplay_->scene_load_scene(request);
+            if (candidate && candidate->id() == id)
             {
-                scene_restore_request_ = world_->begin_restore_scene(scene_load_.handle());
-            }
-            const auto restored = world_->step_restore_scene(scene_restore_request_, node_budget);
-            if (restored == SceneRestoreStatus::failed)
-            {
-                fail_scene_load("Cannot restore scene candidate: " + scene_load_path_);
-            }
-            else if (restored == SceneRestoreStatus::ready)
-            {
-                scene_load_status_ = ResourceLoadStatus::ready;
-                scene_load_progress_.completed = 1;
+                return candidate;
             }
         }
     }
-    output = scene_load_progress_;
-    return scene_load_status_;
-}
-
-Scene* BindingContext::commit_scene_load()
-{
-    if (!active_ || !callable_ || scene_load_path_.empty() ||
-        scene_load_status_ != ResourceLoadStatus::ready)
+    if (std::find(owned_scene_ids_.begin(), owned_scene_ids_.end(), id) != owned_scene_ids_.end())
     {
-        return nullptr;
+        for (const auto& scene : world_->scenes())
+        {
+            if (scene->id() == id)
+            {
+                return scene.get();
+            }
+        }
     }
-    if (!scene_load_context_valid())
-    {
-        fail_scene_load("Cannot commit scene after its directory or owning world changed");
-        return nullptr;
-    }
-    // 候选已在主线程按预算恢复；提交只切换活动场景所有权。
-    if (!scene_load_.data<SceneResource>())
-    {
-        fail_scene_load("The prepared scene resource is unavailable");
-        return nullptr;
-    }
-    auto* scene = world_->commit_restore_scene(scene_restore_request_);
-    if (scene == nullptr)
-    {
-        fail_scene_load("Cannot restore scene: " + scene_load_path_);
-        return nullptr;
-    }
-    set_scene_id(scene->id());
-    return scene;
-}
-
-void BindingContext::cancel_scene_load() noexcept
-{
-    if (world_ != nullptr && scene_restore_request_ != 0)
-    {
-        world_->cancel_restore_scene(scene_restore_request_);
-    }
-    scene_restore_request_ = 0;
-    scene_load_.reset();
-    scene_load_progress_ = {};
-    scene_load_status_ = ResourceLoadStatus::loading;
-    scene_load_path_.clear();
-    scene_load_error_.clear();
-}
-
-std::string_view BindingContext::scene_load_error() const noexcept
-{
-    return scene_load_error_;
-}
-
-bool BindingContext::scene_load_context_valid() const noexcept
-{
-    if (!resources_ || !world_ || world_->resource_loader() != resources_ ||
-        !world_->is_initialized() || !scene_load_)
-    {
-        return false;
-    }
-    const auto* current = world_->scene();
-    return (current != nullptr ? current->id() : 0) == scene_id_;
-}
-
-void BindingContext::fail_scene_load(std::string_view error)
-{
-    if (world_ != nullptr && scene_restore_request_ != 0)
-    {
-        world_->cancel_restore_scene(scene_restore_request_);
-    }
-    scene_restore_request_ = 0;
-    scene_load_error_ = error;
-    scene_load_status_ = ResourceLoadStatus::failed;
-    scene_load_.reset();
+    return nullptr;
 }
 
 std::uint64_t BindingContext::load_resource(std::string_view path)
@@ -557,7 +509,6 @@ void BindingContext::set_scene_id(std::uint64_t value) noexcept
     if (scene_id_ != value)
     {
         async_results_.clear();
-        cancel_scene_load();
     }
     if (active_ && scene_id_ != value && navigation_)
     {
@@ -584,14 +535,8 @@ void BindingContext::set_scene_id(std::uint64_t value) noexcept
 
 Node BindingContext::find_node(std::uint64_t scene_id, std::uint64_t node_id) const noexcept
 {
-    if (!active_ || !callable_ || !world_ || !world_->is_initialized() ||
-        std::find(owned_scene_ids_.begin(), owned_scene_ids_.end(), scene_id) ==
-            owned_scene_ids_.end())
-    {
-        return {};
-    }
-    auto node = world_->find_node(node_id);
-    return node && node.scene()->id() == scene_id ? node : Node{};
+    auto* value = owned_scene(scene_id);
+    return value ? value->find_node(node_id) : Node{};
 }
 
 bool BindingContext::push_animation_events(std::span<const AnimationEvent> events)
@@ -685,13 +630,23 @@ Scene* BindingContext::scene(const Arguments& arguments)
 {
     auto* binding = current(arguments);
     std::uint64_t id = 0;
-    if (binding == nullptr || binding->world_ == nullptr || !binding->world_->is_initialized() ||
-        !identifier(arguments, 0, id) || binding->scene_id_ == 0 || binding->scene_id_ != id)
+    auto* scene = binding && identifier(arguments, 0, id) ? binding->owned_scene(id) : nullptr;
+    if (!scene || !binding->world_ || binding->world_->scene() == scene)
     {
-        return nullptr;
+        return scene;
     }
-    auto* value = binding->world_->scene();
-    return value != nullptr && value->id() == id ? value : nullptr;
+    if (binding->gameplay_)
+    {
+        for (const auto& [token, request] : binding->scene_requests_)
+        {
+            (void)token;
+            if (binding->gameplay_->scene_load_scene(request) == scene)
+            {
+                return scene;
+            }
+        }
+    }
+    return nullptr;
 }
 
 Node BindingContext::node(const Arguments& arguments)

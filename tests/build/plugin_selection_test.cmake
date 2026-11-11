@@ -69,7 +69,7 @@ run_case(
 set(ENGINE_RUNTIME_PLUGINS "" CACHE STRING "" FORCE)
 set(ENGINE_EDITOR_PLUGINS mcp CACHE STRING "" FORCE)
 include("${ROOT}/cmake/plugins/selection.cmake")
-if(NOT ENGINE_SELECTED_PLUGINS STREQUAL "editor/asset_build;editor/asset_sync;editor/mcp")
+if(NOT ENGINE_SELECTED_PLUGINS STREQUAL "runtime/mcp;editor/asset_build;editor/asset_sync;editor/mcp")
     message(FATAL_ERROR "MCP dependency closure/order differs: ${ENGINE_SELECTED_PLUGINS}")
 endif()
 if("modeling" IN_LIST VCPKG_MANIFEST_FEATURES)
@@ -129,7 +129,7 @@ set(CMAKE_SYSTEM_NAME Android)
 set(ANDROID_ABI arm64-v8a)
 include("${ROOT}/cmake/plugins/selection.cmake")
 if(NOT ENGINE_PLUGIN_DEVICE_BUILD OR
-   NOT ENGINE_SELECTED_PLUGINS STREQUAL "runtime/resource_graph;runtime/animation_retarget;runtime/character_controller;runtime/navigation_crowd;runtime/effects;runtime/terrain;runtime/destruction;runtime/script")
+   NOT ENGINE_SELECTED_PLUGINS STREQUAL "runtime/resource_graph;runtime/animation_retarget;runtime/camera;runtime/character_controller;runtime/navigation_crowd;runtime/effects;runtime/terrain;runtime/destruction;runtime/script")
     message(FATAL_ERROR "Android defaults leaked editor plugins: ${ENGINE_SELECTED_PLUGINS}")
 endif()
 if(ENGINE_EDITOR_PLUGINS OR "modeling" IN_LIST VCPKG_MANIFEST_FEATURES OR
@@ -214,7 +214,7 @@ run_case(
     plugin_features_disabled
     ""
     [=[
-# 同一配置目录真实重配：插件自动增加普通变量，不污染用户 feature 的 CACHE 初值。
+# Reconfigure the same directory: plugins extend ordinary variables without changing cached user features.
 file(MAKE_DIRECTORY "${CASE_ROOT}/source")
 file(WRITE "${CASE_ROOT}/source/CMakeLists.txt"
     "cmake_minimum_required(VERSION 3.25)\n"
@@ -380,7 +380,7 @@ set(ENGINE_ENABLE_EDITOR_DEPS OFF)
 set(ENGINE_RUNTIME_PLUGINS "" CACHE STRING "" FORCE)
 set(ENGINE_EDITOR_PLUGINS character_controller CACHE STRING "" FORCE)
 include("${ROOT}/cmake/plugins/selection.cmake")
-if(NOT ENGINE_SELECTED_PLUGINS STREQUAL "runtime/character_controller;editor/character_controller")
+if(NOT ENGINE_SELECTED_PLUGINS STREQUAL "runtime/camera;runtime/character_controller;editor/camera;editor/character_controller")
     message(FATAL_ERROR "Controller codec must select its runtime without unrelated plugins: ${ENGINE_SELECTED_PLUGINS}")
 endif()
 ]=])
@@ -427,7 +427,7 @@ run_case(
     asset_import_target_toggle
     ""
     [=[
-# 使用真实统一插件与宿主装配函数；仅外部依赖用接口桩，不安装或编译第三方。
+# Use actual unified plugin and host assembly functions; stub external dependencies without building them.
 set(_source "${CASE_ROOT}/source")
 file(MAKE_DIRECTORY "${_source}/src/engine/plugins/editor/asset_import"
                     "${_source}/third_party/ufbx")

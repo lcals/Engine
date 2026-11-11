@@ -151,7 +151,7 @@ bool PrefabImporter::read(const std::filesystem::path& source, schema::PrefabDat
         return false;
     }
     schema::PrefabDataT data;
-    data.schema_version = 2;
+    data.schema_version = 3;
     if (!asset_pipeline::identifier(table.get("root"), data.root_id) || data.root_id == 0)
     {
         error = "Prefab requires a nonzero root ID";
@@ -277,7 +277,7 @@ bool PrefabImporter::validate(const schema::PrefabDataT& data, std::string& erro
         return false;
     }
     schema::SceneDataT scene;
-    scene.schema_version = 2;
+    scene.schema_version = 3;
     scene.info = std::make_unique<schema::SceneInfoT>();
     scene.info->name = "Prefab";
     for (const auto& node : data.nodes)
@@ -339,7 +339,7 @@ bool PrefabImporter::from_model(const schema::ModelDataT& model,
         return false;
     }
     schema::PrefabDataT result(in_out);
-    result.schema_version = 2;
+    result.schema_version = 3;
     result.nodes.clear();
     if (result.root_id == 0)
     {

@@ -208,7 +208,8 @@ bool UsdImporter::inspect_batch(const editor::asset_pipeline::ImportContext& con
             return false;
         }
     }
-    if (!editor::asset_pipeline::schema_fingerprint({"model.fbs", "mesh.fbs"}, fingerprint, error))
+    if (!editor::asset_pipeline::schema_fingerprint({"runtime/model.fbs", "runtime/mesh.fbs"},
+                                                    fingerprint, error))
     {
         return false;
     }

@@ -8,6 +8,7 @@
 | --- | --- |
 | 文档、类图措辞 | 改动页的本地链接、围栏与 `git diff --check`；不构建引擎 |
 | CMake、测试登记 | 对受影响配置重新生成，查看 `ctest -N` 和目标；不因此运行全部测试 |
+| Schema 分层与生成 | 按层生成 C++ / TypeScript，检查目标依赖方向，选择对应导入及跨语言用例 |
 | C++ 实现 | 受影响目标 Debug / Release 构建；仅运行覆盖该行为的 Release 用例 |
 | 脚本或资源 | 对应项目的类型检查、导入或实际使用路径，复用已有入口 |
 | 渲染行为 | 选择一个相关的现有 GPU 用例；只有改到窗口、设备或多效果生命周期时才运行 `engine.window_render` |
@@ -57,6 +58,8 @@ CI 仍仅手动触发，默认执行基础集合；跨平台或完整功能验�
 | `tests/support/`、`tests/fixtures/` | 共用夹具 |
 | `projects/showcase/tests/` | 公开项目自身的行为 |
 
+可视测试应保留实际画面，方便复现与检查。`engine.window_render` 每次运行自动将原始 GPU 截图保存到构建目录的 `test-artifacts/window-render/<时间戳>/`；设置 `ENGINE_RENDER_TEST_ARTIFACTS` 可指定本次目录。`engine.font_ui_render` 默认保存到测试工作目录的 `test-artifacts/font-ui/<时间戳>/`，可用第二个命令行参数指定目录；临时源项目销毁时保留这些图。公开范例的菜单场景及交互截图入口见 [showcase 文档](../projects/showcase/docs/index.md)。纯逻辑测试没有画面，不生成截图。
+
 登记入口为 [tests/CMakeLists.txt](../tests/CMakeLists.txt)。不为测试修改正式接口可见性，不提交运行结果或生成资源。
 
 ## 手动集成与 GPU 验证
@@ -69,11 +72,47 @@ CI 仍仅手动触发，默认执行基础集合；跨平台或完整功能验�
 
 长时间运行、截图、MCP 交互和基准采样由明确任务触发，不加入默认 CTest。真实 UI 操作不能用直接调用脚本回调代替，源码或宿主替身检查也不能宣称真机/像素通过。
 
+## 场景加载与运行态测试
+
+业务和测试共用 GameplaySession 的原生场景请求、Flecs 世界、资源图及渲染缓存。测试等待 staged、ready、active 和目标范围的实际场景帧；不会把资源读取结束、窗口有帧或图片非黑单独当作加载成功。动态批次用例同时检查旧场景仍提交、发布前没有该批次的帧证据，发布后内容版本递增。
+
+运行态 MCP 与临时脚本注入只在 `ENGINE_ENABLE_TEST_SUPPORT=ON` 的独立测试构建装配。Debug 只编译；Release 运行所属场景、脚本、渲染、宿主与 MCP 用例。正式构建额外检查解析后的目标、源码与链接依赖，以及最终程序符号，不以“没有启动服务”代替编译隔离。预设见[构建指南](building.md)，端点和调用方式见[MCP](plugins/editor/mcp.md#独立运行程序测试)。
+
+原生像素用例先等待同一个渲染准备接口就绪，再受理新帧截图；需要检查 GPU 存量时还须等待回读纹理的延迟销毁。重复步骤使用不同文件名，禁止覆盖旧图来冒充新截图。项目实窗用例按 captureId 等待读回及原子发布，并保存实际帧身份、请求回执和状态。黑色可以是合法画面，断言由具体用例决定；菜单用例还必须出现实际 UI 绘制。
+
+2026-11-11，在 macOS 27.0.1 / arm64 / Metal / QuickJS 上完成受影响目标的 Debug、Release 编译和链接；Debug 未运行测试。最终代码完整执行 142 项 Release CTest，142/142 通过，耗时 367.15 秒。覆盖启动请求的 preparing/ready/active 边界、纯查询及终态释放、主动停止与故障的结果保留、重启不覆盖历史错误；同时验证按目标排序发布、排队取消、替换截止、目标卸载、首帧后激活，以及准备期间新增旧对象和先前追加批次的退休、常驻子树保留。注入实际渲染失败后，宿主持续报告 failed，在途请求保留错误，不以清屏替代成功。
+
+所属现有用例补充了四项回归：物理候选对象在发布和激活前不参与模拟；空活动场景的特效清理不重置候选准备进度；已退休镜头丢弃参数桥接记录，当前场景禁用适配器仍恢复默认值；输入回调故障在安全点锁存错误并结束在途请求。四项均在修复前复现失败、修复后通过，负向对照单独归档，不计入当前失败。MCP 关闭前重新采样原生状态，末帧故障不受平时状态写入节流影响。
+
+窗口用例归档 169 张 PNG，字体/UI 用例归档 13 张 PNG，公开范例 14 个菜单入口各保留一张目标场景帧；真实 UI 交互另有 3 张、独立运行态 MCP 有 1 张，共 200 张实际画面。原始 CTest 报告、按用例合并的最新结果、图像清单、指纹与自包含预览位于忽略的 `build/test-audit/<run>/`，原图仍在各测试或项目缓存目录，`run.json` / 项目结果保留配置和归属信息。纯逻辑用例没有图形输出，不生成截图。
+
+公开项目实际交互检查启动 prepareId 与 Run 归属、终态释放不影响玩法、同一 Gameplay/Model 的临时脚本、停止重启后的旧身份拒绝、菜单点击、文字输入与跨场景 UI 保留；独立测试运行包验证相同启动结果契约、临时脚本、UI 场景截图及正常退出。全部菜单入口完成进入、目标范围截图和返回，采集方法见[范例验证入口](../projects/showcase/docs/index.md#验证)，原图和回执位于项目 `cache/scene-captures/`、`cache/mcp-interaction/` 与 `cache/runtime-mcp/`。
+
+当前方向光阴影连续性及材质/反射像素回归通过；抽查原图并浏览全部联系表，未发现本轮加载变更引入的黑屏。SSR 对照夹具仍有阶梯状反射条带，相关 PNG 与此前已审阅图逐字节一致；现有用例检查反射命中和材质权重，不代表反射质量已经完整验收。该限制保留在当前记录，本轮不扩展反射算法。
+
+正式 Release 配置未创建 MCP 或编辑器目标，解析后的源码及链接图不含 MCP；最终程序没有临时脚本执行、运行端点或命令通道符号，独立测试产物包含对应符号。以上只证明本机配置及所列行为，不包含 Windows、Android、iOS、V8、较旧 macOS、所有私有项目场景或完整冷启动性能。私有项目的 5 项脚本检查及白模、动画实验室连续进入、截图、暂停和恢复已通过，项目结果保存在其忽略的缓存目录。
+
+预算是工作项之间的软上限，第三方调用与 GPU 管线创建仍可能形成长帧，不能据此承诺任意场景零卡顿。私有项目编辑器启动仍观察到约 58–60 秒的源资源校验，采样位于 AssetPipelineSystem 的 verify_sources/file_hash；发生在玩法启动前，属于编辑器资源管线，本轮只记录，不扩大为导入性能优化。
+
 ## 公开范例
 
 公开项目入口、场景、资源来源和操作说明统一在 [showcase 文档](../projects/showcase/docs/index.md)。引擎文档不再重复维护逐场景节点数量、操作长表和每次验收日志。
 
 通过编辑器启动、MCP 控制和退出的操作见[编辑器](editor/editor.md)与[MCP](plugins/editor/mcp.md)。运行前核对项目、运行目录和编辑器会话；只关闭本次测试拥有的进程。脚本后端、资源目录、分辨率和设备必须在结果中说明。
+
+## 镜头与角色模块验证
+
+2026-11-09，macOS arm64 / Metal / QuickJS。使用继承根 `ninja-engine-debug`、`ninja-engine-release` 的本地预设，Ninja 与 ccache；`editor_app`、`engine_app`、`mcp_app`、`asset_build_app` 及受影响模块测试目标的 Debug / Release 构建通过。Debug 仅编译，未运行测试。
+
+Release 的 13 项 CTest 全部通过（9.06 秒）：`engine.character_motor`、`engine.mcp_registry`、`engine.scene`、`engine.prefab`、`engine.plugin_selection`、`engine.architecture_boundaries`、`engine.architecture_rules`、`resource.codecs`、`engine.camera`、`engine.character_controller`、`engine.character_host`、`editor.character_controller`、`engine.control_script`。
+
+相机用例覆盖目标失效、失败不消费触发器、参数原子修改、混合与四元数旋转、约束冲突、碰撞收缩和延迟恢复。角色用例覆盖多实例、固定步动作缓冲与到期、加减速、控制权独占、外力保留、蹲起净空、暂停／禁用／传送、观察增量与速率，以及实际姿态向镜头参数的映射。编辑器与脚本用例覆盖完整设置、撤销、瞬态输入、BigInt 身份、可编辑配置快照、旧字段拒绝和失效句柄。
+
+关闭全部运行时／编辑器插件及脚本运行后，独立 Release 配置中的 `editor_app`、`engine_app` 编译链接通过；未创建 camera、character_controller、script 插件目标，运行宿主未链接相机和角色插件实现。插件选择用例同时检查依赖闭包与条件装配。
+
+公开范例 TypeScript 构建及 `launcher_test.mjs` 的 8 项检查通过。实际编辑器窗口使用 `projects/showcase` 源资源导入缓存，逻辑尺寸 960×540、Metal 后缓冲 1920×1080；通过真实菜单按钮进入角色庭院，确认角色就绪、接地和镜头 ready。调用角色镜头接口切换第一／第三人称，截图确认第一人称隐藏自身身体、保留其他角色与自身阴影；随后恢复第三人称并正常关闭测试编辑器。项目配置、控制方式与复现入口见[角色与镜头范例](../projects/showcase/docs/character-control.md)。
+
+此结果不包含实体手柄操作、移动平台场景验收、Windows／Android／iOS、V8 后端、旧版 macOS 发行验证或性能采样，不代表所有范例均已实窗验收。场景／预制体只接受版本 3，旧二进制需通过当前源描述重新导入和打包。
 
 ## 渲染性能基线
 
@@ -150,8 +189,11 @@ P50 减少约 81.4%。两次均正常退出，HDR 输出逐字节相同，全部
 
 ## 验证范围与限制
 
+- 源码英文字符串与外部 Unicode 夹具已完成 macOS arm64 的受影响 Debug / Release 构建；Debug 未运行测试。Release 的 GUID、日志、存储、资源读取、UI、脚本、MCP、资源管线、场景跨语言及建模几何共 18 项 CTest 通过；环境准备、Android 资源打包和桌面导出的 55 项脚本检查通过，私有项目 TypeScript 与设置检查通过。二十面球体（`icosphere`）曾因极点 UV 合并相反切线而失败；当前已修复并通过 `modeling.core`，新增回归覆盖多个细分级别、接缝和极点的单位正交切线。
+- Schema 分层已完成 Windows Debug / Release 构建，Release 的 `modeling.pipeline`、`editor.destruction_pipeline` 和 `engine.scene_schema_cross_language` 通过，编辑器 TypeScript 通过严格类型检查。架构检查覆盖生成数据目标的所属层级与依赖方向。
+- 建模参数、物理尺寸 UV、边界查询及可撤销重建已完成 Windows Debug / Release 构建；Release 的 `modeling.core`、`modeling.geometry`、`modeling.commands`、`modeling.pipeline`、`editor.scene_persistence` 和 `engine.mcp_registry` 通过。复用现有用例，未运行 Debug 测试、实窗或性能采样；不据此认定画面质量与其他平台已验收。示例源数据与资源包状态见 [Showcase](../projects/showcase/docs/index.md#验证)。
 - 渲染提交优化已完成受影响 Debug / Release 构建，Release 的 `engine.render_foundation`、`engine.scene_hdr_capture`、`engine.window_render`、`engine.render_submission` 通过；这些结果只代表当时 Windows / DirectX 12 配置。
-- 当前没有最新提交的全仓、全平台通过结论。其他模块与平台的旧执行日志保留在 Git 和本地 `build/`，不能直接当作当前版本的验收。
+- 当前本机完整 Release 测试结果见上面的[场景加载与运行态测试](#场景加载与运行态测试)，不代表全平台通过。其他平台的旧执行日志保留在 Git 和本地 `build/`，不能直接当作当前版本的验收。
 - iOS 完整宿主与交付尚未完成；Android 模拟器、独立依赖探针和桌面源码验证不代表实体手机的功能或性能。
 - 该性能基线未覆盖 Shader/PSO 预热、大场景完整首帧及跨平台性能；CPU 分段结果仅适用于上述受控静态负载。
 

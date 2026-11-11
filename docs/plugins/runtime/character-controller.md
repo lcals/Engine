@@ -1,13 +1,13 @@
-# 角色输入与跟随相机
+# 角色控制与镜头适配
 
-`CharacterMotor` 是核心物理组件，封装 Jolt 胶囊角色运动。主动水平速度 `set_velocity`／脚本 `SetVelocity` 与世界空间速度增量 `add_velocity`／`AddVelocity` 独立，清输入不会吞掉击退。`external_damping` 控制外部水平速度按秒衰减，竖直增量交给重力和碰撞。请求在下一固定步消费一次，没有物理子步的帧保留请求。
+`CharacterMotor` 是核心物理组件，封装 Jolt 胶囊角色运动。可选 `character_controller` 插件通过核心的 `CharacterMotorDriver` 接口逐固定步提交移动、朝向、跳跃和姿态请求；物理系统是角色根 Transform 的唯一写入方。主动速度、外部击退与平台携带速度分开保存，清除输入保留外力。核心契约见[角色物理驱动](../../runtime/class-diagrams/character-motor-control.md)。
 
-输入、相机和角色表现属于可选 `character_controller` 运行时插件，分为三个场景组件：`CharacterController` 只控制选中的玩家，`CharacterCamera` 挂在 Camera 节点并独立跟随目标，`CharacterVisual` 标记身体／头部／第一人称专用子树。未显式选择玩家时仅接受唯一启用控制器；多个候选返回失败，业务可用 `set_player` 选中，传空解除选择。NPC 直接使用 Motor，无需玩家控制器或相机。控制器移除、禁用、替换或解除选择时撤销其主动请求，保留外部击退。
+每个 `CharacterController` 独立接收 `SetInput({ move, lookDelta, lookRate, toggleView, actions })`。玩法明确持有目标组件；多个角色可以同时接受各自输入，AI 也可以提交同一契约。基础移动支持加减速、空中控制和移动／观察方向朝向；Sprint、Jump、Crouch 通过显式动作与能力配置启用。新组件不隐式开启能力，完整字段和动作消费规则见[角色控制](class-diagrams/character-control-design.md)与[能力组合](class-diagrams/character-abilities.md)。
 
-跟随镜头在物理和动画后读取目标世界位置，目标可以没有 Motor。插件独占场景 Camera 的瞬态网格过滤列表，不更改 MeshRenderer 的全局状态或保存数据。第一人称专用部件应放在目标子树并标记 `first_person`，只向对应第一人称镜头显示。此功能不包含动画状态机、Root Motion、群体避让或空间分桶。
+`CharacterCamera` 挂在相机节点，只将观察输入和角色状态映射到同节点 `CameraController` 的参数。固定、跟随、环绕、瞄准、投影、晃动、碰撞及边界求解属于独立 [camera 插件](class-diagrams/camera-controller.md)。物理和动画完成后更新角色状态参数，再求解镜头；蹲姿眼高来自实际胶囊尺寸，受阻站起不会提前抬高视角。
 
-MCP 的 `cameraNodeId`／`targetNodeId` 使用当前运行节点 ID 字符串，`"0"` 解除引用；保存时转换为场景持久节点 ID。
+`CharacterVisual` 标记身体、头部和第一人称部件；角色视图系统在镜头求解后更新该相机的瞬态隐藏列表，不修改 MeshRenderer 全局可见性。第一人称可隐藏自身身体并保留投影，专用部件只向对应镜头显示。组件字段与所有权见[镜头和角色表现](class-diagrams/character-integration-design.md)。
 
-旧场景的 `character_controller` 中 `mode`、`eye_height`、`camera_distance`、`pitch_min/max` 需移至相机节点的 `character_camera`，并设置 `target_node_id` 指向角色的持久节点 ID；控制器保留 `camera_node_id`。旧字段导入会明确报错，不能静默丢弃配置。已迁移内置样例，场景导入器指纹更新后会重新生成缓存。
+TOML、MCP 与 TS 使用同一 Schema 生成的数据；编辑器完整设置替换参与撤销，输入、参数和状态查询保持瞬态。持久引用使用场景 local ID；运行时目标覆盖使用有效 Node 句柄。接口只保留当前版本，未知字段、无效类型与未登记能力明确失败；源场景按当前结构导入为版本 3 缓存。操作入口见[编辑器接入](../editor/class-diagrams/character-control-design.md)。
 
-动作播放、InPlace 与蒙皮见[动画模块](../../runtime/animation.md)，庭院操作与制作记录见[测试与范例](../../testing.md)。
+动作播放、InPlace 与蒙皮继续使用[动画模块](../../runtime/animation.md)。项目接入和键位见[公开范例](../../../projects/showcase/docs/character-control.md)，已执行的平台与测试范围见[测试文档](../../testing.md#镜头与角色模块验证)。

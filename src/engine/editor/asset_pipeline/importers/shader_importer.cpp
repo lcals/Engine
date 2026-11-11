@@ -342,8 +342,9 @@ bool ShaderImporter::convert(const ImportAsset& asset, const ImportContext& cont
     {
         return false;
     }
-    for (const auto stage : {std::string_view("vertex"), std::string_view("fragment"),
-                             std::string_view("surface_fragment"), std::string_view("instanced_vertex")})
+    for (const auto stage :
+         {std::string_view("vertex"), std::string_view("fragment"),
+          std::string_view("surface_fragment"), std::string_view("instanced_vertex")})
     {
         if ((stage == "surface_fragment" || stage == "instanced_vertex") && !table.contains(stage))
         {
@@ -357,23 +358,23 @@ bool ShaderImporter::convert(const ImportAsset& asset, const ImportContext& cont
         }
         const auto source = context.assets / PathUtils::from_utf8(source_path);
         auto compiled = context.output.parent_path() / (asset.guid + "." + std::string(stage));
-        const std::vector<std::string> arguments{PathUtils::to_utf8(compiler),
-                                                 "-f",
-                                                 PathUtils::to_utf8(source),
-                                                 "-o",
-                                                 PathUtils::to_utf8(compiled),
-                                                 "--type",
-                                                 (stage == "vertex" || stage == "instanced_vertex") ? "vertex" : "fragment",
-                                                 "--platform",
-                                                 shader_platform,
-                                                 "--profile",
-                                                 shader_profile,
-                                                 "--varyingdef",
-                                                 PathUtils::to_utf8(varying),
-                                                 "-i",
-                                                 PathUtils::to_utf8(includes) + ";" +
-                                                     PathUtils::to_utf8(source.parent_path()) +
-                                                     ";" + PathUtils::to_utf8(context.assets)};
+        const std::vector<std::string> arguments{
+            PathUtils::to_utf8(compiler),
+            "-f",
+            PathUtils::to_utf8(source),
+            "-o",
+            PathUtils::to_utf8(compiled),
+            "--type",
+            (stage == "vertex" || stage == "instanced_vertex") ? "vertex" : "fragment",
+            "--platform",
+            shader_platform,
+            "--profile",
+            shader_profile,
+            "--varyingdef",
+            PathUtils::to_utf8(varying),
+            "-i",
+            PathUtils::to_utf8(includes) + ";" + PathUtils::to_utf8(source.parent_path()) + ";" +
+                PathUtils::to_utf8(context.assets)};
         std::string diagnostics;
         if (run_import_tool(arguments, diagnostics, error) != ImportToolStatus::success)
         {
@@ -384,10 +385,10 @@ bool ShaderImporter::convert(const ImportAsset& asset, const ImportContext& cont
         {
             return false;
         }
-        auto& destination = stage == "vertex"     ? shader.vertex_code
-                            : stage == "fragment" ? shader.fragment_code
+        auto& destination = stage == "vertex"             ? shader.vertex_code
+                            : stage == "fragment"         ? shader.fragment_code
                             : stage == "instanced_vertex" ? shader.instanced_vertex_code
-                                                  : shader.surface_fragment_code;
+                                                          : shader.surface_fragment_code;
         destination.resize(bytes.size());
         std::transform(bytes.begin(), bytes.end(), destination.begin(),
                        [](std::byte value) { return std::to_integer<std::uint8_t>(value); });
@@ -414,7 +415,7 @@ bool ShaderImporter::inspect_batch(const ImportContext& context, std::string& fi
     if (!editor_tool_path("shaderc", ENGINE_SHADERC_EXECUTABLE, compiler, error) ||
         !editor_tool_data_path("bgfx", ENGINE_BGFX_SHADER_INCLUDE_DIR, includes, error) ||
         !shader_target(context.target_platform, platform, profile) ||
-        !schema_fingerprint({"shader.fbs"}, fingerprint, error) ||
+        !schema_fingerprint({"runtime/shader.fbs"}, fingerprint, error) ||
         run_import_tool({PathUtils::to_utf8(compiler), "--version"}, version, error) !=
             ImportToolStatus::success ||
         !file_hash(compiler, compiler_hash, error) ||
@@ -468,9 +469,12 @@ bool ShaderImporter::scan_dependencies(ImportAsset& asset, const ImportContext& 
         }
     }
     asset.build_dependencies = asset.runtime_dependencies;
-    for (const auto field : {"vertex", "fragment", "varying", "surface_fragment", "instanced_vertex"})
+    for (const auto field :
+         {"vertex", "fragment", "varying", "surface_fragment", "instanced_vertex"})
     {
-        if ((std::string_view(field) == "surface_fragment" || std::string_view(field) == "instanced_vertex") && !table.contains(field))
+        if ((std::string_view(field) == "surface_fragment" ||
+             std::string_view(field) == "instanced_vertex") &&
+            !table.contains(field))
         {
             continue;
         }

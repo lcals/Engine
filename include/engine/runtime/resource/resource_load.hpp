@@ -20,6 +20,10 @@ struct ResourceLoadProgress
 {
     std::uint32_t completed = 0;
     std::uint32_t total = 0;
+    bool discovery_complete = false;
+    std::uint32_t in_flight = 0;
+    std::uint64_t progress_revision = 0;
+    std::uint64_t last_progress_ns = 0;
 };
 
 class ResourceLoad

@@ -19,7 +19,7 @@ python3 scripts/mcp_client.py --server build/ninja-engine-release/mcp_app \
 | 项目、资源、启停 | `build_resources`、`sync_assets`、`start_project`、`stop_project`、`set_hot_reload`、`get_status` | `execute_project_script` 在活动 Run 中执行临时 TS；`close_editor` 返回回执后延迟正常关闭 |
 | 场景与节点 | `get_scene`、`create_node`、`set_transform`、`set_node_state`、`set_component_state`、`save_scene`、`set_active_camera` | 查询、基础创建及激活/可见状态已有；通用节点删除、父子关系、常驻属性尚无专用编辑工具，不能把建模节点操作当成通用节点编辑 |
 | 预制体 | `create_prefab`、`create_prefab_from_model`、`instantiate_prefab`、`link_prefab`、`unlink_prefab`、`get_prefab_instance`、`set_prefab_override`、`revert_prefab_override` | 支持子树模板与模型关联模板、独立实例及字段覆盖；嵌套、变体与应用实例覆盖到模板尚未开放，操作见[制作流程](../../editor/prefabs.md) |
-| 编辑事务 | `execute_batch`、`undo`、`redo`、`get_editor_receipt` | 只针对已登记的可撤销编辑；运行脚本、模拟输入、播放和冲量不属于可回滚事务 |
+| 编辑事务 | `execute_batch`、`undo`、`redo`、`get_request_receipt` | 只针对已登记的可撤销编辑；运行脚本、模拟输入、播放和冲量不属于可回滚事务 |
 | 预览与截图 | `open_scene_preview`、`close_scene_preview`、`get_scene_preview`、`set_preview_camera`、`refresh_scene_preview`、`capture_frame`、`get_frame_capture` | 截图须查询实际完成；预览不启动项目玩法 |
 | 环境与后处理 | `get_render_settings`、`set_render_settings`、`set_render_stats` | 已有环境光、IBL 强度、雾、曝光、AO、HDR/Bloom、方向光 CSM 和 SSR；大气天空参数归环境组件，太阳引用使用真实 NodeID |
 | 运行渲染能力与诊断 | `get_render_features`、`set_render_feature`、`get/set_mesh_render_settings`、`get_render_submission_stats`、`draw_debug_lines` | 统一入口路由到 Camera 剔除、MeshRenderer 实例化/LOD、环境天空和材质 Hex；组件新能力默认关闭，五项诊断与统计仅通过 MCP；真实逐视图提交计数不等于 GPU 完成 |

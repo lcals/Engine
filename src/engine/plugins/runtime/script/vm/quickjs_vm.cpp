@@ -481,6 +481,7 @@ public:
         }
         return rejections_.empty() || fail(rejections_.front().second);
     }
+#if defined(ENGINE_ENABLE_TEST_SUPPORT)
     [[nodiscard]] bool execute_script(const ProjectScriptRequest& request,
                                       std::string& result_json) override
     {
@@ -529,6 +530,8 @@ public:
         result_json = std::move(text);
         return true;
     }
+#endif
+
     [[nodiscard]] const std::string& last_error() const noexcept override
     {
         return error_;
@@ -539,6 +542,7 @@ public:
     }
 
 private:
+#if defined(ENGINE_ENABLE_TEST_SUPPORT)
     static JSValue require_cached_module(JSContext* context, JSValueConst, int count,
                                          JSValueConst* values, int, JSValueConst* data)
     {
@@ -565,6 +569,8 @@ private:
         }
         return machine->module_namespace(found->second);
     }
+
+#endif
 
     [[nodiscard]] bool can_register() const noexcept
     {
@@ -712,7 +718,13 @@ private:
         auto& machine = *static_cast<QuickJsVm*>(opaque);
         if (!machine.preparing_)
         {
-            if (!machine.script_executing_)
+            if (
+#if defined(ENGINE_ENABLE_TEST_SUPPORT)
+                !machine.script_executing_
+#else
+                true
+#endif
+            )
             {
                 machine.async_error_ = "Dynamic import is not supported";
             }
@@ -779,9 +791,11 @@ private:
     std::string error_;
     std::string async_error_;
     std::vector<std::pair<JSValue, std::string>> rejections_;
+#if defined(ENGINE_ENABLE_TEST_SUPPORT)
     std::string script_path_;
     std::uint64_t script_serial_ = 0;
     bool script_executing_ = false;
+#endif
     bool sealed_ = false;
     bool preparing_ = false;
     bool evaluated_ = false;

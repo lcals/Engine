@@ -170,11 +170,11 @@ classDiagram
     RuntimeHost --> GameplaySession : 传入明确入口并推进准备
 ```
 
-三个准备方法为 `[[nodiscard]]`，begin_prepare 复制调用方已提交的 catalog / mounts 建立候选快照，
+准备方法及结果查询/释放均为 `[[nodiscard]]`；启动身份与快照契约唯一见[玩法会话](gameplay-session.md#启动请求的身份与结果)。begin_prepare 受理后输出 prepareId，Host 锁存该身份用于状态观察。begin_prepare 复制调用方已提交的 catalog / mounts 建立候选快照，
 不再次调用 update_catalog，不改变目录代次；目录与挂载必须是调用方首次提交的同一快照，
 目录修订与目标平台必须匹配当前目录，否则拒绝。entry / scene 默认空并立即复制，其他预算由调用方显式给出。
 begin_prepare 拒绝仍在正式运行或已有准备请求的会话；先由调用方显式 stop，不能自动停止他人
-玩法。step_prepare 的 max_seconds 为有限正数，resource_budget 为本次资源完成额度；0 只查询，
+玩法。step_prepare 的 max_seconds 为有限正数，resource_budget 为本次资源完成额度且须大于 0；纯查询使用 prepare_status，
 未开始请求或失败返回 failed，不等待 worker。Host 的 preparing 还包括世界树装配，只有会话
 ready 且所有必要系统就绪时才报告 Host ready。
 Host 将现有 parallel.resources.completion_budget 作为资源推进额度显式传入会话，并使用既有
@@ -189,7 +189,7 @@ scene_restore 节点 / 时间预算，不暗加一套默认加载预算。
 | Host 装配世界树 | 影片首帧提交后，在主线程构造系统并一次调用 Engine.initialize。Render / Audio / Resource 已由 Host 初始化，不再登记到 Engine。 | 允许这一同步步骤超过软预算，记录总耗时；不把整个现行 RuntimeHost.initialize 放进 step。 |
 | 完整版本与资源 | 后台校验完整部署版本；通过已有 ResourceLoad 推进入口脚本及明确 scene 所需资源，保留引用。 | 在途数量、字节及完成额度受已有配置约束；使用宿主注入的分步依赖加载实现，不在核心重写依赖树。 |
 | VM 预检 | 在所属主线程调用现有 ScriptRuntime.prepare_gameplay，完成编译和链接。 | 单次不可抢占，现行候选源码读取也不伪装成异步；测量其总耗时，不承诺任意模块规模均平滑。 |
-| 明确场景恢复 | scene 非空时，World.begin_restore_scene 建立候选，逐帧 step_restore_scene，ready 后才 commit_restore_scene。 | 使用现有节点数与时间预算；请求身份及资源代次失效则取消，不能提交半成品。 |
+| 明确场景恢复 | scene 非空时，GameplaySession.begin_scene_load 建立请求，逐帧准备并发布，真实首帧后启用模拟。 | 使用现有节点数与时间预算；请求身份及资源代次失效则取消，不能提交半成品。 |
 | 项目短初始化 | 主线程调用现有 start_prepared_gameplay 一次，执行模块及 OnInitialize；尚不调度 Update。 | 非抢占，项目必须短小或自行分批。显式 scene 已恢复时，OnInitialize 应短接线，不再同步装载同一大场景。 |
 | 主页 GPU | 使用同一 Renderer 准备初始化后的实际场景及 UI，检查所需 GPU 资源可用于首帧；未就绪仍 preparing。 | 2026-11-07 已实现：接入 RenderSystem incremental 准备及当前步剩余时间；不等待未完成任务。单次驱动 / UI / 字体原子步骤仍不可抢占，不承诺硬实时上限。 |
 | 正式激活 | activate_prepared 仅从 ready 切换正式驱动资格；Host 接入场景音频，下一帧更新并绘制主页。 | 不再运行 OnInitialize，不重新编译、恢复场景或上传整批资源。 |
@@ -199,9 +199,9 @@ scene 为空时不猜测 TS 会打开哪张场景：项目可以沿用同步 OnI
 分步恢复，调用方须显式提供 scene 或项目自身按已有分步接口组织；不能只准备 CPU 后提前报 ready。
 
 会话拥有准备操作、资源引用及提交 / 取消责任，未提交 Scene 对象仍由 WorldSystem 独占。
-恢复成功后由会话调用 commit；停止、失败或目录代次改变时取消恢复并释放本次请求。已经提交
+恢复成功后由会话驱动同一范围的 publish / 首帧确认 / activate；停止、失败或目录代次改变时结束恢复并释放实际准备资源。结果记录保留到显式释放或会话销毁。已经提交
 且归本次准备 / Run 的场景在失败时按已有会话清理路径释放，不保留半启动主页。取消统一走
-现有 `GameplaySession::stop(reason)`，必须幂等，同时取消后台 / ResourceLoad、候选恢复和本次
+`GameplaySession::stop(cause, reason)`，主动停止传 requested，故障停止传 failure；必须幂等，同时结束后台 / ResourceLoad、候选恢复和本次
 Run；清场景只调用 AudioSystem.clear_scene，不能停止 Caller 的片头。
 
 项目初始化期间 Run 已创建，不代表 Host 已开始正式游戏帧；只有 activate 后才调度逐帧业务。

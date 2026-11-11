@@ -2,7 +2,9 @@
 
 #include "runtime/resource/resource_handle.hpp"
 #include "runtime/scene/component_registry.hpp"
+#include "runtime/scene/scene_loading.hpp"
 #include "runtime/system/system.hpp"
+#include <map>
 
 #include <cstddef>
 #include <cstdint>
@@ -25,13 +27,6 @@ namespace ecs_detail
 struct ResourceBindingScope;
 }
 
-enum class SceneRestoreStatus
-{
-    loading,
-    ready,
-    failed
-};
-
 struct SceneRestoreConfig
 {
     std::size_t nodes_per_step = 64;
@@ -52,13 +47,18 @@ public:
     [[nodiscard]] Scene* create_scene(std::string_view name);
     // 只取得已加载的候选，失败保留当前场景；不读文件。
     [[nodiscard]] Scene* load_scene(std::string_view path);
-    // 已加载资源的主线程分帧恢复；0 表示拒绝，过期请求不能影响新的候选。
-    [[nodiscard]] std::uint64_t begin_restore_scene(const ResourceHandle& resource);
-    // max_seconds 为 0 时使用配置；正数进一步收紧单次时间预算。
-    [[nodiscard]] SceneRestoreStatus
-    step_restore_scene(std::uint64_t request, std::size_t node_budget, double max_seconds = 0.0);
-    [[nodiscard]] Scene* commit_restore_scene(std::uint64_t request);
-    void cancel_restore_scene(std::uint64_t request) noexcept;
+    [[nodiscard]] bool begin_scope(SceneLoadKind kind, std::uint64_t destination,
+                                   SceneScopeId& output);
+    [[nodiscard]] bool restore_scope(SceneScopeId scope, const ResourceHandle& resource);
+    [[nodiscard]] SceneWorkState step_scope(SceneScopeId scope, const SceneWorkBudget& budget);
+    [[nodiscard]] Scene* scope_candidate(SceneScopeId scope) const noexcept;
+    [[nodiscard]] bool seal_scope(SceneScopeId scope);
+    [[nodiscard]] bool scope_status(SceneScopeId scope, ScenePreparationSnapshot& output) const;
+    [[nodiscard]] bool publish_scope(SceneScopeId scope);
+    [[nodiscard]] bool activate_scope(SceneScopeId scope);
+    [[nodiscard]] bool cancel_scope(SceneScopeId scope);
+    void release_scope(SceneScopeId scope) noexcept;
+
     // 卸载玩法并取消恢复候选；保留常驻子树，释放旧场景根资源。
     void unload_scene() noexcept;
     // 完整清理世界；带 ID 重载只完整清理指定的已发布场景。
@@ -85,14 +85,13 @@ protected:
 
 private:
     friend struct ecs_detail::ResourceBindingScope;
+    std::vector<std::pair<Node, bool>> retirement_;
+    struct Scope;
+    std::map<std::uint64_t, std::unique_ptr<Scope>> scopes_;
     ResourceLoader* resources_ = nullptr;
     ResourceHandle binding_owner_;
     void retain_persistent();
     SceneRestoreConfig restore_config_;
-    std::unique_ptr<Scene> restoring_;
-    std::size_t restore_nodes_ = 0;
-    std::size_t restore_parents_ = 0;
-    bool restore_ready_ = false;
     ComponentRegistry components_;
     ecs_world_t* world_ = nullptr;
     ecs_query_t* state_query_ = nullptr;

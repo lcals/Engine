@@ -1,10 +1,8 @@
-"""比较两张 1280×720 的 PBR 六球截图；通过 Blender 的 Python 运行。
+"""Compare two 1280x720 PBR six-sphere captures using Blender Python.
 
-blender -b -t 1 --python projects/showcase/tests/pbr_compare_pixels.py -- \
-  engine.png blender.png output-dir [case-labels.json]
-
-可选 JSON 为六个标签字符串数组，按屏幕从上至下、从左至右排列。
-使用无颜色变换的图片数据，报告显示编码数值，不代表线性辐射能量。
+Usage: blender -b -t 1 --python projects/showcase/tests/pbr_compare_pixels.py -- engine.png blender.png output-dir [case-labels.json]
+Optional JSON supplies six labels in top-to-bottom, left-to-right screen order.
+Read images without color conversion; report display-encoded values, not linear radiance.
 """
 import json
 from pathlib import Path

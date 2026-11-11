@@ -6,7 +6,7 @@ table TerrainSphere {
     radius:float = 3;
 }
 
-// Editor generation inputs; runtime consumes the resulting sampled volume.
+// Inputs shared by TerrainVolume::generate and the editor terrain importer.
 table TerrainGeneratorData {
     cells_x:uint = 64;
     cells_y:uint = 32;

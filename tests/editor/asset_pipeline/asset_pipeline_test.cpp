@@ -235,7 +235,7 @@ bool editor_guard(engine::editor::AssetPipelineSystem& pipeline, const Fixture& 
         !expect(!pipeline.build_assets(fixture.root) &&
                     read(fixture.root / "cache/catalog.bin") == previous,
                 "live editor with old marker and missing status still prevents publication") ||
-        !expect(write(runtime / "project-status.json", "invalid") &&
+        !expect(write(runtime / "editor-status.json", "invalid") &&
                     !pipeline.build_assets(fixture.root),
                 "live editor with unreadable status never times out into write permission"))
     {
@@ -243,7 +243,7 @@ bool editor_guard(engine::editor::AssetPipelineSystem& pipeline, const Fixture& 
     }
     for (const auto state : {"running", "starting", "stopping"})
     {
-        if (!expect(write(runtime / "project-status.json", status(state)) &&
+        if (!expect(write(runtime / "editor-status.json", status(state)) &&
                         !pipeline.build_assets(fixture.root) &&
                         pipeline.last_error().find("Stop the active editor project") !=
                             std::string::npos &&
@@ -253,18 +253,17 @@ bool editor_guard(engine::editor::AssetPipelineSystem& pipeline, const Fixture& 
             return false;
         }
     }
-    if (!expect(write(runtime / "project-status.json", status("idle", "previous-session")) &&
+    if (!expect(write(runtime / "editor-status.json", status("idle", "previous-session")) &&
                     !pipeline.build_assets(fixture.root),
                 "idle status from another session cannot authorize cache publication") ||
-        !expect(write(runtime / "project-status.json", status("unknown")) &&
+        !expect(write(runtime / "editor-status.json", status("unknown")) &&
                     !pipeline.build_assets(fixture.root),
                 "unknown live project state cannot authorize cache publication") ||
-        !expect(write(runtime / "project-status.json", status("idle")) && build(pipeline, fixture),
+        !expect(write(runtime / "editor-status.json", status("idle")) && build(pipeline, fixture),
                 "matching idle session permits importing while editor remains open") ||
-        !expect(write(runtime / "project-status.json", status("closed")) &&
-                    build(pipeline, fixture),
+        !expect(write(runtime / "editor-status.json", status("closed")) && build(pipeline, fixture),
                 "matching closed session permits import during environment cleanup") ||
-        !expect(write(runtime / "project-status.json", status("running")),
+        !expect(write(runtime / "editor-status.json", status("running")),
                 "leave a running status to simulate process death"))
     {
         return false;
@@ -655,7 +654,7 @@ bool tests()
     }
 
     engine::schema::SceneDataT data;
-    data.schema_version = 2;
+    data.schema_version = 3;
     std::string import_error;
     const auto saved_scene = fixture.root / "settings/roundtrip.scene";
     if (!expect(engine::editor::SceneImporter::read(assets / "main.scene", data, import_error) &&

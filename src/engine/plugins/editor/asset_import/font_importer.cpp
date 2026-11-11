@@ -384,7 +384,7 @@ std::string_view FontImporter::default_meta() const noexcept
 bool FontImporter::inspect_batch(const editor::asset_pipeline::ImportContext&,
                                  std::string& fingerprint, std::string& error)
 {
-    if (!editor::asset_pipeline::schema_fingerprint({"font.fbs"}, fingerprint, error))
+    if (!editor::asset_pipeline::schema_fingerprint({"runtime/font.fbs"}, fingerprint, error))
     {
         return false;
     }

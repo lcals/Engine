@@ -2,6 +2,7 @@
 
 #include "runtime/animation/animation_events.hpp"
 #include "runtime/animation/animation_retargeter.hpp"
+#include "runtime/scene/scene_loading.hpp"
 #include "runtime/system/system.hpp"
 
 #include <cstddef>
@@ -27,6 +28,9 @@ public:
                              const AnimationConfig& config = {},
                              std::unique_ptr<AnimationRetargeter> retargeter = nullptr) noexcept;
     ~AnimationSystem() noexcept override;
+    [[nodiscard]] SceneWorkState prepare_scope(SceneScopeId scope, const SceneWorkBudget& budget);
+    [[nodiscard]] bool scope_status(SceneScopeId scope, ScenePreparationSnapshot& output) const;
+    void release_scope(SceneScopeId scope) noexcept;
     void clear() noexcept;
     void set_event_sink(AnimationEventSink sink);
 

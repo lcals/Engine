@@ -118,7 +118,7 @@ struct Fixture
         return ((resources.add<engine::plugins::destruction::DestructionResourceCodec>() &&
                  services.initialize({})) &&
                 services.prepare_builtins()) &&
-               physics.initialize({}) && world.initialize({}) && destruction.initialize({}) &&
+               world.initialize({}) && physics.initialize({}) && destruction.initialize({}) &&
                add_asset(files) && (files.publish(resources) && services.prepare_builtins());
     }
 };

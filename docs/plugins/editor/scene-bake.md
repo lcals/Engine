@@ -32,7 +32,7 @@
 
 三个可选参数的默认值如上；`resolution` 为 16..512、`lutSize` 为 32..512，均须为 2 的幂；`samples` 为 16..1024。该例使用项目自己的场景与天空，不代表仓库内置这些资源。
 
-请求接受后按帧推进，返回 `running` 不表示已完成。使用 `get_scene_bake {"job":"返回的GUID"}` 查询；只有 `state = "complete"` 才表示 GPU 计算、资源发布、场景引用更新和预览刷新都完成。其余状态为 `idle`、`running`、`cancelling`、`publishing`、`cancelled`、`failed`；失败原因在 `error`。命令通道本身若返回 `activation: pending`，仍按原请求查询 `get_editor_receipt`，不要重复创建烘焙作业。
+请求接受后按帧推进，返回 `running` 不表示已完成。使用 `get_scene_bake {"job":"返回的GUID"}` 查询；只有 `state = "complete"` 才表示 GPU 计算、资源发布、场景引用更新和预览刷新都完成。其余状态为 `idle`、`running`、`cancelling`、`publishing`、`cancelled`、`failed`；失败原因在 `error`。命令通道本身若返回 `activation: pending`，仍按原请求查询 `get_request_receipt`，不要重复创建烘焙作业。
 
 场景 `assets/scenes/example.scene` 的结果放在同名目录 `assets/scenes/example/`：
 

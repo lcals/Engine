@@ -1,0 +1,102 @@
+include "common.fbs";
+namespace engine.schema;
+
+enum CharacterMoveSpace:ubyte { world, character, view }
+
+enum CharacterFacingMode:ubyte { keep, movement, view }
+
+table CharacterMovementData {
+    space:CharacterMoveSpace = world;
+    max_speed:float = 4;
+    ground_acceleration:float = 30;
+    ground_braking:float = 40;
+    air_acceleration:float = 8;
+    air_braking:float = 0;
+    air_speed_limit:float = 4;
+    inherit_support_planar_velocity:bool = false;
+}
+
+table CharacterFacingData {
+    mode:CharacterFacingMode = movement;
+    turn_speed:float = 540;
+}
+
+table CharacterActionData {
+    name:string;
+    buffer_seconds:float = 0;
+}
+
+table CharacterAbilityRef {
+    id:string;
+    type:string;
+    enabled:bool = false;
+    priority:int = 0;
+}
+
+table CharacterSprintData {
+    id:string;
+    action:string;
+    speed:float = 7;
+}
+
+table CharacterJumpData {
+    id:string;
+    action:string;
+    launch_delta_speed:float = 5;
+    coyote_seconds:float = 0;
+    hold_seconds:float = 0;
+    held_gravity_scale:float = 1;
+    released_gravity_scale:float = 1;
+    allow_crouched:bool = false;
+}
+
+table CharacterCrouchData {
+    id:string;
+    action:string;
+    half_height:float = 0.3;
+    speed:float = 2;
+}
+
+table CharacterAbilitySetData {
+    sprint:[CharacterSprintData] (native_inline);
+    jump:[CharacterJumpData] (native_inline);
+    crouch:[CharacterCrouchData] (native_inline);
+}
+
+table CharacterControllerData {
+    movement:CharacterMovementData;
+    facing:CharacterFacingData;
+    camera_node_id:ulong;
+    actions:[CharacterActionData] (native_inline);
+    abilities:[CharacterAbilityRef] (native_inline);
+    ability_data:CharacterAbilitySetData;
+}
+
+enum CharacterCameraSource:ubyte {
+    relative_speed, vertical_speed, active_height, grounded, action_held, ability_active
+}
+
+table CharacterCameraBindingData {
+    source:CharacterCameraSource;
+    source_name:string;
+    parameter:string;
+    scale:float = 1;
+    offset:float = 0;
+}
+
+table CharacterCameraData {
+    subject_slot:string;
+    yaw_parameter:string;
+    pitch_parameter:string;
+    first_person_parameter:string;
+    first_person_states:[string];
+    pointer_scale_degrees:Vec2 (native_inline, native_default: "Vec2(0.12, 0.12)");
+    rate_degrees_per_second:Vec2 (native_inline, native_default: "Vec2(120, 90)");
+    status_bindings:[CharacterCameraBindingData] (native_inline);
+}
+
+enum CharacterVisualKind:ubyte { body, head, first_person }
+
+table CharacterVisualData {
+    kind:CharacterVisualKind = body;
+}

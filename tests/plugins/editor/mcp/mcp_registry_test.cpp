@@ -1,5 +1,6 @@
-#include "plugins/editor/mcp/mcp_system.hpp"
+#include "plugins/runtime/mcp/mcp_system.hpp"
 #include "runtime/engine_config.hpp"
+#include "utf8_fixture.hpp"
 
 #if defined(ENGINE_TEST_SCENE_BAKE_TOOLS) || defined(ENGINE_TEST_RENDER_TOOLS) ||                  \
     defined(ENGINE_TEST_TERRAIN_TOOLS) || defined(ENGINE_TEST_DESTRUCTION_TOOLS)
@@ -78,7 +79,7 @@ bool exercise_render_tools()
     engine::plugins::mcp::McpSystem mcp;
     if (!check(engine::plugins::mcp::register_render_tools(mcp, editor) && mcp.initialize({}),
                "render tools register schemas supported by the MCP protocol") ||
-        !check(mcp.list_tools()["tools"].size() == 19, "all render tools are discoverable"))
+        !check(mcp.list_tools()["tools"].size() == 20, "all render tools are discoverable"))
     {
         return false;
     }
@@ -291,18 +292,24 @@ bool exercise()
         return false;
     }
 
-    const Json schema = {{"type", "object"},
-                         {"properties",
-                          {{"values",
-                            {{"type", "array"},
-                             {"minItems", 1},
-                             {"maxItems", 3},
-                             {"items", {{"type", "integer"}, {"minimum", -10}, {"maximum", 10}}}}},
-                           {"label", {{"type", "string"}, {"minLength", 1}, {"maxLength", 2}}},
-                           {"mode", {{"type", "string"}, {"enum", Json::array({"add", "ignore"})}}},
-                           {"custom", Json::object()}}},
-                         {"required", Json::array({"values"})},
-                         {"additionalProperties", false}};
+    const Json schema = {
+        {"type", "object"},
+        {"properties",
+         {{"values",
+           {{"type", "array"},
+            {"minItems", 1},
+            {"maxItems", 3},
+            {"items", {{"type", "integer"}, {"minimum", -10}, {"maximum", 10}}}}},
+          {"label", {{"type", "string"}, {"minLength", 1}, {"maxLength", 2}}},
+          {"mode", {{"type", "string"}, {"enum", Json::array({"add", "ignore"})}}},
+          {"config",
+           {{"type", Json::array({"object", "null"})},
+            {"properties", {{"speed", {{"type", "number"}}}}},
+            {"additionalProperties", false}}},
+          {"actions", {{"type", "object"}, {"additionalProperties", {{"type", "boolean"}}}}},
+          {"custom", Json::object()}}},
+        {"required", Json::array({"values"})},
+        {"additionalProperties", false}};
     auto calls = std::make_shared<int>(0);
     std::weak_ptr<int> callback_lifetime = calls;
     engine::plugins::mcp::McpTool sum{"fake.sum", "Sum bounded input values.", schema,
@@ -360,7 +367,11 @@ bool exercise()
           Json{{"values", Json::array({1, 2, 3, 4})}}, Json{{"values", Json::array({1.5})}},
           Json{{"values", Json::array({11})}},
           Json{{"values", Json::array({1})}, {"unknown", true}},
-          Json{{"values", Json::array({1})}, {"label", "三个字"}},
+          Json{{"values", Json::array({1})},
+               {"label", test_support::utf8_fixture("three_characters")}},
+          Json{{"values", Json::array({1})}, {"config", {{"unknown", true}}}},
+          Json{{"values", Json::array({1})}, {"config", 7}},
+          Json{{"values", Json::array({1})}, {"actions", {{"jump", "yes"}}}},
           Json{{"values", Json::array({1})}, {"mode", "invalid"}}})
     {
         if (!check(mcp.call_tool("fake.sum", invalid, result) ==
@@ -377,7 +388,9 @@ bool exercise()
                "unknown tool has a distinct status") ||
         !check(mcp.call_tool("fake.sum",
                              {{"values", Json::array({2, 3})},
-                              {"label", "节点"},
+                              {"label", test_support::utf8_fixture("node_label")},
+                              {"config", nullptr},
+                              {"actions", {{"jump", true}, {"sprint", false}}},
                               {"custom", Json::array({1.0, 2.0, 3.0})}},
                              result) == engine::plugins::mcp::McpCallStatus::success &&
                    result == Json{{"total", 5}} && *calls == 1,

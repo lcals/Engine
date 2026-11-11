@@ -1,4 +1,4 @@
-"""按 v2 资源清单复制散文件或包成员，事务更新 Android 内置资源并保留 v8。"""
+"""Copy loose files or package members from a v2 catalog and transactionally update Android built-in assets while preserving v8."""
 
 import argparse
 import json
@@ -25,7 +25,7 @@ def require_directory(path):
         or (hasattr(path, "is_junction") and path.is_junction())
         or not path.is_dir()
     ):
-        raise ValueError(f"必须是现有普通目录，不能是符号链接：{path}")
+        raise ValueError(f"Must be an existing regular directory, not a symbolic link: {path}")
 
 
 def asset_files(root, directory=None):
@@ -36,19 +36,19 @@ def asset_files(root, directory=None):
         path = Path(item.path)
         safe_relative(path.relative_to(root).as_posix())
         if item.is_symlink() or (hasattr(path, "is_junction") and path.is_junction()):
-            raise ValueError(f"资源不支持符号链接：{path}")
+            raise ValueError(f"Resources do not support symbolic links: {path}")
         if item.is_dir(follow_symlinks=False):
             yield from asset_files(root, path)
         elif item.is_file(follow_symlinks=False):
             yield path
         else:
-            raise ValueError(f"资源必须是普通文件或目录：{path}")
+            raise ValueError(f"Resource must be a regular file or directory: {path}")
 
 
 def compile_catalog(project, asset_builder=None, manifest=None, resource_root=None):
     if resource_root is not None:
         if manifest is not None:
-            raise ValueError("--manifest 与 --resource-root 不能同时指定")
+            raise ValueError("--manifest and --resource-root cannot be combined")
         source = Path(resource_root).absolute()
         require_directory(source)
         return source
@@ -56,8 +56,8 @@ def compile_catalog(project, asset_builder=None, manifest=None, resource_root=No
         source = project / "cache/build/android"
         if manifest is not None or not (source / "catalog.bin").is_file():
             raise ValueError(
-                "缺少已编译的 GUID 资源目录；请传入 --asset-builder，"
-                "或用 --resource-root 指定已有运行包目录。"
+                "Compiled GUID resource directory is missing; pass --asset-builder "
+                "or use --resource-root to select an existing runtime package."
             )
         return source
     if manifest is None:
@@ -81,7 +81,7 @@ def compile_catalog(project, asset_builder=None, manifest=None, resource_root=No
         check=False,
     )
     if result.returncode != 0:
-        raise ValueError("Android 资产任务编译失败；包内旧资源保持原样，请修复编译诊断后重试。")
+        raise ValueError("Android asset build failed; existing package resources are unchanged. Fix compiler diagnostics and retry.")
     source = parse_build_output(result.stdout, "android")
     require_directory(source)
     return source
@@ -109,7 +109,7 @@ def prepare(project, output, asset_builder=None, manifest=None, resource_root=No
     output = plain_path(output).resolve()
     if output.is_relative_to(project) or project.is_relative_to(output):
         raise ValueError(
-            "Android 包资源输出与项目目录不能相互包含，请使用 CMake 的 android/assets 目录。"
+            "Android asset output and project directory must not contain each other; use the CMake android/assets directory."
         )
     # 编译前检查 TS 与静态资源树；编译结果也会在复制前独立检查。
     for _ in asset_files(project / "assets"):
@@ -136,18 +136,18 @@ def prepare(project, output, asset_builder=None, manifest=None, resource_root=No
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--project", required=True, type=Path, help="含 settings/cache/assets 的项目目录"
+        "--project", required=True, type=Path, help="Project directory containing settings/cache/assets"
     )
     parser.add_argument(
-        "--output", required=True, type=Path, help="CMake binary/android/assets 目录"
+        "--output", required=True, type=Path, help="CMake binary/android/assets directory"
     )
     parser.add_argument(
-        "--asset-builder", type=Path, help="宿主 asset_build_app 路径，编译 Android GUID 产物"
+        "--asset-builder", type=Path, help="Host asset_build_app path for Android GUID resources"
     )
     parser.add_argument(
-        "--manifest", type=Path, help="项目构建清单；默认 settings/editor-resource-build.toml"
+        "--manifest", type=Path, help="Project build manifest; defaults to settings/editor-resource-build.toml"
     )
-    parser.add_argument("--resource-root", type=Path, help="已有 v2 运行包目录；指定后不调用构建器")
+    parser.add_argument("--resource-root", type=Path, help="Existing v2 runtime package directory; skips the builder")
     arguments = parser.parse_args()
     receipt = prepare(
         arguments.project,
@@ -157,8 +157,8 @@ def main():
         arguments.resource_root,
     )
     print(
-        f"Android 项目资源已准备：{arguments.output}（{receipt['file_count']} 个文件，"
-        f"版本 {receipt['revision']}）"
+        f"Android project resources prepared: {arguments.output} ({receipt['file_count']} files, "
+        f"revision {receipt['revision']})"
     )
     return 0
 
@@ -167,5 +167,5 @@ if __name__ == "__main__":
     try:
         sys.exit(main())
     except (OSError, ValueError, UnicodeError) as error:
-        print(f"Android 资源准备未完成：{error}", file=sys.stderr)
+        print(f"Android resource preparation did not complete: {error}", file=sys.stderr)
         sys.exit(1)

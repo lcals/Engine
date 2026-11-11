@@ -27,6 +27,11 @@
 #include "plugins/runtime/script/script_system.hpp"
 #endif
 
+#if defined(ENGINE_HAS_RUNTIME_MCP_ENDPOINT)
+#include "plugins/runtime/mcp/runtime_mcp_endpoint.hpp"
+#include "runtime/utils/path_utils.hpp"
+#endif
+
 #include <SDL3/SDL_main.h>
 #include <fmt/base.h>
 
@@ -47,7 +52,12 @@ namespace
 {
 void print_usage()
 {
+#if defined(ENGINE_HAS_RUNTIME_MCP_ENDPOINT)
+    fmt::print("Usage: engine_app --mcp-project <path> --mcp-runtime-dir <empty-cache-path> "
+               "[--frames <positive-count>] [--workers <0..64>]\n");
+#else
     fmt::print("Usage: engine_app [--frames <positive-count>] [--workers <0..64>]\n");
+#endif
 }
 
 } // namespace
@@ -59,9 +69,26 @@ int main(int argc, char* argv[])
     auto& parallel = settings.parallel;
     std::optional<std::size_t> worker_override;
     std::uint64_t frame_limit = 0;
+#if defined(ENGINE_HAS_RUNTIME_MCP_ENDPOINT)
+    std::filesystem::path mcp_project;
+    std::filesystem::path mcp_directory;
+#endif
     for (int index = 1; index < argc; ++index)
     {
         const std::string_view argument(argv[index]);
+#if defined(ENGINE_HAS_RUNTIME_MCP_ENDPOINT)
+        if ((argument == "--mcp-project" || argument == "--mcp-runtime-dir") && index + 1 < argc)
+        {
+            auto& value = argument == "--mcp-project" ? mcp_project : mcp_directory;
+            if (!value.empty())
+            {
+                print_usage();
+                return 2;
+            }
+            value = engine::PathUtils::from_utf8(argv[++index]);
+            continue;
+        }
+#endif
         if (argument == "--workers" && index + 1 < argc)
         {
             const std::string_view value(argv[++index]);
@@ -98,10 +125,19 @@ int main(int argc, char* argv[])
             return 2;
         }
     }
+    engine::RuntimeHost engine;
+#if defined(ENGINE_HAS_RUNTIME_MCP_ENDPOINT)
+    engine::plugins::mcp::RuntimeMcpEndpoint mcp_bridge;
+
+#endif
 #if ENGINE_HAS_APP_SERVICES
     engine::AppConfig app_config{};
 #if defined(ENGINE_PROJECT_APPLICATION_NAME)
     app_config.application_name = ENGINE_PROJECT_APPLICATION_NAME;
+#endif
+#if defined(ENGINE_HAS_RUNTIME_MCP_ENDPOINT)
+    app_config.persistent_data_path = mcp_directory;
+    app_config.cache_path = mcp_directory / "runtime-cache";
 #endif
     if (!engine::App::initialize(app_config))
     {
@@ -172,7 +208,42 @@ int main(int argc, char* argv[])
         return 1;
     }
 #endif
-    engine::RuntimeHost engine;
+#if ENGINE_HAS_CAMERA
+    static engine::plugins::camera::CameraTypeRegistry camera_types;
+    if (!camera_types.frozen() &&
+        (!engine::plugins::camera::register_builtin_camera_types(camera_types) ||
+         !camera_types.freeze()))
+    {
+        return 1;
+    }
+#endif
+#if ENGINE_HAS_CHARACTER_CONTROLLER
+    static engine::plugins::character_controller::CharacterAbilityRegistry character_abilities;
+    if (!character_abilities.frozen() &&
+        (!engine::plugins::character_controller::register_builtin_character_abilities(
+             character_abilities) ||
+         !character_abilities.freeze()))
+    {
+        return 1;
+    }
+#endif
+    const engine::RuntimeSetup configure_runtime_plugins =
+        [](engine::RuntimeStage stage, engine::WorldSystem& world, engine::WindowSystem& window,
+           engine::PhysicsSystem& physics, engine::NavigationSystem& navigation,
+           engine::RenderSystem& renderer, engine::TaskSystem& tasks)
+    {
+        return assemble_runtime_plugins(stage, world, window, physics, navigation, renderer, tasks,
+#if ENGINE_HAS_CAMERA
+                                        &camera_types,
+#else
+                                        nullptr,
+#endif
+#if ENGINE_HAS_CHARACTER_CONTROLLER
+                                        &character_abilities);
+#else
+                                        nullptr);
+#endif
+    };
     engine::AnimationRetargeterFactory retargeter_factory = nullptr;
 #if ENGINE_HAS_ANIMATION_RETARGET_PLUGIN
     retargeter_factory = engine::plugins::animation_retarget::create_animation_retargeter;
@@ -279,6 +350,14 @@ int main(int argc, char* argv[])
         }
     }
 #endif
+#if defined(ENGINE_HAS_RUNTIME_MCP_ENDPOINT)
+    if (!mcp_bridge.initialize(engine, {mcp_project / "cache", mcp_directory, {}}))
+    {
+        fmt::print(stderr, "Cannot initialize runtime MCP test channel: {}\n",
+                   mcp_bridge.last_error());
+        return 1;
+    }
+#endif
     auto previous_time = std::chrono::steady_clock::now();
     std::uint64_t frames = 0;
     int result = 0;
@@ -315,6 +394,14 @@ int main(int argc, char* argv[])
             result = 1;
             break;
         }
+#if defined(ENGINE_HAS_RUNTIME_MCP_ENDPOINT)
+        if (!mcp_bridge.poll())
+        {
+            fmt::print(stderr, "Runtime MCP test channel failed: {}\n", mcp_bridge.last_error());
+            result = 1;
+            break;
+        }
+#endif
         if (status == engine::FrameStatus::paused)
         {
             std::this_thread::sleep_for(std::chrono::milliseconds(16));
@@ -413,8 +500,7 @@ int main(int argc, char* argv[])
                 }
                 gameplay_ready = ready == engine::RuntimeStartupStatus::ready;
             }
-            if (gameplay_ready && intro_active &&
-                movie_status.state == engine::MovieState::completed)
+            if (intro_active && movie_status.state == engine::MovieState::completed)
             {
                 if (!engine.movie_player()->release(intro_handle))
                 {
@@ -453,6 +539,9 @@ int main(int argc, char* argv[])
     }
 #if ENGINE_START_PACKAGED_GAMEPLAY
     intro_load.reset();
+#endif
+#if defined(ENGINE_HAS_RUNTIME_MCP_ENDPOINT)
+    mcp_bridge.shutdown();
 #endif
     engine.shutdown();
 #if ENGINE_HAS_RESOURCE_GRAPH_PLUGIN

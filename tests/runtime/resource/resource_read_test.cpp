@@ -4,6 +4,7 @@
 #include "runtime/task/task_system.hpp"
 #include "runtime/task/thread_system.hpp"
 #include "runtime/utils/path_utils.hpp"
+#include "utf8_fixture.hpp"
 
 #include <SDL3/SDL_filesystem.h>
 #include <SDL3/SDL_iostream.h>
@@ -100,7 +101,8 @@ bool write_file(const std::filesystem::path& path, std::string_view contents)
 
 bool binary_and_text(const std::filesystem::path& root)
 {
-    const auto path = root / std::filesystem::path(u8"资源-文件.bin");
+    const auto path =
+        root / engine::PathUtils::from_utf8(test_support::utf8_fixture("binary_filename"));
     const std::array<unsigned char, 8> data{0, 1, 127, 128, 255, '\r', '\n', 0};
     const std::string content(reinterpret_cast<const char*>(data.data()), data.size());
     if (!write_file(path, content))
@@ -123,9 +125,10 @@ bool binary_and_text(const std::filesystem::path& root)
     success &= expect(read_file_text(path, text) && text == content,
                       "text read does not truncate NUL or modify line endings");
 
-    const auto text_path = root / std::filesystem::path(u8"脚本.ts");
-    const std::u8string utf8 = u8"// 中文脚本\r\nDebug.Log('你好');\n";
-    const std::string script(utf8.begin(), utf8.end());
+    const auto text_path =
+        root / engine::PathUtils::from_utf8(test_support::utf8_fixture("script_filename"));
+    const std::string script =
+        test_support::utf8_fixture("script_comment") + "\r\nDebug.Log('Hello');\n";
     if (!write_file(text_path, script))
     {
         return expect(false, "create the UTF-8 fixture");
@@ -137,8 +140,10 @@ bool binary_and_text(const std::filesystem::path& root)
 
 bool atomic_replace_with_open_reader(const std::filesystem::path& root)
 {
-    const auto path = root / std::filesystem::path(u8"原子-替换-🐟.bin");
-    const auto replacement = root / std::filesystem::path(u8"临时-替换-🐟.bin");
+    const auto path =
+        root / engine::PathUtils::from_utf8(test_support::utf8_fixture("atomic_filename"));
+    const auto replacement =
+        root / engine::PathUtils::from_utf8(test_support::utf8_fixture("replacement_filename"));
     constexpr std::string_view previous_contents = "previous file snapshot\n";
     constexpr std::string_view replacement_contents = "replacement file snapshot\n";
     if (!write_file(path, previous_contents) || !write_file(replacement, replacement_contents))

@@ -1,4 +1,4 @@
-"""产物目录检查及整目录发布；回滚失败时保留上一版备份。"""
+"""Validate artifact paths and publish directories, retaining the previous backup if rollback fails."""
 
 from contextlib import contextmanager
 import os
@@ -11,7 +11,7 @@ def plain_path(path):
     path = Path(os.path.abspath(path))
     for parent in (path, *path.parents):
         if parent.is_symlink() or (hasattr(parent, "is_junction") and parent.is_junction()):
-            raise ValueError(f"产物路径不能包含链接：{parent}")
+            raise ValueError(f"Artifact path must not contain links: {parent}")
     return path
 
 
@@ -19,13 +19,13 @@ def validate_output(output, root, sources):
     output = plain_path(output)
     root = plain_path(root)
     if output == root or not output.is_relative_to(root):
-        raise ValueError(f"产物必须位于专用输出根目录的子目录：{root}")
+        raise ValueError(f"Artifact must be under a dedicated output root: {root}")
     for source in sources:
         source = plain_path(source)
         if output.is_relative_to(source) or source.is_relative_to(output):
-            raise ValueError(f"输出与来源不能相互包含：{output} / {source}")
+            raise ValueError(f"Output and source must not contain each other: {output} / {source}")
     if output.exists() and not output.is_dir():
-        raise ValueError(f"产物输出必须是目录：{output}")
+        raise ValueError(f"Artifact output must be a directory: {output}")
     return output
 
 
@@ -36,7 +36,7 @@ def staged_output(output):
     try:
         lock.mkdir()
     except FileExistsError as error:
-        raise ValueError(f"该产物正在导出，或上次任务中断；确认无任务后移除锁：{lock}") from error
+        raise ValueError(f"Export is active or an earlier task was interrupted; confirm no task is running before removing the lock: {lock}") from error
     temporary = None
     preserve = False
     try:
@@ -60,7 +60,7 @@ def staged_output(output):
                 except BaseException as restore_error:
                     preserve = True
                     raise ValueError(
-                        f"产物发布及回滚失败，旧版保留在 {previous}，请恢复后重试：{restore_error}"
+                        f"Artifact publication and rollback failed; previous version preserved at {previous}; restore it before retrying: {restore_error}"
                     ) from error
             raise
     finally:
