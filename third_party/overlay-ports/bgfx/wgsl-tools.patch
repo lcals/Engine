@@ -1,0 +1,113 @@
+--- a/cmake/bgfx/CMakeLists.txt
++++ b/cmake/bgfx/CMakeLists.txt
+@@ -23,6 +23,9 @@
+ 	find_package(spirv_cross_msl CONFIG REQUIRED)
+ 	find_package(glslang CONFIG REQUIRED)
+ 	include(3rdparty/webgpu.cmake)
++	if(BGFX_SHADERC_WGSL)
++		include(3rdparty/tint.cmake)
++	endif()
+ 	include(shaderc.cmake)
+ endif()
+ 
+--- a/cmake/bgfx/shaderc.cmake
++++ b/cmake/bgfx/shaderc.cmake
+@@ -18,9 +18,12 @@
+ )
+ 
+ add_executable(shaderc ${SHADERC_SOURCES})
+-# The engine targets Metal, DirectX 12 and Vulkan; WGSL/WebGPU is not selected.
+-# Tint requires private SPIRV-Tools headers, unlike the packaged public tool API.
+-target_compile_definitions(shaderc PRIVATE SHADERC_CONFIG_HAS_TINT=0)
++if(BGFX_SHADERC_WGSL)
++    target_link_libraries(shaderc PRIVATE tint)
++    set_target_properties(shaderc PROPERTIES NO_SYSTEM_FROM_IMPORTED ON)
++else()
++    target_compile_definitions(shaderc PRIVATE SHADERC_CONFIG_HAS_TINT=0)
++endif()
+ 
+ target_link_libraries(
+ 	shaderc
+--- a/cmake/bgfx/3rdparty/tint.cmake
++++ b/cmake/bgfx/3rdparty/tint.cmake
+@@ -38,7 +38,15 @@
+ 	${TINT_DIR}/src/tint/api/*.h
+ )
+ 
++find_package(SPIRV-Tools CONFIG REQUIRED)
++find_package(SPIRV-Tools-opt CONFIG REQUIRED)
++find_path(SPIRV_TOOLS_PRIVATE_ROOT source/opt/build_module.h
++    PATHS "${SPIRV-Tools_DIR}/private" NO_DEFAULT_PATH REQUIRED)
+ add_library(tint STATIC ${TINT_SOURCES})
++target_compile_features(tint PUBLIC cxx_std_20)
++set_target_properties(tint PROPERTIES NO_SYSTEM_FROM_IMPORTED ON)
++target_include_directories(tint PRIVATE "${SPIRV_TOOLS_PRIVATE_ROOT}")
++target_link_libraries(tint PRIVATE SPIRV-Tools-opt SPIRV-Tools-static)
+ 
+ set_target_properties(tint PROPERTIES FOLDER "bgfx")
+ 
+--- a/bgfx/tools/shaderc/shaderc_wgsl.cpp
++++ b/bgfx/tools/shaderc/shaderc_wgsl.cpp
+@@ -20,12 +20,10 @@
+ #include <spirv_reflect.hpp>
+ 
+ #define ENABLE_OPT 1
+-#include <BaseTypes.h>
+-#include <Types.h>
+-#include <ShaderLang.h>
+-#include <ResourceLimits.h>
+-#include <SPIRV/GlslangToSpv.h>
+-#include <SPIRV/SpvTools.h>
++#include <glslang/Public/ShaderLang.h>
++#include <glslang/Include/ResourceLimits.h>
++#include <glslang/SPIRV/GlslangToSpv.h>
++#include <glslang/SPIRV/SpvTools.h>
+ #include <spirv-tools/optimizer.hpp>
+ 
+ #include <tint/api/tint.h>
+@@ -667,12 +665,9 @@
+ 				}
+ 
+ 				uint32_t blockIndex = 0;
+-				for (uint32_t ii = 0, num = program->getNumUniformVariables(); ii < num; ++ii)
++				for (uint32_t ii = 0, num = program->getNumLiveUniformBlocks(); ii < num; ++ii)
+ 				{
+-					const glslang::TType* type = program->getUniformBlockTType(ii);
+-					if (NULL != type
+-					&&  glslang::EbtBlock   == type->getBasicType()
+-					&&  glslang::EvqUniform == type->getQualifier().storage)
++					if (0 == bx::strCmp(program->getUniformBlockName(ii), "UniformBlock"))
+ 					{
+ 						blockIndex = ii;
+ 						break;
+@@ -681,7 +676,9 @@
+ 
+ 				UniformArray uniforms;
+ 				bool invalidUniform = false;
+-				const uint16_t blockSize = bx::narrowCast<uint16_t>(bx::max<int32_t>(0, program->getUniformBlockSize(blockIndex) ) );
++				const uint16_t blockSize = program->getNumLiveUniformBlocks() == 0
++					? 0
++					: bx::narrowCast<uint16_t>(bx::max<int32_t>(0, program->getUniformBlockSize(blockIndex) ) );
+ 
+ 				{
+ 					uint16_t count = (uint16_t)program->getNumLiveUniformVariables();
+--- a/bgfx/tools/shaderc/shaderc.cpp
++++ b/bgfx/tools/shaderc/shaderc.cpp
+@@ -1312,8 +1312,15 @@
+ 		else if (0 == bx::strCmpI(platform, "asm.js") )
+ 		{
+ 			preprocessor.setDefine("BX_PLATFORM_EMSCRIPTEN=1");
+-			preprocessor.setDefine(glslDefine);
+-			preprocessor.setDefine(esslDefine);
++            if (profile->lang == ShadingLang::WGSL)
++            {
++                preprocessor.setDefine("BGFX_SHADER_LANGUAGE_WGSL=1");
++            }
++            else
++            {
++                preprocessor.setDefine(glslDefine);
++                preprocessor.setDefine(esslDefine);
++            }
+ 		}
+ 		else if (0 == bx::strCmpI(platform, "linux") )
+ 		{

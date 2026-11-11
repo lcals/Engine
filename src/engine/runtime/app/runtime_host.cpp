@@ -402,7 +402,8 @@ FrameStatus RuntimeHost::tick_runtime(double delta_time)
     {
         return events;
     }
-    const double movie_delta = std::exchange(movie_clock_paused_, false) ? 0.0 : delta_time;
+    const bool presentation_was_paused = std::exchange(movie_clock_paused_, false);
+    const double movie_delta = presentation_was_paused ? 0.0 : delta_time;
     if (gameplay_active_ && !engine_.tick(std::min(delta_time, 0.1)))
     {
         return fail_runtime("system_update_failed", "Cannot update the gameplay systems");
@@ -415,8 +416,8 @@ FrameStatus RuntimeHost::tick_runtime(double delta_time)
     {
         return fail_runtime("gameplay_update_failed", "Cannot update the gameplay session");
     }
-    // 窗口不可绘制时暂停整个设备；世界暂停由音频系统只作用于场景声部。
-    if (!audio_->set_paused(!window_->can_render()))
+    // 不可呈现期间暂停整个设备，恢复首帧提交后才恢复音轨时钟。
+    if (!audio_->set_paused(presentation_was_paused || !window_->can_render()))
     {
         return fail_runtime("audio_pause_failed", "Cannot update the audio pause state");
     }
@@ -438,20 +439,24 @@ FrameStatus RuntimeHost::tick_runtime(double delta_time)
     {
         (void)renderer_->prepare_scope({}, {});
     }
-    const auto rendered = showing_movie
-                              ? (renderer_->present_movie_frame(movie_frame)
-                                     ? RenderSubmitStatus::submitted
-                                     : (window_->can_render() ? RenderSubmitStatus::failed
-                                                              : RenderSubmitStatus::deferred))
-                              : renderer_->render();
+    const auto rendered =
+        showing_movie ? renderer_->present_movie_frame(movie_frame) : renderer_->render();
     if (rendered == RenderSubmitStatus::deferred)
     {
         movie_clock_paused_ = true;
+        if (!audio_->set_paused(true))
+        {
+            return fail_runtime("audio_pause_failed", "Cannot pause deferred frame audio");
+        }
         return FrameStatus::paused;
     }
     if (rendered == RenderSubmitStatus::failed)
     {
         return fail_runtime("render_failed", "Cannot submit the runtime frame");
+    }
+    if (presentation_was_paused && !audio_->set_paused(false))
+    {
+        return fail_runtime("audio_pause_failed", "Cannot resume presented frame audio");
     }
     if (showing_movie)
     {

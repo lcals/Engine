@@ -8,6 +8,12 @@
 
 契约：[include/engine.d.ts](../../include/engine.d.ts) · [插件登记](../plugins/plugins.md) · [Android 宿主](../runtime/class-diagrams/android-host.md)。
 
+## Web 游戏导出
+
+Web 宿主与原生宿主共用游戏入口状态和 RuntimeHost；Web 平台适配负责浏览器调度、路径及 GPU 申请，资源仍由同一目录、加载器与渲染准备链消费。离线导出由现有资源构建和 ShaderImporter 扩展 web 目标，桌面编辑器不改用 WebGPU。实际验证范围见[测试文档](../testing.md#webgpu-导出)。
+
+设计：[Web 宿主与异步表面](../runtime/class-diagrams/web-host.md) · [Web 导出](../editor/class-diagrams/web-export.md) · [共享目标互斥](../editor/class-diagrams/asset-pipeline-system.md#目标切换互斥) · [Web 持久文件发布](../runtime/class-diagrams/web-storage.md)。核心公开类与项目 SDK 不新增；平台存储增加私有发布函数，影片呈现统一使用已有 RenderSubmitStatus 返回值。
+
 ## 引擎与系统所有权
 
 Engine 管理根系统生命周期与帧调度，System 独占子系统；RuntimeHost 装配窗口、世界、渲染及可选服务。对象只由一个拥有者负责生命周期，其他关系为明确借用。

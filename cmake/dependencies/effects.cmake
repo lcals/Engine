@@ -127,6 +127,16 @@ set_source_files_properties("${_effekseer_source}/${_effect_dependency_source}" 
 target_sources(Effekseer PRIVATE "${_effekseer_staged}/${_effect_dependency_source}")
 target_include_directories(Effekseer PRIVATE "${_effekseer_source}/Dev/Cpp/Effekseer/Effekseer/IO")
 
+set(_effect_allocator_source Dev/Cpp/Effekseer/Effekseer/Utils/Effekseer.CustomAllocator.cpp)
+_engine_stage_effects_source(
+    effekseer-allocation "${_effekseer_source}"
+    "${_effects_root}/patches/effekseer/portable-allocation.patch" _effekseer_allocator
+    "${_effect_allocator_source}")
+set_source_files_properties("${_effekseer_source}/${_effect_allocator_source}" TARGET_DIRECTORY
+                            Effekseer PROPERTIES HEADER_FILE_ONLY TRUE)
+target_sources(Effekseer PRIVATE "${_effekseer_allocator}/${_effect_allocator_source}")
+target_include_directories(Effekseer PRIVATE "${_effekseer_source}/Dev/Cpp/Effekseer/Effekseer/Utils")
+
 add_library(engine_effects_backend STATIC "${_efkbgfx_staged}/renderer/bgfxrenderer.cpp")
 add_library(engine::effects_backend ALIAS engine_effects_backend)
 target_include_directories(engine_effects_backend SYSTEM PUBLIC "${_efkbgfx_staged}/renderer")

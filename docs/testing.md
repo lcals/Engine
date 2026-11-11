@@ -198,3 +198,23 @@ P50 减少约 81.4%。两次均正常退出，HDR 输出逐字节相同，全部
 - 该性能基线未覆盖 Shader/PSO 预热、大场景完整首帧及跨平台性能；CPU 分段结果仅适用于上述受控静态负载。
 
 结果只记录必要信息：修改、配置、实际执行的目标/用例、结果、尚未验证的边界。更新本节或所属模块的现状，不再按每次会话追加一章。
+
+## WebGPU 导出
+
+构建入口见[构建指南](building.md#webgpu-游戏导出)。验收复用公开 showcase 的运行包，正式产物保持 `ENGINE_ENABLE_TEST_SUPPORT=OFF`，不依赖运行态 MCP 或临时脚本接口。平台测试使用相同入口、RuntimeHost、资源目录和普通运行时截图接口。
+
+- `platform.web_bootstrap` 与 `platform.web_storage` 使用 Node.js 验证首帧就绪、取消、重复停止、故障终态、存储提交和失败回滚；入口分别为 `tests/runtime/app/web_bootstrap_test.mjs` 与 `tests/runtime/storage/web_storage_test.mjs`。
+- `engine.desktop_export` 同时覆盖 Web 的链接回执、独立资源、配置、错误产物拒绝及失败保留旧输出。`engine_asset_build_test --web` 使用真实宿主 shaderc 验证所有内置 Shader 的普通、实例化、surface 和水面程序均匹配 Web 目标；`ENGINE_ENABLE_WEB_EXPORT_TOOLS=ON` 时登记为 `editor.asset_build_web`。
+- `engine_web_render_test` 只在 Web 的 `ENGINE_BUILD_TESTS=ON` 时创建，复用正式 Web 入口和系统装配，只增加世界拥有的测试子系统。它通过普通 `request_screenshot` 等待实际 PNG，调整窗口后再次回读，发布浏览器测试回执；正式 `engine_project_app` 不包含该源码、声明和回执。
+
+```sh
+node --experimental-vm-modules --test tests/runtime/app/web_bootstrap_test.mjs tests/runtime/storage/web_storage_test.mjs
+cmake --preset web-wasm32-release -DENGINE_BUILD_TESTS=ON
+cmake --build --preset web-wasm32-release --target engine_web_render_test
+```
+
+实窗回读验证使用已导出 showcase 的缓存副本，将上述目标 `build/web-wasm32-release/web-render-test/` 中的两个运行文件复制进去，移除副本的正式 `web-build.json`，通过附带 HTTP 服务打开该副本。启动页面后检查 `globalThis.webRenderTest` 回执与其中的 PNG blob；验证后恢复 `ENGINE_BUILD_TESTS=OFF` 并使用正式导出目标。
+
+持久化闭环使用 [Web 存储夹具](../tests/runtime/storage/fixtures/web-game.ts)：在缓存中复制公开项目，以该文件替换副本的 `assets/scripts/game.ts`，保留邻接 meta，使用独立产品身份导出。夹具通过普通 TS `Storage.Save()` 写入递增值并记录回执；成功后直接刷新验证旧值，浏览器对该测试应用的 KV 写事务注入一次 abort，再确认失败及正常停止均保留旧值。正常路径还在 `OnShutdown` 中 Save，验证代理队列关闭顺序。测试夹具和运行副本不得用于正式发布。
+
+已在 macOS arm64、Chrome 156 的真实 WebGPU 上验证公开 PBR 和室内场景、菜单往返、正常停止／重启、普通运行时 PNG 回读与 2400×1350 到 1280×720 的缩放，以及 C++ Save 到 IndexedDB 的成功、刷新、中止回滚与关闭保存。截图与回执保存在本地忽略的 `build/research/webgpu/`。其他浏览器和设备、全部 showcase 功能以及真实配额耗尽尚未逐项验收；不据此宣称完整跨浏览器或所有可选效果等价。首版要求完整预载和 COOP/COEP，不支持编辑器 Web 化、后台流式资源下载或 V8。

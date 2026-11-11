@@ -6,7 +6,7 @@ from pathlib import Path
 
 from artifact_output import plain_path
 
-PLATFORMS = {"windows", "macos", "linux", "android", "ios"}
+PLATFORMS = {"windows", "macos", "linux", "android", "ios", "web"}
 
 
 def merge(target, source):

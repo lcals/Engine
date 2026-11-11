@@ -207,7 +207,8 @@ bool editor_guard(engine::editor::AssetPipelineSystem& pipeline, const Fixture& 
     runtime_json << std::quoted(engine::PathUtils::to_utf8(runtime));
     const auto status = [&](std::string_view state, std::string_view session = "test")
     {
-        return "{\"projectRoot\":" + root_json.str() + ",\"session\":\"" + std::string(session) +
+        return "{\"projectRoot\":" + root_json.str() + ",\"targetPlatform\":\"" +
+               ENGINE_TARGET_PLATFORM + "\",\"session\":\"" + std::string(session) +
                "\",\"projectState\":\"" + std::string(state) + "\",\"updatedAtMs\":0}";
     };
     const auto previous = read(fixture.root / "cache/catalog.bin");
@@ -215,7 +216,8 @@ bool editor_guard(engine::editor::AssetPipelineSystem& pipeline, const Fixture& 
     std::string error;
     if (!expect(lease->acquire(hosts / "test.lock", error), "editor owns lifetime lease") ||
         !expect(write(hosts / "test.json", "{\"projectRoot\":" + root_json.str() +
-                                               ",\"runtimeDir\":" + runtime_json.str() + "}"),
+                                               ",\"targetPlatform\":\"" + ENGINE_TARGET_PLATFORM +
+                                               "\",\"runtimeDir\":" + runtime_json.str() + "}"),
                 "write editor marker"))
     {
         return false;
@@ -259,7 +261,12 @@ bool editor_guard(engine::editor::AssetPipelineSystem& pipeline, const Fixture& 
         !expect(write(runtime / "editor-status.json", status("unknown")) &&
                     !pipeline.build_assets(fixture.root),
                 "unknown live project state cannot authorize cache publication") ||
-        !expect(write(runtime / "editor-status.json", status("idle")) && build(pipeline, fixture),
+        !expect(write(runtime / "editor-status.json", status("idle")) &&
+                    !pipeline.build_assets(fixture.root, "web") &&
+                    pipeline.last_error().find("different target") != std::string::npos &&
+                    read(fixture.root / "cache/catalog.bin") == previous,
+                "an idle native editor still rejects cross-target import before publication") ||
+        !expect(build(pipeline, fixture),
                 "matching idle session permits importing while editor remains open") ||
         !expect(write(runtime / "editor-status.json", status("closed")) && build(pipeline, fixture),
                 "matching closed session permits import during environment cleanup") ||

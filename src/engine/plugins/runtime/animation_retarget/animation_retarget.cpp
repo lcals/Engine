@@ -130,7 +130,7 @@ public:
             bx::normalize(bx::mul(target_reference_model_.front().rotation,
                                   bx::conjugate(source_reference_model_.front().rotation)));
         mapped_sources_.assign(target.joints.size(), -1);
-        post_rotations_.resize(target.joints.size(), {0, 0, 0, 1});
+        post_rotations_.resize(target.joints.size(), schema::Vec4{0, 0, 0, 1});
         for (const auto& mapping : profile.joint_mappings)
         {
             const auto source_index = source_indices.find(mapping->source_joint_path);
@@ -147,10 +147,11 @@ public:
             // Column-vector equivalent of the upstream reference-model transfer:
             // target_model = A * source_model * inverse(source_reference_model)
             //                * inverse(A) * target_reference_model.
-            post_rotations_[dst] =
+            const auto rotation =
                 bx::normalize(bx::mul(bx::mul(bx::conjugate(source_reference_model_[src].rotation),
                                               bx::conjugate(frame_alignment_)),
                                       target_reference_model_[dst].rotation));
+            post_rotations_[dst] = schema::Vec4{rotation.x, rotation.y, rotation.z, rotation.w};
         }
         hips_mode_ = profile.hips_translation_mode;
         hips_scale_ = static_cast<float>(profile.hips_translation_scale);
@@ -208,7 +209,7 @@ public:
             {
                 const auto desired_model_rotation = bx::normalize(
                     bx::mul(bx::mul(frame_alignment_, source_model[source_index].rotation),
-                            post_rotations_[index]));
+                            quaternion(post_rotations_[index])));
                 const auto local_rotation =
                     bx::normalize(bx::mul(bx::conjugate(parent.rotation), desired_model_rotation));
                 candidate[index].mutable_rotation() = schema::Vec4(
@@ -245,7 +246,7 @@ private:
     std::vector<std::int32_t> source_parents_, target_parents_, mapped_sources_;
     std::vector<schema::JointLocalPose> target_reference_;
     std::vector<ModelPose> source_reference_model_, target_reference_model_;
-    std::vector<bx::Quaternion> post_rotations_;
+    std::vector<schema::Vec4> post_rotations_;
     bx::Quaternion frame_alignment_{0, 0, 0, 1};
     schema::HipsTranslationMode hips_mode_ = schema::HipsTranslationMode::target_reference;
     float hips_scale_ = 1;

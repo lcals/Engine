@@ -78,7 +78,7 @@ bool ResourceCatalog::assign(const schema::AssetCatalogDataT& data)
     if (data.schema_version != 2 || data.revision.empty() || data.entries.size() > 65536 ||
         (data.target_platform != "macos" && data.target_platform != "ios" &&
          data.target_platform != "windows" && data.target_platform != "android" &&
-         data.target_platform != "linux"))
+         data.target_platform != "linux" && data.target_platform != "web"))
     {
         return false;
     }

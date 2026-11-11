@@ -228,3 +228,37 @@ maximum_cluster_lights = 32
 local_shadow_tile_size = 256
 maximum_local_shadow_faces = 12
 maximum_planar_reflections = 1
+
+# 浏览器与原生共用任务系统，只调整同一进程的并行预算。
+[platform.web.threads]
+worker_limit = 3
+
+[platform.web.runtime]
+max_concurrency = 3
+
+[platform.web.background]
+max_concurrency = 2
+
+[platform.web.file]
+max_concurrency = 2
+
+[platform.web.resource_read]
+max_concurrency = 2
+
+[platform.web.resource_graph]
+max_concurrency = 2
+
+[platform.web.movie]
+max_concurrency = 2
+
+[platform.web.render]
+max_concurrency = 2
+
+[platform.web.physics]
+max_concurrency = 2
+
+[platform.web.animation]
+max_concurrency = 2
+
+[platform.web.navigation]
+max_concurrency = 2

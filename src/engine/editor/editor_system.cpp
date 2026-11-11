@@ -245,6 +245,7 @@ struct EditorSystem::State
         const bool previewing = !closed && preview != nullptr && preview->active();
         Json status = {{"session", session},
                        {"projectRoot", project_root},
+                       {"targetPlatform", ENGINE_TARGET_PLATFORM},
                        {"projectState", closed               ? "closed"
                                         : transition.empty() ? (previewing ? "preview"
                                                                 : running  ? "running"

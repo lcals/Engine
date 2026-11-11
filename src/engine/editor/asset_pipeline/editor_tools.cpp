@@ -31,6 +31,12 @@ bool shader_target(std::string_view target, std::string& platform, std::string& 
 {
     platform.clear();
     profile.clear();
+    if (target == "web")
+    {
+        platform = "asm.js";
+        profile = "wgsl";
+        return true;
+    }
     if (target == "macos" || target == "ios")
     {
         platform = target == "macos" ? "osx" : "ios";

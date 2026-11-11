@@ -8,6 +8,22 @@
 
 核心命名空间为 `engine`，编辑器为 `engine::editor`，插件为 `engine::plugins::<插件名>`。`*--` 表示独占拥有，`o--` 表示共享资源引用，`-->` 表示借用，`..>` 表示参数、返回值或使用依赖。
 
+## WebGPU 运行产物
+
+范围仅为 Web 游戏导出，编辑器保留原生后端。不新增核心公开类、System 或项目脚本接口；复用运行宿主、资源管线与渲染链。必要共享改动包括目标互斥、私有文件发布及设备暂缓传播，影片呈现使用已有三态返回值。
+
+| 评审项 | 唯一设计入口 |
+| --- | --- |
+| 共用入口、资源与任务所有权 | [Web 运行宿主](../runtime/class-diagrams/web-host.md#共用游戏入口) |
+| 固定上游接入、设备与线程归属 | [GPU 接入前提](../runtime/class-diagrams/web-host.md#gpu-接入前提) |
+| 异步设备申请、暂缓与回调收尾 | [WebGPU 表面](../runtime/class-diagrams/web-host.md#异步-webgpu-表面) |
+| 浏览器启动、取消与终态通知 | [Web 启动模块](../runtime/class-diagrams/web-host.md#浏览器启动模块) |
+| Save 的事务完成与平台适配 | [Web 持久存储](../runtime/class-diagrams/web-storage.md) |
+| 全部导入入口与编辑器租约互斥 | [资源管线目标切换](../editor/class-diagrams/asset-pipeline-system.md#目标切换互斥) |
+| WGSL 构建、目标切换与包输出 | [Web 导出](../editor/class-diagrams/web-export.md) |
+
+Web 专用入口、启动器、Canvas／设备与存储适配、模板和打包工具集中在 `platforms/web/`；共享宿主与通用契约仍留在所属模块。现有平台参数支持 web，资源 Schema 和项目脚本接口保持不变；原生影片与普通场景共用呈现结果。
+
 ## 场景加载与运行观察
 
 场景加载与截图复用运行时链路。下表汇总装配顺序、发布及失败边界、启动结果身份与协议适配的契约入口。
@@ -24,6 +40,7 @@ RenderSubmitStatus 区分提交、暂缓和失败，GameplayStopCause 显式区�
 
 ## 核心与宿主
 
+- [Web 运行宿主与 WebGPU](../runtime/class-diagrams/web-host.md)
 - [Android 宿主](../runtime/class-diagrams/android-host.md)
 - [应用平台目录](../runtime/class-diagrams/app.md)
 - [引擎与系统](../runtime/class-diagrams/engine-system.md)
@@ -88,6 +105,7 @@ RenderSubmitStatus 区分提交、暂缓和失败，GameplayStopCause 显式区�
 - [输入数据契约](../runtime/class-diagrams/input-data.md)
 - [输入系统](../runtime/class-diagrams/input-system.md)
 - [字符串 KV 持久存取](../runtime/class-diagrams/key-value-store.md)
+- [Web 持久文件发布](../runtime/class-diagrams/web-storage.md)
 - [分段静态网格碰撞](../runtime/class-diagrams/mesh-collision-data.md)
 - [网格工具](../runtime/class-diagrams/mesh-utils.md)
 - [模型资源（Model）、骨骼与动画](../runtime/class-diagrams/model-resources.md)
@@ -105,6 +123,7 @@ RenderSubmitStatus 区分提交、暂缓和失败，GameplayStopCause 显式区�
 
 ## 编辑器基础
 
+- [Web 运行产物导出](../editor/class-diagrams/web-export.md)
 - [资源导入异步批次（规划／待实现）](../editor/class-diagrams/asset-import-jobs.md)
 - [逐类型资源导入](../editor/class-diagrams/asset-importers.md)
 - [资源管线系统](../editor/class-diagrams/asset-pipeline-system.md)

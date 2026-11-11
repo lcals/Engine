@@ -1,3 +1,4 @@
+#include "editor/asset_pipeline/project_lock.hpp"
 #include "editor/editor_environment.hpp"
 #include "editor/editor_system.hpp"
 #include "editor/project/project_system.hpp"
@@ -80,25 +81,37 @@ bool resource_submission(engine::editor::EditorEnvironment& environment, const f
     candidate.revision = "editor-environment-candidate";
     const auto generation = resources.generation();
     const auto registration = root / "cache/editor-hosts";
-    if (!write(registration, "blocked registration directory") ||
-        !expect(!environment.apply_resources(candidate, gameplay) &&
-                    resources.generation() == generation &&
-                    resources.catalog().revision() == "builtin-only",
-                "registration I/O failure preserves the active resource directory"))
-    {
-        return false;
-    }
+    fs::path marker;
     std::error_code error;
-    if (!fs::remove(registration, error) || error)
+    for (const auto& entry : fs::directory_iterator(registration, error))
+    {
+        if (entry.path().extension() == ".json")
+        {
+            marker = entry.path();
+        }
+    }
+    auto lease_path = marker;
+    lease_path.replace_extension(".lock");
+    engine::editor::asset_pipeline::ProjectLock probe;
+    bool acquired = true;
+    std::string failure;
+    if (!expect(!error && !marker.empty() &&
+                    read(marker).find("\"targetPlatform\":\"" ENGINE_TARGET_PLATFORM "\"") !=
+                        std::string::npos &&
+                    probe.try_acquire(lease_path, acquired, failure) && !acquired,
+                "initialization registers the native target and lease before first import") ||
+        !expect(read(engine::App::persistent_data_path() / "editor-status.json")
+                        .find("\"projectState\":\"idle\"") != std::string::npos,
+                "initialization publishes idle status before the first resource submission"))
     {
         return false;
     }
+    candidate.target_platform = ENGINE_TARGET_PLATFORM;
     auto invalid = candidate;
     invalid.schema_version = 0;
     if (!expect(!environment.apply_resources(invalid, gameplay) &&
-                    resources.generation() == generation && fs::is_empty(registration, error) &&
-                    !error,
-                "rejected resource submission releases its candidate registration and lease") ||
+                    resources.generation() == generation && fs::exists(marker, error) && !error,
+                "rejected resource submission preserves the early registration and lease") ||
         !expect(environment.apply_resources(candidate, gameplay) &&
                     resources.catalog().revision() == candidate.revision,
                 "retry commits the resource directory and owns its registration"))

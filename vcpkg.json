@@ -113,7 +113,13 @@
           "name": "ffmpeg",
           "host": true,
           "default-features": false,
-          "features": ["ffmpeg", "ffprobe", "vpx", "swresample", "swscale"]
+          "features": [
+            "ffmpeg",
+            "ffprobe",
+            "vpx",
+            "swresample",
+            "swscale"
+          ]
         }
       ]
     },
@@ -133,6 +139,27 @@
       "description": "Optional editor Blast fracture authoring exact arithmetic",
       "dependencies": [
         "boost-multiprecision"
+      ]
+    },
+    "web": {
+      "description": "Host WGSL compiler for exported WebGPU runtime packages.",
+      "dependencies": [
+        {
+          "name": "bgfx",
+          "host": true,
+          "default-features": false,
+          "features": [
+            "tools",
+            "wgsl"
+          ]
+        },
+        {
+          "name": "sdl3",
+          "features": [
+            "emscripten-pthreads"
+          ],
+          "platform": "emscripten"
+        }
       ]
     }
   }

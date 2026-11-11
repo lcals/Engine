@@ -35,11 +35,11 @@
 #include "runtime/utils/path_utils.hpp"
 
 #if ENGINE_HAS_ASSET_IMPORT_PLUGIN
+#include "plugins/editor/asset_import/fbx_importer.hpp"
 #include "plugins/editor/asset_import/font_importer.hpp"
-#include "plugins/editor/asset_import/ui_importer.hpp"
 #include "plugins/editor/asset_import/json_importer.hpp"
 #include "plugins/editor/asset_import/movie_importer.hpp"
-#include "plugins/editor/asset_import/fbx_importer.hpp"
+#include "plugins/editor/asset_import/ui_importer.hpp"
 #include "plugins/editor/asset_import/usd_importer.hpp"
 #endif
 
@@ -62,10 +62,10 @@ namespace
 void usage()
 {
     std::puts("Usage: asset_build_app --project <project-directory> "
-              "[--target macos|ios|windows|android|linux]\n"
+              "[--target macos|ios|windows|android|linux|web]\n"
               "       asset_build_app --project <project-directory> "
               "--package [--manifest settings/<file>.toml] [--item <name> ...] "
-              "[--target macos|ios|windows|android|linux]");
+              "[--target macos|ios|windows|android|linux|web]");
 }
 } // namespace
 

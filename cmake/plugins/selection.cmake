@@ -30,8 +30,8 @@ include("${CMAKE_CURRENT_LIST_DIR}/editor/mcp.cmake")
 set(ENGINE_PLUGIN_DEVICE_BUILD OFF)
 if(ANDROID
    OR ANDROID_ABI
-   OR VCPKG_TARGET_TRIPLET MATCHES "android|ios"
-   OR CMAKE_SYSTEM_NAME MATCHES "Android|iOS")
+   OR VCPKG_TARGET_TRIPLET MATCHES "android|ios|emscripten"
+   OR CMAKE_SYSTEM_NAME MATCHES "Android|iOS|Emscripten")
     set(ENGINE_PLUGIN_DEVICE_BUILD ON)
 endif()
 set(_runtime_plugins "")

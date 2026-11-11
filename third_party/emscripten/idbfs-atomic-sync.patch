@@ -1,0 +1,38 @@
+--- a/src/lib/libidbfs.js
++++ b/src/lib/libidbfs.js
+@@ -358,24 +358,23 @@
+       var transaction = db.transaction([IDBFS_DB_STORE_NAME], 'readwrite');
+       var store = transaction.objectStore(IDBFS_DB_STORE_NAME);
+ 
++      var failure;
+       function done(err) {
+         if (err && !errored) {
+           errored = true;
+-          return callback(err);
+-        }
+-      };
+-
+-      // transaction may abort if (for example) there is a QuotaExceededError
+-      transaction.onerror = transaction.onabort = (e) => {
++          failure = err;
++          transaction.abort();
++        }
++      };
++      transaction.onerror = (e) => {
+         done(e.target.error);
+         e.preventDefault();
+       };
+-
+-      transaction.oncomplete = (e) => {
+-        if (!errored) {
+-          callback(null);
+-        }
+-      };
++      transaction.onabort = (e) => {
++        callback(failure || e.target.error || new Error('Persistent transaction aborted'));
++        e.preventDefault();
++      };
++      transaction.oncomplete = () => callback(null);
+ 
+       // sort paths in ascending order so directory entries are created
+       // before the files inside them

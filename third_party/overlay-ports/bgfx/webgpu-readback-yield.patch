@@ -1,0 +1,78 @@
+--- a/bgfx/src/renderer_webgpu.cpp
++++ b/bgfx/src/renderer_webgpu.cpp
+@@ -12,6 +12,9 @@
+ #	endif // BX_PLATFORM_OSX
+ #	include <bx/pixelformat.h>
+ #	include "renderer_webgpu.h"
++#	if BX_PLATFORM_EMSCRIPTEN
++#		include <emscripten.h>
++#	endif // BX_PLATFORM_EMSCRIPTEN
+ 
+ namespace bgfx { namespace wgpu
+ {
+@@ -2133,7 +2136,7 @@
+ 				, copySize
+ 				, {
+ 					.nextInChain = NULL,
+-					.mode        = WGPUCallbackMode_AllowProcessEvents,
++					.mode        = m_callbackMode,
+ 					.callback    = readTextureCb,
+ 					.userdata1   = &readTexture,
+ 					.userdata2   = &s_done,
+@@ -2141,7 +2144,12 @@
+ 
+ 			while (!s_done)
+ 			{
++#if BX_PLATFORM_EMSCRIPTEN
++				// Map completion is a browser Promise and needs this worker event loop.
++				emscripten_sleep(0);
++#else
+ 				wgpuInstanceProcessEvents(m_instance);
++#endif // BX_PLATFORM_EMSCRIPTEN
+ 			}
+ 		}
+ 
+@@ -2193,7 +2201,7 @@
+ 				, _size
+ 				, {
+ 					.nextInChain = NULL,
+-					.mode        = WGPUCallbackMode_AllowProcessEvents,
++					.mode        = m_callbackMode,
+ 					.callback    = readBufferCb,
+ 					.userdata1   = &readBuffer,
+ 					.userdata2   = &s_done,
+@@ -2201,7 +2209,12 @@
+ 
+ 			while (!s_done)
+ 			{
++#if BX_PLATFORM_EMSCRIPTEN
++				// Map completion is a browser Promise and needs this worker event loop.
++				emscripten_sleep(0);
++#else
+ 				wgpuInstanceProcessEvents(m_instance);
++#endif // BX_PLATFORM_EMSCRIPTEN
+ 			}
+ 		}
+ 
+@@ -2402,7 +2415,7 @@
+ 				, copySize
+ 				, {
+ 					.nextInChain = NULL,
+-					.mode        = WGPUCallbackMode_AllowProcessEvents,
++					.mode        = m_callbackMode,
+ 					.callback    = readTextureCb,
+ 					.userdata1   = &readTexture,
+ 					.userdata2   = &s_done,
+@@ -2410,7 +2423,12 @@
+ 
+ 			while (!s_done)
+ 			{
++#if BX_PLATFORM_EMSCRIPTEN
++				// Map completion is a browser Promise and needs this worker event loop.
++				emscripten_sleep(0);
++#else
+ 				wgpuInstanceProcessEvents(m_instance);
++#endif // BX_PLATFORM_EMSCRIPTEN
+ 			}
+ 
+ 			g_callback->screenShot(

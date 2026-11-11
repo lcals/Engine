@@ -76,3 +76,79 @@ Shader 源码依赖不进入运行依赖；普通源资源仍有实体及完整�
 多输出源在 `discover` 阶段枚举子资源，由管线为每个稳定 key 维护 GUID、逻辑路径和产物记录。源格式以 importer id 调度，输出资源 kind 仅控制运行时实体类型；各子资源独立增量、依赖及目录发布。已消失的子资源身份仍保留在源 meta 并参与冲突检查，重新出现时复用。格式解析见统一[资源导入插件](../../plugins/editor/class-diagrams/asset-import.md)内的[FBX](../../plugins/editor/class-diagrams/fbx-importer.md)与[USD](../../plugins/editor/class-diagrams/usd-import.md)实现；基础管线不链接具体插件。
 
 导入并发配置读取 `settings/editor-import.toml` 的 `[common].import_threads`，文件和字段必需，项目显式配置为 `8`，仅接受 `1–64` 的整数；非法配置返回失败。
+
+## 目标切换互斥
+
+继续只保留一份 `cache/gen/<GUID>`。安全检查属于共享导入链路，所有调用入口遵守同一规则，不依赖命令行工具或 MCP 自行加锁。
+
+```mermaid
+classDiagram
+    direction TB
+    class AssetBuildTool {
+        <<existing_executable>>
+    }
+    class ProjectMcpTools
+    class EditorEntry {
+        <<existing_entry>>
+    }
+    class AssetBuildSystem
+    class AssetPipelineSystem
+    AssetBuildTool ..> AssetBuildSystem : 打包
+    AssetBuildTool ..> AssetPipelineSystem : 直接导入
+    ProjectMcpTools ..> AssetBuildSystem : build_resources
+    ProjectMcpTools ..> AssetPipelineSystem : sync_assets
+    EditorEntry ..> AssetPipelineSystem : 首次与增量导入
+    AssetBuildSystem --> AssetPipelineSystem : 调用统一导入入口
+```
+
+### 锁与会话所有权
+
+复用现有 `cache/.asset-build.lock` 和 ProjectLock；不增加另一把目标锁，不增加公开锁参数、可绕过检查的导入重载或锁管理类。
+
+```mermaid
+classDiagram
+    direction TB
+    class AssetPipelineSystem
+    class AssetBuildSystem
+    class EditorEnvironment
+    class ProjectLock {
+        <<existing>>
+    }
+    AssetPipelineSystem *-- ProjectLock : 每批导入持有项目锁
+    AssetBuildSystem *-- ProjectLock : 打包阶段拥有包锁与项目锁
+    EditorEnvironment *-- ProjectLock : 初始化短持项目锁
+    EditorEnvironment *-- ProjectLock : 持续独占本会话租约
+```
+
+ProjectLock 的 acquire／try_acquire 保持现有非阻塞契约。每条拥有关系表示所属阶段自己的锁对象；ProjectLock 不变成可重入锁，也不在同一调用栈重复取得同一路径。
+
+| 阶段 | 锁与检查 |
+| --- | --- |
+| EditorEnvironment.initialize | 短持项目锁；在首次导入和预览前登记 OS 会话租约及初始原生 idle 状态，记录同一 session／项目／运行目录和编辑器所需 targetPlatform，再释放项目锁 |
+| AssetPipelineSystem.build_assets | 自身取得项目锁，在修改 meta／缓存前校验 requested target、所有活租约及既有原生状态；持锁覆盖扫描、转换、发布 |
+| AssetBuildSystem.build 的导入阶段 | 直接调用 build_assets，由管线独自持锁；外层不提前持有项目锁 |
+| AssetBuildSystem.build 的打包阶段 | 导入返回后，依次取得现有输出包锁、项目锁；重新读取并校验完整导入目录／目标／revision 及实体，再持锁构造、校验和发布完整输出 |
+| 编辑器刷新、启动与预览 | 保留当前项目锁保护目录读取、快照捕获和状态转换；不再在嵌套调用中重复获取同一路径 |
+
+固定多锁顺序为“输出包锁 → 项目锁”；导入和编辑器登记只持项目锁，不反向申请包锁。工具和 MCP 只调用业务方法，不拥有外围目标锁。锁忙返回明确错误，既有 bool／last_error 契约保持不变。
+
+### 目标与租约规则
+
+- 活租约记录的是编辑器自身需要的原生 targetPlatform，而不是当时 cache 的平台。任一活租约与请求目标不同即拒绝导入，包括 idle 或 preview 编辑器；不能因为磁盘已是 web 就跳过检查。
+- 同目标导入继续遵守现有原生状态约束：running／starting／stopping 拒绝，外部进程不能借其他宿主的 preview 状态写缓存；本进程预览仍核对项目、session、App 路径及 running=false。
+- EditorEnvironment 在 initialize 中原子发布会话租约和无玩法／无预览的初始 idle 状态，早于首次 build_assets。后续 EditorSystem 使用同一 session 更新状态，apply_resources 复用租约并校验目录目标，不能等首次提交资源时才登记。任何初始化失败均撤销自己的候选登记；不依赖 MCP 或心跳推断存活。
+- 登记成功后管线才能开始同目标初始导入，因此不需要为了“自身初始化”绕过活租约检查。原生目录和状态校验仍由共享编辑器实现负责，运行时核心不识别宿主身份。
+- 关闭必须先停止导入／预览／玩法的资源访问，再删除自己的登记、释放 OS 租约。撤销租约只减少占用，无需再套目标锁或与在途导入相互等待；并发读到不完整退出记录时允许本次导入保守失败。异常退出后 OS 解锁，遗留登记不会获得活租约资格。
+- 当前版本的登记新增 targetPlatform 后，相关原生状态写入、工具和用例一并升级；活租约缺字段或身份不匹配时明确失败，不猜测目标或兼容旧记录。
+
+### 导入与打包之间
+
+导入缓存发布和运行包发布仍是两个独立阶段，不扩大为跨系统事务。两阶段之间释放项目锁：若另一个合法调用改变了缓存，打包重新持锁后发现完整目录、目标或 revision 不匹配，明确失败并保留旧包，不自动重试、不拼接两个版本的文件。
+
+如果 Web 导入先完成，随后原生编辑器开始初始化，它必须在自己的同目标导入完成后才能使用资源；打包可能成功读取原 Web 快照，也可能因锁忙或快照变化而失败。两种结果均不允许把 Web Shader 交给原生预览。编辑器先登记则 Web 导入直接拒绝；这条次序由同一项目锁决定。
+
+本节同样覆盖直接 build_assets、直接 AssetBuildSystem、CLI、build_resources 和 sync_assets。Web 导出器只消费已完成且再次校验的运行包，最终产物的 staging／发布契约见 [Web 导出](web-export.md#包输出)。
+
+### 契约验证
+
+沿用资源管线／构建／编辑器环境用例，验证所有入口在活原生租约下拒绝 web、初始登记与目标切换竞争、直接调用不能绕过检查、嵌套构建无重复加锁、阶段间快照变化保留旧包，以及同目标合法导入仍可用。用同步栅栏制造竞争，不靠定时睡眠猜测。

@@ -1,0 +1,96 @@
+--- a/include/shared/NvFoundation/NvPreprocessor.h
++++ b/include/shared/NvFoundation/NvPreprocessor.h
+@@ -80,6 +80,8 @@
+ #define NV_X360 1
+ #elif defined(_WIN32) // note: _M_PPC implies _WIN32
+ #define NV_WIN32 1
++#elif defined(__EMSCRIPTEN__)
++#define NV_EMSCRIPTEN 1
+ #elif defined(__ANDROID__)
+ #define NV_ANDROID 1
+ #elif defined(__linux__) // note: __ANDROID__ implies __linux__
+@@ -107,6 +109,8 @@
+ #define NV_X64 1
+ #elif defined(__i386__) || defined(_M_IX86)
+ #define NV_X86 1
++#elif defined(__wasm32__)
++#define NV_WASM32 1
+ #elif defined(__arm64__) || defined(__aarch64__)
+ #define NV_A64 1
+ #elif defined(__arm__) || defined(_M_ARM)
+@@ -168,6 +172,12 @@
+ #ifndef NV_ANDROID
+ #define NV_ANDROID 0
+ #endif
++#ifndef NV_EMSCRIPTEN
++#define NV_EMSCRIPTEN 0
++#endif
++#ifndef NV_WASM32
++#define NV_WASM32 0
++#endif
+ #ifndef NV_LINUX
+ #define NV_LINUX 0
+ #endif
+@@ -246,7 +256,7 @@
+ #define NV_MICROSOFT_FAMILY (NV_XBOXONE || NV_X360 || NV_WINDOWS_FAMILY)
+ #define NV_LINUX_FAMILY (NV_LINUX || NV_ANDROID)
+ #define NV_APPLE_FAMILY (NV_IOS || NV_OSX)                  // equivalent to #if __APPLE__
+-#define NV_UNIX_FAMILY (NV_LINUX_FAMILY || NV_APPLE_FAMILY) // shortcut for unix/posix platforms
++#define NV_UNIX_FAMILY (NV_LINUX_FAMILY || NV_APPLE_FAMILY || NV_EMSCRIPTEN) // shortcut for unix/posix platforms
+ // architecture
+ #define NV_INTEL_FAMILY (NV_X64 || NV_X86)
+ #define NV_ARM_FAMILY (NV_ARM || NV_A64)
+--- a/include/shared/NvFoundation/NvIntrinsics.h
++++ b/include/shared/NvFoundation/NvIntrinsics.h
+@@ -33,7 +33,7 @@
+ #include "platform/windows/NvWindowsIntrinsics.h"
+ #elif NV_X360
+ #include "xbox360/NvXbox360Intrinsics.h"
+-#elif(NV_LINUX || NV_ANDROID || NV_APPLE_FAMILY || NV_PS4)
++#elif(NV_UNIX_FAMILY || NV_PS4)
+ #include "platform/unix/NvUnixIntrinsics.h"
+ #elif NV_PS3
+ #include "ps3/NvPS3Intrinsics.h"
+--- a/include/shared/NvFoundation/platform/unix/NvUnixIntrinsics.h
++++ b/include/shared/NvFoundation/platform/unix/NvUnixIntrinsics.h
+@@ -30,7 +30,7 @@
+ #include "Nv.h"
+ #include "NvAssert.h"
+ 
+-#if !(NV_LINUX || NV_ANDROID || NV_PS4 || NV_APPLE_FAMILY)
++#if !(NV_UNIX_FAMILY || NV_PS4)
+ #error "This file should only be included by Unix builds!!"
+ #endif
+ 
+--- a/source/shared/NsFoundation/include/NsIntrinsics.h
++++ b/source/shared/NsFoundation/include/NsIntrinsics.h
+@@ -33,7 +33,7 @@
+ #include "platform/windows/NsWindowsIntrinsics.h"
+ #elif NV_X360
+ #include "xbox360/NsXbox360Intrinsics.h"
+-#elif(NV_LINUX || NV_ANDROID || NV_APPLE_FAMILY || NV_PS4)
++#elif(NV_UNIX_FAMILY || NV_PS4)
+ #include "platform/unix/NsUnixIntrinsics.h"
+ #elif NV_PS3
+ #include "ps3/NsPS3Intrinsics.h"
+--- a/source/shared/NsFoundation/include/platform/unix/NsUnixIntrinsics.h
++++ b/source/shared/NsFoundation/include/platform/unix/NsUnixIntrinsics.h
+@@ -42,7 +42,7 @@
+ // this file is for internal intrinsics - that is, intrinsics that are used in
+ // cross platform code but do not appear in the API
+ 
+-#if !(NV_LINUX || NV_ANDROID || NV_PS4 || NV_APPLE_FAMILY)
++#if !(NV_UNIX_FAMILY || NV_PS4)
+ #error "This file should only be included by unix builds!!"
+ #endif
+ 
+--- a/source/shared/stress_solver/buffer.h
++++ b/source/shared/stress_solver/buffer.h
+@@ -26,6 +26,7 @@
+ 
+ #pragma once
+ 
++#include <cstdlib>
+ #include "NvPreprocessor.h"
+ #include <assert.h>
+ #include <stdio.h>

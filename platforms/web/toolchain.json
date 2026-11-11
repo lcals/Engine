@@ -1,0 +1,7 @@
+{
+  "emscripten": "7.0.0",
+  "emsdk_commit": "1693ce7359fc9694f198694f902a2cc061239b86",
+  "emdawnwebgpu_revision": "31e25af254ab572c77054edec4946d2244e184dd",
+  "idbfs_sha256": "1ffb9c5a16dca346685dc2b3d16cf58de0b5f6346e23e2ffc353fff3b56c9488",
+  "bgfx_backport_revision": "f5ce45e39d6381093e577e80adb1abb2c611302c"
+}

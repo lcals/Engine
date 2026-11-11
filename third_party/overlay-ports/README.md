@@ -37,7 +37,7 @@ Android 使用仓库锁定的库版本；单项版本升级由对应 overlay 明
 | `metal-uniform-buffer-segments.patch` | 删除旧容量管理；上游 `ChunkedScratchBufferMtl` 已支持分块及延迟释放。仅保留 `metal-uniform-bounds.patch`，对 CPU stage scratch 的写入长度使用 64 位计算和边界检查，不另建容量管理器。 |
 | `framebuffer-sampling-caps.patch` | 删除本地 MSAA 数组，使用上游逐格式的 `BGFX_CAPS_FORMAT_TEXTURE_FRAMEBUFFER_MSAA_X2/_X4/_X8/_X16`。仅保留 `max-anisotropy-caps.patch`，在 C++、C99 和 IDL 中同步暴露实际后端最大各向异性；未报告后端保持 1。 |
 
-当前引擎选择 Metal、DirectX 12 和 Vulkan；Shader 工具保留相应 GLSL/SPIR-V/MSL/DXIL/HLSL 支持，显式禁用未使用的 WGSL/Tint，避免依赖 SPIRV-Tools 未导出的私有头或编译另一份同名库。升级不接入 WebGPU、硬件视频解码、HDR10 或新天空效果。
+原生后端继续使用 Metal、DirectX 12 和 Vulkan；Web 运行产物使用 WebGPU。普通 Shader 工具默认关闭 Tint；显式 `web` feature 为宿主 bgfx 启用 `wgsl`，通过 `spirv-tools[internal-headers]` 使用同版本内部头文件。浏览器后端、回读和工具链补丁的固定来源及许可见 [WebGPU 接入说明](../notices/webgpu.md)。
 
 SPIRV-Cross 使用新 baseline 提供的 `vulkan-sdk-1.4.363.0`。该正式版已包含 bgfx shaderc 需要的 `CompilerMSL::get_writes_to_point_size()` 及实际 PointSize store 跟踪，因此删除旧 `spirv-cross/` overlay 和兼容补丁，直接复用 registry port。来源和许可见 [SPIRV-Cross 说明](../notices/spirv-cross.md)。
 

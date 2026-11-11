@@ -372,7 +372,6 @@ bool KeyValueStore::save()
     {
         return fail(last_error_, "Cannot create a regular KV directory");
     }
-    const auto temporary_text = PathUtils::to_utf8(temporary);
     auto* file = storage_detail::open_exclusive_file(temporary, code);
     if (file == nullptr)
     {
@@ -396,12 +395,9 @@ bool KeyValueStore::save()
     {
         return fail(last_error_, "KV temporary file disappeared before publication");
     }
-    const auto target_text = PathUtils::to_utf8(target);
-    if (!SDL_RenamePath(temporary_text.c_str(), target_text.c_str()))
+    if (!storage_detail::publish_storage_file(temporary, target, last_error_))
     {
-        const std::string detail = SDL_GetError();
         remove_temporary(temporary);
-        last_error_ = "Cannot publish KV file: " + detail;
         return false;
     }
     return true;

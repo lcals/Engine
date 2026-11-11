@@ -10,11 +10,13 @@ endif()
 find_package(Git REQUIRED)
 set(_blast_patches
     "${PROJECT_SOURCE_DIR}/third_party/patches/blast/portable-authoring.patch"
-    "${PROJECT_SOURCE_DIR}/third_party/patches/blast/portable-stress.patch")
+    "${PROJECT_SOURCE_DIR}/third_party/patches/blast/portable-stress.patch"
+    "${PROJECT_SOURCE_DIR}/third_party/patches/blast/wasm-runtime.patch")
 set(_blast_staged "${CMAKE_CURRENT_BINARY_DIR}/source/blast")
 file(
     GLOB_RECURSE _blast_stage_files CONFIGURE_DEPENDS
     RELATIVE "${_blast}"
+    "${_blast}/include/shared/NvFoundation/*.h"
     "${_blast}/source/shared/NsFoundation/include/*.h"
     "${_blast}/source/shared/stress_solver/*.h"
     "${_blast}/source/shared/stress_solver/*.cpp")
@@ -76,7 +78,7 @@ add_library(engine::blast ALIAS engine_blast)
 target_include_directories(
     engine_blast SYSTEM
     PUBLIC "${_blast}/include" "${_blast}/include/lowlevel" "${_blast}/include/globals"
-           "${_blast}/include/shared/NvFoundation" "${_blast}/include/extensions/shaders"
+           "${_blast_staged}/include/shared/NvFoundation" "${_blast}/include/extensions/shaders"
            "${_blast}/include/extensions/stress"
     PRIVATE "${_blast}/source/sdk/common" "${_blast}/source/sdk/lowlevel"
             "${_blast_staged}/source/shared/NsFoundation/include"

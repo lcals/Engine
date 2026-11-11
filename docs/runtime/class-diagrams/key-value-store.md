@@ -35,3 +35,36 @@ classDiagram
 - 停止与重载释放本 Run 的未保存变更，后续 Run 重新读取已保存数据；旧回调不能操作新 Run 的缓存。大块世界快照不通过脚本逐对象采集，本接口仅处理低频字符串存取。
 
 此图新增的原生类与绑定不改变 Engine、System 或 App 的公开方法。脚本声明集中在 `include/engine.d.ts`，不额外建立游戏存档 Manager。
+
+## 平台文件发布
+
+KeyValueStore 的公开方法、项目脚本绑定和 KV 文件格式保持不变，增加一个存储模块私有发布函数承接平台差异：
+
+```mermaid
+classDiagram
+    direction TB
+    class KeyValueStore
+    class StorageFile {
+        <<private_functions>>
+        +publish_storage_file(temporary, target, error) bool
+    }
+    class Path["std::filesystem::path"]
+    class String["std::string"]
+    KeyValueStore ..> StorageFile : 写入关闭临时文件后发布
+    StorageFile ..> Path : 借用两个路径参数
+    StorageFile ..> String : 错误输出
+```
+
+完整声明位于既有私有头 `src/engine/runtime/storage/storage_file.hpp`，命名空间 `engine::storage_detail`：
+
+```cpp
+[[nodiscard]] bool publish_storage_file(
+    const std::filesystem::path& temporary,
+    const std::filesystem::path& target,
+    std::string& error);
+```
+
+- 两个路径借用至调用结束，必须是已校验的同目录普通文件路径；临时文件已完整写入并关闭。error 是输出，成功清空，失败给出英文说明。
+- 成功消耗临时文件并发布目标；普通失败保留旧有效目标和持久版本，临时文件仍由调用方按既有规则清理。方法不解析 KV，不改变调用方内存数据。
+- 原生实现沿用当前同目录替换语义，不新增硬件断电持久保证；Web 实现等待浏览器持久事务确认。CMake 选择默认／Windows／Web 所属实现，KeyValueStore 不出现浏览器条件分支。
+- Web 平台函数放在 `platforms/web/storage/storage_file.cpp`，其桥接及失败收尾见 [Web 持久文件发布](web-storage.md)。核心不包含 WebBootstrap、IndexedDB 或 Emscripten 类型；仍不新增公共存储 System 或 Manager。

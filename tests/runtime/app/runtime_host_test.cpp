@@ -270,13 +270,15 @@ bool test_movie_presentation(const EngineConfig& config, const RuntimeParallelCo
     frame.planes = {{{luma, 4, 4, 4}, {u, 2, 2, 2}, {v, 2, 2, 2}}};
     auto* renderer = host.renderer();
     const auto before = renderer->frame_number();
-    if (!expect(renderer->present_movie_frame(frame) && renderer->frame_number() != before,
+    if (!expect(renderer->present_movie_frame(frame) == engine::RenderSubmitStatus::submitted &&
+                    renderer->frame_number() != before,
                 "movie frame submits through the initialized GPU"))
     {
         return false;
     }
     frame.planes[0].bytes = {};
-    return expect(!renderer->present_movie_frame(frame), "truncated movie plane is rejected");
+    return expect(renderer->present_movie_frame(frame) == engine::RenderSubmitStatus::failed,
+                  "truncated movie plane is rejected");
 }
 
 bool test_movie_clock_and_startup(const EngineConfig& config, const RuntimeParallelConfig& parallel)
