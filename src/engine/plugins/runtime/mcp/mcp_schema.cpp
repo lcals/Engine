@@ -46,8 +46,12 @@ bool typed_value(std::string_view type, const Json& value)
 
 bool allows_type(const Json& type, std::string_view name)
 {
-    return type.is_string() ? type == name
-                            : std::find(type.begin(), type.end(), name) != type.end();
+    const auto matches_name = [name](const Json& item)
+    {
+        return std::string_view(item.get_ref<const std::string&>()) == name;
+    };
+    return type.is_string() ? matches_name(type)
+                            : std::any_of(type.begin(), type.end(), matches_name);
 }
 
 bool typed_value(const Json& type, const Json& value)

@@ -189,6 +189,7 @@ P50 减少约 81.4%。两次均正常退出，HDR 输出逐字节相同，全部
 
 ## 验证范围与限制
 
+- Windows x64 宿主已完成 `windows-static-release` 默认目标构建，覆盖运行宿主、编辑器、资源工具与 MCP 程序。`android-arm64-release` 已完成原生库、资源与 Java 编译并生成 Release APK，包内原生库仅有 `lib/arm64-v8a/libmain.so`。`web-wasm32-release` 已完成运行时编译、链接并生成 `engine.mjs`、`engine.wasm` 及成功链接回执。三端使用默认 QuickJS，受影响的 MCP 目标另通过 `windows-static-debug` 编译。此项验证范围为构建与 Android 打包，APK 沿用仓库默认测试签名。
 - 源码英文字符串与外部 Unicode 夹具已完成 macOS arm64 的受影响 Debug / Release 构建；Debug 未运行测试。Release 的 GUID、日志、存储、资源读取、UI、脚本、MCP、资源管线、场景跨语言及建模几何共 18 项 CTest 通过；环境准备、Android 资源打包和桌面导出的 55 项脚本检查通过，私有项目 TypeScript 与设置检查通过。二十面球体（`icosphere`）曾因极点 UV 合并相反切线而失败；当前已修复并通过 `modeling.core`，新增回归覆盖多个细分级别、接缝和极点的单位正交切线。
 - Schema 分层已完成 Windows Debug / Release 构建，Release 的 `modeling.pipeline`、`editor.destruction_pipeline` 和 `engine.scene_schema_cross_language` 通过，编辑器 TypeScript 通过严格类型检查。架构检查覆盖生成数据目标的所属层级与依赖方向。
 - 建模参数、物理尺寸 UV、边界查询及可撤销重建已完成 Windows Debug / Release 构建；Release 的 `modeling.core`、`modeling.geometry`、`modeling.commands`、`modeling.pipeline`、`editor.scene_persistence` 和 `engine.mcp_registry` 通过。复用现有用例，未运行 Debug 测试、实窗或性能采样；不据此认定画面质量与其他平台已验收。示例源数据与资源包状态见 [Showcase](../projects/showcase/docs/index.md#验证)。

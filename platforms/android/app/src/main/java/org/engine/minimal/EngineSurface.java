@@ -11,6 +11,11 @@ final class EngineSurface extends SDLSurface
         super(context);
     }
 
+    boolean isReadyForRendering()
+    {
+        return mIsSurfaceReady;
+    }
+
     @Override public void surfaceDestroyed(SurfaceHolder holder)
     {
         // Surface 可在 Activity 仍存活时重建；此边界也必须等 bgfx 完全停下。
