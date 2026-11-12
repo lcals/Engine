@@ -74,6 +74,7 @@ classDiagram
     class EngineSurface {
         <<final>>
         ~EngineSurface(Context context)
+        ~isReadyForRendering() boolean
         +surfaceDestroyed(SurfaceHolder holder) void
         +surfaceChanged(SurfaceHolder holder, int format, int width, int height) void
     }
@@ -94,6 +95,7 @@ classDiagram
 ```
 
 - `EngineSurface` 为包内 Java `final` 类，构造函数同样为包内可见；Activity 创建它，视图与 Surface 的生命周期仍由 Android / SDL 管理。
+- `isReadyForRendering()` 为包内只读查询，由 Surface 子类读取 SDL 的受保护就绪字段，供 Activity 检查恢复条件。
 - `surfaceDestroyed()` 在调用 SDL 父类之前等待渲染暂停，覆盖 Activity 仍存活时单独重建 Surface 的情况。
 - `surfaceChanged()` 先让 SDL 更新原生窗口与就绪状态，再检查是否可以恢复渲染。
 - Java 构造与重写方法沿用平台命名；重写方法标注 `@Override`。

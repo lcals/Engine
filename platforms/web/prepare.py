@@ -25,7 +25,7 @@ def prepare(sdk, output):
         return
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_bytes(payload)
-    subprocess.run(["git", "apply", "--directory", str(output.relative_to(root)), str(patch)],
+    subprocess.run(["git", "apply", "--directory", output.relative_to(root).as_posix(), str(patch)],
                    cwd=root, check=True)
     stamp.write_text(fingerprint)
 

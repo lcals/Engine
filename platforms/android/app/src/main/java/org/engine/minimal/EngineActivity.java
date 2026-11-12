@@ -89,7 +89,8 @@ public final class EngineActivity extends SDLActivity
 
     static void resumeRenderingIfReady()
     {
-        if (!mBrokenLibraries && mIsResumedCalled && mSurface != null && mSurface.mIsSurfaceReady)
+        if (!mBrokenLibraries && mIsResumedCalled && mSurface != null &&
+            ((EngineSurface)mSurface).isReadyForRendering())
         {
             nativeResumeRendering();
         }

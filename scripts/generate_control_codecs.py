@@ -11,7 +11,7 @@ parser.add_argument('--output', type=Path, required=True)
 parser.add_argument('--declarations', type=Path)
 parser.add_argument('--check-declarations', action='store_true')
 args = parser.parse_args()
-texts = [(name, re.sub(r'//[^\n]*', '', (args.schema_dir / (name + '.fbs')).read_text()))
+texts = [(name, re.sub(r'//[^\n]*', '', (args.schema_dir / (name + '.fbs')).read_text(encoding='utf-8')))
          for name in ('camera', 'character_controller')]
 enums = {}
 tables = {}
@@ -146,7 +146,8 @@ for root in ('CameraControllerData', 'CharacterControllerData', 'CharacterCamera
 out += ['} // namespace engine::schema::control_json']
 args.output.parent.mkdir(parents=True, exist_ok=True)
 content='\n'.join(out)+'\n'
-if not args.output.exists() or args.output.read_text()!=content: args.output.write_text(content)
+if not args.output.exists() or args.output.read_text(encoding='utf-8')!=content:
+    args.output.write_text(content, encoding='utf-8')
 
 if args.declarations:
     lines = ["    // BEGIN GENERATED CONTROL SCHEMA", "    /** Generated object shapes; fields and enum values come only from the runtime schemas. */", "    export namespace ControlData {"]
@@ -168,7 +169,7 @@ if args.declarations:
         lines.append("        }")
     lines.extend(["    }", "    // END GENERATED CONTROL SCHEMA"])
     section='\n'.join(lines)
-    current=args.declarations.read_text()
+    current=args.declarations.read_text(encoding='utf-8')
     pattern=r"    // BEGIN GENERATED CONTROL SCHEMA.*?    // END GENERATED CONTROL SCHEMA"
     if re.search(pattern,current,re.S): updated=re.sub(pattern,lambda _:section,current,flags=re.S)
     else:
@@ -176,4 +177,4 @@ if args.declarations:
         updated=current[:end]+section+'\n'+current[end:]
     if args.check_declarations:
         if updated!=current: raise SystemExit('engine.d.ts control schema is out of date; run generate_control_codecs.py --declarations include/engine.d.ts')
-    elif updated!=current: args.declarations.write_text(updated)
+    elif updated!=current: args.declarations.write_text(updated, encoding='utf-8')
