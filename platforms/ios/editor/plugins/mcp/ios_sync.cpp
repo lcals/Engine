@@ -297,8 +297,8 @@ bool ProjectMcpTools::read_ios_status(std::string& reply)
     {
         return fail();
     }
-    Json result = {{"running", false},
-                   {"state", "offline"},
+    Json result = {{"running", nullptr},
+                   {"state", "unreported"},
                    {"activeRevision", ""},
                    {"availableRevision", ""}};
     std::string text;
@@ -315,7 +315,8 @@ bool ProjectMcpTools::read_ios_status(std::string& reply)
             error = "The iOS runtime status is invalid";
             return fail();
         }
-        result["state"] = result["running"].get<bool>() ? "lastReportedRunning" : "offline";
+        result["state"] =
+            result["running"].get<bool>() ? "lastReportedRunning" : "lastReportedStopped";
     }
     if (!container.read("assets/available.json", text, exists, error))
     {

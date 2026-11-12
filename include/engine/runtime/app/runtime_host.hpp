@@ -192,6 +192,7 @@ private:
     bool initialized_ = false;
     bool exit_requested_ = false;
     bool failed_ = false;
+    bool failure_cleanup_pending_ = false;
     std::size_t completion_domain_ = 0;
     WindowEventHandler event_observer_ = nullptr;
     void* event_observer_context_ = nullptr;

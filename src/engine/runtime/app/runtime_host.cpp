@@ -382,7 +382,11 @@ FrameStatus RuntimeHost::fail_runtime(std::string_view code, std::string_view me
         error_code_ = code;
         error_ = message;
         failed_ = true;
-        gameplay_active_ = false;
+        failure_cleanup_pending_ = true;
+    }
+    gameplay_active_ = false;
+    if (std::exchange(failure_cleanup_pending_, false))
+    {
         if (gameplay_)
         {
             gameplay_->stop(GameplayStopCause::failure, error_);
@@ -566,7 +570,12 @@ bool RuntimeHost::set_suspended(bool suspended)
     last_tick_status_ = FrameStatus::paused;
     if (suspended && !audio_->set_paused(true))
     {
-        (void)fail_runtime("audio_pause_failed", "Cannot suspend runtime audio");
+        // 生命周期通知内只锁存故障；玩法停止留给宿主安全点。
+        error_code_ = "audio_pause_failed";
+        error_ = "Cannot suspend runtime audio";
+        failed_ = true;
+        failure_cleanup_pending_ = true;
+        gameplay_active_ = false;
         return false;
     }
     return true;
@@ -654,6 +663,10 @@ void RuntimeHost::shutdown() noexcept
     {
         window_->set_event_handler(nullptr, nullptr);
     }
+    if (failure_cleanup_pending_)
+    {
+        (void)fail_runtime(error_code_, error_);
+    }
     reset_gameplay();
     owns_engine_ = false;
     movie_player_.reset();
@@ -677,6 +690,7 @@ void RuntimeHost::shutdown() noexcept
     initialized_ = false;
     exit_requested_ = false;
     failed_ = false;
+    failure_cleanup_pending_ = false;
     completion_domain_ = 0;
     startup_requested_ = false;
     startup_status_ = RuntimeStartupStatus::failed;

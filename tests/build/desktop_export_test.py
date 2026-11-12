@@ -464,15 +464,18 @@ class IosExportTest(unittest.TestCase):
         self.args.provisioning_profile = self.root / "fixture.mobileprovision"
         self.args.provisioning_profile.write_bytes(b"Provisioning fixture")
         profile = plistlib.dumps({"ExpirationDate": datetime(2099, 1, 1),
+            "TeamIdentifier": ["TEAM"], "ApplicationIdentifierPrefix": ["PREFIX"],
             "DeveloperCertificates": [b"allowed certificate"], "Entitlements": {
                 "com.apple.developer.team-identifier": "TEAM",
-                "application-identifier": "TEAM.org.engine.game"}})
+                "application-identifier": "PREFIX.org.engine.game"}})
         stage = self.root / "signing"
         stage.mkdir()
         for certificate in (b"allowed certificate", b"unrelated certificate"):
             def signing(command):
                 if "--extract-certificates" in command:
                     (stage / "signing-certificate-0").write_bytes(certificate)
+                if "--entitlements" in command and "--display" in command:
+                    return (stage / "signing-entitlements.plist").read_text()
                 return ""
             with (self.subTest(certificate=certificate),
                   mock.patch.object(ios, "run", side_effect=signing),
@@ -483,6 +486,59 @@ class IosExportTest(unittest.TestCase):
                 else:
                     with self.assertRaisesRegex(ValueError, "not authorized"):
                         ios.sign_bundle(self.bundle, self.args, self.info, stage)
+
+    def test_profile_prefix_and_default_keychain_group_are_independent_of_team(self):
+        profile = {"TeamIdentifier": ["TEAM"], "ApplicationIdentifierPrefix": ["PREFIX"],
+            "Entitlements": {"com.apple.developer.team-identifier": "TEAM",
+                "application-identifier": "PREFIX.org.engine.*",
+                "keychain-access-groups": ["PREFIX.org.engine.*", "TEAM.shared-service"]}}
+        result = ios.signing_entitlements(profile, "org.engine.game")
+        self.assertEqual(result, {"application-identifier": "PREFIX.org.engine.game",
+            "com.apple.developer.team-identifier": "TEAM", "get-task-allow": False,
+            "keychain-access-groups": ["PREFIX.org.engine.game"]})
+        for prefix in (["OTHER"], [], "PREFIX"):
+            with self.subTest(prefix=prefix), self.assertRaises(ValueError):
+                ios.signing_entitlements(dict(profile, ApplicationIdentifierPrefix=prefix),
+                                         "org.engine.game")
+
+    def test_profile_rejects_unscoped_globs_and_unauthorized_keychain_groups(self):
+        profile = {"TeamIdentifier": ["TEAM"], "ApplicationIdentifierPrefix": ["PREFIX"],
+            "Entitlements": {"com.apple.developer.team-identifier": "TEAM",
+                             "application-identifier": "PREFIX.org.engine.game"}}
+        for pattern in ["PREFIX.org.engine.gam?", "PREFIX.org.engine.gam[e]",
+                        "PREFIX.org.*.game", "PREFIX.org.engine.game*", "PREFIX.org.other.*"]:
+            allowed = dict(profile["Entitlements"], **{"application-identifier": pattern})
+            with self.subTest(pattern=pattern), self.assertRaises(ValueError):
+                ios.signing_entitlements(dict(profile, Entitlements=allowed), "org.engine.game")
+        for groups in [["TEAM.*"], ["PREFIX.org.other.*"], "PREFIX.*", []]:
+            allowed = dict(profile["Entitlements"], **{"keychain-access-groups": groups})
+            with self.subTest(groups=groups), self.assertRaisesRegex(ValueError, "keychain"):
+                ios.signing_entitlements(dict(profile, Entitlements=allowed), "org.engine.game")
+
+    def test_signed_entitlement_readback_must_preserve_the_authorized_identity(self):
+        self.args.sdk = "device"
+        self.args.sign_identity = "Fixture signer"
+        self.args.provisioning_profile = self.root / "fixture.mobileprovision"
+        self.args.provisioning_profile.write_bytes(b"Provisioning fixture")
+        profile = plistlib.dumps({"ExpirationDate": datetime(2099, 1, 1),
+            "TeamIdentifier": ["TEAM"], "ApplicationIdentifierPrefix": ["PREFIX"],
+            "DeveloperCertificates": [b"allowed certificate"], "Entitlements": {
+                "com.apple.developer.team-identifier": "TEAM",
+                "application-identifier": "PREFIX.org.engine.game"}})
+        stage = self.root / "entitlements"
+        stage.mkdir()
+
+        def signing(command):
+            if "--display" in command and "--entitlements" in command:
+                actual = plistlib.loads((stage / "signing-entitlements.plist").read_bytes())
+                actual["application-identifier"] = "TEAM.org.engine.game"
+                return plistlib.dumps(actual).decode("utf-8")
+            return ""
+
+        with (mock.patch.object(ios, "run", side_effect=signing),
+              mock.patch.object(ios.subprocess, "run", return_value=SimpleNamespace(stdout=profile)),
+              self.assertRaisesRegex(ValueError, "signed application entitlements")):
+            ios.sign_bundle(self.bundle, self.args, self.info, stage)
 
 
 class WebExportTest(unittest.TestCase):

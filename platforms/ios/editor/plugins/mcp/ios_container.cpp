@@ -279,6 +279,43 @@ struct IosContainer::State
         }
         return true;
     }
+
+    bool prepare_root(std::string& error)
+    {
+        if (simulator)
+        {
+            std::error_code code;
+            if (!tools::no_symlinks(host_root))
+            {
+                error = "The iOS simulator persistent path contains an unsafe entry";
+                return false;
+            }
+            fs::create_directories(host_root, code);
+            if (code || !fs::is_directory(host_root, code) || code)
+            {
+                error = "Cannot prepare the iOS simulator persistent directory";
+                return false;
+            }
+            return true;
+        }
+        for (const auto& path :
+             {std::string("/Library"), std::string("/Library/Application Support"), remote_root})
+        {
+            FileKind kind;
+            std::uint64_t size = 0;
+            if (!remote_info(afc, path, kind, size, error) || kind == FileKind::file ||
+                (kind == FileKind::missing &&
+                 !afc_result(afc_make_directory(afc, path.c_str()), "directory creation", error)))
+            {
+                if (error.empty())
+                {
+                    error = "The iOS persistent path is not a directory";
+                }
+                return false;
+            }
+        }
+        return true;
+    }
 };
 
 IosContainer::IosContainer(const McpTarget& target) noexcept : target_(target)
@@ -357,12 +394,6 @@ bool IosContainer::open(std::string& error)
             error = "simctl returned an invalid application data container";
             return false;
         }
-        fs::create_directories(next->host_root, code);
-        if (code)
-        {
-            error = "Cannot prepare the iOS simulator persistent directory";
-            return false;
-        }
         next->runtime_dir = PathUtils::to_utf8(next->host_root);
 #endif
     }
@@ -414,24 +445,13 @@ bool IosContainer::open(std::string& error)
         }
         next->remote_root = "/" + relative;
         next->runtime_dir = next->remote_root;
-        // 首次启动前也可同步；只在已确认应用的容器内建立持久目录。
-        for (const auto& path : {std::string("/Library"),
-                                 std::string("/Library/Application Support"), next->remote_root})
-        {
-            FileKind kind;
-            std::uint64_t size = 0;
-            if (!remote_info(next->afc, path, kind, size, error) || kind == FileKind::file ||
-                (kind == FileKind::missing &&
-                 !afc_result(afc_make_directory(next->afc, path.c_str()), "directory creation",
-                             error)))
-            {
-                if (error.empty())
-                {
-                    error = "The iOS persistent path is not a directory";
-                }
-                return false;
-            }
-        }
+    }
+    // 打开容器只查询。首次启动前的目录由后续写操作按需建立。
+    fs::path local;
+    std::string remote;
+    if (!next->resolve("script-status.json", local, remote, error))
+    {
+        return false;
     }
     state_ = std::move(next);
     return true;
@@ -465,6 +485,10 @@ bool IosContainer::make_directory(std::string_view path, std::string& error)
     if (!state_ || !relative_path(path))
     {
         error = "Invalid app-relative iOS directory";
+        return false;
+    }
+    if (!state_->prepare_root(error))
+    {
         return false;
     }
     for (std::size_t end = 0;;)
@@ -609,6 +633,15 @@ bool IosContainer::read(std::string_view path, std::string& output, bool& exists
 
 bool IosContainer::upload(const fs::path& source, std::string_view path, std::string& error)
 {
+    if (!state_ || !relative_path(path))
+    {
+        error = "Invalid app-relative iOS upload path";
+        return false;
+    }
+    if (!state_->prepare_root(error))
+    {
+        return false;
+    }
     const auto end = path.rfind('/');
     if (end != path.npos && !make_directory(path.substr(0, end), error))
     {

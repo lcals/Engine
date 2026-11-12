@@ -90,4 +90,6 @@ python3 scripts/mcp_client.py --server build/ninja-engine-release/mcp_app --proj
 
 `status` 的设备 UDID、bundle identifier、application name 和运行目录来自选定目标；`availableRevision` 来自设备发布清单，`activeRevision`、`running`、`runId`、`lastError` 来自设备最后一次引擎上报。`state=lastReportedRunning` 不是实时进程心跳。只有新版本被引擎接受后，运行版本才与可用版本一致。重启同样保留发布版本身份，不把 catalog 内容版本误报为发布版本。运行版本在整个场景和脚本切换期间保持完整快照，失败不混用旧包资源。
 
+状态查询不创建运行目录；未上报返回 unreported / running=null，最近停止返回 lastReportedStopped，不据此判断应用在线。详细字段见[状态与只读查询](class-diagrams/project-mcp-tools.md#ios-状态与只读查询)。同步成功、最近运行记录和实时测试端点是不同的完成边界；候选预检失败保留旧运行，进入替换后新入口初始化失败会停止玩法，不承诺完整回滚。
+
 设备目标不提供本机编辑器的 start_project/stop_project；应用安装和启动继续使用 Xcode/平台工具。已完成的实际验证范围见[测试文档](../../testing.md#ios-原生运行包)，职责及方法见[项目 MCP 类图](class-diagrams/project-mcp-tools.md#ios-应用容器同步)。

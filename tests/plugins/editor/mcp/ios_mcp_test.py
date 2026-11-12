@@ -72,6 +72,17 @@ def test(server, root, work):
     container.mkdir()
     runtime = container / "Library/Application Support" / APP
     project = prepare_minimal_project(root, work / UNICODE["shell_project"])
+    observed = contents(invoke(server, project, work, [call("get_status")])[0])
+    require(observed["state"] == "unreported" and observed["running"] is None and
+            not list(container.iterdir()),
+            "An unreported status query created application directories or fabricated liveness")
+    # The first explicit write, including a root-level control file, prepares the runtime root.
+    first_control = invoke(server, project, work,
+                           [call("set_hot_reload", {"enabled": False})])[0]
+    require(not first_control["result"]["isError"] and
+            json.loads((runtime / "script-control.json").read_text()) == {"hotReload": False} and
+            not (runtime / "assets").exists(),
+            "The first iOS control write did not prepare only its required directories")
     (project / "assets" / UNICODE["shell_filename"]).write_bytes(bytes(range(256)))
     (project / "assets/multichunk.bin").write_bytes(bytes(range(256)) * 12288)
     shutil.copy2(root / "tests/fixtures/asset_tools/blocks.png", project / "assets/raw-image.png")
@@ -138,6 +149,18 @@ def test(server, root, work):
     require(observed["activeRevision"] == status["activeRevision"] and
             observed["availableRevision"] == second["revision"] and
             observed["state"] == "lastReportedRunning", "iOS status reported false activation")
+    status["running"] = False
+    state_file.write_text(json.dumps(status))
+    stopped = contents(invoke(server, project, work, [call("get_status")])[0])
+    require(stopped["state"] == "lastReportedStopped" and stopped["running"] is False and
+            json.loads(state_file.read_text()) == status,
+            "A stopped gameplay report was mislabeled as an offline application")
+    state_file.unlink()
+    unreported = contents(invoke(server, project, work, [call("get_status")])[0])
+    require(unreported["state"] == "unreported" and unreported["running"] is None and
+            unreported["availableRevision"] == second["revision"] and not state_file.exists(),
+            "A published resource version was mistaken for a runtime report")
+    state_file.write_text(json.dumps(status))
     control = runtime / "script-control.json"
     control.unlink()
     control.mkdir()

@@ -19,9 +19,9 @@ classDiagram
         <<final>>
         +GameplaySession(ResourceSystem& resources, WorldSystem& world, RenderSystem& renderer, ScriptRuntime#42; script, PhysicsSystem#42; physics, AudioSystem#42; audio, AnimationSystem#42; animation, FontSystem#42; fonts, UiSystem#42; ui, TaskSystem#42; background)
         +~GameplaySession()
-        +set_resources(const AssetCatalogDataT& data, const MountList& mounts, string_view revision, string_view entry) bool
+        +set_resources(const AssetCatalogDataT& data, const MountList& mounts, string_view entry) bool
         +start(string_view entry) bool
-        +begin_prepare(const ResourceCatalog& catalog, const MountList& mounts, string_view entry, string_view scene, uint64_t& output_id) bool
+        +begin_prepare(const ResourceCatalog& catalog, const MountList& mounts, string_view revision, string_view entry, string_view scene, uint64_t& output_id) bool
         +step_prepare(uint32_t resource_budget, double max_seconds) GameplayPrepareStatus
         +activate_prepared() bool
         +prepare_status(uint64_t id, GameplayPrepareSnapshot& output) bool
@@ -78,7 +78,7 @@ classDiagram
     GameplaySession --> AudioSystem : 可空借用 只停止并释放场景声部
     GameplaySession --> UiSystem : 可空借用 先释放控件文档
     GameplaySession --> FontSystem : 可空借用 释放字体 GPU 缓存
-    GameplaySession ..> ResourceSystem : 显式提交资源目录
+    GameplaySession --> ResourceSystem : 必需借用并显式提交目录
     GameplaySession *-- ResourceCatalog : 基线及候选元数据
 ```
 
@@ -94,6 +94,18 @@ classDiagram
     GameplaySession ..> ScriptStatus : 借用脚本执行状态
     GameplaySession ..> App : 宿主部署及控制路径
 ```
+
+## 目录与发布身份
+
+目录内容身份与发布版本身份分开使用，均沿用现有字符串，不增加部署包装类或第二份目录模型。
+
+| 入口 | 身份来源与职责 |
+| --- | --- |
+| `set_resources(data, mounts, entry)` | 直接提交编辑器基线；基线身份取 `data.revision`，没有独立的 revision 参数 |
+| `begin_prepare(catalog, mounts, revision, entry, scene, output_id)` | 调用方已选择完整版本；revision 必须非空，复制保存至本次准备和激活 |
+| `start(entry)` | 会话显式选择已发布持久版本或基线；版本来源遵循下文会话生命周期 |
+
+包内准备传 catalog.revision；持久版本准备传已校验 available.json 的 revision。两者允许不同，不能拿发布身份与 catalog.revision 做相等校验，也不能从路径猜版本。准备仍须验证传入 catalog 与 ResourceSystem 当前目录一致；挂载和目录在准备期间保持同一快照。切换时整体替换，不混用其他版本的缺失资源。发布身份进入既有运行状态，目录本身不因此改写。
 
 ## 启动请求的身份与结果
 
@@ -122,5 +134,3 @@ classDiagram
 - `stop()` 先按上述原因语义锁存启动及加载结果，再退出脚本、停止音频、清理物理、销毁场景和 GPU；资源随共享引用释放，保留资源索引和内置定义以供下次启动。重复关闭安全，不清除仍由调用方观察的结果记录。
 - `script_status()` 直接返回脚本执行状态的只读借用，不复制或覆盖插件状态；无脚本模块返回空。会话发布 `script-status.json` 时组合执行状态、自身热重载许可及可用版本；部署错误通过会话 `last_error()` 报告，发布时优先于执行错误。
 - 类型不可复制或移动。构造、析构、stop、script_status 与 last_error 为 noexcept；状态查询为 const，可能失败方法与重要查询标注 nodiscard。停止原因必须由调用方明确给出；入口和诊断文字允许为空。
-
-发布版本身份由调用方显式传入 `revision`，不可为空；包内启动使用 catalog.revision，持久版本启动使用已校验 available.json 的 revision。目录内容身份与发布版本身份可以不同，准备和激活必须保留传入的发布身份，避免重启后误报版本或进行无效重复重载；不通过路径猜测版本，也不改变 catalog 元数据。

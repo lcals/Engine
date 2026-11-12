@@ -91,7 +91,8 @@ void RenderSurface::stop_watching() noexcept
 
 bool SDLCALL RenderSurface::watch_surface_lifecycle(void* userdata, SDL_Event* event)
 {
-    if (event->type != SDL_EVENT_WILL_ENTER_BACKGROUND || !SDL_IsMainThread())
+    if ((event->type != SDL_EVENT_WILL_ENTER_BACKGROUND && event->type != SDL_EVENT_TERMINATING) ||
+        !SDL_IsMainThread())
     {
         return true;
     }

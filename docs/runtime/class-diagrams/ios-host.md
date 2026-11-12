@@ -1,6 +1,6 @@
 # iOS 原生游戏运行宿主
 
-> **构建与导出已实现。** 原生游戏使用 Metal；已完成真机与 arm64 模拟器的 Debug / Release 编译及公开范例打包。模拟器与真机的实测范围、当前限制统一见[测试文档](../../testing.md#ios-原生运行包)。
+> **已实现构建、运行与生命周期安全点。** 原生游戏使用 Metal；已完成真机与 arm64 模拟器的 Debug / Release 编译及公开范例打包。模拟器与真机的实测范围、当前限制统一见[测试文档](../../testing.md#ios-原生运行包)。
 
 [类图索引](../../class-diagrams/index.md) · [iOS 导出](../../editor/class-diagrams/ios-export.md) · [运行宿主](runtime-host.md) · [窗口](window-system.md) · [渲染](render-system.md) · [App](app.md)
 
@@ -20,11 +20,19 @@ classDiagram
     class SDLUIKit["SDL / UIKit"] {
         <<external>>
     }
+    class IosEntry {
+        <<platform_entry_functions>>
+    }
+    class RuntimeEntry {
+        <<shared_host_functions>>
+    }
     class IosAppContext {
         <<private_struct>>
         -previous_tick : uint64_t
         -reset_clock : bool
         -callbacks_registered : bool
+        -frame_active : bool
+        -closing : bool
     }
     class RuntimeAppState {
         <<shared_host_state>>
@@ -32,9 +40,13 @@ classDiagram
     class RuntimeHost {
         <<existing>>
     }
+    IosEntry *-- IosAppContext : 进程期独占
+    IosEntry ..> RuntimeEntry : 调用共享初始化 帧推进 关闭
+    RuntimeEntry ..> RuntimeAppState : 调用期间借用
     SDLUIKit --> IosAppContext : 借用回调上下文
     IosAppContext *-- RuntimeAppState : 独占
     RuntimeAppState *-- RuntimeHost : 独占
+    note for IosAppContext "frame_active 与 closing 保护帧与关闭安全点；退出请求复用 RuntimeAppState"
 ```
 
 - `platforms/ios/main.cpp` 中的私有拥有者独占 `IosAppContext`，上下文独占一个 RuntimeAppState；SDL 只借用回调上下文，不能销毁它。上下文必须活过所有登记的回调，不能是返回后的 main 栈变量。
@@ -43,10 +55,12 @@ classDiagram
 - 帧回调使用单调时钟，每帧仅调用一次 `step_runtime_app`；WindowSystem 仍是唯一 SDL 事件队列消费者。这里不启用 SDL_AppEvent / SDL_MAIN_USE_CALLBACKS，不新增转存输入队列；不能同时让两个入口消费事件。
 - 回调运行在 SDL / UIKit 主线程；共享 ThreadSystem / TaskSystem 继续承担 CPU 任务。bgfx 的线程配置沿用渲染系统，平台入口不另起渲染线程。
 - iOS 原生事件循环已经由 UIKit 驱动；共享 WindowSystem 只消费 SDL 事件。以固定 SDL 版本核对并关闭嵌套 UIKit 事件泵，禁止在一帧内递归进入另一帧。
-- 登记失败立即撤销已登记项并反序关闭；正常停止先撤销动画回调及本入口的生命周期观察，再调用共享 shutdown，运行资源关闭后，空上下文继续存活到进程结束，以免释放当前回调栈仍借用的 userdata。停止支持部分初始化与重复调用，不能从活动 Task 完成委托内销毁其拥有者。
+- 登记失败在初始化调用返回前撤销已登记项并反序关闭。正常停止仅在共享帧推进已返回、没有活动事件观察回调的安全点执行：先置 closing，再撤销动画回调和生命周期观察，最后调用共享 shutdown。关闭后上下文继续存活到进程结束，以免释放 on_frame 栈仍借用的 userdata。停止支持部分初始化与重复调用，不能从活动 Task 完成委托内销毁其拥有者。
 - `FrameStatus::failed` 保存现有故障信息后收尾，`exit_requested` 走普通关闭；paused 不推进模拟。正常请求退出只停止引擎并将进程交还 UIKit，不调用进程 exit 模拟用户关闭应用。
 
-入口私有模块函数使用 `initialize_ios_app(int argc, char** argv) -> bool`、`on_frame(void* context) -> void`、`on_lifecycle(void* context, SDL_Event* event) -> bool` 与 `shutdown_ios_app() -> void`；均不进入核心头文件或 TS SDK。`on_lifecycle` 不消费普通输入，登记前后由入口保证上下文生命周期。
+入口私有模块函数使用 `initialize_ios_app(int argc, char** argv) -> bool`、`on_frame(void* context) -> void`、`on_lifecycle(void* context, SDL_Event* event) -> bool` 与 `shutdown_ios_app() -> void`；均不进入核心头文件或 TS SDK。图中的 IosEntry、RuntimeEntry 代表模块函数，不是新增 C++ 类。`on_lifecycle` 不消费普通输入，登记前后由入口保证上下文生命周期。
+
+frame_active 只在共享 step 调用期间置位，禁止递归帧推进；closing 防止重复关闭。退出需求复用 RuntimeAppState 的既有 exit_requested 与 RuntimeHost.request_exit，不再添加平行的退出状态或 Manager。
 
 ## Metal 表面
 
@@ -55,6 +69,10 @@ classDiagram
     direction TB
     class RuntimeHost
     class RenderSystem
+    class WindowSystem
+    class SDLWindow["SDL_Window"] {
+        <<external_handle>>
+    }
     class RenderSurface {
         <<private_platform_impl>>
     }
@@ -66,6 +84,9 @@ classDiagram
     }
     RuntimeHost *-- RenderSystem : 既有所有权
     RenderSystem *-- RenderSurface : 独占
+    RenderSystem --> WindowSystem : 必需借用
+    WindowSystem *-- SDLWindow : 独占
+    RenderSurface --> SDLWindow : 借用至 shutdown
     RenderSurface *-- SDLMetalView : 创建与释放
     SDLMetalView *-- MetalLayer : SDL 管理
     RenderSurface ..> RenderSystem : 已有暂停回调
@@ -88,9 +109,11 @@ RenderSystem、WindowSystem 和 RenderSurface 的公开／私有方法继续在[
 | DID_ENTER_BACKGROUND | 保持暂停；不提交新 GPU 工作，不依赖后续回调执行存档或关闭 |
 | WILL_ENTER_FOREGROUND | 保持暂停，等待窗口重新可用 |
 | DID_ENTER_FOREGROUND | 请求 host.set_suspended(false)，将入口时钟重置；下一帧从零增量恢复，并走现有设备准备 |
-| TERMINATING | 主线程撤销回调并反序关闭；系统强制终止不保证该通知必达 |
+| TERMINATING | 只请求退出、暂停音频及完成表面 GPU 收尾；不在 SDL 事件观察栈内销毁引擎。完整关闭留给下一次宿主安全点，系统强制终止不保证通知或下一帧必达 |
 
-生命周期处理只针对 UIKit 主线程通知；工作线程不允许直接释放 GPU 或宿主。入口不在通知内递归调用 tick / poll_events，也不从仍在派发的回调栈中释放其 userdata；初始化和关闭期间的事件由显式就绪标志处理。
+生命周期处理只针对 UIKit 主线程通知；工作线程不允许直接释放 GPU 或宿主。入口不在通知内递归调用 tick / poll_events，也不从仍在派发的 SDL 事件观察栈中执行完整 shutdown。保留 userdata 只解决上下文寿命，不能替代窗口、事件泵和任务域的安全关闭。初始化和关闭期间的事件由显式就绪标志处理；SDL_PushEvent 注入的任意事件不作为后台线程执行生命周期清理的授权。
+
+TERMINATING 与 WILL_ENTER_BACKGROUND 共用 RenderSurface 的同步 GPU 收尾路径；入口只请求暂停和退出。set_suspended 的失败只锁存故障，不能在观察回调内停止玩法；具体契约见[宿主显式暂停](runtime-host.md#宿主显式暂停)。两个观察者分别完成音频／模拟暂停和 GPU 收尾，不以注册顺序作为正确性前提；任一失败均不跳过另一项。没有后续帧时不承诺完整业务关闭或隐式保存，进程资源由系统回收。
 
 触摸、键盘、手柄、UI 认领和后台输入取消继续走 InputSystem / UiSystem 的现有 SDL 路由；恢复首帧先处理已排队的生命周期及输入取消，再推进世界。屏幕安全区域是 Window 服务查询，项目据此调整 UI 资源中的布局；它不改变相机视口、场景状态或渲染分辨率。
 
@@ -125,12 +148,12 @@ RenderSystem、WindowSystem 和 RenderSurface 的公开／私有方法继续在[
 
 首版原生脚本使用现有 QuickJS，可关闭脚本插件；不引入 iOS 专用 VM。现有 V8 交叉构建只覆盖 Android，iOS 选择 V8 时配置明确报错，不静默切换后端。所有选用的运行插件及依赖必须实际编译链接；不可用插件或资源特性必须显式报告，不能为跑通范例偷偷关掉场景效果。
 
-测试构建通过现有 ENGINE_ENABLE_TEST_SUPPORT 和显式选用的 runtime/mcp 装配文件通道端点，读取普通场景准备状态与截图接口。测试包使用独立的 .test bundle identifier；桌面工具通过 iOS 平台工具读写沙盒通道与截图，不增加网络权限或 IosMcpSystem。正式包排除测试声明、源码与链接依赖。
+测试构建通过现有 ENGINE_ENABLE_TEST_SUPPORT 和显式选用的 runtime/mcp 装配文件通道端点，读取普通场景准备状态与截图接口。测试包使用独立的 .test bundle identifier，正式包排除测试声明、源码与链接依赖。当前模拟器验收通过平台工具读写测试缓存通道并回读截图；`mcp_app --ios-*` 的通用设备目标只接入资源同步、热重载控制和历史状态读取，尚未接入运行测试命令／截图传输，不能把资源同步可用当作整个设备测试通道可用。后续适配仍须复用既有端点和请求身份，不增加网络服务或 IosMcpSystem。
 
 验收门槛：真机与 arm64 模拟器的 Debug 编译、Release 编译；Release 下公开范例首帧、标准 PBR、UI 触摸／安全区域、音频中断、前后台恢复、旋转、显式存档重启与截图回读。真机后台时不得继续提交 Metal；模拟器通过不能代表真机通过。复用现有模块用例，并验证所选插件确实参与链接，不新建一套 iOS 场景测试框架。
 
 ## 上游依据
 
-入口与即时生命周期回调按 [SDL iOS 指南](https://wiki.libsdl.org/SDL3/README-ios) 和 [SDL_SetiOSAnimationCallback](https://wiki.libsdl.org/SDL3/SDL_SetiOSAnimationCallback) 适配；该方式可以保留现有事件消费顺序。后台 GPU 边界依据 [Apple Metal 后台说明](https://developer.apple.com/documentation/metal/preparing-your-metal-app-to-run-in-the-background)。安全区域使用 [SDL_GetWindowSafeArea](https://wiki.libsdl.org/SDL3/SDL_GetWindowSafeArea)，不自行维护机型刘海尺寸表。
+入口与即时生命周期回调按 [SDL iOS 指南](https://wiki.libsdl.org/SDL3/README-ios) 和 [SDL_SetiOSAnimationCallback](https://wiki.libsdl.org/SDL3/SDL_SetiOSAnimationCallback) 适配；该方式可以保留现有事件消费顺序。[SDL_AddEventWatch](https://wiki.libsdl.org/SDL3/SDL_AddEventWatch) 可能在发出事件的其他线程执行，也接收用户注入事件，不能把所有观察回调都当成主线程帧安全点。后台 GPU 边界依据 [Apple Metal 后台说明](https://developer.apple.com/documentation/metal/preparing-your-metal-app-to-run-in-the-background)。安全区域使用 [SDL_GetWindowSafeArea](https://wiki.libsdl.org/SDL3/SDL_GetWindowSafeArea)，不自行维护机型刘海尺寸表。
 
 设备资源同步由桌面 editor/mcp 通过 iOS 应用容器完成，不依赖本机运行端点；完整目录、原子发布、状态和热重载契约统一见[资源同步](../../plugins/editor/resource-sync.md#ios-资源同步与热重载)。

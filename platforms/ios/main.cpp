@@ -17,6 +17,8 @@ struct IosAppContext
     std::uint64_t previous_tick = 0;
     bool reset_clock = true;
     bool callbacks_registered = false;
+    bool frame_active = false;
+    bool closing = false;
 };
 
 // 保持 userdata 存活至进程结束；活动回调中只关闭运行时，不释放上下文。
@@ -27,15 +29,21 @@ void shutdown_ios_app() noexcept;
 bool SDLCALL on_lifecycle(void* userdata, SDL_Event* event)
 {
     auto& context = *static_cast<IosAppContext*>(userdata);
-    if (!SDL_IsMainThread() || !context.runtime.initialized)
+    if (!SDL_IsMainThread() || !context.runtime.initialized || context.closing)
     {
         return true;
     }
+    const bool terminating = event->type == SDL_EVENT_TERMINATING;
+    if (terminating)
+    {
+        context.runtime.exit_requested = true;
+        context.runtime.host.request_exit();
+    }
     if (event->type == SDL_EVENT_WILL_ENTER_BACKGROUND ||
-        event->type == SDL_EVENT_DID_ENTER_FOREGROUND)
+        event->type == SDL_EVENT_DID_ENTER_FOREGROUND || terminating)
     {
         context.reset_clock = true;
-        const bool suspended = event->type == SDL_EVENT_WILL_ENTER_BACKGROUND;
+        const bool suspended = event->type != SDL_EVENT_DID_ENTER_FOREGROUND;
         if (!context.runtime.host.set_suspended(suspended))
         {
             engine::LogSystem::write(engine::LogLevel::error,
@@ -43,17 +51,13 @@ bool SDLCALL on_lifecycle(void* userdata, SDL_Event* event)
             context.runtime.host.request_exit();
         }
     }
-    else if (event->type == SDL_EVENT_TERMINATING)
-    {
-        shutdown_ios_app();
-    }
     return true;
 }
 
 void SDLCALL on_frame(void* userdata)
 {
     auto& context = *static_cast<IosAppContext*>(userdata);
-    if (!context.runtime.initialized)
+    if (!context.runtime.initialized || context.frame_active || context.closing)
     {
         return;
     }
@@ -62,7 +66,20 @@ void SDLCALL on_frame(void* userdata)
         context.reset_clock ? 0.0 : static_cast<double>(now - context.previous_tick) / 1.0e9;
     context.previous_tick = now;
     context.reset_clock = false;
+    context.frame_active = true;
     const auto status = engine::host_detail::step_runtime_app(context.runtime, delta);
+    context.frame_active = false;
+    engine::RuntimeHostStatus host_status;
+    if (status == engine::FrameStatus::failed || status == engine::FrameStatus::exit_requested)
+    {
+        // 终止请求可能先于下一帧到达，仍须保留暂停失败的真实故障。
+        if (context.runtime.host.status(host_status) &&
+            host_status.frame_status == engine::FrameStatus::failed)
+        {
+            context.runtime.exit_code = 1;
+            context.runtime.error = host_status.error;
+        }
+    }
     if (status == engine::FrameStatus::paused)
     {
         context.reset_clock = true;
@@ -84,6 +101,17 @@ void shutdown_ios_app() noexcept
         return;
     }
     auto& context = *application;
+    if (context.closing)
+    {
+        return;
+    }
+    if (context.frame_active)
+    {
+        context.runtime.exit_requested = true;
+        context.runtime.host.request_exit();
+        return;
+    }
+    context.closing = true;
     if (context.callbacks_registered)
     {
         SDL_RemoveEventWatch(on_lifecycle, &context);

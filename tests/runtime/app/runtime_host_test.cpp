@@ -738,7 +738,12 @@ bool test_input_failure(const EngineConfig& config, const RuntimeParallelConfig&
     }
     RuntimeHostStatus status;
     SceneLoadSnapshot load;
-    return expect(host.poll_events(0) == FrameStatus::failed && host.status(status) &&
+    return expect(host.status(status) && status.frame_status == FrameStatus::failed &&
+                      host.gameplay()->scene_load_status(id, load) &&
+                      load.state != SceneLoadState::failed &&
+                      load.state != SceneLoadState::cancelled && host.world()->scene() == scene,
+                  "an event callback records failure without releasing the active scene") &&
+           expect(host.poll_events(0) == FrameStatus::failed && host.status(status) &&
                       status.error_code == "input_update_failed" && !status.error.empty() &&
                       host.gameplay()->scene_load_status(id, load) &&
                       load.state == SceneLoadState::failed &&

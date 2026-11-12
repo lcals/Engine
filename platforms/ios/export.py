@@ -2,7 +2,6 @@
 
 import argparse
 from datetime import datetime, timezone
-import fnmatch
 import hashlib
 import json
 from pathlib import Path
@@ -57,6 +56,51 @@ def record(args):
     temporary.replace(args.output)
 
 
+def authorization_matches(value, pattern):
+    if not isinstance(pattern, str) or not re.fullmatch(
+            r"[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*(?:\.\*)?", pattern):
+        return False
+    if pattern.endswith(".*"):
+        return value.startswith(pattern[:-1]) and len(value) > len(pattern) - 1
+    return value == pattern
+
+
+def signing_entitlements(profile, bundle_identifier):
+    if not isinstance(bundle_identifier, str) or not re.fullmatch(
+            r"[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+", bundle_identifier):
+        raise ValueError("The iOS bundle identifier is invalid")
+    allowed = profile.get("Entitlements")
+    if not isinstance(allowed, dict):
+        raise ValueError("The provisioning profile has no entitlement dictionary")
+    team = allowed.get("com.apple.developer.team-identifier")
+    teams = profile.get("TeamIdentifier")
+    if not isinstance(team, str) or not isinstance(teams, list) or team not in teams:
+        raise ValueError("The provisioning profile has an invalid team identity")
+    authorized = allowed.get("application-identifier")
+    prefixes = profile.get("ApplicationIdentifierPrefix")
+    if not isinstance(authorized, str) or not isinstance(prefixes, list):
+        raise ValueError("The provisioning profile has no application identity prefix")
+    prefix = authorized.partition(".")[0]
+    identifier = prefix + "." + bundle_identifier
+    if prefix not in prefixes or not re.fullmatch(r"[A-Za-z0-9]+", prefix) or \
+            not authorization_matches(identifier, authorized):
+        raise ValueError("The provisioning profile does not cover the bundle identifier")
+    debug_allowed = allowed.get("get-task-allow", False)
+    if type(debug_allowed) is not bool:
+        raise ValueError("The provisioning profile has an invalid debug entitlement")
+    entitlements = {"application-identifier": identifier,
+                    "com.apple.developer.team-identifier": team,
+                    "get-task-allow": debug_allowed}
+    if "keychain-access-groups" in allowed:
+        groups = allowed["keychain-access-groups"]
+        if not isinstance(groups, list) or not any(
+                authorization_matches(identifier, group) for group in groups):
+            raise ValueError("The provisioning profile does not authorize the application keychain group")
+        # Only request this application's default group, not every profile-authorized group.
+        entitlements["keychain-access-groups"] = [identifier]
+    return entitlements
+
+
 def sign_bundle(bundle, args, info, stage):
     if args.sdk == "simulator":
         if args.provisioning_profile or args.sign_identity:
@@ -74,27 +118,22 @@ def sign_bundle(bundle, args, info, stage):
         ["security", "cms", "-D", "-i", str(plain_path(args.provisioning_profile))],
         capture_output=True, check=True).stdout
     profile = plistlib.loads(profile_bytes)
+    if not isinstance(profile, dict):
+        raise ValueError("The provisioning profile is not a dictionary")
     expiration = profile.get("ExpirationDate")
     if not isinstance(expiration, datetime) or expiration.replace(tzinfo=timezone.utc) <= datetime.now(timezone.utc):
         raise ValueError("The provisioning profile has expired or has no expiration date")
-    allowed = profile.get("Entitlements", {})
-    team = allowed.get("com.apple.developer.team-identifier", "")
-    identifier = team + "." + info["bundleIdentifier"]
-    if not team or not fnmatch.fnmatchcase(identifier, allowed.get("application-identifier", "")):
-        raise ValueError("The provisioning profile does not cover the bundle identifier")
-    entitlements = {"application-identifier": identifier,
-                    "com.apple.developer.team-identifier": team,
-                    "get-task-allow": bool(allowed.get("get-task-allow", False))}
-    if "keychain-access-groups" in allowed:
-        entitlements["keychain-access-groups"] = [
-            group.replace("*", info["bundleIdentifier"])
-            for group in allowed["keychain-access-groups"]]
+    entitlements = signing_entitlements(profile, info["bundleIdentifier"])
     path = stage / "signing-entitlements.plist"
     path.write_bytes(plistlib.dumps(entitlements))
     shutil.copy2(args.provisioning_profile, bundle / "embedded.mobileprovision")
     run(["codesign", "--force", "--sign", args.sign_identity,
          "--entitlements", path, "--generate-entitlement-der", bundle])
     run(["codesign", "--verify", "--strict", bundle])
+    actual = plistlib.loads(run(["codesign", "--display", "--entitlements", ":-", bundle])
+                           .encode("utf-8"))
+    if actual != entitlements:
+        raise ValueError("The signed application entitlements do not match the authorized identity")
     prefix = stage / "signing-certificate-"
     run(["codesign", "--display", "--extract-certificates", prefix, bundle])
     leaf = stage / "signing-certificate-0"
