@@ -500,6 +500,94 @@
         "ENGINE_ENABLE_WEB_EXPORT_TOOLS": true,
         "ENGINE_ENABLE_TEST_SUPPORT": false
       }
+    },
+    {
+      "name": "ios-base",
+      "hidden": true,
+      "inherits": [
+        "ninja-cache",
+        "vcpkg"
+      ],
+      "cacheVariables": {
+        "CMAKE_SYSTEM_NAME": "iOS",
+        "CMAKE_OSX_ARCHITECTURES": "arm64",
+        "CMAKE_OSX_DEPLOYMENT_TARGET": "17.0",
+        "VCPKG_OVERLAY_TRIPLETS": "${sourceDir}/platforms/ios/triplets",
+        "VCPKG_MANIFEST_FEATURES": "runtime;quickjs",
+        "ENGINE_ENABLE_RUNTIME_DEPS": true,
+        "ENGINE_ENABLE_EDITOR_DEPS": false,
+        "ENGINE_ENABLE_ASSET_PIPELINE_DEPS": false,
+        "ENGINE_ENABLE_SCRIPT_RUNTIME": true,
+        "ENGINE_SCRIPT_BACKEND": "quickjs",
+        "ENGINE_ENABLE_V8": false,
+        "ENGINE_RUNTIME_PLUGINS": "resource_graph;script;animation_retarget;camera;character_controller;navigation_crowd;effects;terrain;destruction",
+        "ENGINE_EDITOR_PLUGINS": "",
+        "ENGINE_ENABLE_TEST_SUPPORT": false,
+        "ENGINE_BUILD_APP": true,
+        "ENGINE_BUILD_TESTS": false,
+        "BUILD_TESTING": false,
+        "ENGINE_EXPORT_PRODUCT": "engine-showcase",
+        "ENGINE_EXPORT_PROJECT": "${sourceDir}/projects/showcase",
+        "CMAKE_CXX_SCAN_FOR_MODULES": false
+      }
+    },
+    {
+      "name": "ios-arm64-device-debug",
+      "displayName": "iOS ARM64 Device Debug",
+      "inherits": "ios-base",
+      "binaryDir": "${sourceDir}/build/ios-arm64-device-debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_OSX_SYSROOT": "iphoneos",
+        "VCPKG_TARGET_TRIPLET": "arm64-ios-engine",
+        "VCPKG_INSTALLED_DIR": "${sourceDir}/build/dependencies/ios-device"
+      }
+    },
+    {
+      "name": "ios-arm64-device-release",
+      "displayName": "iOS ARM64 Device Release",
+      "inherits": "ios-base",
+      "binaryDir": "${sourceDir}/build/ios-arm64-device-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_OSX_SYSROOT": "iphoneos",
+        "VCPKG_TARGET_TRIPLET": "arm64-ios-engine",
+        "VCPKG_INSTALLED_DIR": "${sourceDir}/build/dependencies/ios-device"
+      }
+    },
+    {
+      "name": "ios-arm64-simulator-debug",
+      "displayName": "iOS ARM64 Simulator Debug",
+      "inherits": "ios-base",
+      "binaryDir": "${sourceDir}/build/ios-arm64-simulator-debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_OSX_SYSROOT": "iphonesimulator",
+        "VCPKG_TARGET_TRIPLET": "arm64-ios-simulator-engine",
+        "VCPKG_INSTALLED_DIR": "${sourceDir}/build/dependencies/ios-simulator"
+      }
+    },
+    {
+      "name": "ios-arm64-simulator-release",
+      "displayName": "iOS ARM64 Simulator Release",
+      "inherits": "ios-base",
+      "binaryDir": "${sourceDir}/build/ios-arm64-simulator-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_OSX_SYSROOT": "iphonesimulator",
+        "VCPKG_TARGET_TRIPLET": "arm64-ios-simulator-engine",
+        "VCPKG_INSTALLED_DIR": "${sourceDir}/build/dependencies/ios-simulator"
+      }
+    },
+    {
+      "name": "ios-arm64-simulator-test-release",
+      "displayName": "iOS simulator MCP test runtime",
+      "inherits": "ios-arm64-simulator-release",
+      "binaryDir": "${sourceDir}/build/ios-arm64-simulator-test-release",
+      "cacheVariables": {
+        "ENGINE_ENABLE_TEST_SUPPORT": true,
+        "ENGINE_RUNTIME_PLUGINS": "resource_graph;script;animation_retarget;camera;character_controller;navigation_crowd;effects;terrain;destruction;mcp"
+      }
     }
   ],
   "buildPresets": [
@@ -826,6 +914,31 @@
       "targets": [
         "asset_build_app"
       ]
+    },
+    {
+      "name": "ios-arm64-device-debug",
+      "configurePreset": "ios-arm64-device-debug",
+      "jobs": 6
+    },
+    {
+      "name": "ios-arm64-device-release",
+      "configurePreset": "ios-arm64-device-release",
+      "jobs": 6
+    },
+    {
+      "name": "ios-arm64-simulator-debug",
+      "configurePreset": "ios-arm64-simulator-debug",
+      "jobs": 6
+    },
+    {
+      "name": "ios-arm64-simulator-release",
+      "configurePreset": "ios-arm64-simulator-release",
+      "jobs": 6
+    },
+    {
+      "name": "ios-arm64-simulator-test-release",
+      "configurePreset": "ios-arm64-simulator-test-release",
+      "jobs": 4
     }
   ],
   "testPresets": [

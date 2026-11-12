@@ -52,7 +52,7 @@ python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --projec
 | Windows | DirectX 12 | 桌面运行时与编辑器，提供静态交付预设 |
 | Linux | Vulkan | 桌面构建预设，按功能记录实际验证范围 |
 | Android ARM64 | Vulkan | [APK 构建与运行](docs/runtime/android.md)，桌面 MCP 同步调试包 |
-| iOS | Metal | 共享后端约定，完整宿主与交付尚未完成 |
+| iOS | Metal | 原生游戏包；arm64 真机 / 模拟器构建及导出，实测范围见[测试文档](docs/testing.md#ios-原生运行包) |
 | Web 运行产物 | WebGPU | [构建与预览](docs/building.md#webgpu-游戏导出) |
 
 共享实现不代表所有功能均已通过各平台实测。最终产物位于 `output/<platform>/<arch>/<debug|release>/<editor|runtime>/`；构建缓存位于 `build/`，项目缓存位于项目 `cache/`，均不提交 Git。

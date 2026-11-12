@@ -106,13 +106,16 @@ public:
                                       AnimationRetargeterFactory retargeter_factory,
                                       std::shared_ptr<const ResourceCatalog> catalog,
                                       std::shared_ptr<const MountList> mounts,
-                                      std::string_view entry = {}, std::string_view scene = {});
+                                      std::string_view revision, std::string_view entry = {},
+                                      std::string_view scene = {});
     [[nodiscard]] RuntimeStartupStatus step_gameplay(double max_seconds);
     [[nodiscard]] bool activate_gameplay();
     // 真实、未缩放秒数；影片按完整时间推进，世界模拟保留单步上限。
     [[nodiscard]] FrameStatus tick(double delta_time);
     // 单独处理事件并发布输入，供不推进世界的宿主流程使用；每帧与 tick 二选一。
     [[nodiscard]] FrameStatus poll_events(double delta_time);
+    // 主线程显式暂停；恢复后由实际提交帧恢复音频，不累计暂停时间。
+    [[nodiscard]] bool set_suspended(bool suspended);
     // Borrowed, main-thread notification before normal native event routing. Cannot consume input.
     void set_event_observer(WindowEventHandler observer, void* context) noexcept;
     // 返回借用；仅在本宿主初始化成功至关闭前有效，其他状态返回空。
@@ -159,6 +162,7 @@ private:
     std::shared_ptr<const ResourceCatalog> startup_catalog_;
     std::shared_ptr<const MountList> startup_mounts_;
     std::string startup_entry_;
+    std::string startup_revision_;
     std::string startup_scene_;
     std::uint64_t presented_movie_id_ = 0;
     std::uint64_t presented_movie_generation_ = 0;
@@ -166,6 +170,8 @@ private:
     bool startup_requested_ = false;
     bool gameplay_active_ = false;
     bool movie_clock_paused_ = false;
+    bool suspended_ = false;
+    bool resume_clock_ = false;
     ResourceSystem* resources_ = nullptr;
     ResourceLoader* loader_ = nullptr;
     std::unique_ptr<ResourceSystem> owned_resources_;
@@ -186,6 +192,7 @@ private:
     bool initialized_ = false;
     bool exit_requested_ = false;
     bool failed_ = false;
+    bool failure_cleanup_pending_ = false;
     std::size_t completion_domain_ = 0;
     WindowEventHandler event_observer_ = nullptr;
     void* event_observer_context_ = nullptr;

@@ -6,9 +6,17 @@ namespace engine::render_detail
 bool RenderSurface::prepare(bgfx::Init& init, bool& available)
 {
     available = false;
+    if (window_ == nullptr || current_.nwh != nullptr)
+    {
+        return false;
+    }
+    if ((SDL_GetWindowFlags(window_) & (SDL_WINDOW_HIDDEN | SDL_WINDOW_MINIMIZED)) != 0)
+    {
+        return true;
+    }
     std::uint32_t width = 0;
     std::uint32_t height = 0;
-    if (window_ == nullptr || current_.nwh != nullptr || !read_size(width, height))
+    if (!read_size(width, height))
     {
         return false;
     }
@@ -64,11 +72,38 @@ void RenderSurface::release() noexcept
 
 bool RenderSurface::start_watching()
 {
+    if (!SDL_AddEventWatch(watch_surface_lifecycle, this))
+    {
+        return false;
+    }
+    watching_events_ = true;
     return true;
 }
 
 void RenderSurface::stop_watching() noexcept
 {
+    if (watching_events_)
+    {
+        SDL_RemoveEventWatch(watch_surface_lifecycle, this);
+        watching_events_ = false;
+    }
+}
+
+bool SDLCALL RenderSurface::watch_surface_lifecycle(void* userdata, SDL_Event* event)
+{
+    if ((event->type != SDL_EVENT_WILL_ENTER_BACKGROUND && event->type != SDL_EVENT_TERMINATING) ||
+        !SDL_IsMainThread())
+    {
+        return true;
+    }
+    auto& surface = *static_cast<RenderSurface*>(userdata);
+    if (surface.suspend_ != nullptr && !surface.suspending_)
+    {
+        surface.suspending_ = true;
+        surface.suspend_(surface.context_);
+        surface.suspending_ = false;
+    }
+    return true;
 }
 
 } // namespace engine::render_detail

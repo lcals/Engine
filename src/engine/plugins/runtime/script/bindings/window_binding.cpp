@@ -15,6 +15,7 @@ constexpr std::string_view javascript = R"js(
 export class Window {
     constructor() { throw new TypeError('Window is static'); }
     static GetSize() { return native.WindowGetSize(); }
+    static GetSafeArea() { return native.WindowGetSafeArea(); }
     static GetDisplayModes() { return native.WindowGetDisplayModes(); }
     static GetMode() { return native.WindowGetMode(); }
     static SetSize(logicalWidth, logicalHeight) {
@@ -49,9 +50,22 @@ void size(const Arguments& arguments)
     WindowSize value;
     if (target != nullptr && target->size(value))
     {
+        arguments.set_return(vm::NativeValue::Object{{"logicalWidth", value.logical_width},
+                                                     {"logicalHeight", value.logical_height},
+                                                     {"pixelWidth", value.pixel_width},
+                                                     {"pixelHeight", value.pixel_height}});
+    }
+}
+
+void safe_area(const Arguments& arguments)
+{
+    arguments.set_return({});
+    const auto* target = window(arguments, 0);
+    WindowRect value;
+    if (target != nullptr && target->safe_area(value))
+    {
         arguments.set_return(vm::NativeValue::Object{
-            {"logicalWidth", value.logical_width}, {"logicalHeight", value.logical_height},
-            {"pixelWidth", value.pixel_width}, {"pixelHeight", value.pixel_height}});
+            {"x", value.x}, {"y", value.y}, {"width", value.width}, {"height", value.height}});
     }
 }
 
@@ -68,10 +82,11 @@ void display_modes(const Arguments& arguments)
     output.reserve(modes.size());
     for (const auto& mode : modes)
     {
-        output.emplace_back(vm::NativeValue::Object{
-            {"width", mode.width}, {"height", mode.height},
-            {"pixelDensity", static_cast<double>(mode.pixel_density)},
-            {"refreshRate", static_cast<double>(mode.refresh_rate)}});
+        output.emplace_back(
+            vm::NativeValue::Object{{"width", mode.width},
+                                    {"height", mode.height},
+                                    {"pixelDensity", static_cast<double>(mode.pixel_density)},
+                                    {"refreshRate", static_cast<double>(mode.refresh_rate)}});
     }
     arguments.set_return(std::move(output));
 }
@@ -105,8 +120,8 @@ void set_size(const Arguments& arguments)
     auto* target = window(arguments, 2);
     if (target != nullptr && arguments.is_uint32(0) && arguments.is_uint32(1))
     {
-        arguments.set_return(target->set_size(arguments.unsigned_integer(0),
-                                              arguments.unsigned_integer(1)));
+        arguments.set_return(
+            target->set_size(arguments.unsigned_integer(0), arguments.unsigned_integer(1)));
     }
 }
 
@@ -124,8 +139,8 @@ void set_mode(const Arguments& arguments)
     {
         if (arguments.count() == 1)
         {
-            arguments.set_return(target->set_mode(requested == "windowed" ? WindowMode::windowed
-                                                                          : WindowMode::borderless));
+            arguments.set_return(target->set_mode(
+                requested == "windowed" ? WindowMode::windowed : WindowMode::borderless));
         }
         return;
     }
@@ -195,9 +210,10 @@ std::string_view WindowBinding::source() const noexcept
 
 bool WindowBinding::register_functions(vm::ScriptVm& vm) const
 {
-    return vm.function("WindowGetSize", size) &&
-           vm.function("WindowGetDisplayModes", display_modes) && vm.function("WindowGetMode", mode) &&
-           vm.function("WindowSetSize", set_size) && vm.function("WindowSetMode", set_mode) &&
+    return vm.function("WindowGetSize", size) && vm.function("WindowGetSafeArea", safe_area) &&
+           vm.function("WindowGetDisplayModes", display_modes) &&
+           vm.function("WindowGetMode", mode) && vm.function("WindowSetSize", set_size) &&
+           vm.function("WindowSetMode", set_mode) &&
            vm.function("WindowGetMouseMode", mouse_mode) &&
            vm.function("WindowSetMouseMode", set_mouse_mode);
 }

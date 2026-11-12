@@ -48,6 +48,9 @@ private:
     [[nodiscard]] bool sync_android(const std::filesystem::path& source, std::string& reply);
     [[nodiscard]] bool set_android_hot_reload(bool enabled, std::string& reply);
     [[nodiscard]] bool read_android_status(std::string& reply);
+    [[nodiscard]] bool sync_ios(const std::filesystem::path& source, std::string& reply);
+    [[nodiscard]] bool set_ios_hot_reload(bool enabled, std::string& reply);
+    [[nodiscard]] bool read_ios_status(std::string& reply);
 
     engine::editor::AssetPipelineSystem& pipeline_;
     engine::plugins::asset_build::AssetBuildSystem& builder_;

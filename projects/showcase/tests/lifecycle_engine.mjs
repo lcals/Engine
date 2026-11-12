@@ -6,12 +6,14 @@ export const fixture = {
     failDocument: false, failRefreshOnce: false, views: [], nodes: [], loads: [],
     pendingLoad: null, loadStatus: "ready", failCommit: false, cancellations: 0,
     ids: [], movie: null, movieReleased: 0,
+    windowSize: null, safeArea: null,
     reset() {
         for (const node of this.nodes) node.live = false;
         this.scene = null; this.failDocument = false; this.failRefreshOnce = false;
         this.views = []; this.nodes = []; this.loads = []; this.pendingLoad = null;
         this.pendingResource = null; this.loadStatus = "ready"; this.failCommit = false; this.cancellations = 0;
         this.movie = null; this.movieReleased = 0;
+        this.windowSize = null; this.safeArea = null;
     },
     element(id) {
         const views = [this.scene?.view, ...this.views].filter(Boolean);
@@ -35,7 +37,7 @@ export const fixture = {
     },
 };
 class Element {
-    constructor(id, view) { this.id = id; this.view = view; this.text = ""; this.value = ""; this.enabled = true; this.classes = new Set(); this.listeners = []; }
+    constructor(id, view) { this.id = id; this.view = view; this.text = ""; this.value = ""; this.enabled = true; this.classes = new Set(); this.listeners = []; this.styles = new Map(); }
     get isValid() { return this.view.node?.IsValid() ?? this.view.scene.IsValid(); }
     SetText(value) {
         if (fixture.failRefreshOnce) { fixture.failRefreshOnce = false; return false; }
@@ -43,7 +45,12 @@ class Element {
     }
     SetEnabled(value) { this.enabled = value; return true; }
     SetClass(name, active) { active ? this.classes.add(name) : this.classes.delete(name); return true; }
+    SetStyle(name, value) { this.styles.set(name, value); return true; }
 }
+export const Window = {
+    GetSize() { return fixture.windowSize; },
+    GetSafeArea() { return fixture.safeArea; },
+};
 export class UiComponent {
     constructor(scene) {
         this.scene = scene;

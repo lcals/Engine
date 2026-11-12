@@ -1,4 +1,4 @@
-import { UiController } from "engine";
+import { UiController, Window } from "engine";
 import { LauncherModel } from "../models/launcher_model.js";
 
 export class LauncherController extends UiController<LauncherModel> {
@@ -40,6 +40,16 @@ export class LauncherController extends UiController<LauncherModel> {
         const movie = this.view.FindElement("replay-intro");
         if (!root || !back || !status || !movie ||
             !movie.SetEnabled(this.model.pending === null && !this.model.movie_playing)) return false;
+        const size = Window.GetSize();
+        const safe = Window.GetSafeArea();
+        if (size && safe) {
+            const right = Math.max(0, size.logicalWidth - safe.x - safe.width);
+            const bottom = Math.max(0, size.logicalHeight - safe.y - safe.height);
+            if (!root.SetStyle("box-sizing", "border-box") ||
+                !root.SetStyle("padding", `${safe.y}px ${right}px ${bottom}px ${safe.x}px`) ||
+                !back.SetStyle("top", `${24 + safe.y}px`) ||
+                !back.SetStyle("left", `${24 + safe.x}px`)) return false;
+        }
         const in_world = this.model.selected !== null;
         const pending = this.model.pending;
         if (!root.SetClass("in-world", in_world) || !back.SetEnabled(pending === null))

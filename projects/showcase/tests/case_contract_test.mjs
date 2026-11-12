@@ -75,6 +75,18 @@ try {
     assert.equal(model.choices, showcase_cases, "the menu consumes the project case list directly");
     const controller = new LauncherController(view, model);
     assert.equal(controller.Bind(), true);
+    fixture.windowSize = { logicalWidth: 402, logicalHeight: 874, pixelWidth: 1206, pixelHeight: 2622 };
+    fixture.safeArea = { x: 0, y: 62, width: 402, height: 778 };
+    assert.equal(controller.Refresh(), true);
+    const rootElement = view.FindElement("launcher-root");
+    const backElement = view.FindElement("back-menu");
+    assert.equal(rootElement.styles.get("padding"), "62px 0px 34px 0px", "insets use logical pixels");
+    assert.equal(backElement.styles.get("top"), "86px", "navigation clears the top unsafe area");
+    fixture.windowSize = { logicalWidth: 874, logicalHeight: 402, pixelWidth: 2622, pixelHeight: 1206 };
+    fixture.safeArea = { x: 62, y: 0, width: 750, height: 381 };
+    assert.equal(controller.Refresh(), true);
+    assert.equal(rootElement.styles.get("padding"), "0px 62px 21px 62px", "layout follows orientation changes");
+    assert.equal(backElement.styles.get("left"), "86px");
     for (const choice of showcase_cases) {
         assert.equal(view.FindElement(`${choice.button}-title`).text, choice.title);
         assert.equal(view.FindElement(`${choice.button}-goal`).text, choice.goal);

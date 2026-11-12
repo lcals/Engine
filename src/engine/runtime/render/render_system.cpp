@@ -13,6 +13,7 @@
 #include "runtime/render/scene_gpu_resources.hpp"
 #include "runtime/task/task_system.hpp"
 #include "runtime/ui/ui_system.hpp"
+#include "runtime/utils/path_utils.hpp"
 #include "runtime/window/window_system.hpp"
 #include "runtime/world/world_system.hpp"
 
@@ -21,7 +22,9 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <filesystem>
 #include <new>
+#include <system_error>
 
 namespace engine
 {
@@ -235,7 +238,7 @@ bool RenderSystem::on_initialize(const EngineConfig&)
 
 void RenderSystem::suspend_renderer(void* context) noexcept
 {
-    static_cast<RenderSystem*>(context)->shutdown_renderer();
+    static_cast<RenderSystem*>(context)->shutdown_renderer(false);
 }
 
 bool RenderSystem::initialize_renderer()
@@ -649,9 +652,9 @@ void RenderSystem::on_shutdown() noexcept
     }
 }
 
-void RenderSystem::shutdown_renderer() noexcept
+void RenderSystem::shutdown_renderer(bool drain_screenshots) noexcept
 {
-    if (renderer_initialized_ && active_screenshot_)
+    if (drain_screenshots && renderer_initialized_ && active_screenshot_)
     {
         for (int attempt = 0; attempt < 16 && active_screenshot_; ++attempt)
         {
@@ -701,6 +704,17 @@ void RenderSystem::shutdown_renderer() noexcept
     if (callbacks_ != nullptr)
     {
         callbacks_->finish();
+    }
+    const auto abandoned = screenshots_.find(active_screenshot_);
+    active_screenshot_ = 0;
+    if (abandoned != screenshots_.end())
+    {
+        std::error_code error;
+        std::filesystem::remove(PathUtils::from_utf8(abandoned->second.temporary_path), error);
+        if (abandoned->second.release_requested)
+        {
+            screenshots_.erase(abandoned);
+        }
     }
     // GPU后台线程退出后，平台才可释放原生表面并完成暂停握手。
     if (surface_ != nullptr)

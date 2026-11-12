@@ -63,3 +63,5 @@ SPIRV-Cross 使用新 baseline 提供的 `vulkan-sdk-1.4.363.0`。该正式版�
 归档 SHA512 在各 portfile 中固定。升级验证不以包登记代替实际链接：受影响 Debug/Release 构建以及 Release 测试结果记录在[测试文档](../../docs/testing.md)，未实测平台不标记通过。
 
 `third_party/triplets/arm64-android-engine.cmake` 固定 arm64/API 28，使用静态 PIC 库和静态 C++ 运行库；SDL3 与所选 VM 静态合入唯一 `libmain.so`，`SDLActivity` Java glue 由 Gradle 编译，Java 只加载 `main`。首次支持范围和实际验证以[测试文档](../../docs/testing.md)为准。
+
+iOS 的 libvpx arm64 模拟器 SDK 修正和 QuickJS 纯库部署见 [iOS 依赖说明](../notices/ios.md)。

@@ -20,6 +20,9 @@ namespace engine::plugins::mcp
 bool ProjectMcpTools::register_resource_tools(McpSystem& mcp)
 {
     using Json = nlohmann::json;
+    const std::string platform = !target_.ios_udid.empty()         ? "ios"
+                                 : !target_.android_serial.empty() ? "android"
+                                                                   : "";
     const bool build = mcp.register_tool(
         {"build_resources",
          "Build runtime resources using the project usage configuration or all resources by "
@@ -30,7 +33,7 @@ bool ProjectMcpTools::register_resource_tools(McpSystem& mcp)
             {"targetPlatform", {{"type", "string"}}},
             {"items", {{"type", "array"}, {"items", {{"type", "string"}}}}}}},
           {"additionalProperties", false}},
-         [this](const Json& arguments, Json& output)
+         [this, platform](const Json& arguments, Json& output)
          {
              std::vector<std::string> items;
              if (arguments.contains("items"))
@@ -42,7 +45,7 @@ bool ProjectMcpTools::register_resource_tools(McpSystem& mcp)
              }
              if (!builder_.build(project_root_,
                                  PathUtils::from_utf8(arguments.value("manifest", std::string{})),
-                                 items, arguments.value("targetPlatform", std::string{})))
+                                 items, arguments.value("targetPlatform", platform)))
              {
                  output = {{"error", builder_.last_error()}};
                  return false;
@@ -69,7 +72,7 @@ bool ProjectMcpTools::register_resource_tools(McpSystem& mcp)
              {{"type", "string"},
               {"description", "Optional project-relative prebuilt output; skips import."}}}}},
           {"additionalProperties", false}},
-         [this](const Json& arguments, Json& output)
+         [this, platform](const Json& arguments, Json& output)
          {
              std::filesystem::path source = project_root_ / "cache";
              if (arguments.contains("source"))
@@ -88,18 +91,22 @@ bool ProjectMcpTools::register_resource_tools(McpSystem& mcp)
                      return false;
                  }
              }
-             else if (!pipeline_.build_assets(project_root_, target_.android_serial.empty()
-                                                                 ? std::string_view{}
-                                                                 : "android"))
+             else if (!pipeline_.build_assets(project_root_, platform))
              {
                  output = {{"error", pipeline_.last_error()}};
                  return false;
+             }
+             if (!target_.ios_udid.empty())
+             {
+                 std::string receipt;
+                 const bool success = sync_ios(source, receipt);
+                 return tools::device_receipt(success, receipt, output);
              }
              if (!target_.android_serial.empty())
              {
                  std::string receipt;
                  const bool success = sync_android(source, receipt);
-                 return tools::android_receipt(success, receipt, output);
+                 return tools::device_receipt(success, receipt, output);
              }
              if (!sync_.sync(source, target_.runtime_dir))
              {

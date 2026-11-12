@@ -14,6 +14,12 @@ Web 宿主与原生宿主共用游戏入口状态和 RuntimeHost；Web 平台适
 
 设计：[Web 宿主与异步表面](../runtime/class-diagrams/web-host.md) · [Web 导出](../editor/class-diagrams/web-export.md) · [共享目标互斥](../editor/class-diagrams/asset-pipeline-system.md#目标切换互斥) · [Web 持久文件发布](../runtime/class-diagrams/web-storage.md)。核心公开类与项目 SDK 不新增；平台存储增加私有发布函数，影片呈现统一使用已有 RenderSubmitStatus 返回值。
 
+## iOS 原生游戏包
+
+平台入口独占私有 IosAppContext，后者独占共享 RuntimeAppState；SDL 只借用回调上下文。RuntimeHost、WindowSystem、RenderSurface、资源与插件保持既有所有权，仅在原类增加宿主显式暂停与安全区域查询。导出复用资源构建和原子发布，平台打包与签名由 platforms/ios/ 负责。
+
+契约：[iOS 宿主](../runtime/class-diagrams/ios-host.md) · [宿主暂停](../runtime/class-diagrams/runtime-host.md#宿主显式暂停) · [窗口安全区域](../runtime/class-diagrams/window-system.md#安全区域查询) · [iOS 导出](../editor/class-diagrams/ios-export.md)。
+
 ## 引擎与系统所有权
 
 Engine 管理根系统生命周期与帧调度，System 独占子系统；RuntimeHost 装配窗口、世界、渲染及可选服务。对象只由一个拥有者负责生命周期，其他关系为明确借用。

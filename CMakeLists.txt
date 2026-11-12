@@ -29,6 +29,7 @@ include(cmake/editor/hosts.cmake)
 include(cmake/install/runtime_data.cmake)
 include(cmake/platforms/desktop.cmake)
 include(cmake/platforms/web.cmake)
+include(cmake/platforms/ios.cmake)
 include(cmake/install/exports.cmake)
 
 if(PROJECT_IS_TOP_LEVEL OR ENGINE_BUILD_TESTS)

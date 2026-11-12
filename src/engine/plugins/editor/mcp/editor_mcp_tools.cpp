@@ -165,9 +165,9 @@ EditorMcpTools::EditorMcpTools(fs::path project_root, McpTarget target)
 
 bool EditorMcpTools::register_tools(McpSystem& system)
 {
-    if (!target_.android_serial.empty())
+    if (!target_.android_serial.empty() || !target_.ios_udid.empty())
     {
-        // 保留 Android 工具集合；生命周期调用由统一通道明确拒绝桌面专用操作。
+        // 设备只暴露同步与控制；生命周期调用明确拒绝桌面编辑器操作。
         return register_project_lifecycle_tools(system, *this);
     }
     std::error_code error;
@@ -339,8 +339,9 @@ bool EditorMcpTools::register_tools(McpSystem& system)
 
 bool EditorMcpTools::call_command(std::string_view command, const Json& arguments, Json& reply)
 {
-    if (!target_.android_serial.empty() || target_.runtime_dir.empty() || command.empty() ||
-        command.size() > 128 || !arguments.is_object())
+    if (!target_.android_serial.empty() || !target_.ios_udid.empty() ||
+        target_.runtime_dir.empty() || command.empty() || command.size() > 128 ||
+        !arguments.is_object())
     {
         return fail(reply, "Editor command requires a desktop target, name and arguments object");
     }

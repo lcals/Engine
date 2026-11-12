@@ -21,6 +21,8 @@
 #include "runtime/window/window_system.hpp"
 #include "runtime/world/world_system.hpp"
 
+#include <SDL3/SDL_init.h>
+
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -260,11 +262,12 @@ bool RuntimeHost::initialize_gameplay(const EngineConfig& config,
 bool RuntimeHost::begin_gameplay(ScriptRuntimeFactory script_factory, RuntimeSetup setup,
                                  AnimationRetargeterFactory retargeter_factory,
                                  std::shared_ptr<const ResourceCatalog> catalog,
-                                 std::shared_ptr<const MountList> mounts, std::string_view entry,
-                                 std::string_view scene)
+                                 std::shared_ptr<const MountList> mounts, std::string_view revision,
+                                 std::string_view entry, std::string_view scene)
 {
     if (!initialized_ || startup_requested_ || gameplay_ || !catalog || !mounts || !resources_ ||
-        catalog->revision().empty() || catalog->revision() != resources_->catalog().revision() ||
+        revision.empty() || catalog->revision().empty() ||
+        catalog->revision() != resources_->catalog().revision() ||
         catalog->data().target_platform != resources_->catalog().data().target_platform)
     {
         return false;
@@ -275,6 +278,7 @@ bool RuntimeHost::begin_gameplay(ScriptRuntimeFactory script_factory, RuntimeSet
     startup_catalog_ = std::move(catalog);
     startup_mounts_ = std::move(mounts);
     startup_entry_ = entry;
+    startup_revision_ = revision;
     startup_scene_ = scene;
     startup_status_ = RuntimeStartupStatus::preparing;
     startup_requested_ = true;
@@ -315,8 +319,8 @@ RuntimeStartupStatus RuntimeHost::step_gameplay(double max_seconds)
             error_ = "Cannot initialize the gameplay world and plugin registrations";
             startup_status_ = RuntimeStartupStatus::failed;
         }
-        else if (!gameplay_->begin_prepare(*startup_catalog_, *startup_mounts_, startup_entry_,
-                                           startup_scene_, startup_prepare_id_))
+        else if (!gameplay_->begin_prepare(*startup_catalog_, *startup_mounts_, startup_revision_,
+                                           startup_entry_, startup_scene_, startup_prepare_id_))
         {
             error_code_ = "gameplay_prepare_rejected";
             error_ = gameplay_->last_error();
@@ -378,7 +382,11 @@ FrameStatus RuntimeHost::fail_runtime(std::string_view code, std::string_view me
         error_code_ = code;
         error_ = message;
         failed_ = true;
-        gameplay_active_ = false;
+        failure_cleanup_pending_ = true;
+    }
+    gameplay_active_ = false;
+    if (std::exchange(failure_cleanup_pending_, false))
+    {
         if (gameplay_)
         {
             gameplay_->stop(GameplayStopCause::failure, error_);
@@ -403,12 +411,13 @@ FrameStatus RuntimeHost::tick_runtime(double delta_time)
         return events;
     }
     const bool presentation_was_paused = std::exchange(movie_clock_paused_, false);
-    const double movie_delta = presentation_was_paused ? 0.0 : delta_time;
-    if (gameplay_active_ && !engine_.tick(std::min(delta_time, 0.1)))
+    const double frame_delta = std::exchange(resume_clock_, false) ? 0.0 : delta_time;
+    const double movie_delta = presentation_was_paused ? 0.0 : frame_delta;
+    if (gameplay_active_ && !engine_.tick(std::min(frame_delta, 0.1)))
     {
         return fail_runtime("system_update_failed", "Cannot update the gameplay systems");
     }
-    if (!audio_->tick(delta_time))
+    if (!audio_->tick(frame_delta))
     {
         return fail_runtime("audio_update_failed", "Cannot update audio output");
     }
@@ -532,16 +541,44 @@ FrameStatus RuntimeHost::poll_events(double delta_time)
         request_exit();
         return FrameStatus::exit_requested;
     }
-    if (!audio_->set_paused(!window_->can_render()))
+    if (!audio_->set_paused(suspended_ || movie_clock_paused_ || !window_->can_render()))
     {
         return fail_runtime("audio_pause_failed", "Cannot update the audio pause state");
     }
-    if (!window_->can_render())
+    if (suspended_ || !window_->can_render())
     {
         movie_clock_paused_ = true;
+        resume_clock_ = true;
         return FrameStatus::paused;
     }
     return FrameStatus::running;
+}
+
+bool RuntimeHost::set_suspended(bool suspended)
+{
+    if (!initialized_ || failed_ || !SDL_IsMainThread())
+    {
+        return false;
+    }
+    if (suspended_ == suspended)
+    {
+        return true;
+    }
+    suspended_ = suspended;
+    resume_clock_ = true;
+    movie_clock_paused_ = true;
+    last_tick_status_ = FrameStatus::paused;
+    if (suspended && !audio_->set_paused(true))
+    {
+        // 生命周期通知内只锁存故障；玩法停止留给宿主安全点。
+        error_code_ = "audio_pause_failed";
+        error_ = "Cannot suspend runtime audio";
+        failed_ = true;
+        failure_cleanup_pending_ = true;
+        gameplay_active_ = false;
+        return false;
+    }
+    return true;
 }
 
 void RuntimeHost::set_event_observer(WindowEventHandler observer, void* context) noexcept
@@ -626,6 +663,10 @@ void RuntimeHost::shutdown() noexcept
     {
         window_->set_event_handler(nullptr, nullptr);
     }
+    if (failure_cleanup_pending_)
+    {
+        (void)fail_runtime(error_code_, error_);
+    }
     reset_gameplay();
     owns_engine_ = false;
     movie_player_.reset();
@@ -649,12 +690,14 @@ void RuntimeHost::shutdown() noexcept
     initialized_ = false;
     exit_requested_ = false;
     failed_ = false;
+    failure_cleanup_pending_ = false;
     completion_domain_ = 0;
     startup_requested_ = false;
     startup_status_ = RuntimeStartupStatus::failed;
     startup_catalog_.reset();
     startup_mounts_.reset();
     startup_entry_.clear();
+    startup_revision_.clear();
     startup_scene_.clear();
     startup_prepare_id_ = 0;
     error_code_.clear();
@@ -662,6 +705,8 @@ void RuntimeHost::shutdown() noexcept
     presented_movie_id_ = 0;
     presented_movie_generation_ = 0;
     movie_clock_paused_ = false;
+    suspended_ = false;
+    resume_clock_ = false;
 }
 
 } // namespace engine

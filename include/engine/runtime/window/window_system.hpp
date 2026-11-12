@@ -21,6 +21,14 @@ enum class WindowMode
     fullscreen
 };
 
+struct WindowRect
+{
+    std::int32_t x = 0;
+    std::int32_t y = 0;
+    std::uint32_t width = 0;
+    std::uint32_t height = 0;
+};
+
 struct WindowSize
 {
     std::uint32_t logical_width = 0;
@@ -55,6 +63,7 @@ public:
     [[nodiscard]] bool request_exit() noexcept;
     // SDL 主线程；逻辑尺寸与窗口表面像素尺寸分别返回，失败清零。
     [[nodiscard]] bool size(WindowSize& output) const noexcept;
+    [[nodiscard]] bool safe_area(WindowRect& output) const noexcept;
     [[nodiscard]] bool display_modes(std::vector<DisplayMode>& output) const;
     [[nodiscard]] bool mode(WindowMode& output) const noexcept;
     [[nodiscard]] bool set_size(std::uint32_t logical_width, std::uint32_t logical_height);

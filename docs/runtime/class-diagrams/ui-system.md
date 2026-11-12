@@ -48,6 +48,7 @@ classDiagram
         +set_class(UiElementHandle handle, string_view name, bool active) bool
         +set_style(UiElementHandle handle, string_view name, string_view value) bool
         +set_image(UiElementHandle handle, string_view path) bool
+        +release_gpu() void
         +release_scene() void
         +process_event(const SDL_Event& event) bool
         +process_event(const SDL_Event& event, uint16 modifiers) bool
@@ -104,7 +105,7 @@ classDiagram
     UiSystem ..> UiEvent : 输出控件事件
     UiSystem ..> UiElementHandle : 校验文档及控件身份
     UiEvent ..> UiElementHandle : 保存事件目标身份
-    RenderSystem --> UiSystem : 绘制 UI 通道
+    RenderSystem --> UiSystem : 绘制与释放 GPU
     RuntimeHost ..> UiSystem : 装配与释放顺序
     class ComponentRegistry
     class ecs_world_t
@@ -114,18 +115,18 @@ classDiagram
     ecs_world_t *-- UiComponentRuntime : 实例运行数据
     UiComponent ..> UiComponentRuntime : 校验身份后短期借用
     UiComponent ..> ComponentRegistry : 静态登记类型操作
-
 ```
 
 - 核心 UI 系统只加载明确挂载的文档，更新布局、转发输入并输出事件，不选择项目场景。
 - 文档保存多个字体绑定（族别名、字体 GUID、Shader 路径）和多个纹理 GUID；每个绑定独立选择内置或项目 Shader。字体通过核心 FontSystem 测量与生成字形，UI 和 3D 文字共享资源。
 - UI 图片当前只接受二维 LDR `rgba8` / `basis` 资源；立方体贴图及半浮点 HDR KTX 在依赖校验和文档激活时明确拒绝并记录路径，不能按 Basis 解码或静默压成 LDR。HDR 显示与色调映射不属于当前 UI 图片契约。
 - RmlUi 的渲染与字体接口在 UI 模块内部实现；提交顺序、预乘透明度、裁剪和变换保留在 UI 绘制阶段。
-- 文档先销毁，再释放字体和 GPU 对象，最后关闭渲染设备。反复启停及平台 Surface 重建使用同样顺序。
+- 停止会话先销毁文档，再释放字体和 GPU 对象，最后关闭渲染设备。平台 Surface 重建只释放 GPU 缓存，保留文档、控件身份、运行时样式、表单值及业务订阅。
 - C++ 返回失败状态；公开接口不暴露 RmlUi 类型。SDL 事件借用仅在调用期间有效。
 - synchronize 准备所有已发布场景中的存活文档，不提交绘制；允许玩法初始化中查询和修改 View。常驻节点在场景卸载后保留原 Rml Context、文档与控件身份，没有活动玩法场景时仍可更新、绘制和输入。文档身份跨重建不复用；UiComponent 继承的 instance_id 区分同节点上先移除再添加的组件。
 - 文档按节点独立同步，其他文档的增加或移除不会清空未变更的 View。失效事件不返回给调用方。
 - 普通常驻标记通过 Node 生效，文档中的控件仍不成为节点。常驻文档在普通关卡文档之后绘制、优先命中输入；同组保留场景和节点顺序。UiEvent.scene_id 记录目标文档的实际所属场景，不用活动关卡 ID 替代。
+- `release_gpu() noexcept` 只在旧设备仍有效时由渲染链调用；清理 RmlUi 绘制缓存及 UI GPU 对象，并安全取消输入捕获。它保留 CPU 文档及控件身份，不重新加载源 RML、不要求项目重绑 Controller；下一次绘制在新设备上按需准备 GPU 数据。未初始化或重复调用安全返回。
 - release_scene 是整个会话的完整清理入口，停止与重载时释放全部文档；普通场景切换依靠同步裁剪已删除节点，不调用全量释放。
 - document_revision 在成功替换文档时递增；同一次调用中 A → B → A 也使旧 View 失效，不依赖共享缓存是否复用了相同资源地址。
 - 控件事件保存从最近有 ID 的目标到有 ID 祖先的身份路径；脚本可按冒泡顺序分发，不能在分发时按名字重新查找新控件。
